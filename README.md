@@ -107,7 +107,7 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 具体做法：
 
 - **移除 Element UI 2.15.3** — 三个页面原本都加载 Element UI 的 CSS + JS；重写后完全去除，改为手写 CSS。上游 `admin.html` 中有 443 处 `el-` 组件引用，本项目中仅剩 7 处样式类名残留。
-- **移除 Sentry CDN** — `admin.html` 不再注入第三方错误上报脚本。
+- **彻底移除 Sentry 遥测** — 前后端上报链路与 npm 依赖一并清除，见下方「3. 移除 Sentry 遥测」。
 - **图标库锁版本** — FontAwesome 由不固定版本改为固定 `@6.4.2`。
 - **改用国内可达 CDN** — Vue 2.6.14 由 jsdelivr 换成 bootcdn，改善国内首屏加载。
 - **自研 Design Token 样式体系** — 页面样式统一基于 CSS 变量（`--primary` / `--text-main` / `--surface-*` / `--ease-fluid` 等），配合保留的 `theme.css` / `theme.js` 实现亮暗主题与全站 UI 配置联动。
@@ -124,7 +124,41 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 | **修复 `/api/manage/login` 不可达** | 该登录入口此前被同目录中间件拦截，导致 `gallery.html` 的 401 恢复路径落到纯文本 401 而非登录页。现豁免该路由，未登录 302 跳 `/login.html`，已登录跳 `/admin.html` |
 | **`GET /api/status` 分级返回** | 未登录访客只拿到「各后端是否可用 + 访客配置 + 上传上限 + 能力清单」，且**不再触发任何后端连通性探测**；连通性结果、后端错误详情、机器人身份等诊断信息仅管理员可见 |
 
-### 3. 死代码清理
+### 3. 移除 Sentry 遥测
+
+上游在 Pages Functions 里内置了一套**默认开启**的 Sentry 上报，并且指向的是上游作者自己的项目。本项目将其整块移除。
+
+**上游的行为**（`functions/utils/middleware.js`）：
+
+- 每个请求都会把 headers、Cloudflare 请求属性（`request.cf`）、URL、method、redirect 等打上 Sentry 标签上报
+- 硬编码 DSN 指向 `o4507041519108096.ingest.us.sentry.io` —— **上游作者的 Sentry 项目**
+- 还会额外请求 `https://frozen-sentinel.pages.dev/signal/sampleRate.json` —— 上游作者自己的 Pages 站点
+- 只有显式设置 `disable_telemetry` 才会关闭；而 `import` 在模块顶层，**依赖无论如何都必须能解析**
+
+也就是说，直接部署上游版本，你的实例的请求元数据会回流到上游作者那里。
+
+**本项目的改动**：
+
+| 变更 | 说明 |
+| :--- | :--- |
+| 删除 `functions/utils/middleware.js` | 遥测模块本体（Sentry 插件封装、标签/事务上报、采样率拉取）全部移除 |
+| 删除 `functions/_middleware.js`、`functions/api/_middleware.js`、`functions/file/_middleware.js` | 这三个文件原本只是挂载遥测中间件的空转链，遥测移除后无任何作用 |
+| 清理 `functions/upload.js` | 移除 `errorHandling` / `telemetryData` 的导入与两处无效调用（其返回值原本就被丢弃） |
+| 清理 `admin-imgtc.html` | 移除前端的 `js.sentry-cdn.com` 上报脚本（新版 `admin.html` 本就没有） |
+| 移除 `package.json` 依赖 | 删除 `@cloudflare/pages-plugin-sentry`、`@sentry/tracing` |
+| 同步 `package-lock.json` | 连带删除 6 个锁条目（含 4 个 `@sentry/*` 传递依赖），保持 `npm ci` 可用的锁一致性 |
+
+**收益**：
+
+1. **无数据外流** —— 不再有任何请求元数据发往第三方
+2. **Functions 零外部依赖** —— Pages 打包不再有 `Could not resolve "@cloudflare/pages-plugin-sentry"` 的风险，**Build command 可以真正留空**
+3. 少一个 devDependency 安装负担，代码更少
+
+保留的鉴权中间件（`functions/api/v1/_middleware.js`、`functions/api/admin/_middleware.js`、`functions/api/manage/_middleware.js`）不受影响。
+
+> 注：文档中 `disable_telemetry` / `sampleRate` 两个环境变量现已失效（遥测代码已不存在），保留在参考文档中仅为对照上游。
+
+### 4. 死代码清理
 
 - 移除 8 个与 `/api/manage/*` 完全重复、无任何调用者的 `/api/drive/*` 路由
 - 移除 4 个无调用者的兼容别名（`GET /api/manage/check`、`GET/POST /api/manage/logout`、`GET /api/auth/login`、`GET /api/chunked-upload/init`）——其中 `manage/logout` 与 `chunked-upload/init` 因其真实兼容价值已**恢复保留**
