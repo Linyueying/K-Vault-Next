@@ -1,0 +1,1357 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebDAV 上传中心 | K-Vault</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/theme.css" />
+    <script src="/theme.js?v=20260305"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css" />
+    <style>
+      :root {
+        --wf-surface: rgba(255, 255, 255, 0.92);
+        --wf-border: rgba(255, 255, 255, 0.58);
+        --wf-shadow: 0 10px 28px rgba(20, 32, 55, 0.12);
+        --wf-shadow-soft: 0 6px 18px rgba(20, 32, 55, 0.1);
+        --wf-primary: #8a4bff;
+        --wf-primary-soft: rgba(138, 75, 255, 0.13);
+      }
+
+      html[data-theme="dark"] {
+        --wf-surface: rgba(16, 26, 43, 0.9);
+        --wf-border: rgba(120, 145, 192, 0.32);
+        --wf-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+        --wf-shadow-soft: 0 8px 20px rgba(0, 0, 0, 0.3);
+        --wf-primary: #9aa9ff;
+        --wf-primary-soft: rgba(154, 169, 255, 0.2);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(60vw 50vh at 12% 8%, rgba(138, 75, 255, 0.16), transparent 70%),
+          radial-gradient(50vw 45vh at 88% 14%, rgba(255, 166, 104, 0.2), transparent 72%),
+          linear-gradient(135deg, #ffd7e4 0%, #c8f1ff 100%);
+        color: #1f2937;
+        font-family: "Manrope", "Noto Sans SC", "PingFang SC", "Segoe UI", sans-serif;
+      }
+
+      html[data-theme="dark"] body {
+        color: #e7eeff;
+        background:
+          radial-gradient(60vw 50vh at 12% 8%, rgba(64, 129, 255, 0.2), transparent 70%),
+          radial-gradient(50vw 45vh at 88% 14%, rgba(68, 170, 146, 0.2), transparent 72%),
+          linear-gradient(140deg, #0a1222 0%, #0d1729 52%, #132237 100%);
+      }
+
+      .page {
+        max-width: 1360px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .header {
+        position: sticky;
+        top: 20px;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 24px;
+        border-radius: 16px;
+        background: var(--wf-surface);
+        border: 1px solid var(--wf-border);
+        box-shadow: var(--wf-shadow-soft);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        margin-bottom: 16px;
+      }
+
+      .header-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: "Sora", "Manrope", "Noto Sans SC", sans-serif;
+        font-size: 1.38rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: inherit;
+        margin: 0;
+      }
+
+      .header-title i {
+        color: var(--wf-primary);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .header-logo {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        object-fit: cover;
+        box-shadow: 0 4px 12px rgba(138, 75, 255, 0.2);
+        background: rgba(255, 255, 255, 0.92);
+      }
+
+      .action-link,
+      .action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid var(--wf-border);
+        border-radius: 999px;
+        padding: 9px 13px;
+        min-height: 40px;
+        background: var(--wf-surface);
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        font-weight: 600;
+      }
+
+      .action-link:hover,
+      .action-btn:hover {
+        border-color: rgba(138, 75, 255, 0.4);
+        background: var(--wf-primary-soft);
+        box-shadow: var(--wf-shadow-soft);
+        transform: translateY(-1px);
+      }
+
+      .action-link.active {
+        border-color: rgba(138, 75, 255, 0.5);
+        background: var(--wf-primary-soft);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .toolbar-row {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        border: 1px solid var(--wf-border);
+        background: var(--wf-surface);
+        box-shadow: var(--wf-shadow-soft);
+      }
+
+      .toolbar-left,
+      .toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--wf-border);
+        background: rgba(255, 255, 255, 0.72);
+        color: #586173;
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+
+      .status-pill .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #909399;
+      }
+
+      .status-pill.ok {
+        border-color: rgba(103, 194, 58, 0.45);
+        background: rgba(103, 194, 58, 0.14);
+        color: #1f7a46;
+      }
+
+      .status-pill.ok .status-dot {
+        background: #67c23a;
+      }
+
+      .status-pill.bad {
+        border-color: rgba(245, 108, 108, 0.45);
+        background: rgba(245, 108, 108, 0.14);
+        color: #af3939;
+      }
+
+      .status-pill.bad .status-dot {
+        background: #f56c6c;
+      }
+
+      .card {
+        border: 1px solid var(--wf-border);
+        background: var(--wf-surface);
+        border-radius: 16px;
+        box-shadow: var(--wf-shadow-soft);
+        padding: 16px;
+        transition: box-shadow 0.2s ease;
+      }
+
+      .card:hover {
+        box-shadow: var(--wf-shadow);
+      }
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .card h2 {
+        margin: 0;
+        font-size: 1.06rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .card-sub {
+        margin-top: 4px;
+        color: #77819a;
+        font-size: 0.86rem;
+        line-height: 1.45;
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .upload-file-row {
+        display: flex;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      .file-picker {
+        position: relative;
+        flex: 1;
+        min-height: 74px;
+        border-radius: 14px;
+        border: 1px dashed rgba(138, 75, 255, 0.45);
+        background:
+          linear-gradient(140deg, rgba(255, 255, 255, 0.9) 0%, rgba(242, 233, 255, 0.86) 100%);
+        padding: 12px 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+      }
+
+      .file-picker:hover {
+        border-color: rgba(138, 75, 255, 0.68);
+        box-shadow: 0 8px 20px rgba(138, 75, 255, 0.18);
+        transform: translateY(-1px);
+      }
+
+      .file-picker.is-dragover {
+        border-color: rgba(16, 185, 129, 0.82);
+        box-shadow: 0 10px 22px rgba(16, 185, 129, 0.22);
+        background:
+          linear-gradient(140deg, rgba(236, 253, 245, 0.94) 0%, rgba(216, 255, 243, 0.9) 100%);
+      }
+
+      .file-picker.has-files {
+        border-style: solid;
+      }
+
+      .file-input-native {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        border: 0;
+      }
+
+      .file-choose-btn {
+        border-radius: 999px;
+        border: 1px solid rgba(138, 75, 255, 0.36);
+        background: rgba(255, 255, 255, 0.9);
+        min-height: 42px;
+        padding: 9px 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+        box-shadow: 0 4px 12px rgba(138, 75, 255, 0.14);
+      }
+
+      .file-picker-meta {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .file-picker-title {
+        font-size: 0.96rem;
+        font-weight: 700;
+        color: #273247;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .file-picker-hint {
+        margin-top: 4px;
+        color: #60708e;
+        font-size: 0.82rem;
+        line-height: 1.4;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .file-count-badge {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        border: 1px solid rgba(138, 75, 255, 0.25);
+        background: rgba(138, 75, 255, 0.12);
+        color: #5b35b5;
+        font-size: 0.8rem;
+        font-weight: 700;
+        padding: 6px 10px;
+      }
+
+      #uploadFilesBtn {
+        min-width: 124px;
+      }
+
+      .file-queue-wrap {
+        margin-top: 12px;
+        border: 1px solid var(--wf-border);
+        background: rgba(255, 255, 255, 0.72);
+        border-radius: 12px;
+        padding: 10px;
+      }
+
+      .file-queue-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .file-queue-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #405072;
+      }
+
+      .file-queue-clear {
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        border: 1px solid rgba(245, 108, 108, 0.42);
+        background: rgba(255, 245, 245, 0.92);
+        color: #d74b4b;
+      }
+
+      .file-queue-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 6px;
+      }
+
+      .file-queue-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid rgba(138, 75, 255, 0.18);
+        border-radius: 10px;
+        padding: 7px 8px;
+        background: rgba(255, 255, 255, 0.88);
+      }
+
+      .file-queue-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(138, 75, 255, 0.14);
+        color: #6b3be7;
+        flex: 0 0 auto;
+      }
+
+      .file-queue-meta {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .file-queue-name {
+        font-size: 0.86rem;
+        font-weight: 600;
+        color: #2d3b55;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .file-queue-size {
+        margin-top: 2px;
+        font-size: 0.78rem;
+        color: #7483a0;
+      }
+
+      .file-queue-more {
+        text-align: center;
+        font-size: 0.78rem;
+        color: #6a7690;
+        padding: 4px 0 2px;
+      }
+
+      input,
+      button {
+        border: 1px solid var(--wf-border);
+        border-radius: 10px;
+        background: var(--wf-surface);
+        color: inherit;
+        padding: 10px 12px;
+      }
+
+      input[type="text"] {
+        min-width: 260px;
+        flex: 1;
+      }
+
+      .input-label {
+        display: block;
+        margin-bottom: 8px;
+        color: #5f6678;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+
+      button {
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:hover {
+        border-color: rgba(138, 75, 255, 0.45);
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #8a4bff 0%, #b39ddb 100%);
+        border-color: transparent;
+        color: #fff;
+      }
+
+      .btn-primary:hover {
+        border-color: transparent;
+      }
+
+      .btn-danger {
+        background: linear-gradient(135deg, #f56c6c 0%, #f89b9b 100%);
+        border-color: transparent;
+        color: #fff;
+      }
+
+      .result-tools {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      button[disabled] {
+        opacity: 0.6;
+        cursor: wait;
+      }
+
+      .hint {
+        margin: 10px 0 0;
+        color: #64748b;
+        font-size: 0.86rem;
+      }
+
+      html[data-theme="dark"] .hint {
+        color: #9aa9c7;
+      }
+
+      html[data-theme="dark"] .status-pill,
+      html[data-theme="dark"] .result-item,
+      html[data-theme="dark"] .toolbar-row {
+        background: rgba(20, 29, 49, 0.86);
+        border-color: rgba(130, 152, 196, 0.35);
+        color: #dbe6ff;
+      }
+
+      html[data-theme="dark"] .file-picker {
+        border-color: rgba(130, 152, 196, 0.52);
+        background:
+          linear-gradient(140deg, rgba(19, 30, 52, 0.92) 0%, rgba(32, 45, 72, 0.9) 100%);
+      }
+
+      html[data-theme="dark"] .file-picker:hover {
+        border-color: rgba(154, 169, 255, 0.72);
+        box-shadow: 0 8px 20px rgba(100, 123, 255, 0.26);
+      }
+
+      html[data-theme="dark"] .file-picker.is-dragover {
+        border-color: rgba(52, 211, 153, 0.76);
+        box-shadow: 0 10px 22px rgba(16, 185, 129, 0.24);
+        background:
+          linear-gradient(140deg, rgba(13, 49, 47, 0.92) 0%, rgba(23, 68, 62, 0.88) 100%);
+      }
+
+      html[data-theme="dark"] .file-choose-btn {
+        border-color: rgba(154, 169, 255, 0.45);
+        background: rgba(26, 37, 63, 0.94);
+        color: #e4ecff;
+      }
+
+      html[data-theme="dark"] .file-picker-title {
+        color: #e6eeff;
+      }
+
+      html[data-theme="dark"] .file-picker-hint {
+        color: #9db0d0;
+      }
+
+      html[data-theme="dark"] .file-count-badge {
+        border-color: rgba(154, 169, 255, 0.34);
+        background: rgba(154, 169, 255, 0.22);
+        color: #d9e4ff;
+      }
+
+      html[data-theme="dark"] .file-queue-wrap {
+        border-color: rgba(130, 152, 196, 0.34);
+        background: rgba(20, 29, 49, 0.82);
+      }
+
+      html[data-theme="dark"] .file-queue-title {
+        color: #cbd8f4;
+      }
+
+      html[data-theme="dark"] .file-queue-clear {
+        border-color: rgba(244, 114, 114, 0.5);
+        background: rgba(66, 25, 34, 0.7);
+        color: #fecaca;
+      }
+
+      html[data-theme="dark"] .file-queue-item {
+        border-color: rgba(154, 169, 255, 0.26);
+        background: rgba(28, 40, 64, 0.9);
+      }
+
+      html[data-theme="dark"] .file-queue-icon {
+        background: rgba(154, 169, 255, 0.2);
+        color: #dbe5ff;
+      }
+
+      html[data-theme="dark"] .file-queue-name {
+        color: #e4ecff;
+      }
+
+      html[data-theme="dark"] .file-queue-size,
+      html[data-theme="dark"] .file-queue-more {
+        color: #9db0d0;
+      }
+
+      html[data-theme="dark"] .card-sub,
+      html[data-theme="dark"] .input-label,
+      html[data-theme="dark"] .result-item .result-meta,
+      html[data-theme="dark"] .result-empty {
+        color: #90a0bf;
+      }
+
+      html[data-theme="dark"] .result-empty {
+        border-color: rgba(130, 152, 196, 0.35);
+      }
+
+      .status-line {
+        color: #64748b;
+        font-size: 0.9rem;
+      }
+
+      html[data-theme="dark"] .status-line {
+        color: #9aa9c7;
+      }
+
+      .status-line.ok {
+        color: #16a34a;
+      }
+
+      .status-line.bad {
+        color: #ef4444;
+      }
+
+      .result-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+
+      .result-item {
+        border: 1px solid var(--wf-border);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.74);
+        padding: 10px 12px;
+        display: grid;
+        gap: 4px;
+      }
+
+      .result-item .result-title {
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: inherit;
+        word-break: break-word;
+      }
+
+      .result-item .result-meta {
+        font-size: 0.82rem;
+        color: #7a8399;
+      }
+
+      .result-list a {
+        color: #0f62fe;
+        font-size: 0.85rem;
+        word-break: break-all;
+      }
+
+      .result-list .error {
+        color: #ef4444;
+      }
+
+      .result-empty {
+        padding: 20px 16px;
+        text-align: center;
+        color: #7a8399;
+        border: 1px dashed var(--wf-border);
+        border-radius: 12px;
+      }
+
+      .span-2 {
+        grid-column: 1 / -1;
+      }
+
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        .span-2 {
+          grid-column: auto;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          padding: 10px;
+        }
+
+        .header {
+          top: 8px;
+          padding: 10px 12px;
+          flex-wrap: wrap;
+        }
+
+        .header-title {
+          width: 100%;
+          font-size: 1rem;
+        }
+
+        .header-actions {
+          width: 100%;
+          justify-content: flex-start;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+
+        .header-actions::-webkit-scrollbar {
+          display: none;
+        }
+
+        .action-link,
+        .action-btn {
+          flex: 0 0 auto;
+          font-size: 0.82rem;
+        }
+
+        .toolbar-row {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .upload-file-row {
+          flex-direction: column;
+        }
+
+        #uploadFilesBtn {
+          width: 100%;
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="/mobile-refactor.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <h1 class="header-title">
+          <img
+            src="/logo.png"
+            alt="K-Vault Logo"
+            class="header-logo"
+            loading="eager"
+            onerror="this.onerror=null;this.src='/favicon.ico';"
+          />
+          <span>WebDAV 上传中心</span>
+        </h1>
+        <div class="header-actions">
+          <a class="action-link" href="./"><i class="fas fa-home"></i><span>首页</span></a>
+          <a class="action-link" href="./gallery.html"><i class="fas fa-images"></i><span>图片浏览</span></a>
+          <a class="action-link" href="./admin.html"><i class="fas fa-folder-tree"></i><span>管理后台</span></a>
+          <a class="action-link active" href="./webdav.html"><i class="fas fa-hard-drive"></i><span>WebDAV</span></a>
+          <button type="button" class="action-btn" data-theme-toggle aria-label="切换主题">
+            <i class="fas fa-moon" data-theme-icon></i>
+            <span data-theme-label>夜间</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="layout">
+        <article class="toolbar-row">
+          <div class="toolbar-left">
+            <div class="status-pill" id="statusPill">
+              <span class="status-dot"></span>
+              <span id="statusText">正在检测 WebDAV 状态...</span>
+            </div>
+            <div class="status-pill">
+              <i class="fas fa-folder-tree"></i>
+              <span id="folderPathPreview">当前目录：根目录</span>
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <button id="copyAllBtn" type="button">复制全部链接</button>
+            <button id="clearResultBtn" type="button" class="btn-danger">清空记录</button>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <h2><i class="fas fa-circle-info"></i> WebDAV 状态</h2>
+              <p class="card-sub">用于确认 WebDAV 配置和连接情况。</p>
+            </div>
+            <button id="refreshStatusBtn" type="button"><i class="fas fa-rotate"></i> 刷新状态</button>
+          </div>
+          <p id="statusDetailText" class="status-line">等待检测</p>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <h2><i class="fas fa-folder-open"></i> 上传目录</h2>
+              <p class="card-sub">可填写多级目录，例如：项目A/一月。</p>
+            </div>
+          </div>
+          <label class="input-label" for="folderPathInput">目录路径</label>
+          <div class="row">
+            <input id="folderPathInput" type="text" placeholder="留空则上传到根目录" />
+          </div>
+          <p class="hint">后台可继续移动目录，已生成直链不会受影响。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <h2><i class="fas fa-cloud-upload-alt"></i> 文件上传</h2>
+              <p class="card-sub">支持批量上传到 WebDAV。</p>
+            </div>
+          </div>
+          <div class="upload-file-row">
+            <div class="file-picker" id="filePickerBox" role="button" tabindex="0" aria-label="选择或拖拽文件">
+              <input id="fileInput" class="file-input-native" type="file" multiple />
+              <button id="chooseFileBtn" type="button" class="file-choose-btn">
+                <i class="fas fa-folder-open"></i>
+                <span>选择文件</span>
+              </button>
+              <div class="file-picker-meta">
+                <div id="filePickerTitle" class="file-picker-title">未选择任何文件</div>
+                <div id="filePickerHint" class="file-picker-hint">支持多选、拖拽到此区域，上传后自动记录直链</div>
+              </div>
+              <span id="fileCountBadge" class="file-count-badge">0 个</span>
+            </div>
+            <button id="uploadFilesBtn" type="button" class="btn-primary">开始上传</button>
+          </div>
+          <div id="fileQueueWrap" class="file-queue-wrap" style="display:none;">
+            <div class="file-queue-head">
+              <span class="file-queue-title"><i class="fas fa-list-ul"></i> 待上传队列</span>
+              <button id="clearQueueBtn" type="button" class="file-queue-clear">清空队列</button>
+            </div>
+            <ul id="fileQueueList" class="file-queue-list"></ul>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-header">
+            <div>
+              <h2><i class="fas fa-link"></i> URL 上传</h2>
+              <p class="card-sub">输入文件地址，服务器将自动拉取并上传。</p>
+            </div>
+          </div>
+          <div class="row">
+            <input id="urlInput" type="text" placeholder="https://example.com/file.zip" />
+            <button id="uploadUrlBtn" type="button" class="btn-primary">上传 URL</button>
+          </div>
+        </article>
+
+        <article class="card span-2">
+          <div class="card-header">
+            <h2><i class="fas fa-list-check"></i> 上传结果</h2>
+            <div class="result-tools">
+              <span id="resultCount" class="card-sub">0 条</span>
+            </div>
+          </div>
+          <div id="resultEmpty" class="result-empty">暂无上传结果，完成上传后将显示在这里。</div>
+          <ul id="resultList" class="result-list"></ul>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        "use strict";
+
+        var statusPill = document.getElementById("statusPill");
+        var statusText = document.getElementById("statusText");
+        var statusDetailText = document.getElementById("statusDetailText");
+        var folderPathPreview = document.getElementById("folderPathPreview");
+        var folderPathInput = document.getElementById("folderPathInput");
+        var filePickerBox = document.getElementById("filePickerBox");
+        var chooseFileBtn = document.getElementById("chooseFileBtn");
+        var filePickerTitle = document.getElementById("filePickerTitle");
+        var filePickerHint = document.getElementById("filePickerHint");
+        var fileCountBadge = document.getElementById("fileCountBadge");
+        var fileQueueWrap = document.getElementById("fileQueueWrap");
+        var fileQueueList = document.getElementById("fileQueueList");
+        var clearQueueBtn = document.getElementById("clearQueueBtn");
+        var fileInput = document.getElementById("fileInput");
+        var uploadFilesBtn = document.getElementById("uploadFilesBtn");
+        var urlInput = document.getElementById("urlInput");
+        var uploadUrlBtn = document.getElementById("uploadUrlBtn");
+        var resultList = document.getElementById("resultList");
+        var resultEmpty = document.getElementById("resultEmpty");
+        var resultCount = document.getElementById("resultCount");
+        var refreshStatusBtn = document.getElementById("refreshStatusBtn");
+        var clearResultBtn = document.getElementById("clearResultBtn");
+        var copyAllBtn = document.getElementById("copyAllBtn");
+        var resultLinks = [];
+        var fallbackSelectedFiles = [];
+
+        function normalizeFolderPath(value) {
+          return String(value || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").trim();
+        }
+
+        function updateFolderPreview() {
+          var folderPath = normalizeFolderPath(folderPathInput.value);
+          folderPathPreview.textContent = "当前目录：" + (folderPath || "根目录");
+          try {
+            localStorage.setItem("webdavFolderPath", folderPath);
+          } catch {
+            // ignore
+          }
+        }
+
+        function ensureArray(value) {
+          if (Array.isArray(value)) return value;
+          if (value == null) return [];
+          if (typeof value.length === "number") return Array.prototype.slice.call(value);
+          return [value];
+        }
+
+        function formatFileSize(bytes) {
+          var value = Number(bytes || 0);
+          if (!Number.isFinite(value) || value <= 0) return "0 B";
+          var units = ["B", "KB", "MB", "GB", "TB"];
+          var index = 0;
+          while (value >= 1024 && index < units.length - 1) {
+            value /= 1024;
+            index += 1;
+          }
+          return value.toFixed(value >= 100 || index === 0 ? 0 : 1) + " " + units[index];
+        }
+
+        function resolveFileIconClass(file) {
+          var name = String((file && file.name) || "").toLowerCase();
+          var mime = String((file && file.type) || "").toLowerCase();
+          if (mime.startsWith("image/")) return "fas fa-image";
+          if (mime.startsWith("video/")) return "fas fa-film";
+          if (mime.startsWith("audio/")) return "fas fa-music";
+          if (mime.includes("zip") || mime.includes("rar") || mime.includes("7z") || /\.zip$|\.rar$|\.7z$|\.tar$|\.gz$/i.test(name)) return "fas fa-file-archive";
+          if (mime.includes("pdf") || /\.pdf$/i.test(name)) return "fas fa-file-pdf";
+          if (mime.includes("word") || /\.docx?$|\.odt$/i.test(name)) return "fas fa-file-word";
+          if (mime.includes("excel") || /\.xlsx?$|\.csv$/i.test(name)) return "fas fa-file-excel";
+          if (mime.includes("text") || /\.txt$|\.md$/i.test(name)) return "fas fa-file-lines";
+          return "fas fa-file";
+        }
+
+        function renderFileQueue(files) {
+          var list = ensureArray(files);
+          if (!list.length) {
+            fileQueueWrap.style.display = "none";
+            fileQueueList.innerHTML = "";
+            return;
+          }
+          fileQueueWrap.style.display = "block";
+          fileQueueList.innerHTML = "";
+          var maxVisible = 6;
+          list.slice(0, maxVisible).forEach(function (file) {
+            var item = document.createElement("li");
+            item.className = "file-queue-item";
+            var icon = document.createElement("span");
+            icon.className = "file-queue-icon";
+            var iconNode = document.createElement("i");
+            iconNode.className = resolveFileIconClass(file);
+            icon.appendChild(iconNode);
+            var meta = document.createElement("div");
+            meta.className = "file-queue-meta";
+            var name = document.createElement("div");
+            name.className = "file-queue-name";
+            name.textContent = String(file.name || "未命名文件");
+            var size = document.createElement("div");
+            size.className = "file-queue-size";
+            size.textContent = formatFileSize(file.size || 0);
+            meta.appendChild(name);
+            meta.appendChild(size);
+            item.appendChild(icon);
+            item.appendChild(meta);
+            fileQueueList.appendChild(item);
+          });
+
+          if (list.length > maxVisible) {
+            var more = document.createElement("li");
+            more.className = "file-queue-more";
+            more.textContent = "还有 " + (list.length - maxVisible) + " 个文件未展开";
+            fileQueueList.appendChild(more);
+          }
+        }
+
+        function getSelectedFiles() {
+          var chosen = ensureArray(fileInput.files);
+          if (chosen.length) return chosen;
+          return ensureArray(fallbackSelectedFiles);
+        }
+
+        function updateFilePickerState(files) {
+          var picked = ensureArray(files);
+          var count = picked.length;
+          if (!count) {
+            filePickerBox.classList.remove("has-files");
+            filePickerTitle.textContent = "未选择任何文件";
+            filePickerHint.textContent = "支持多选、拖拽到此区域，上传后自动记录直链";
+            fileCountBadge.textContent = "0 个";
+            renderFileQueue([]);
+            return;
+          }
+
+          var totalBytes = picked.reduce(function (sum, file) {
+            return sum + Number((file && file.size) || 0);
+          }, 0);
+          var firstName = (picked[0] && picked[0].name) ? picked[0].name : "文件";
+          filePickerBox.classList.add("has-files");
+          fileCountBadge.textContent = count + " 个";
+          if (count === 1) {
+            filePickerTitle.textContent = firstName;
+            filePickerHint.textContent = "大小：" + formatFileSize(totalBytes) + "，点击“开始上传”继续";
+            renderFileQueue(picked);
+            return;
+          }
+          filePickerTitle.textContent = "已选择 " + count + " 个文件";
+          filePickerHint.textContent = "总大小：" + formatFileSize(totalBytes) + "，首个文件：" + firstName;
+          renderFileQueue(picked);
+        }
+
+        function syncFilesFromDrop(files) {
+          var dropped = ensureArray(files).filter(Boolean);
+          if (!dropped.length) return;
+          fallbackSelectedFiles = dropped;
+          try {
+            if (typeof DataTransfer !== "undefined") {
+              var dt = new DataTransfer();
+              dropped.forEach(function (file) {
+                dt.items.add(file);
+              });
+              fileInput.files = dt.files;
+              fallbackSelectedFiles = [];
+            }
+          } catch {
+            // keep fallbackSelectedFiles for browsers that block assignment
+          }
+          updateFilePickerState(getSelectedFiles());
+        }
+
+        function clearSelectedFiles() {
+          fileInput.value = "";
+          fallbackSelectedFiles = [];
+          updateFilePickerState([]);
+        }
+
+        function toAbsoluteUrl(value) {
+          var raw = String(value || "").trim();
+          if (!raw) return "";
+          try {
+            return new URL(raw, window.location.origin).toString();
+          } catch {
+            return raw;
+          }
+        }
+
+        function renderResultState() {
+          resultCount.textContent = resultList.children.length + " 条";
+          resultEmpty.style.display = resultList.children.length > 0 ? "none" : "block";
+        }
+
+        function pushResult(message, kind, link) {
+          var item = document.createElement("li");
+          item.className = "result-item";
+
+          var title = document.createElement("div");
+          title.className = "result-title";
+          title.textContent = message;
+
+          var meta = document.createElement("div");
+          meta.className = "result-meta";
+          meta.textContent = new Date().toLocaleString("zh-CN", { hour12: false }) + " · " + (normalizeFolderPath(folderPathInput.value) || "根目录");
+
+          item.appendChild(title);
+          item.appendChild(meta);
+
+          if (kind === "error") {
+            title.classList.add("error");
+          }
+
+          if (link) {
+            var absoluteLink = toAbsoluteUrl(link);
+            var anchor = document.createElement("a");
+            anchor.href = absoluteLink;
+            anchor.target = "_blank";
+            anchor.rel = "noopener";
+            anchor.textContent = absoluteLink;
+            item.appendChild(anchor);
+            resultLinks.unshift(absoluteLink);
+          }
+
+          resultList.prepend(item);
+          if (resultList.children.length > 120) {
+            resultList.removeChild(resultList.lastChild);
+          }
+          if (resultLinks.length > 120) {
+            resultLinks = resultLinks.slice(0, 120);
+          }
+          renderResultState();
+        }
+
+        async function request(url, options) {
+          var response = await fetch(url, Object.assign({ credentials: "include" }, options || {}));
+          var data = await response.json().catch(function () {
+            return null;
+          });
+
+          if (!response.ok) {
+            var message = data && (data.error || data.message || data.errorDetail);
+            if (!message) {
+              message = "请求失败（" + response.status + "）";
+            }
+            throw new Error(message);
+          }
+          return data;
+        }
+
+        function setStatus(message, ok) {
+          statusPill.classList.remove("ok", "bad");
+          if (ok === true) statusPill.classList.add("ok");
+          if (ok === false) statusPill.classList.add("bad");
+          statusText.textContent = message;
+          statusDetailText.textContent = message;
+        }
+
+        async function checkStatus() {
+          setStatus("正在检测 WebDAV 状态...", null);
+          var data = await request("./api/status");
+          var webdav = data.webdav || {};
+          var ok = Boolean(webdav.connected && webdav.enabled);
+          if (ok) {
+            setStatus("WebDAV 已连接并启用，可正常上传。", true);
+          } else {
+            var detail = webdav.message || "未配置";
+            setStatus("WebDAV 当前不可用：" + detail, false);
+          }
+        }
+
+        async function uploadFiles() {
+          var files = getSelectedFiles();
+          if (!files.length) {
+            setStatus("请先选择要上传的文件。", false);
+            return;
+          }
+
+          uploadFilesBtn.disabled = true;
+          try {
+            var folderPath = normalizeFolderPath(folderPathInput.value);
+            for (var i = 0; i < files.length; i += 1) {
+              setStatus("正在上传第 " + (i + 1) + " / " + files.length + " 个文件...", null);
+              var form = new FormData();
+              form.append("file", files[i]);
+              form.append("storageMode", "webdav");
+              form.append("folderPath", folderPath);
+              var payload = await request("./upload", { method: "POST", body: form });
+              var first = Array.isArray(payload) ? payload[0] : payload;
+              var src = first && first.src ? String(first.src) : "";
+              if (src) {
+                pushResult("文件上传成功", "ok", toAbsoluteUrl(src));
+              } else {
+                pushResult("文件上传成功，但未返回直链。", "ok");
+              }
+            }
+            clearSelectedFiles();
+            setStatus("全部文件上传完成。", true);
+          } finally {
+            uploadFilesBtn.disabled = false;
+          }
+        }
+
+        async function uploadFromUrl() {
+          var sourceUrl = String(urlInput.value || "").trim();
+          if (!sourceUrl) {
+            setStatus("请先输入 URL 地址。", false);
+            return;
+          }
+
+          uploadUrlBtn.disabled = true;
+          try {
+            var folderPath = normalizeFolderPath(folderPathInput.value);
+            setStatus("正在拉取远程地址并上传...", null);
+            var payload = await request("./api/upload-from-url", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url: sourceUrl,
+                storageMode: "webdav",
+                folderPath: folderPath,
+              }),
+            });
+            var first = Array.isArray(payload) ? payload[0] : payload;
+            var src = first && (first.src || first.url || (first.file && first.file.src));
+            if (src) {
+              pushResult("URL 上传成功", "ok", toAbsoluteUrl(String(src)));
+            } else {
+              pushResult("URL 上传完成。", "ok");
+            }
+            setStatus("URL 上传完成。", true);
+          } finally {
+            uploadUrlBtn.disabled = false;
+          }
+        }
+
+        async function ensureAuth() {
+          var auth = await request("./api/auth/check");
+          if (auth.authRequired && !auth.authenticated) {
+            var redirect = encodeURIComponent(window.location.pathname + window.location.search);
+            window.location.href = "./login.html?redirect=" + redirect;
+            return false;
+          }
+          return true;
+        }
+
+        function onError(prefix, error) {
+          var message = prefix + "：" + ((error && error.message) || "未知错误");
+          pushResult(message, "error");
+          setStatus(message, false);
+        }
+
+        folderPathInput.addEventListener("input", updateFolderPreview);
+
+        clearQueueBtn.addEventListener("click", function (event) {
+          event.preventDefault();
+          clearSelectedFiles();
+          setStatus("已清空待上传队列。", null);
+        });
+
+        chooseFileBtn.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          fileInput.click();
+        });
+
+        filePickerBox.addEventListener("click", function (event) {
+          var target = event.target;
+          if (target && target.id === "chooseFileBtn") return;
+          fileInput.click();
+        });
+
+        filePickerBox.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            fileInput.click();
+          }
+        });
+
+        filePickerBox.addEventListener("dragover", function (event) {
+          event.preventDefault();
+          filePickerBox.classList.add("is-dragover");
+        });
+
+        filePickerBox.addEventListener("dragenter", function (event) {
+          event.preventDefault();
+          filePickerBox.classList.add("is-dragover");
+        });
+
+        filePickerBox.addEventListener("dragleave", function (event) {
+          var next = event.relatedTarget;
+          if (next && filePickerBox.contains(next)) return;
+          filePickerBox.classList.remove("is-dragover");
+        });
+
+        filePickerBox.addEventListener("drop", function (event) {
+          event.preventDefault();
+          filePickerBox.classList.remove("is-dragover");
+          var dropped = event.dataTransfer ? ensureArray(event.dataTransfer.files) : [];
+          if (!dropped.length) return;
+          syncFilesFromDrop(dropped);
+          setStatus("已拖入 " + dropped.length + " 个文件，点击“开始上传”即可。", null);
+        });
+
+        fileInput.addEventListener("change", function () {
+          fallbackSelectedFiles = [];
+          var files = getSelectedFiles();
+          updateFilePickerState(files);
+          if (!files.length) {
+            setStatus("请选择要上传的文件。", null);
+            return;
+          }
+          setStatus("已选择 " + files.length + " 个文件，点击“开始上传”即可。", null);
+        });
+
+        refreshStatusBtn.addEventListener("click", function () {
+          checkStatus().catch(function (error) {
+            setStatus(error.message || "状态检测失败。", false);
+          });
+        });
+
+        uploadFilesBtn.addEventListener("click", function () {
+          uploadFiles().catch(function (error) {
+            onError("文件上传失败", error);
+          });
+        });
+
+        uploadUrlBtn.addEventListener("click", function () {
+          uploadFromUrl().catch(function (error) {
+            onError("URL 上传失败", error);
+          });
+        });
+
+        urlInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            uploadUrlBtn.click();
+          }
+        });
+
+        clearResultBtn.addEventListener("click", function () {
+          resultList.innerHTML = "";
+          resultLinks = [];
+          renderResultState();
+          setStatus("已清空上传记录。", null);
+        });
+
+        copyAllBtn.addEventListener("click", function () {
+          var links = resultLinks.filter(Boolean);
+          if (!links.length) {
+            setStatus("当前没有可复制的链接。", false);
+            return;
+          }
+          var text = links.join("\n");
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text)
+              .then(function () {
+                setStatus("已复制 " + links.length + " 条链接。", true);
+              })
+              .catch(function (error) {
+                setStatus(error.message || "复制失败。", false);
+              });
+            return;
+          }
+          var textarea = document.createElement("textarea");
+          textarea.value = text;
+          document.body.appendChild(textarea);
+          textarea.select();
+          var copied = false;
+          try {
+            copied = document.execCommand("copy");
+          } catch {
+            copied = false;
+          }
+          textarea.remove();
+          setStatus(copied ? ("已复制 " + links.length + " 条链接。") : "复制失败。", copied);
+        });
+
+        (async function init() {
+          var cachedFolderPath = "";
+          try {
+            cachedFolderPath = localStorage.getItem("webdavFolderPath") || "";
+          } catch {
+            cachedFolderPath = "";
+          }
+          folderPathInput.value = normalizeFolderPath(cachedFolderPath);
+          updateFolderPreview();
+          renderResultState();
+          updateFilePickerState([]);
+
+          var authenticated = await ensureAuth();
+          if (!authenticated) return;
+          await checkStatus();
+        })().catch(function (error) {
+          setStatus(error.message || "页面初始化失败。", false);
+        });
+      })();
+    </script>
+  </body>
+</html>

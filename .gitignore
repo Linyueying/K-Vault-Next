@@ -1,0 +1,12 @@
+node_modules/*
+.pnpm-store/*
+!node_modules/.mf/*
+.wrangler/*
+data/*
+tmpclaude*
+server/node_modules/*
+.env
+docker-node.*.log
+cookies.txt
+test-login.json
+.wrangler-pages-test/

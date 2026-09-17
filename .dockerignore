@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+server/node_modules
+data
+.wrangler
+tmpclaude*
+npm-debug.log

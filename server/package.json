@@ -1,0 +1,19 @@
+{
+  "name": "k-vault-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "K-Vault Docker runtime backend",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "hono": "^4.12.25",
+    "redis": "^4.7.1"
+  }
+}

@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Waterfall Gallery | K-Vault</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/logo.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/theme.css">
+  <script src="/theme.js?v=20260305"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css">
+  <style>
+    :root {
+      --wf-surface: rgba(255, 255, 255, 0.92);
+      --wf-border: rgba(255, 255, 255, 0.58);
+      --wf-shadow: 0 10px 28px rgba(20, 32, 55, 0.12);
+      --wf-shadow-soft: 0 6px 18px rgba(20, 32, 55, 0.1);
+      --wf-primary: #0f766e;
+      --wf-primary-soft: rgba(15, 118, 110, 0.13);
+    }
+
+    html[data-theme="dark"] {
+      --wf-surface: rgba(16, 26, 43, 0.9);
+      --wf-border: rgba(120, 145, 192, 0.32);
+      --wf-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+      --wf-shadow-soft: 0 8px 20px rgba(0, 0, 0, 0.3);
+      --wf-primary: #67d4c2;
+      --wf-primary-soft: rgba(103, 212, 194, 0.17);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(60vw 50vh at 12% 8%, rgba(12, 164, 133, 0.2), transparent 70%),
+        radial-gradient(50vw 45vh at 88% 14%, rgba(255, 166, 104, 0.24), transparent 72%),
+        linear-gradient(130deg, #eef6ff 0%, #ecfffa 50%, #fff4ea 100%);
+      color: #1f2937;
+      font-family: "Manrope", "Noto Sans SC", "PingFang SC", "Segoe UI", sans-serif;
+    }
+
+    html[data-theme="dark"] body {
+      color: #e7eeff;
+      background:
+        radial-gradient(60vw 50vh at 12% 8%, rgba(64, 129, 255, 0.2), transparent 70%),
+        radial-gradient(50vw 45vh at 88% 14%, rgba(68, 170, 146, 0.2), transparent 72%),
+        linear-gradient(140deg, #0a1222 0%, #0d1729 52%, #132237 100%);
+    }
+
+    .page {
+      max-width: 1460px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .header {
+      position: sticky;
+      top: 14px;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: var(--wf-surface);
+      border: 1px solid var(--wf-border);
+      box-shadow: var(--wf-shadow-soft);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      margin-bottom: 14px;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: "Sora", "Manrope", "Noto Sans SC", sans-serif;
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: inherit;
+      margin: 0;
+    }
+
+    .header-title i {
+      color: var(--wf-primary);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .action-link,
+    .load-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid var(--wf-border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      min-height: 40px;
+      background: var(--wf-surface);
+      color: inherit;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+      font-weight: 600;
+      box-shadow: 0 0 0 transparent;
+    }
+
+    .action-link:hover,
+    .load-btn:hover {
+      border-color: rgba(15, 118, 110, 0.4);
+      background: var(--wf-primary-soft);
+      box-shadow: var(--wf-shadow-soft);
+    }
+
+    .load-wrap {
+      display: flex;
+      justify-content: center;
+      padding: 18px 0 8px;
+    }
+
+    .load-btn {
+      min-width: 148px;
+      border-color: rgba(15, 118, 110, 0.24);
+      background: linear-gradient(135deg, rgba(15, 118, 110, 0.14), rgba(126, 214, 196, 0.2));
+    }
+
+    .load-btn[disabled] {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    .masonry {
+      column-count: 5;
+      column-gap: 14px;
+      margin: 0;
+    }
+
+    .masonry-item {
+      break-inside: avoid;
+      display: inline-block;
+      width: 100%;
+      margin: 0 0 14px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--wf-border);
+      background: var(--wf-surface);
+      box-shadow: var(--wf-shadow-soft);
+      cursor: zoom-in;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .masonry-item:hover {
+      box-shadow: var(--wf-shadow);
+    }
+
+    .masonry-item img {
+      display: block;
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+      background: rgba(15, 23, 42, 0.06);
+    }
+
+    .masonry-caption {
+      padding: 10px 12px;
+      font-size: 0.8rem;
+      line-height: 1.4;
+      color: #4b5563;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    html[data-theme="dark"] .masonry-caption {
+      color: #c1cde4;
+    }
+
+    .empty-state {
+      display: none;
+      text-align: center;
+      padding: 52px 20px;
+      border: 1px dashed var(--wf-border);
+      border-radius: 16px;
+      background: var(--wf-surface);
+      color: #6b7280;
+    }
+
+    .empty-state i {
+      font-size: 1.8rem;
+      margin-bottom: 10px;
+      color: var(--wf-primary);
+    }
+
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 3000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      background: rgba(2, 6, 23, 0.84);
+      backdrop-filter: blur(4px);
+    }
+
+    .lightbox.open {
+      display: flex;
+    }
+
+    .lightbox-content {
+      width: min(96vw, 1280px);
+      max-height: 90vh;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #050911;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow: 0 18px 34px rgba(0, 0, 0, 0.45);
+      position: relative;
+    }
+
+    .lightbox-content img {
+      display: block;
+      width: 100%;
+      max-height: 90vh;
+      object-fit: contain;
+    }
+
+    .lightbox-meta {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 11px 14px;
+      color: #dbe9ff;
+      background: linear-gradient(to top, rgba(0, 0, 0, 0.74), rgba(0, 0, 0, 0.05));
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .lightbox-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      transition: background 0.2s ease;
+    }
+
+    .lightbox-close:hover {
+      background: rgba(0, 0, 0, 0.72);
+    }
+
+    @media (max-width: 1200px) {
+      .masonry {
+        column-count: 4;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .masonry {
+        column-count: 3;
+        column-gap: 10px;
+      }
+
+      .masonry-item {
+        margin-bottom: 10px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page {
+        padding: 10px;
+      }
+
+      .header {
+        top: 8px;
+        border-radius: 14px;
+        padding: 10px 12px;
+        flex-wrap: wrap;
+      }
+
+      .header-title {
+        font-size: 1rem;
+        width: 100%;
+      }
+
+      .header-actions {
+        width: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .header-actions::-webkit-scrollbar {
+        display: none;
+      }
+
+      .action-link {
+        flex: 0 0 auto;
+        font-size: 0.82rem;
+      }
+
+      .masonry {
+        column-count: 2;
+      }
+
+      .lightbox {
+        padding: 8px;
+      }
+
+      .lightbox-content {
+        width: 100%;
+        border-radius: 12px;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .masonry {
+        column-count: 1;
+      }
+
+      .load-btn {
+        width: 100%;
+      }
+    }
+  </style>
+  <link rel="stylesheet" href="/mobile-refactor.css">
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <h1 class="header-title">
+        <i class="fas fa-water"></i>
+        <span>Waterfall Gallery</span>
+      </h1>
+      <div class="header-actions">
+        <a class="action-link" href="./"><i class="fas fa-home"></i><span>Home</span></a>
+        <a class="action-link" href="./admin.html"><i class="fas fa-th-large"></i><span>Dashboard</span></a>
+      </div>
+    </header>
+
+    <section id="gallery" class="masonry" aria-live="polite"></section>
+    <section id="emptyState" class="empty-state">
+      <i class="fas fa-image"></i>
+      <div>No images available.</div>
+    </section>
+
+    <div class="load-wrap">
+      <button id="loadMoreBtn" class="load-btn" type="button">
+        <i class="fas fa-cloud-download-alt"></i>
+        <span>Load More</span>
+      </button>
+    </div>
+  </main>
+
+  <aside id="lightbox" class="lightbox" aria-hidden="true">
+    <div class="lightbox-content">
+      <button id="lightboxCloseBtn" class="lightbox-close" type="button" aria-label="Close preview">
+        <i class="fas fa-times"></i>
+      </button>
+      <img id="lightboxImage" alt="Preview image">
+      <div id="lightboxMeta" class="lightbox-meta"></div>
+    </div>
+  </aside>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var state = {
+        cursor: null,
+        loading: false,
+        loadedCount: 0
+      };
+
+      var galleryEl = document.getElementById("gallery");
+      var loadMoreBtn = document.getElementById("loadMoreBtn");
+      var emptyStateEl = document.getElementById("emptyState");
+      var lightboxEl = document.getElementById("lightbox");
+      var lightboxImgEl = document.getElementById("lightboxImage");
+      var lightboxMetaEl = document.getElementById("lightboxMeta");
+      var lightboxCloseBtn = document.getElementById("lightboxCloseBtn");
+      var imageExts = ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "ico", "avif"];
+
+      function escapeHtml(text) {
+        return String(text || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function getDisplayName(file) {
+        return (file && file.metadata && file.metadata.fileName) || file.name || "Untitled";
+      }
+
+      function isImage(file) {
+        if (!file || !file.name) return false;
+        var ext = file.name.split(".").pop().toLowerCase();
+        return imageExts.indexOf(ext) !== -1;
+      }
+
+      function updateEmptyState() {
+        emptyStateEl.style.display = state.loadedCount > 0 ? "none" : "block";
+      }
+
+      function setLoading(loading) {
+        state.loading = loading;
+        loadMoreBtn.disabled = loading;
+        loadMoreBtn.innerHTML = loading
+          ? '<i class="fas fa-spinner fa-spin"></i><span>Loading</span>'
+          : '<i class="fas fa-cloud-download-alt"></i><span>Load More</span>';
+      }
+
+      function hideLoadButtonIfDone() {
+        if (!state.cursor) {
+          loadMoreBtn.style.display = "none";
+        }
+      }
+
+      function openLightbox(url, title) {
+        lightboxImgEl.src = url;
+        lightboxImgEl.alt = title || "Preview image";
+        lightboxMetaEl.textContent = title || "";
+        lightboxEl.classList.add("open");
+        lightboxEl.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+      }
+
+      function closeLightbox() {
+        lightboxEl.classList.remove("open");
+        lightboxEl.setAttribute("aria-hidden", "true");
+        lightboxImgEl.src = "";
+        document.body.style.overflow = "";
+      }
+
+      function buildItem(file) {
+        var item = document.createElement("article");
+        item.className = "masonry-item";
+
+        var fileUrl = "/file/" + encodeURIComponent(file.name);
+        var displayName = getDisplayName(file);
+
+        item.innerHTML =
+          '<img src="' + fileUrl + '" alt="' + escapeHtml(displayName) + '" loading="lazy" decoding="async">' +
+          '<div class="masonry-caption" title="' + escapeHtml(displayName) + '">' + escapeHtml(displayName) + "</div>";
+
+        item.addEventListener("click", function () {
+          openLightbox(fileUrl, displayName);
+        });
+
+        return item;
+      }
+
+      async function loadMore() {
+        if (state.loading) return;
+        setLoading(true);
+
+        try {
+          var endpoint = state.cursor
+            ? "./api/manage/list?cursor=" + encodeURIComponent(state.cursor)
+            : "./api/manage/list?limit=100";
+
+          var response = await fetch(endpoint, { credentials: "include" });
+          if (!response.ok) {
+            throw new Error("List request failed with status " + response.status);
+          }
+
+          var data = await response.json();
+          state.cursor = data.list_complete ? null : data.cursor;
+          hideLoadButtonIfDone();
+
+          var files = (data.keys || []).filter(isImage);
+          if (!files.length && state.loadedCount === 0 && !state.cursor) {
+            updateEmptyState();
+            return;
+          }
+
+          var fragment = document.createDocumentFragment();
+          for (var i = 0; i < files.length; i++) {
+            fragment.appendChild(buildItem(files[i]));
+          }
+
+          galleryEl.appendChild(fragment);
+          state.loadedCount += files.length;
+          updateEmptyState();
+        } catch (err) {
+          console.error("Failed to load files:", err);
+          alert("Failed to load files. Please check your network and try again.");
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      async function ensureAuth() {
+        try {
+          var response = await fetch("./api/auth/check", { credentials: "include" });
+          var data = await response.json();
+          if (data.authRequired && !data.authenticated) {
+            var redirect = encodeURIComponent(window.location.pathname + window.location.search);
+            window.location.href = "./login.html?redirect=" + redirect;
+            return false;
+          }
+          return true;
+        } catch (err) {
+          console.error("Auth check failed:", err);
+          return true;
+        }
+      }
+
+      loadMoreBtn.addEventListener("click", loadMore);
+      lightboxCloseBtn.addEventListener("click", closeLightbox);
+
+      lightboxEl.addEventListener("click", function (event) {
+        if (event.target === lightboxEl) {
+          closeLightbox();
+        }
+      });
+
+      window.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+          closeLightbox();
+        }
+      });
+
+      (async function init() {
+        var ok = await ensureAuth();
+        if (!ok) return;
+        await loadMore();
+      })();
+    })();
+  </script>
+</body>
+</html>

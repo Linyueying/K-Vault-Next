@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<title>白名单模式已开启 | K-Vault</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/logo.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/theme.css">
+  <script src="/theme.js?v=20260305"></script>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #ffd7e4 0%, #c8f1ff 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  
+  .container {
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 24px;
+    padding: 48px 40px;
+    max-width: 500px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    animation: fadeIn 0.5s ease-out;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #e6a23c, #f0b86e);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    font-size: 2.5em;
+    color: white;
+    box-shadow: 0 8px 24px rgba(230, 162, 60, 0.3);
+  }
+  
+  .title {
+    font-size: 1.5em;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 16px;
+  }
+  
+  .message {
+    color: #666;
+    line-height: 1.8;
+    margin-bottom: 24px;
+    font-size: 0.95em;
+  }
+  
+  .message-en {
+    color: #999;
+    font-size: 0.85em;
+    margin-bottom: 32px;
+  }
+  
+  .footer {
+    color: #999;
+    font-size: 0.85em;
+  }
+  
+  .footer a {
+    color: #8a4bff;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.3s;
+  }
+  
+  .footer a:hover {
+    text-decoration: underline;
+  }
+  
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #8a4bff, #9b6dff);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 0.95em;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+    margin-bottom: 24px;
+  }
+  
+  .back-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(138, 75, 255, 0.3);
+  }
+</style>
+<link rel="stylesheet" href="/mobile-refactor.css">
+</head>
+<body>
+  <div class="container">
+    <div class="icon">
+      <i class="fas fa-shield-alt"></i>
+    </div>
+    <h1 class="title">白名单模式已开启</h1>
+    <p class="message">
+      当前已开启白名单模式，上传的文件需要审核通过后才能展示。请等待管理员审核通过后再访问。
+    </p>
+    <p class="message-en">
+      Whitelist mode is enabled. Uploaded files need approval before display.
+    </p>
+    <a href="javascript:history.back()" class="back-btn">
+      <i class="fas fa-arrow-left"></i>
+      返回上一页
+    </a>
+    <p class="footer">
+      Powered by <a href="https://github.com/katelya77/K-Vault">K-Vault</a>
+    </p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,401 @@
+openapi: 3.0.3
+info:
+  title: K-Vault API
+  version: '1.0'
+  description: |
+    K-Vault machine-facing API. Identical behavior on Docker and Cloudflare Pages
+    deployments (parity contract).
+
+    Authentication uses long-lived API Tokens (`kvault_<id>_<secret>`) via the
+    `Authorization: Bearer` header. Tokens carry scopes (upload/read/delete/paste)
+    and optional policies (allowedStorages / allowedMimeTypes / maxFileSize /
+    folderPrefix / allowedSourceHosts).
+
+    Conventions:
+    - Idempotency: send an `Idempotency-Key` header (<= 200 chars) on upload/import;
+      repeated requests with the same key replay the original response for 24h.
+    - Small uploads (<= 25MB) are content-deduplicated by SHA-256 (90-day window).
+    - Errors return `{ "success": false, "error": { "code", "message", ... } }`.
+servers:
+  - url: '{baseUrl}'
+    variables:
+      baseUrl:
+        default: https://your-kvault.example.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Assets
+  - name: Account
+  - name: Admin
+paths:
+  /api/v1/capabilities:
+    get:
+      tags: [Account]
+      summary: Public capabilities discovery (no token required)
+      security: []
+      responses:
+        '200':
+          description: Configured storages, limits and feature flags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      apiVersion: { type: string, example: 'v1' }
+                      upload: { type: boolean }
+                      importFromUrl: { type: boolean }
+                      maxUploadSize: { type: integer }
+                      storages:
+                        type: array
+                        items: { type: string }
+                      imageTypes:
+                        type: array
+                        items: { type: string }
+  /api/v1/me:
+    get:
+      tags: [Account]
+      summary: Introspect the current token
+      responses:
+        '200':
+          description: Token metadata and live usage stats (no secret material)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/upload:
+    post:
+      tags: [Assets]
+      summary: Upload a file (scope: upload)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                storage:
+                  type: string
+                  enum: [telegram, r2, s3, discord, huggingface, webdav, github]
+                folderPath:
+                  type: string
+                password:
+                  type: string
+                expires_in:
+                  type: integer
+                  description: Seconds until the file expires.
+                max_downloads:
+                  type: integer
+                slug:
+                  type: string
+                deduplicate:
+                  type: boolean
+                  default: true
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: |
+            Upload result. Legacy-compatible shape: `{ success, file, links }`.
+            When `deduplicated: true` an identical file already existed and the
+            existing file's links are returned.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PolicyDenied' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+  /api/v1/import:
+    post:
+      tags: [Assets]
+      summary: Import an image from a remote URL (scope: upload)
+      description: |
+        Server-side fetch with full SSRF protection: every redirect hop is
+        re-validated (private ranges, link-local, CGNAT, metadata hosts are
+        blocked), size is enforced while streaming, Content-Type is sniffed and
+        matched, SVG is rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                storage:
+                  type: string
+                folder:
+                  type: string
+                deduplicate:
+                  type: boolean
+                  default: true
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: |
+            `{ success, data: { file: { id, name, size, mime, sha256, storage },
+            links: { download, share }, source: { url }, deduplicated } }`
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/PolicyDenied' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '415':
+          description: Unsupported media type (e.g. SVG) or MIME mismatch
+        '502':
+          description: Remote fetch failed or SSRF guard blocked the target
+  /api/v1/files:
+    get:
+      tags: [Assets]
+      summary: List files (scope: read)
+      responses:
+        '200': { description: Paginated file list }
+  /api/v1/file/{id}:
+    get:
+      tags: [Assets]
+      summary: Download or inspect a file (scope: read)
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200': { description: File bytes or metadata }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Assets]
+      summary: Delete a file (scope: delete)
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/paste:
+    post:
+      tags: [Assets]
+      summary: Create a text paste (scope: paste)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                language: { type: string, default: text }
+      responses:
+        '201': { description: Created paste }
+  /api/v1/pastes:
+    get:
+      tags: [Assets]
+      summary: List pastes (scope: read)
+      responses:
+        '200': { description: Paste list }
+  /api/v1/paste/{id}:
+    get:
+      tags: [Assets]
+      summary: Read a paste (scope: read)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Paste content }
+    delete:
+      tags: [Assets]
+      summary: Delete a paste (scope: delete)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Deleted }
+  /api/admin/tokens:
+    get:
+      tags: [Admin]
+      summary: List API tokens (admin session or Basic auth)
+      responses:
+        '200': { description: Token list with redacted records }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+    post:
+      tags: [Admin]
+      summary: Create an API token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string, maxLength: 64 }
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                    enum: [upload, read, delete, paste]
+                expiresAtMs: { type: integer, description: Explicit epoch-ms expiry }
+                expiresAt:
+                  type: string
+                  format: date-time
+                  description: ISO-8601. Bare numeric values are rejected (INVALID_EXPIRY).
+                policies:
+                  $ref: '#/components/schemas/TokenPolicies'
+      responses:
+        '201':
+          description: |
+            `{ success, token: "kvault_...", tokenInfo }`. The full secret is
+            returned exactly once.
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+  /api/admin/tokens/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update enabled / name / scopes / expiry / policies
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                name: { type: string }
+                scopes:
+                  type: array
+                  items: { type: string }
+                expiresAtMs: { type: integer }
+                expiresAt: { type: string, format: date-time }
+                policies:
+                  $ref: '#/components/schemas/TokenPolicies'
+      responses:
+        '200': { description: Updated token (public record) }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+    delete:
+      tags: [Admin]
+      summary: Delete a token and its telemetry
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '200': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+  /api/admin/tokens/{id}/rotate:
+    post:
+      tags: [Admin]
+      summary: Rotate the token secret (requirement #7)
+      description: |
+        Issues a new secret for the same identity/scopes/policies. The old
+        secret stops working immediately. The new secret is returned exactly
+        once. `rotatedAt` is stamped on the record.
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '200': { description: New secret + updated record }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+  /api/admin/audit-logs:
+    get:
+      tags: [Admin]
+      summary: Query the security audit log (180-day retention)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        '200':
+          description: Events include TOKEN_CREATED/ROTATED/DISABLED/ENABLED/SCOPE_CHANGED/DELETED/VERIFY_FAILED
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 'API Token: kvault_<id>_<secret>'
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, maxLength: 200 }
+      description: Replay-safe operation key (24h window).
+    FileId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    TokenId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  schemas:
+    TokenPolicies:
+      type: object
+      nullable: true
+      properties:
+        allowedStorages:
+          type: array
+          items:
+            type: string
+            enum: [telegram, r2, s3, discord, huggingface, webdav, github]
+        allowedMimeTypes:
+          type: array
+          items: { type: string }
+        maxFileSize:
+          type: integer
+          description: Bytes; <= 1GiB.
+        folderPrefix:
+          type: string
+          description: folderPath must equal this prefix or live under it.
+        allowedSourceHosts:
+          type: array
+          items: { type: string }
+          description: Origin/Referer hostname allow-list for import requests.
+  responses:
+    Unauthorized:
+      description: Missing/invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Invalid input (INVALID_SCOPE / INVALID_EXPIRY / INVALID_POLICY / VALIDATION_ERROR / INVALID_STORAGE)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PolicyDenied:
+      description: Token policy rejected the operation (POLICY_DENIED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooLarge:
+      description: File exceeds the storage/token limit (FILE_TOO_LARGE / POLICY_FILE_TOO_LARGE)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AdminAuthNotConfigured:
+      description: |
+        Admin API fails closed: no admin credentials are configured. Set
+        BASIC_USER and BASIC_PASS to enable it.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Error:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
