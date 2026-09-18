@@ -1691,7 +1691,6 @@
             </div>
             <div style="display: flex; gap: 6px;">
               <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
-              <!-- 优化后：带下载中 Loading 状态反馈 -->
               <button
                 class="mini-icon-btn"
                 :disabled="isDownloading(file)"
@@ -2013,7 +2012,6 @@
                     <div class="history-grid-name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
                     <div class="history-grid-actions">
                       <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
-                      <!-- 优化后：网格视图下载反馈 -->
                       <button
                         class="history-mini-btn"
                         :disabled="isDownloading(item)"
@@ -2056,7 +2054,6 @@
                     <div class="history-row-actions">
                       <button class="mini-icon-btn" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button class="mini-icon-btn" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
-                      <!-- 优化后：列表视图下载反馈 -->
                       <button
                         class="mini-icon-btn"
                         :disabled="isDownloading(item)"
@@ -2110,7 +2107,6 @@
           </div>
           <div style="margin-top: 14px; display: flex; gap: 8px;">
             <button class="btn-pill-action" @click="copyPreviewLink"><i class="fas fa-copy"></i> 复制直链</button>
-            <!-- 优化后：预览弹窗下载反馈 -->
             <button
               class="action-pill-btn"
               :disabled="isDownloading(previewData)"
@@ -2422,6 +2418,33 @@
           },
         },
         methods: {
+          /* 安全解码可能被 URL 编码的文件名 */
+          safeDecodeFileName(str) {
+            if (!str) return "";
+            try {
+              let decoded = decodeURIComponent(str);
+              if (decoded.includes("%")) {
+                try { decoded = decodeURIComponent(decoded); } catch (_) {}
+              }
+              return decoded;
+            } catch (_) {
+              return str;
+            }
+          },
+
+          /* 从输入的 URL 路径中解析并解码文件名 */
+          parseUrlFileName(rawUrl) {
+            try {
+              const u = new URL(rawUrl, window.location.origin);
+              const pathname = u.pathname;
+              const rawName = pathname.substring(pathname.lastIndexOf("/") + 1);
+              return this.safeDecodeFileName(rawName) || "remote_file";
+            } catch (_) {
+              const segment = (rawUrl || "").split("?")[0].split("#")[0].split("/").pop();
+              return this.safeDecodeFileName(segment) || "remote_file";
+            }
+          },
+
           openDrawer(tab) {
             this.activeDrawerTab = tab;
             this.showDrawer = true;
@@ -2653,6 +2676,10 @@
           async uploadFromUrl() {
             if (!this.urlToUpload.trim()) return;
             this.urlUploading = true;
+
+            // 提取并解码 URL 文件名
+            const extractedName = this.parseUrlFileName(this.urlToUpload);
+
             try {
               const res = await fetch(`${this.baseURL}/api/upload-from-url`, {
                 method: "POST",
@@ -2661,18 +2688,29 @@
                   url: this.urlToUpload,
                   storageMode: this.storageMode,
                   folderPath: this.folderPath,
+                  fileName: extractedName,
                 }),
                 credentials: "include",
               });
               const data = await res.json();
               if (!res.ok) throw new Error(data.error || "转存失败");
               if (Array.isArray(data) && data[0]?.src) {
-                const fileName = this.urlToUpload.split("/").pop().split("?")[0] || "remote_file";
+                const item = data[0];
+                let resolvedName = item.fileName || item.name || item.originalName;
+                if (!resolvedName && item.src) {
+                  const srcPart = item.src.split("/").pop().split("?")[0];
+                  resolvedName = this.safeDecodeFileName(srcPart);
+                }
+                if (!resolvedName) {
+                  resolvedName = extractedName;
+                }
+                resolvedName = this.safeDecodeFileName(resolvedName);
+
                 const fileObj = {
-                  name: fileName,
-                  fileName: fileName,
-                  url: `${this.baseURL}${data[0].src}`,
-                  size: 0,
+                  name: resolvedName,
+                  fileName: resolvedName,
+                  url: `${this.baseURL}${item.src}`,
+                  size: Number(item.size) || 0,
                   selected: false,
                 };
                 this.uploadedFiles.unshift(fileObj);
@@ -2875,9 +2913,6 @@
           clearResults() { this.uploadedFiles = []; },
           removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); },
 
-          /* =========================================================
-             下载中状态判断与触发逻辑（Fetch + Blob 增强版）
-             ========================================================= */
           isDownloading(item) {
             if (!item) return false;
             const url = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
@@ -2890,16 +2925,13 @@
               return;
             }
 
-            // 1. 标记下载中状态，消除等待盲区
             this.$set(this.downloadingUrls, url, true);
             this.showToast(`正在从节点获取 [${fileName || "文件"}]，请稍候...`, "info");
 
             try {
-              // 2. 走 fetch 后台拉取流式响应
               const res = await fetch(url, { credentials: "include" });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-              // 3. 转成本地内存 Blob，瞬间触发系统下载框
               const blob = await res.blob();
               const blobUrl = URL.createObjectURL(blob);
 
@@ -2917,7 +2949,6 @@
 
               this.showToast(`[${fileName || "文件"}] 已开始保存`, "success");
             } catch (err) {
-              // 4. 出现跨域或大文件异常时，优雅回退到原生 a 标签下载
               console.warn("Fetch 流拉取失败，回退原生下载通道：", err);
               const a = document.createElement("a");
               a.href = url;
@@ -3160,7 +3191,16 @@
             return map[mode] || mode || "";
           },
 
-          getDisplayName(item) { return item.fileName || item.name || "未命名文件"; },
+          /* 防御乱码与编码展示 */
+          getDisplayName(item) {
+            let name = item.fileName || item.name || "未命名文件";
+            if (typeof name === "string" && name.includes("%")) {
+              try {
+                name = decodeURIComponent(name);
+              } catch (_) {}
+            }
+            return name;
+          },
           getCleanFileUrl(item) {
             const raw = item.url || item.path || "";
             if (raw.startsWith("http")) return raw;
