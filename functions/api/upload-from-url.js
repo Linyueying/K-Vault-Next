@@ -23,10 +23,6 @@ const MB = 1024 * 1024;
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  // Parity with the Docker runtime (server/app.js POST /api/upload-from-url):
-  // URL import is guest-gated, never anonymous. Previously this Cloudflare-only
-  // route had no authentication at all, so anyone could pull an arbitrary URL
-  // into the configured storage backends.
   const auth = await checkAuthentication(context);
   const isAdmin = Boolean(auth?.authenticated);
 
@@ -54,6 +50,7 @@ async function runUploadFromUrl(context) {
     const url = String(body?.url || "").trim();
     const storageMode = String(body?.storageMode || "telegram").toLowerCase();
     const folderPath = normalizeFolderPath(body?.folderPath || body?.folder || "");
+    const customFileName = String(body?.fileName || body?.name || "").trim();
 
     if (!url) {
       return jsonResponse({ error: "请输入 URL" }, 400);
@@ -92,7 +89,8 @@ async function runUploadFromUrl(context) {
     }
 
     const contentType = fetched.contentType || "application/octet-stream";
-    const fileName = buildFileName(parsedUrl, contentType);
+    // 多级解析真实文件名（优先 Content-Disposition -> 前端传入 -> URL 路径 -> URL 参数）
+    const fileName = resolveFileName(parsedUrl, contentType, fetched.contentDisposition, customFileName);
     const fileExtension = getFileExtension(fileName);
 
     if (storageMode === "r2") {
@@ -152,7 +150,7 @@ async function fetchRemote(url) {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        "User-Agent": "Mozilla/5.0 K-Vault URL Uploader",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 K-Vault URL Uploader",
         Accept: "image/*,video/*,audio/*,application/*,*/*",
       },
     });
@@ -166,11 +164,13 @@ async function fetchRemote(url) {
     }
 
     const contentType = response.headers.get("content-type") || "application/octet-stream";
+    const contentDisposition = response.headers.get("content-disposition") || "";
     const arrayBuffer = await response.arrayBuffer();
 
     return {
       ok: true,
       contentType,
+      contentDisposition,
       arrayBuffer,
     };
   } catch (error) {
@@ -195,7 +195,7 @@ async function fetchRemote(url) {
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json; charset=utf-8" },
   });
 }
 
@@ -292,12 +292,91 @@ function getExtensionFromMimeType(mimeType) {
   return map[type] || "bin";
 }
 
-function buildFileName(parsedUrl, contentType) {
-  let fileName = decodeURIComponent((parsedUrl.pathname.split("/").pop() || "").split("?")[0]);
+/* 解析远程响应头中的真实文件名（处理 RFC 5987 / UTF-8 / ISO-8859-1） */
+function parseContentDispositionFilename(disposition) {
+  if (!disposition) return "";
+
+  const utf8Match = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim().replace(/^["']|["']$/g, ""));
+    } catch (_) {}
+  }
+
+  const standardMatch = disposition.match(/filename\s*=\s*(?:"([^"]+)"|([^;\s]+))/i);
+  if (standardMatch) {
+    let raw = (standardMatch[1] || standardMatch[2] || "").trim();
+    if (raw.includes("%")) {
+      try { raw = decodeURIComponent(raw); } catch (_) {}
+    } else {
+      try {
+        const decoded = decodeURIComponent(escape(raw));
+        if (decoded && !decoded.includes("\ufffd")) raw = decoded;
+      } catch (_) {}
+    }
+    return raw;
+  }
+  return "";
+}
+
+/* 综合解析文件名，消除乱码 */
+function resolveFileName(parsedUrl, contentType, contentDisposition = "", customFileName = "") {
+  let fileName = "";
+
+  // 1. 优先远程响应头
+  const dispositionName = parseContentDispositionFilename(contentDisposition);
+  if (dispositionName) {
+    fileName = dispositionName;
+  }
+
+  // 2. 其次前端传入的有效文件名
+  if (!fileName && customFileName) {
+    try {
+      fileName = decodeURIComponent(customFileName);
+    } catch (_) {
+      fileName = customFileName;
+    }
+  }
+
+  // 3. 再次从 URL 路径解码
+  if (!fileName) {
+    try {
+      const parts = parsedUrl.pathname.split("/").filter(Boolean);
+      const rawPart = parts.pop() || "";
+      const basePart = rawPart.split("?")[0].split("#")[0];
+      if (basePart) {
+        fileName = decodeURIComponent(basePart);
+      }
+    } catch (_) {}
+  }
+
+  // 4. 从 URL 查询参数匹配 (?filename=... / ?file=...)
+  if (!fileName || !fileName.includes(".")) {
+    for (const key of ["filename", "file", "name", "title"]) {
+      const val = parsedUrl.searchParams.get(key);
+      if (val) {
+        try {
+          const decoded = decodeURIComponent(val);
+          if (decoded.includes(".")) {
+            fileName = decoded;
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  // 5. 兜底默认命名
   if (!fileName) {
     fileName = `url_${Date.now()}.${getExtensionFromMimeType(contentType)}`;
   }
 
+  if (fileName.includes("%")) {
+    try { fileName = decodeURIComponent(fileName); } catch (_) {}
+  }
+
+  // 去除非法字符并保证扩展名
+  fileName = fileName.replace(/[/\\]/g, "_").trim();
   if (!fileName.includes(".")) {
     fileName = `${fileName}.${getExtensionFromMimeType(contentType)}`;
   }
@@ -417,7 +496,13 @@ async function processTelegramSuccess(responseData, fileName, fileExtension, mim
     console.warn("Telegram upload notice error:", error.message);
   }
 
-  return jsonResponse([{ src: `/file/${directId}` }]);
+  // 关键修复：把正确的真实文件名与体积返回给前端
+  return jsonResponse([{
+    src: `/file/${directId}`,
+    fileName,
+    name: fileName,
+    size: fileSize,
+  }]);
 }
 
 async function uploadToR2(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath = "") {
@@ -425,9 +510,12 @@ async function uploadToR2(arrayBuffer, fileName, fileExtension, contentType, fil
     const fileId = randomId("r2");
     const objectKey = `${fileId}.${fileExtension}`;
 
+    // R2 customMetadata 必须是 ASCII，中文字符进行 encode 处理避免字节破坏
+    const safeMetaName = encodeURIComponent(fileName);
+
     await env.R2_BUCKET.put(objectKey, arrayBuffer, {
       httpMetadata: { contentType },
-      customMetadata: { fileName, uploadTime: Date.now().toString() },
+      customMetadata: { fileName: safeMetaName, uploadTime: Date.now().toString() },
     });
 
     if (env.img_url) {
@@ -448,7 +536,12 @@ async function uploadToR2(arrayBuffer, fileName, fileExtension, contentType, fil
       });
     }
 
-    return jsonResponse([{ src: `/file/r2:${objectKey}` }]);
+    return jsonResponse([{
+      src: `/file/r2:${objectKey}`,
+      fileName,
+      name: fileName,
+      size: fileSize,
+    }]);
   } catch (error) {
     console.error("R2 upload error:", error);
     return jsonResponse({ error: `R2 upload failed: ${error.message}` }, 500);
@@ -464,7 +557,7 @@ async function uploadToS3(arrayBuffer, fileName, fileExtension, contentType, fil
     await s3.putObject(objectKey, arrayBuffer, {
       contentType,
       metadata: {
-        "x-amz-meta-filename": fileName,
+        "x-amz-meta-filename": encodeURIComponent(fileName),
         "x-amz-meta-uploadtime": Date.now().toString(),
       },
     });
@@ -487,7 +580,12 @@ async function uploadToS3(arrayBuffer, fileName, fileExtension, contentType, fil
       });
     }
 
-    return jsonResponse([{ src: `/file/s3:${objectKey}` }]);
+    return jsonResponse([{
+      src: `/file/s3:${objectKey}`,
+      fileName,
+      name: fileName,
+      size: fileSize,
+    }]);
   } catch (error) {
     console.error("S3 upload error:", error);
     return jsonResponse({ error: `S3 upload failed: ${error.message}` }, 500);
@@ -527,7 +625,12 @@ async function uploadToDiscordStorage(arrayBuffer, fileName, fileExtension, cont
       });
     }
 
-    return jsonResponse([{ src: `/file/${kvKey}` }]);
+    return jsonResponse([{
+      src: `/file/${kvKey}`,
+      fileName,
+      name: fileName,
+      size: fileSize,
+    }]);
   } catch (error) {
     console.error("Discord upload error:", error);
     return jsonResponse({ error: `Discord upload failed: ${error.message}` }, 500);
@@ -564,7 +667,12 @@ async function uploadToHFStorage(arrayBuffer, fileName, fileExtension, _contentT
       });
     }
 
-    return jsonResponse([{ src: `/file/${kvKey}` }]);
+    return jsonResponse([{
+      src: `/file/${kvKey}`,
+      fileName,
+      name: fileName,
+      size: fileSize,
+    }]);
   } catch (error) {
     console.error("HuggingFace upload error:", error);
     return jsonResponse({ error: `HuggingFace upload failed: ${error.message}` }, 500);
@@ -599,7 +707,12 @@ async function uploadToWebDAVStorage(arrayBuffer, fileName, fileExtension, conte
       });
     }
 
-    return jsonResponse([{ src: `/file/${kvKey}` }]);
+    return jsonResponse([{
+      src: `/file/${kvKey}`,
+      fileName,
+      name: fileName,
+      size: fileSize,
+    }]);
   } catch (error) {
     console.error("WebDAV upload error:", error);
     return jsonResponse({ error: `WebDAV upload failed: ${error.message}` }, 500);
@@ -640,7 +753,12 @@ async function uploadToGitHubStorage(arrayBuffer, fileName, fileExtension, conte
       });
     }
 
-    return jsonResponse([{ src: `/file/${kvKey}` }]);
+    return jsonResponse([{
+      src: `/file/${kvKey}`,
+      fileName,
+      name: fileName,
+      size: fileSize,
+    }]);
   } catch (error) {
     console.error("GitHub upload error:", error);
     return jsonResponse({ error: `GitHub upload failed: ${error.message}` }, 500);
