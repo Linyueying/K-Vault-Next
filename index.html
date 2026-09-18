@@ -1591,7 +1591,7 @@
           </button>
         </div>
 
-        <!-- Active Upload Task Queue -->
+        <!-- Active Upload Task Queue (支持真实进度与速度) -->
         <section class="liquid-card panel-section" v-if="uploadingFiles.length > 0">
           <div class="panel-header">
             <span class="panel-title">
@@ -1622,12 +1622,13 @@
             <div class="task-info-block">
               <div class="task-name-text">{{ file.name }}</div>
               <div class="task-meta-text">
-                <span>{{ formatSize(file.size) }}</span>
+                <span>{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
+                <span v-if="file.speed" style="color: var(--primary); font-weight: 600;">• {{ file.speed }}</span>
                 <span v-if="file.error" style="color: #ef4444;">• {{ file.error }}</span>
-                <span>• {{ getStatusText(file.status) }} <span v-if="file.progress">({{ file.progress }}%)</span></span>
+                <span>• {{ file.statusText || getStatusText(file.status) }} <span v-if="file.progress !== undefined">({{ file.progress }}%)</span></span>
               </div>
               <div class="task-progress-bar" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
-                <div class="task-progress-val" :style="{ width: (file.progress || 20) + '%' }"></div>
+                <div class="task-progress-val" :style="{ width: (file.progress || 0) + '%' }"></div>
               </div>
             </div>
             <button
@@ -1778,7 +1779,7 @@
                 <i class="fas fa-cloud" style="font-size: 1.7rem; color: #f6821f;"></i>
                 <div>
                   <div class="storage-node-title">Cloudflare R2</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">100MB 零流费 CDN 存储</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">2GB 零流费 CDN 存储</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 'r2'"><i class="fas fa-check"></i></div>
@@ -1787,7 +1788,7 @@
                 <i class="fas fa-database" style="font-size: 1.7rem; color: #10b981;"></i>
                 <div>
                   <div class="storage-node-title">Amazon S3</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">100MB 工业级对象存储</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">2GB 工业级对象存储</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 's3'"><i class="fas fa-check"></i></div>
@@ -2243,7 +2244,7 @@
           isGuest: false,
           guestUploadConfig: null,
           uploadConfig: {
-            maxSize: 100 * 1024 * 1024,
+            maxSize: 2048 * 1024 * 1024, // 默认放宽到 2GB
             chunkSize: 5 * 1024 * 1024,
             smallFileThreshold: 20 * 1024 * 1024,
             maxConcurrent: 3,
@@ -2418,6 +2419,50 @@
           },
         },
         methods: {
+          /* 格式化实时网络上传速率 */
+          formatSpeed(bps) {
+            if (!bps || bps <= 0) return "0 KB/s";
+            if (bps >= 1024 * 1024) {
+              return (bps / (1024 * 1024)).toFixed(1) + " MB/s";
+            }
+            return (bps / 1024).toFixed(0) + " KB/s";
+          },
+
+          /* 原生 XHR 封装：支持真实字节上传事件监听 */
+          xhrUpload(url, formData, onProgress) {
+            return new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("POST", url);
+              xhr.withCredentials = true;
+
+              if (xhr.upload && onProgress) {
+                xhr.upload.onprogress = (e) => {
+                  if (e.lengthComputable) {
+                    onProgress(e.loaded, e.total);
+                  }
+                };
+              }
+
+              xhr.onload = () => {
+                let data = null;
+                try {
+                  data = JSON.parse(xhr.responseText);
+                } catch (_) {}
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve(data || {});
+                } else {
+                  const err = (data && (data.error || data.message)) || `HTTP ${xhr.status}`;
+                  reject(new Error(err));
+                }
+              };
+
+              xhr.onerror = () => reject(new Error("网络连接失败，上传中断"));
+              xhr.ontimeout = () => reject(new Error("网络请求超时"));
+              xhr.send(formData);
+            });
+          },
+
           /* 安全解码可能被 URL 编码的文件名 */
           safeDecodeFileName(str) {
             if (!str) return "";
@@ -2677,7 +2722,6 @@
             if (!this.urlToUpload.trim()) return;
             this.urlUploading = true;
 
-            // 提取并解码 URL 文件名
             const extractedName = this.parseUrlFileName(this.urlToUpload);
 
             try {
@@ -2755,10 +2799,11 @@
             }
           },
           getUploadLimit(storageMode) {
+            // R2 与 S3 单文件上限提升为 2GB (2048MB)
             const fallback = {
               telegram: { maxBytes: 20 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: false },
-              r2: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
-              s3: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              r2: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              s3: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               discord: { maxBytes: 25 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               huggingface: { maxBytes: 35 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               github: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
@@ -2779,9 +2824,16 @@
                 continue;
               }
               const item = {
-                name: file.name, size: file.size, file: file, status: "waiting",
+                name: file.name,
+                size: file.size,
+                file: file,
+                status: "waiting",
+                statusText: "等待中",
+                speed: "",
+                uploadedBytes: 0,
                 preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-                progress: 0, error: null,
+                progress: 0,
+                error: null,
               };
               this.uploadingFiles.push(item);
             }
@@ -2792,7 +2844,6 @@
             for (const item of waiting) {
               try {
                 item.status = "uploading";
-                item.progress = 15;
                 if (!this.isGuest && item.file.size > this.uploadConfig.smallFileThreshold && this.getUploadLimit(this.storageMode).supportsChunkUpload) {
                   await this.chunkedUpload(item);
                 } else {
@@ -2800,6 +2851,8 @@
                 }
               } catch (err) {
                 item.status = "error";
+                item.statusText = "上传失败";
+                item.speed = "";
                 item.error = err.message;
               }
             }
@@ -2812,17 +2865,43 @@
             formData.append("file", item.file);
             formData.append("storageMode", this.storageMode);
             formData.append("folderPath", this.folderPath);
-            const res = await fetch(`${this.baseURL}/upload`, {
-              method: "POST", body: formData, credentials: "include",
+
+            let lastTime = Date.now();
+            let lastLoaded = 0;
+
+            this.$set(item, "statusText", "上传中");
+
+            const data = await this.xhrUpload(`${this.baseURL}/upload`, formData, (loaded, total) => {
+              const now = Date.now();
+              const diff = (now - lastTime) / 1000;
+              if (diff >= 0.4) {
+                const speedBps = (loaded - lastLoaded) / diff;
+                this.$set(item, "speed", this.formatSpeed(speedBps));
+                lastTime = now;
+                lastLoaded = loaded;
+              }
+              this.$set(item, "uploadedBytes", loaded);
+              const percent = Math.min(99, Math.round((loaded / total) * 100));
+              this.$set(item, "progress", percent);
             });
-            const data = await res.json();
-            if (!res.ok || (Array.isArray(data) && data[0]?.error)) {
-              throw new Error(data[0]?.error || data.error || "上传未成功");
+
+            if (Array.isArray(data) && data[0]?.error) {
+              throw new Error(data[0]?.error || "上传未成功");
             }
-            item.status = "success";
-            item.progress = 100;
+
+            this.$set(item, "status", "success");
+            this.$set(item, "statusText", "已完成");
+            this.$set(item, "progress", 100);
+            this.$set(item, "speed", "");
+
             const src = data[0]?.src;
-            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
+            const uploadedObj = {
+              name: item.name,
+              fileName: item.name,
+              url: `${this.baseURL}${src}`,
+              size: item.size,
+              selected: false,
+            };
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj);
           },
@@ -2830,12 +2909,21 @@
             const file = item.file;
             const chunkSize = this.uploadConfig.chunkSize;
             const totalChunks = Math.ceil(file.size / chunkSize);
+
+            this.$set(item, "statusText", "初始化任务...");
+            this.$set(item, "progress", 0);
+            this.$set(item, "uploadedBytes", 0);
+
             const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                fileName: file.name, fileSize: file.size, fileType: file.type,
-                totalChunks: totalChunks, storageMode: this.storageMode, folderPath: this.folderPath,
+                fileName: file.name,
+                fileSize: file.size,
+                fileType: file.type,
+                totalChunks: totalChunks,
+                storageMode: this.storageMode,
+                folderPath: this.folderPath,
               }),
               credentials: "include",
             });
@@ -2843,20 +2931,49 @@
             if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
             const uploadId = initData.uploadId;
 
+            let uploadedBase = 0;
+            let lastTime = Date.now();
+            let lastLoaded = 0;
+
+            this.$set(item, "statusText", "上传中");
+
             for (let i = 0; i < totalChunks; i++) {
               const start = i * chunkSize;
               const end = Math.min(start + chunkSize, file.size);
               const chunk = file.slice(start, end);
+              const chunkBytes = end - start;
+
               const fd = new FormData();
               fd.append("chunk", chunk);
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
-              const chunkRes = await fetch(`${this.baseURL}/api/chunked-upload/chunk`, {
-                method: "POST", body: fd, credentials: "include",
+
+              await this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, fd, (loadedChunk) => {
+                const currentTotal = uploadedBase + loadedChunk;
+                const now = Date.now();
+                const diff = (now - lastTime) / 1000;
+                if (diff >= 0.4) {
+                  const speedBps = (currentTotal - lastLoaded) / diff;
+                  this.$set(item, "speed", this.formatSpeed(speedBps));
+                  lastTime = now;
+                  lastLoaded = currentTotal;
+                }
+                this.$set(item, "uploadedBytes", currentTotal);
+                // 预留 5% 给予服务端完成确认
+                const percent = Math.min(95, Math.round((currentTotal / file.size) * 95));
+                this.$set(item, "progress", percent);
               });
-              if (!chunkRes.ok) throw new Error(`分片 ${i + 1} 上传失败`);
-              item.progress = Math.round(((i + 1) / totalChunks) * 90);
+
+              uploadedBase += chunkBytes;
+              this.$set(item, "uploadedBytes", uploadedBase);
             }
+
+            // 所有切片上传完毕，通知合并并转为确认状态
+            this.$set(item, "status", "processing");
+            this.$set(item, "statusText", "校验与合并中...");
+            this.$set(item, "speed", "");
+            this.$set(item, "progress", 96);
+
             const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -2865,20 +2982,38 @@
             });
             const completeData = await completeRes.json();
             if (!completeRes.ok) throw new Error(completeData.error || "合并分片失败");
-            item.status = "success";
-            item.progress = 100;
-            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
+
+            this.$set(item, "status", "success");
+            this.$set(item, "statusText", "已完成");
+            this.$set(item, "progress", 100);
+            this.$set(item, "uploadedBytes", file.size);
+
+            const uploadedObj = {
+              name: item.name,
+              fileName: item.name,
+              url: `${this.baseURL}${completeData.src}`,
+              size: item.size,
+              selected: false,
+            };
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj);
           },
           retryUpload(file) {
             file.status = "waiting";
+            file.statusText = "等待中";
+            file.speed = "";
+            file.progress = 0;
+            file.uploadedBytes = 0;
             file.error = null;
             this.startUpload();
           },
           retryAllFailed() {
             this.uploadingFiles.filter((f) => f.status === "error").forEach((f) => {
               f.status = "waiting";
+              f.statusText = "等待中";
+              f.speed = "";
+              f.progress = 0;
+              f.uploadedBytes = 0;
               f.error = null;
             });
             this.startUpload();
