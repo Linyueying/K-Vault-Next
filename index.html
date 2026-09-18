@@ -800,12 +800,16 @@
         cursor: pointer;
         transition: var(--transition);
       }
-      .mini-icon-btn:hover {
+      .mini-icon-btn:hover:not(:disabled) {
         background: var(--primary);
         color: #ffffff;
         border-color: var(--primary);
       }
-      .mini-icon-btn.danger:hover {
+      .mini-icon-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .mini-icon-btn.danger:hover:not(:disabled) {
         background: #ef4444;
         border-color: #ef4444;
       }
@@ -826,7 +830,7 @@
       }
 
       /* =========================================================
-         ===== 本地历史面板（全面升级） =====
+         ===== 本地历史面板 =====
          ========================================================= */
       .history-stats-bar {
         display: flex;
@@ -1087,12 +1091,16 @@
         cursor: pointer;
         transition: var(--transition);
       }
-      .history-mini-btn:hover {
+      .history-mini-btn:hover:not(:disabled) {
         background: var(--primary);
         border-color: var(--primary);
         transform: scale(1.08);
       }
-      .history-mini-btn.danger:hover {
+      .history-mini-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .history-mini-btn.danger:hover:not(:disabled) {
         background: #ef4444;
         border-color: #ef4444;
       }
@@ -1188,8 +1196,6 @@
         font-size: 1.8rem;
         opacity: 0.4;
       }
-
-      /* ===== 历史面板样式结束 ===== */
 
       .bottom-floating-dock {
         position: fixed;
@@ -1548,7 +1554,7 @@
           />
         </section>
 
-        <!-- Quick Action Bar (粘贴上传 -> 图片浏览) -->
+        <!-- Quick Action Bar -->
         <div class="quick-action-strip">
           <button class="action-pill-btn" @click="triggerUpload">
             <i class="fas fa-folder-open"></i>
@@ -1568,7 +1574,7 @@
           </button>
         </div>
 
-        <!-- Streamlined, compact, horizontal URL transfer pill -->
+        <!-- URL Transfer Pill -->
         <div class="url-pill-bar" v-if="showUrlInput">
           <i class="fas fa-link url-pill-icon"></i>
           <input
@@ -1635,6 +1641,7 @@
           </div>
         </section>
 
+        <!-- Uploaded Results -->
         <section class="liquid-card panel-section" v-if="uploadedFiles.length > 0">
           <div class="panel-header">
             <span class="panel-title">
@@ -1684,7 +1691,15 @@
             </div>
             <div style="display: flex; gap: 6px;">
               <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
-              <button class="mini-icon-btn" @click="downloadFile(file)" title="下载"><i class="fas fa-download"></i></button>
+              <!-- 优化后：带下载中 Loading 状态反馈 -->
+              <button
+                class="mini-icon-btn"
+                :disabled="isDownloading(file)"
+                @click="downloadFile(file)"
+                title="下载"
+              >
+                <i :class="isDownloading(file) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+              </button>
               <button class="mini-icon-btn" @click="openPreview(file)" title="媒体预览"><i class="fas fa-eye"></i></button>
               <button class="mini-icon-btn danger" @click="removeFromResults(index)" title="移除"><i class="fas fa-xmark"></i></button>
             </div>
@@ -1700,7 +1715,7 @@
         </section>
       </main>
 
-      <!-- UNIFIED 4-ITEM FLOATING BOTTOM DOCK -->
+      <!-- Bottom Floating Dock -->
       <nav class="bottom-floating-dock">
         <button class="dock-pill-btn" :class="{ active: !showDrawer }" @click="showDrawer = false">
           <i class="fas fa-cloud-arrow-up"></i>
@@ -1720,12 +1735,11 @@
         </button>
       </nav>
 
-      <!-- Secondary Liquid Glass Drawer Sheet -->
+      <!-- Liquid Glass Drawer Sheet -->
       <div class="drawer-backdrop" v-if="showDrawer" @click.self="showDrawer = false">
         <div class="drawer-modal-sheet">
           <div class="drawer-top-handle"></div>
 
-          <!-- Horizontal Scrolling Drawer Nav -->
           <div class="drawer-tabs-nav">
             <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'storage' }" @click="switchDrawerTab('storage')">
               <i class="fas fa-database"></i>
@@ -1809,7 +1823,7 @@
             </div>
           </div>
 
-          <!-- ================= Drawer Tab 2: Target Upload Folder ================= -->
+          <!-- Drawer Tab 2: Target Upload Folder -->
           <div v-if="activeDrawerTab === 'folder'">
             <div class="folder-current-bar">
               <div class="folder-breadcrumb">
@@ -1853,7 +1867,6 @@
               <button class="folder-pill-btn" @click="cancelUploadFolderCreator">取消</button>
             </div>
 
-            <!-- 真实目录结构树 -->
             <div class="folder-section-label">
               <i class="fas fa-sitemap"></i>
               <span>云端目录结构</span>
@@ -1872,7 +1885,6 @@
                 <span class="folder-tree-name">根目录</span>
               </div>
 
-              <!-- 递归子节点组件 -->
               <folder-node
                 v-for="node in uploadFolderTree.children"
                 :key="node.path"
@@ -1897,11 +1909,8 @@
             </div>
           </div>
 
-          <!-- ============================================================
-               Drawer Tab 3: Local History Vault（全面升级版）
-               ============================================================ -->
+          <!-- Drawer Tab 3: Local History Vault -->
           <div v-if="activeDrawerTab === 'history'">
-            <!-- 顶部统计 -->
             <div class="history-stats-bar">
               <span class="history-stat-item">
                 <i class="fas fa-clock-rotate-left"></i>
@@ -1917,7 +1926,6 @@
               </span>
             </div>
 
-            <!-- 搜索 / 排序 / 视图切换 -->
             <div class="history-toolbar">
               <div class="history-search-box">
                 <i class="fas fa-magnifying-glass"></i>
@@ -1940,7 +1948,6 @@
               </div>
             </div>
 
-            <!-- 类型筛选 -->
             <div class="format-tabs-row">
               <button
                 class="format-chip-btn"
@@ -1953,7 +1960,6 @@
               </button>
             </div>
 
-            <!-- 批量操作栏 -->
             <div class="history-batch-bar">
               <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 700;">
                 <input type="checkbox" :checked="historyAllSelected" @change="toggleHistorySelectAll" style="accent-color: var(--primary); cursor: pointer;" />
@@ -1979,7 +1985,6 @@
               </button>
             </div>
 
-            <!-- 历史内容区 -->
             <div v-if="historySorted.length">
               <div class="history-group" v-for="(group, gIdx) in historyGroups" :key="'group-' + gIdx">
                 <div class="history-group-label" v-if="group.label">
@@ -2008,7 +2013,15 @@
                     <div class="history-grid-name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
                     <div class="history-grid-actions">
                       <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
-                      <button class="history-mini-btn" @click.stop="historyDownload(item)" title="下载"><i class="fas fa-download"></i></button>
+                      <!-- 优化后：网格视图下载反馈 -->
+                      <button
+                        class="history-mini-btn"
+                        :disabled="isDownloading(item)"
+                        @click.stop="historyDownload(item)"
+                        title="下载"
+                      >
+                        <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                      </button>
                       <button class="history-mini-btn danger" @click.stop="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
@@ -2043,7 +2056,15 @@
                     <div class="history-row-actions">
                       <button class="mini-icon-btn" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button class="mini-icon-btn" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
-                      <button class="mini-icon-btn" @click="historyDownload(item)" title="下载"><i class="fas fa-download"></i></button>
+                      <!-- 优化后：列表视图下载反馈 -->
+                      <button
+                        class="mini-icon-btn"
+                        :disabled="isDownloading(item)"
+                        @click="historyDownload(item)"
+                        title="下载"
+                      >
+                        <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                      </button>
                       <button class="mini-icon-btn danger" @click="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
@@ -2089,7 +2110,15 @@
           </div>
           <div style="margin-top: 14px; display: flex; gap: 8px;">
             <button class="btn-pill-action" @click="copyPreviewLink"><i class="fas fa-copy"></i> 复制直链</button>
-            <button class="action-pill-btn" @click="downloadPreviewFile"><i class="fas fa-download"></i> 下载</button>
+            <!-- 优化后：预览弹窗下载反馈 -->
+            <button
+              class="action-pill-btn"
+              :disabled="isDownloading(previewData)"
+              @click="downloadPreviewFile"
+            >
+              <i :class="isDownloading(previewData) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+              <span>{{ isDownloading(previewData) ? '拉取中...' : '下载' }}</span>
+            </button>
             <button class="action-pill-btn" @click="closePreview"><i class="fas fa-xmark"></i> 关闭</button>
           </div>
         </div>
@@ -2102,12 +2131,12 @@
       </div>
     </div>
 
-    <!-- 更换为国内加速 CDN，解决部分网络无法加载问题 -->
+    <!-- 国内加速 CDN -->
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/2.6.14/vue.min.js"></script>
     <script>
       const LOCAL_PREVIEW_PAGE = "/preview.html";
 
-      /* ===== 递归目录树节点组件（集成重命名/删除及文件数显示） ===== */
+      /* ===== 递归目录树节点组件 ===== */
       Vue.component("folder-node", {
         name: "folder-node",
         props: {
@@ -2225,6 +2254,9 @@
           },
           uploadLimits: {},
 
+          /* ===== 下载队列追踪字典 ===== */
+          downloadingUrls: {},
+
           /* ===== 本地历史面板状态 ===== */
           historySearch: "",
           historySort: "time-desc",
@@ -2304,7 +2336,6 @@
             return this.formatSize(maxBytes);
           },
 
-          /* ===== 本地历史计算属性 ===== */
           historyStats() {
             const list = this.uploadHistory || [];
             const totalSize = list.reduce((sum, it) => sum + (Number(it.size) || 0), 0);
@@ -2531,8 +2562,6 @@
               this.uploadFolderCreating = false;
             }
           },
-
-          /* ===== 目录重命名与删除操作 ===== */
           async handleRenameFolder(node) {
             const newPath = window.prompt(`重命名目录：\n"${node.path}"\n\n请输入新路径（包含完整路径）：`, node.path);
             if (newPath === null) return;
@@ -2563,7 +2592,6 @@
               this.showToast(err.message, "error");
             }
           },
-
           async handleDeleteFolder(node) {
             if (!window.confirm(`⚠️ 确定要删除目录 "${node.path}" 及其所有子目录和文件吗？\n\n此操作不可撤销！`)) return;
 
@@ -2585,7 +2613,6 @@
               this.showToast(err.message, "error");
             }
           },
-
           async fetchUploadFolders(force = false) {
             if (this.isGuest) {
               this.uploadFoldersLoading = false;
@@ -2608,7 +2635,6 @@
             }
           },
 
-          /* ===== 原有上传功能 ===== */
           triggerUpload() {
             this.$refs.fileInput.click();
           },
@@ -2848,30 +2874,63 @@
           },
           clearResults() { this.uploadedFiles = []; },
           removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); },
+
           /* =========================================================
-             统一「触发浏览器下载」入口
-             修复：历史记录里点下载要等十来秒才开始下载。
-             原因：带 download 属性的 <a> 如果同时设了 target="_blank" /
-             rel="noopener"，浏览器会把它当成「开新标签页」的导航，而不是
-             一次同源直链的直接下载 —— 于是先走新浏览上下文的创建 + 导航，
-             等服务器响应头回来后才真正开始下载。后端 /file/:id 是代理
-             转发（Telegram 等），首字节本来就要数秒，叠加起来就成了
-             「点了没反应，十秒后突然开始下载」。交付结果里的下载没有
-             target，所以一直是即点即下，两者行为不一致。
-             做法：与交付结果保持一致 —— 同源直链、默认 _self、挂到文档
-             再 click（兼容移动端 WebView），用完立即摘除。
+             下载中状态判断与触发逻辑（Fetch + Blob 增强版）
              ========================================================= */
-          triggerDownload(url, fileName) {
+          isDownloading(item) {
+            if (!item) return false;
+            const url = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
+            return !!this.downloadingUrls[url];
+          },
+          async triggerDownload(url, fileName) {
             if (!url) return;
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = fileName || "";
-            a.style.display = "none";
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-              if (a.parentNode) a.parentNode.removeChild(a);
-            }, 0);
+            if (this.downloadingUrls[url]) {
+              this.showToast("文件正在拉取中，请勿重复点击", "info");
+              return;
+            }
+
+            // 1. 标记下载中状态，消除等待盲区
+            this.$set(this.downloadingUrls, url, true);
+            this.showToast(`正在从节点获取 [${fileName || "文件"}]，请稍候...`, "info");
+
+            try {
+              // 2. 走 fetch 后台拉取流式响应
+              const res = await fetch(url, { credentials: "include" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+              // 3. 转成本地内存 Blob，瞬间触发系统下载框
+              const blob = await res.blob();
+              const blobUrl = URL.createObjectURL(blob);
+
+              const a = document.createElement("a");
+              a.href = blobUrl;
+              a.download = fileName || "download";
+              a.style.display = "none";
+              document.body.appendChild(a);
+              a.click();
+
+              setTimeout(() => {
+                if (a.parentNode) a.parentNode.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+              }, 1000);
+
+              this.showToast(`[${fileName || "文件"}] 已开始保存`, "success");
+            } catch (err) {
+              // 4. 出现跨域或大文件异常时，优雅回退到原生 a 标签下载
+              console.warn("Fetch 流拉取失败，回退原生下载通道：", err);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = fileName || "";
+              a.style.display = "none";
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                if (a.parentNode) a.parentNode.removeChild(a);
+              }, 0);
+            } finally {
+              this.$delete(this.downloadingUrls, url);
+            }
           },
           downloadFile(file) {
             this.triggerDownload(this.getCleanFileUrl(file), this.getDisplayName(file));
@@ -2914,9 +2973,7 @@
             }
           },
 
-          /* =========================================================
-             ===== 本地历史：核心方法（全面升级） =====
-             ========================================================= */
+          /* ===== 本地历史管理 ===== */
           persistHistory() {
             try {
               const serialized = this.uploadHistory.map((it) => ({
@@ -2931,7 +2988,6 @@
               }));
               localStorage.setItem("uploadHistory", JSON.stringify(serialized));
             } catch (e) {
-              // 存储空间不足时自动裁剪一半后重试
               try {
                 this.uploadHistory = this.uploadHistory.slice(
                   0,
@@ -2975,7 +3031,6 @@
               uploadTime: Date.now(),
               selected: false,
             };
-            // 去重：同一地址只保留最新一条
             const dupIdx = this.uploadHistory.findIndex(
               (it) => this.getCleanFileUrl(it) === url
             );
@@ -3030,9 +3085,6 @@
             this.openPreview(item);
           },
           historyDownload(item) {
-            // 修复：原来这里多了 target="_blank" + rel="noopener"，
-            // 把同源直链的下载变成了「开新标签页」的慢路径，导致点击后
-            // 要等十秒左右才开始下载。改为与交付结果一致的统一下载入口。
             this.triggerDownload(this.getCleanFileUrl(item), this.getDisplayName(item));
           },
           addHistorySelectedToResults() {
@@ -3107,7 +3159,6 @@
             };
             return map[mode] || mode || "";
           },
-          /* ===== 本地历史核心方法结束 ===== */
 
           getDisplayName(item) { return item.fileName || item.name || "未命名文件"; },
           getCleanFileUrl(item) {
@@ -3210,10 +3261,7 @@
             const ex = localStorage.getItem("folderTreeExpanded");
             if (ex) this.expandedFolders = JSON.parse(ex) || {};
 
-            // 清理旧版本遗留的压缩配置（该功能已下线）
             try { localStorage.removeItem("imageCompressSettings"); } catch (e) {}
-
-            // 全面升级后的本地历史加载
             this.loadHistory();
           } catch (e) {}
 
