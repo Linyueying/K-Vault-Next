@@ -4,7 +4,7 @@
 
 # K-Vault · 一云
 
-> 免费图片 / 文件托管方案，支持 **Cloudflare Pages + Docker** 双模部署，兼容 Telegram、R2、S3、Discord、HuggingFace、WebDAV、GitHub 七种存储后端
+> 免费图片 / 文件托管方案，基于 **Cloudflare Pages** 部署，兼容 Telegram、R2、S3、Discord、HuggingFace、WebDAV、GitHub 七种存储后端
 
 [English](README-EN.md) | **中文**
 
@@ -18,14 +18,15 @@
 
 ## 这是什么
 
-K-Vault 是一个以 **Telegram 为核心**的 Serverless 聚合云盘 / 图床：上传的文件进入你自选的存储后端，元数据落在 Cloudflare KV（或 Docker 下的 SQLite），对外提供直链、预览、目录管理、API Token 与机器可调用的 API v1。
+K-Vault 是一个以 **Telegram 为核心**的 Serverless 聚合云盘 / 图床：上传的文件进入你自选的存储后端，元数据落在 Cloudflare KV，对外提供直链、预览、目录管理、API Token 与机器可调用的 API v1。
 
-它有两种正式部署形态，共用同一套根目录静态页面：
+本项目**只提供一种部署形态**：
 
 | 形态 | 运行方式 | 适合场景 |
 | :--- | :--- | :--- |
 | **Cloudflare Pages** | 根目录静态页 + `functions/` Pages Functions | 免费额度内零成本、边缘加速、全球可用 |
-| **Docker 自托管** | Nginx 静态页 + `server/` Node.js/Hono 运行时 | VPS / NAS / 内网、长期自托管、不受 CF 额度限制 |
+
+> Docker / Nginx 自托管部署已从本仓库移除。`server/` 目录作为上游 Node 运行时源码保留（供参考与二次开发），**不再是受支持的部署目标**，其专属能力（动态存储配置管理、审计日志查询、签名分享链接）在 Pages 部署下不可用。
 
 ---
 
@@ -68,7 +69,7 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 - **目录树** — 新建 / 重命名 / 移动 / 递归删除目录，文件批量移动
 - **收藏与重命名** — 单文件收藏标记、显示名重命名（不改动公开直链）
 - **黑白名单** — 文件级 Block / White 标记，命中后直链自动跳转到拦截提示页
-- **多种视图** — 网格、列表、瀑布流
+- **多种视图** — 网格、列表
 - **存储状态面板** — 各后端连通性、上传上限、访客配置
 - **前端 UI 设计配置（跨端同步）** — 背景图、卡片毛玻璃、动态背景特效，可写回服务端全站生效
 
@@ -85,10 +86,8 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 
 ### 部署与运维
 
-- **双模部署** — 同一套前端，Cloudflare Pages 或 Docker
-- **动态存储配置管理** — 通过 API 新增/编辑/删除/测试存储配置、设置默认后端
-- **可插拔设置存储（Docker）** — `sqlite`（默认）或 Redis 协议后端（Upstash / Redis / KVrocks）
-- **GitHub Actions** — 主分支 / Tag 自动构建并推送镜像
+- **单一部署形态** — Cloudflare Pages（静态页 + Pages Functions），无构建步骤
+- **GitHub Actions** — 仅保留 Pages 部署说明与 CI 测试工作流
 
 ---
 
@@ -115,12 +114,12 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 
 ### 2. 安全加固
 
-上游与 Pages/Docker 两端统一收敛了管理面鉴权：
+上游与 Pages / Node 两端统一收敛了管理面鉴权：
 
 | 加固项 | 说明 |
 | :--- | :--- |
-| **`POST /api/upload-from-url` 补上访客门槛** | 此前该接口在 Cloudflare Pages 上**完全无鉴权**，任何人可让服务端拉取任意远程 URL 并写入你的存储后端。现与 Docker 行为对齐：管理员放行，访客需 `GUEST_UPLOAD=true` 且满足大小/次数限制 |
-| **`/api/manage/**` 改为 fail-closed** | 此前未配置 `BASIC_USER` / `BASIC_PASS` 时**整个管理接口对公网开放**（含删除、重命名、移动、黑白名单）。现统一返回 `503 ADMIN_AUTH_NOT_CONFIGURED`，与 `/api/admin/**` 策略一致；Docker 侧同策略覆盖 `/api/storage/**`、`/api/settings`、`POST /api/ui-config`、`POST /api/share/sign` |
+| **`POST /api/upload-from-url` 补上访客门槛** | 此前该接口在 Cloudflare Pages 上**完全无鉴权**，任何人可让服务端拉取任意远程 URL 并写入你的存储后端。现与 Node 运行时行为对齐：管理员放行，访客需 `GUEST_UPLOAD=true` 且满足大小/次数限制 |
+| **`/api/manage/**` 改为 fail-closed** | 此前未配置 `BASIC_USER` / `BASIC_PASS` 时**整个管理接口对公网开放**（含删除、重命名、移动、黑白名单）。现统一返回 `503 ADMIN_AUTH_NOT_CONFIGURED`，与 `/api/admin/**` 策略一致；保留的 Node 运行时同样覆盖 `/api/storage/**`、`/api/settings`、`POST /api/ui-config`、`POST /api/share/sign` |
 | **修复 `/api/manage/login` 不可达** | 该登录入口此前被同目录中间件拦截，导致 `gallery.html` 的 401 恢复路径落到纯文本 401 而非登录页。现豁免该路由，未登录 302 跳 `/login.html`，已登录跳 `/admin.html` |
 | **`GET /api/status` 分级返回** | 未登录访客只拿到「各后端是否可用 + 访客配置 + 上传上限 + 能力清单」，且**不再触发任何后端连通性探测**；连通性结果、后端错误详情、机器人身份等诊断信息仅管理员可见 |
 
@@ -144,7 +143,6 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 | 删除 `functions/utils/middleware.js` | 遥测模块本体（Sentry 插件封装、标签/事务上报、采样率拉取）全部移除 |
 | 删除 `functions/_middleware.js`、`functions/api/_middleware.js`、`functions/file/_middleware.js` | 这三个文件原本只是挂载遥测中间件的空转链，遥测移除后无任何作用 |
 | 清理 `functions/upload.js` | 移除 `errorHandling` / `telemetryData` 的导入与两处无效调用（其返回值原本就被丢弃） |
-| 清理 `admin-imgtc.html` | 移除前端的 `js.sentry-cdn.com` 上报脚本（新版 `admin.html` 本就没有） |
 | 移除 `package.json` 依赖 | 删除 `@cloudflare/pages-plugin-sentry`、`@sentry/tracing` |
 | 同步 `package-lock.json` | 连带删除 6 个锁条目（含 4 个 `@sentry/*` 传递依赖），保持 `npm ci` 可用的锁一致性 |
 
@@ -167,31 +165,65 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 
 ---
 
+### 5. 本次改造：移除 Docker 部署 + 补齐缺失面板
+
+**（1）只保留 Cloudflare Pages 部署**
+
+| 动作 | 内容 |
+| :--- | :--- |
+| 删除部署产物 | `Dockerfile`、`docker-compose.yml`、`.dockerignore`、`docker/`（Nginx 配置与 entrypoint）、`server/.dockerignore` |
+| 删除 Docker 文档 | `README-DOCKER.md`、`README-DOCKER-EN.md`，并清理 `README.md` / `docs/` 中的 Docker 章节 |
+| 删除镜像工作流 | `.github/workflows/docker-image.yml`、`.github/workflows/docker-smoke.yml` |
+| 删除 Docker 脚本 | `scripts/bootstrap-env.js`、`scripts/bootstrap-env.sh`、`scripts/docker-ci-smoke.js`、`scripts/docker-storage-doctor.js`、`scripts/storage-regression.js` |
+| 清理 npm 脚本 | 移除全部 `docker:*` 与 `regression:storage` |
+| 保留 | `server/` Node 运行时源码（不再是受支持的部署目标）、`docs/`、`test/` 中的服务端测试 |
+| 回归保护 | `test/deployment-contract.test.js` 新增断言：上表文件必须不存在，且 `package.json` 不得再有 `docker:` 脚本 |
+
+**（2）删除旧版后台页面**
+
+`admin-imgtc.html`（Element UI 版后台）、`admin-waterfall.html`（瀑布流后台）及配套的 `admin-imgtc.css` 已删除。这两个页面此前就是**孤儿页**（没有任何页面链接过去），删除后后台能力统一收敛到 `admin.html`。
+
+**（3）新上传时可直接设置有效期 / 密码 / 下载次数 / 短链**
+
+`/api/v1/upload` 早就支持 `expires_in`、`password`、`max_downloads`、`slug`，但它们只挂在需要 Token 的 API 上，而网页上传走的 `POST /upload` **完全不接受这些字段**，所以网页端一直用不了。本次补齐：
+
+| 改动 | 文件 |
+| :--- | :--- |
+| 抽出共享实现（字段解析、校验、元数据合并、短链映射） | 新增 `functions/utils/share-options.js` |
+| 网页直传支持四个字段（仅管理员；访客被拒，避免短链抢占） | `functions/upload.js` |
+| 分片上传链路同样支持（初始化时预留短链，合并时写元数据） | `functions/api/chunked-upload/init.js`、`complete.js` |
+| 上传抽屉新增「分享设置」标签页 | `index.html` |
+| 受密码保护文件：内联密码表单 + 自动重试；410 明确提示过期 / 超限 | `preview.html` |
+
+> 若 Telegram 关闭了元数据写入（`TELEGRAM_METADATA_MODE=off` 或 `TELEGRAM_SKIP_METADATA=1`），这四个字段就无处存放 —— 此时请求会被**显式拒绝**（409），而不是给出一个看似受保护、实际没有保护的链接。
+
+**（4）补齐后台面板**
+
+| 面板 | 状态 | 实现 |
+| :--- | :--- | :--- |
+| API Token 管理 | ✅ 已补齐 | `admin.html`「工具 → API Token 管理」：列出 / 新建 / 编辑（权限、策略、有效期、启停）/ 轮换 / 删除；密钥仅在创建与轮换时显示一次 |
+| 文本粘贴（Pastebin） | ✅ 已补齐 | 新增 `paste.html` + 会话鉴权端点 `functions/api/manage/paste.js`、`functions/api/manage/paste/[id].js`（复用 `utils/paste-store.js`） |
+| 前端 UI 设计面板 | ❌ 仍未提供 | 读写能力保留在 `theme.js` 的 `UIDesignManager` 与 `/api/ui-config` 中 |
+
+---
+
 ## 已知差异 / 待补齐
 
-前端重写**不是纯增益**。上游默认后台 `admin.html` 中有以下面板，重写后的默认后台**尚未包含**：
-
-| 面板 | 上游 `admin.html` | 本项目 `admin.html` | 后端接口 |
+| 能力 | 上游 `admin.html` | 本项目 `admin.html` | 后端接口 |
 | :--- | :---: | :---: | :--- |
-| API Token 管理 | ✅ | ❌ | 已实现（`/api/admin/tokens*`） |
-| 文件黑白名单 | ✅ | ❌ | 已实现（`/api/manage/block|white/:id`） |
-| 前端 UI 设计面板 | ✅ | ❌ | 已实现（`GET/POST /api/ui-config`） |
-| 到 `admin-imgtc.html` / `admin-waterfall.html` 的入口 | ✅ | ❌ | — |
+| API Token 管理 | ✅ | ✅ 已补齐 | `/api/admin/tokens*` |
+| 文本粘贴 | ❌（仅 API） | ✅ 已补齐（`paste.html`） | `/api/manage/paste*`、`/api/v1/paste*` |
+| 上传有效期 / 密码 / 下载次数 / 短链 | ❌（仅 API） | ✅ 已补齐 | `POST /upload`、分片上传 |
+| 文件黑白名单 | ✅ | ❌ | `/api/manage/block|white/:id` |
+| 前端 UI 设计面板 | ✅ | ❌ | `GET/POST /api/ui-config` |
 
-需要注意的是：**接口与工具函数都已就绪，缺的只是默认后台的入口**。其中黑白名单在 `admin-imgtc.html`（Element UI 版后台，文件完整保留）中仍可使用，只是新版 `admin.html` 不再链接过去；UI 设计配置的读写能力也在 `theme.js` 的 `UIDesignManager` 中保留。
-
-因此当前状态下：
-
-- 想用 Token 管理 / UI 设计面板 → 暂时通过 API 调用，或参考上游 `admin.html` 自行补 UI
-- 想用黑白名单 → 直接访问 `admin-imgtc.html`
-
-如果你更希望「功能与上游对齐」而不是「体积更小」，这几个面板可以逐步移植回新版后台。
+**黑白名单是目前唯一「后端就绪、前端完全没有入口」的能力**：新版 `admin.html` 从未实现它，此前依赖 `admin-imgtc.html` 兜底，而该页面已按本次要求删除。如需恢复，可在 `admin.html` 的卡片操作与批量操作里调用 `/api/manage/block/:id` 与 `/api/manage/white/:id` 补上。
 
 ---
 
 ## 快速开始
 
-### 方式一：Cloudflare Pages 部署
+### Cloudflare Pages 部署
 
 1. Fork 本仓库
 2. Cloudflare Dashboard → Workers & Pages → 创建 Pages 项目 → 连接本仓库
@@ -200,23 +232,7 @@ katelya77/K-Vault  ──►  Linyueying/K-Vault  ──►  本项目
 5. 配置环境变量（至少 `TG_Bot_Token`、`TG_Chat_ID`；公网部署**必须**设 `BASIC_USER` / `BASIC_PASS`）
 6. 部署完成后访问 `/` 上传、`/admin.html` 管理
 
-### 方式二：Docker 部署
-
-```bash
-git clone <本仓库地址>
-cd <仓库目录>
-cp .env.example .env   # 或运行 npm run docker:init-env 生成
-docker compose up -d
-```
-
-访问 `http://<你的地址>:8080`。
-
-> ⚠️ **注意**：`docker-compose.yml` 默认拉取上游镜像 `ghcr.io/katelya77/k-vault:latest`。若要使用本仓库的构建产物，请将其改为你自己的镜像地址，或本地构建：
->
-> ```bash
-> docker build -t k-vault:local .
-> # 然后在 .env 中设置 KVAULT_IMAGE=k-vault:local
-> ```
+> 本仓库不提供 Docker / Nginx 自托管部署路径：`Dockerfile`、`docker-compose.yml`、`docker/`、`.env.example` 对应的容器编排脚本均已移除。根目录的 `.env.example` 仅作为保留的 `server/` Node 运行时的配置模板。
 
 ---
 
@@ -224,13 +240,12 @@ docker compose up -d
 
 | 页面 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| 首页 / 上传 | `/` | 批量上传、拖拽、粘贴上传 |
-| 管理后台 | `/admin.html` | 文件管理、目录树、收藏、存储状态 |
-| 旧版后台 | `/admin-imgtc.html` | Element UI 版后台，含黑白名单批量操作 |
-| 瀑布流后台 | `/admin-waterfall.html` | 瀑布流视图 |
+| 首页 / 上传 | `/` | 批量上传、拖拽、粘贴上传；抽屉内可设置有效期 / 密码 / 下载次数 / 自定义短链 |
+| 管理后台 | `/admin.html` | 文件管理、目录树、收藏、存储状态、**API Token 管理** |
+| 文本粘贴 | `/paste.html` | Pastebin：创建 / 列表 / 查看 / 删除，支持语言标记、过期与访问密码 |
 | 图片浏览 | `/gallery.html` | 影像画廊 |
 | WebDAV | `/webdav.html` | WebDAV 上传 / 状态检查 / URL 上传 |
-| 文件预览 | `/preview.html` | 多格式预览（图片、视频、音频、PDF、docx、txt 等） |
+| 文件预览 | `/preview.html` | 多格式预览（图片、视频、音频、PDF、docx、txt 等），受密码保护的文件会弹出密码输入 |
 | 登录 | `/login.html` | 后台登录 |
 | 拦截提示 | `/block-img.html`、`/whitelist-on.html` | 黑名单 / 白名单模式提示页 |
 
@@ -239,25 +254,25 @@ docker compose up -d
 ## 目录结构
 
 ```
-├── index.html                  # 首页 / 上传
-├── admin.html                  # 管理后台（重写）
-├── admin-imgtc.html            # Element UI 版后台（含黑白名单）
-├── admin-waterfall.html        # 瀑布流后台
+├── index.html                  # 首页 / 上传（含分享设置抽屉）
+├── admin.html                  # 管理后台（重写，含 API Token 管理面板）
+├── paste.html                  # 文本粘贴（Pastebin）前端
 ├── gallery.html                # 影像画廊（重写）
 ├── webdav.html / preview.html / login.html
 ├── theme.css / theme.js        # 主题与全站 UI 设计配置
 ├── functions/                  # Cloudflare Pages Functions 后端
-│   ├── api/                    # auth / manage / admin / v1 / chunked-upload ...
-│   ├── file/[id].js            # 文件直链与黑白名单执行
+│   ├── api/                    # auth / manage（含 paste） / admin / v1 / chunked-upload ...
+│   ├── file/[id].js            # 文件直链、黑白名单、密码 / 过期 / 下载次数校验
+│   ├── utils/share-options.js  # 有效期 / 密码 / 下载次数 / 短链的共享实现
 │   └── s/[slug].js             # 短分享链
-├── server/                     # Docker 自托管后端（Hono）
+├── server/                     # 上游 Node 运行时（Hono）源码保留，非部署目标
 │   ├── app.js                  # 全部路由
 │   ├── lib/                    # 仓储层、存储适配器、鉴权、SSRF 防护
 │   └── db/                     # SQLite schema
-├── test/                       # 20 个测试文件
+├── test/                       # 测试（含部署契约与 Pages 上传路由回归）
 ├── docs/                       # OpenAPI、接入指南、完整配置参考
-├── scripts/                    # 环境引导、存储回归、Docker smoke
-└── docker/                     # Nginx 配置与 entrypoint
+├── scripts/                    # Cloudflare Pages R2 绑定排查
+└── .github/workflows/          # 仅 Pages 说明与 CI 测试
 ```
 
 ---
@@ -267,7 +282,6 @@ docker compose up -d
 | 文档 | 内容 |
 | :--- | :--- |
 | [docs/README-full-reference.md](docs/README-full-reference.md) | **完整配置参考**：全部环境变量、各存储后端详细配置步骤、API 使用指南、ShareX 配置、使用限制 |
-| [README-DOCKER.md](README-DOCKER.md) | Docker 部署详解 |
 | [docs/openapi.yaml](docs/openapi.yaml) | API v1 机器可读定义 |
 | [docs/agent-integration.md](docs/agent-integration.md) | Agent / 脚本接入指南 |
 | [docs/cloudflare-pages-r2.md](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |

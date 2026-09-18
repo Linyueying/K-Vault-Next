@@ -1227,6 +1227,74 @@
         justify-self: start;
       }
     }
+
+    /* ===== 访问密码门（受密码保护的文件） ===== */
+    .password-gate {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+      max-width: 380px;
+      padding: 28px 24px;
+      border-radius: var(--radius-lg, 16px);
+      background: var(--surface-1, rgba(255, 255, 255, 0.72));
+      border: 1px solid var(--glass-border-ice, rgba(148, 163, 184, 0.28));
+      box-shadow: var(--shadow-soft, 0 10px 30px rgba(15, 23, 42, 0.08));
+    }
+    .password-gate-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      color: var(--primary, #0ea5e9);
+      background: rgba(var(--primary-rgb, 14, 165, 233), 0.12);
+    }
+    .password-gate-title { font-size: 1rem; }
+    .password-gate-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted, #64748b);
+      line-height: 1.5;
+    }
+    .password-gate-form {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      margin-top: 6px;
+    }
+    .password-gate-form input {
+      flex: 1;
+      min-width: 0;
+      font-family: inherit;
+      font-size: 0.86rem;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--glass-border-ice, rgba(148, 163, 184, 0.28));
+      background: var(--surface-2, rgba(255, 255, 255, 0.9));
+      color: inherit;
+      outline: none;
+    }
+    .password-gate-form input:focus { border-color: var(--primary, #0ea5e9); }
+    .password-gate-form button {
+      font-family: inherit;
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: #fff;
+      background: var(--primary, #0ea5e9);
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .password-gate-form button:disabled { opacity: 0.6; cursor: progress; }
+    .password-gate-error {
+      font-size: 0.78rem;
+      color: #ef4444;
+    }
   </style>
   <link rel="stylesheet" href="/mobile-refactor.css">
 </head>
@@ -1318,6 +1386,11 @@
       const params = new URLSearchParams(window.location.search);
       const state = {
         fileUrl: "",
+        /* 带密码的请求地址：所有对 /file/:id 的读取都用它，state.fileUrl 保持干净用于复制直链 */
+        authUrl: "",
+        password: String(params.get("password") || ""),
+        needsPassword: false,
+        linkExpired: false,
         fileName: "",
         fileSize: Number(params.get("size") || 0),
         contentType: "",
@@ -1345,7 +1418,7 @@
 
       els.copyBtn.addEventListener("click", copyDirectLink);
       els.openBtn.addEventListener("click", () => {
-        if (state.fileUrl) window.open(state.fileUrl, "_blank", "noopener,noreferrer");
+        if (state.authUrl) window.open(state.authUrl, "_blank", "noopener,noreferrer");
       });
       els.downloadBtn.addEventListener("click", downloadFile);
 
@@ -1358,8 +1431,20 @@
             showStatus("缺少预览参数", "请提供 file、f 或 url 参数。", "error");
             return;
           }
+          setFilePassword(state.password);
 
           await hydrateFileInfo();
+
+          // 后端在读取时强制校验：401 = 需要密码，410 = 已过期 / 已达下载上限
+          if (state.needsPassword) {
+            renderPasswordGate();
+            return;
+          }
+          if (state.linkExpired) {
+            showStatus("链接已失效", "该分享链接已过期或已达下载次数上限。", "error");
+            return;
+          }
+
           state.extension = getExtension(state.fileName) || getExtension(urlPathName(state.fileUrl));
           state.kind = getPreviewKind(state.extension, state.contentType);
           updateHeader();
@@ -1412,10 +1497,24 @@
         state.fileSize = Number(metadata?.fileSize || hintedSize || state.fileSize || 0);
 
         try {
-          const response = await fetch(state.fileUrl, {
+          const response = await fetch(state.authUrl || state.fileUrl, {
             method: "HEAD",
             credentials: "include"
           });
+          if (response.status === 401) {
+            state.needsPassword = true;
+            return;
+          }
+          if (response.status === 410) {
+            state.linkExpired = true;
+            return;
+          }
+          if (response.status === 403 && state.password) {
+            // 带了密码仍被拒：视为密码错误，交回给密码面板
+            state.needsPassword = true;
+            state.password = "";
+            return;
+          }
           if (response.ok || response.status === 206) {
             state.contentType = response.headers.get("Content-Type") || "";
             const contentLength = Number(response.headers.get("Content-Length") || 0);
@@ -1429,6 +1528,135 @@
         } catch (error) {
           console.warn("HEAD request skipped:", error);
         }
+      }
+
+      /**
+       * 把访问密码附加到同源 /file/:id 地址上；跨域地址一律不加，避免把密码泄露给第三方。
+       */
+      function buildAuthedUrl(url, password) {
+        if (!password) return url;
+        try {
+          const parsed = new URL(url, window.location.origin);
+          if (parsed.origin !== window.location.origin) return url;
+          if (!parsed.pathname.startsWith("/file/")) return url;
+          parsed.searchParams.set("password", password);
+          return parsed.href;
+        } catch {
+          return url;
+        }
+      }
+
+      function setFilePassword(password) {
+        state.password = String(password || "");
+        state.authUrl = buildAuthedUrl(state.fileUrl, state.password);
+      }
+
+      /** 所有对文件内容的读取都走这里，统一把 401/410 变成可交互的提示。 */
+      async function fetchFileContent(label) {
+        const response = await fetch(state.authUrl || state.fileUrl, { credentials: "include" });
+        if (response.status === 401 || response.status === 403) {
+          state.password = "";
+          state.authUrl = state.fileUrl;
+          renderPasswordGate();
+          throw new Error("该文件需要访问密码");
+        }
+        if (response.status === 410) {
+          showStatus("链接已失效", "该分享链接已过期或已达下载次数上限。", "error");
+          throw new Error("链接已失效");
+        }
+        if (!response.ok) throw new Error(`${label}读取失败：HTTP ${response.status}`);
+        return response;
+      }
+
+      /**
+       * 密码门：内联表单而不是 window.prompt —— 预览页经常被嵌在 iframe 里，
+       * 原生 prompt 在嵌入场景下可能被浏览器拦截。
+       */
+      function renderPasswordGate(message = "") {
+        els.viewer.className = "viewer";
+        clearViewer();
+
+        const gate = document.createElement("div");
+        gate.className = "password-gate";
+
+        const icon = document.createElement("div");
+        icon.className = "password-gate-icon";
+        icon.innerHTML = '<i class="fas fa-lock"></i>';
+        gate.appendChild(icon);
+
+        const title = document.createElement("strong");
+        title.className = "password-gate-title";
+        title.textContent = "该文件需要访问密码";
+        gate.appendChild(title);
+
+        const desc = document.createElement("span");
+        desc.className = "password-gate-desc";
+        desc.textContent = message || "请输入分享者提供的访问密码后重试。";
+        gate.appendChild(desc);
+
+        const form = document.createElement("form");
+        form.className = "password-gate-form";
+
+        const input = document.createElement("input");
+        input.type = "password";
+        input.autocomplete = "current-password";
+        input.placeholder = "访问密码";
+        form.appendChild(input);
+
+        const submit = document.createElement("button");
+        submit.type = "submit";
+        submit.textContent = "解锁预览";
+        form.appendChild(submit);
+        gate.appendChild(form);
+
+        const errorBox = document.createElement("span");
+        errorBox.className = "password-gate-error";
+        errorBox.hidden = true;
+        gate.appendChild(errorBox);
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const value = input.value;
+          if (!value) {
+            errorBox.hidden = false;
+            errorBox.textContent = "请输入密码。";
+            return;
+          }
+
+          setFilePassword(value);
+          submit.disabled = true;
+          errorBox.hidden = true;
+
+          let probe = null;
+          try {
+            probe = await fetch(state.authUrl, { method: "HEAD", credentials: "include" });
+          } catch (error) {
+            console.warn("Password probe failed:", error);
+          }
+
+          if (probe && (probe.status === 401 || probe.status === 403)) {
+            setFilePassword("");
+            submit.disabled = false;
+            errorBox.hidden = false;
+            errorBox.textContent = "密码不正确，请重试。";
+            input.select();
+            return;
+          }
+          if (probe && probe.status === 410) {
+            showStatus("链接已失效", "该分享链接已过期或已达下载次数上限。", "error");
+            return;
+          }
+
+          state.needsPassword = false;
+          clearViewer();
+          state.extension = getExtension(state.fileName) || getExtension(urlPathName(state.fileUrl));
+          state.kind = getPreviewKind(state.extension, state.contentType);
+          updateHeader();
+          await renderPreview();
+        });
+
+        els.viewer.appendChild(gate);
+        input.focus();
       }
 
       async function fetchFileInfo(fileId) {
@@ -1666,7 +1894,7 @@
         const shell = document.createElement("div");
         shell.className = "enhanced-shell";
         const viewer = document.createElement("flyfish-file-viewer");
-        viewer.setAttribute("src", state.fileUrl);
+        viewer.setAttribute("src", state.authUrl || state.fileUrl);
         viewer.setAttribute("theme", "light");
         viewer.setAttribute("toolbar-position", "bottom-right");
         viewer.setAttribute("filename", state.fileName);
@@ -1722,7 +1950,7 @@
         const image = document.createElement("img");
         image.className = "preview-image";
         image.alt = state.fileName;
-        image.src = state.fileUrl;
+        image.src = state.authUrl || state.fileUrl;
         image.decoding = "async";
         image.onerror = () => showStatus("图片加载失败", "文件不存在、无权限或浏览器不支持该图片格式。", "error");
         els.viewer.appendChild(image);
@@ -1738,7 +1966,7 @@
         video.playsInline = true;
         video.preload = "metadata";
         video.autoplay = state.autoplay;
-        video.src = state.fileUrl;
+        video.src = state.authUrl || state.fileUrl;
         video.onerror = () => showStatus("视频加载失败", "请确认文件为浏览器可播放的 mp4/webm/mov 编码，并且直链可访问。", "error");
         frame.appendChild(video);
         els.viewer.appendChild(frame);
@@ -1778,7 +2006,7 @@
         audio.controls = true;
         audio.preload = "metadata";
         audio.autoplay = state.autoplay;
-        audio.src = state.fileUrl;
+        audio.src = state.authUrl || state.fileUrl;
         audio.onerror = () => showStatus("音频加载失败", "请确认文件为浏览器可播放的 mp3/wav/ogg/m4a 编码，并且直链可访问。", "error");
         panel.append(head, wave, audio);
         els.viewer.appendChild(panel);
@@ -1789,7 +2017,7 @@
         const iframe = document.createElement("iframe");
         iframe.className = "preview-pdf";
         iframe.title = state.fileName;
-        iframe.src = `${state.fileUrl}#toolbar=1&navpanes=0&view=FitH`;
+        iframe.src = `${state.authUrl || state.fileUrl}#toolbar=1&navpanes=0&view=FitH`;
         els.viewer.appendChild(iframe);
       }
 
@@ -1800,8 +2028,7 @@
       }
 
       async function fetchText(label) {
-        const response = await fetch(state.fileUrl, { credentials: "include" });
-        if (!response.ok) throw new Error(`${label}读取失败：HTTP ${response.status}`);
+        const response = await fetchFileContent(label);
         return response.text();
       }
 
@@ -2101,8 +2328,7 @@
           return;
         }
         showStatus("正在读取压缩包目录", "仅在需要时解析目录，避免一次性展开大文件。");
-        const response = await fetch(state.fileUrl, { credentials: "include" });
-        if (!response.ok) throw new Error(`压缩包读取失败：HTTP ${response.status}`);
+        const response = await fetchFileContent("压缩包");
         const buffer = await response.arrayBuffer();
 
         if (ext === "zip" || ext === "jar") {
@@ -2295,8 +2521,7 @@
           return;
         }
 
-        const response = await fetch(state.fileUrl, { credentials: "include" });
-        if (!response.ok) throw new Error(`字体读取失败：HTTP ${response.status}`);
+        const response = await fetchFileContent("字体");
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
         const family = `KVaultPreviewFont${Date.now()}`;
@@ -2711,8 +2936,7 @@
         }
 
         showStatus("正在解析文档", "文档会在浏览器本地渲染，不会发送到外部预览服务。");
-        const response = await fetch(state.fileUrl, { credentials: "include" });
-        if (!response.ok) throw new Error(`文档读取失败：HTTP ${response.status}`);
+        const response = await fetchFileContent("文档");
 
         const zip = await loadZip(await response.arrayBuffer());
         if (kind === "docx") await renderDocx(zip);
@@ -3107,7 +3331,7 @@
       function downloadFile() {
         if (!state.fileUrl) return;
         const link = document.createElement("a");
-        link.href = state.fileUrl;
+        link.href = state.authUrl || state.fileUrl;
         link.download = state.fileName || "download";
         document.body.appendChild(link);
         link.click();

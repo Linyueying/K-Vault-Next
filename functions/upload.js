@@ -15,6 +15,14 @@ import {
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
 } from "./utils/telegram.js";
+import {
+  applyShareOptions,
+  extractUploadKey,
+  findShareSlugOwner,
+  hasShareOptions,
+  parseShareOptions,
+  validateShareOptions,
+} from "./utils/share-options.js";
 
 const MB = 1024 * 1024;
 
@@ -74,10 +82,38 @@ export async function onRequestPost(context) {
       }
     }
 
+    // Optional share settings: expiry / password / download cap / custom short
+    // link. Only administrators may set them, so a guest can neither squat a
+    // slug nor hand out a protected link. `/api/v1/upload` delegates the actual
+    // upload here and applies the very same fields itself afterwards, so that
+    // path is skipped to avoid writing the metadata twice.
+    const shareOptions =
+      isAdmin && !isApiTokenRequest ? parseShareOptions(formData) : null;
+
     const storageMode = String(formData.get("storageMode") || "telegram").toLowerCase();
     const uploadValidation = validateDirectUpload(storageMode, uploadFile.size);
     if (!uploadValidation.ok) {
       return errorResponse(uploadValidation.message, uploadValidation.status);
+    }
+
+    if (hasShareOptions(shareOptions)) {
+      const shareOptionError = validateShareOptions(shareOptions);
+      if (shareOptionError) {
+        return errorResponse(shareOptionError, 400);
+      }
+      if (shareOptions.slug && (await findShareSlugOwner(env, shareOptions.slug))) {
+        return errorResponse("自定义短链标识已被占用。", 409);
+      }
+      // Telegram can be configured to skip the KV metadata record
+      // (TELEGRAM_METADATA_MODE=off / TELEGRAM_SKIP_METADATA=1), and the share
+      // fields live in exactly that record. Reject up front instead of storing a
+      // file whose "protection" silently does not exist.
+      if (storageMode === "telegram" && !shouldWriteTelegramMetadata(env)) {
+        return errorResponse(
+          "当前 Telegram 元数据写入已关闭（TELEGRAM_METADATA_MODE=off 或 TELEGRAM_SKIP_METADATA=1），无法设置有效期 / 密码 / 下载次数 / 短链。请改用其他存储后端，或恢复元数据写入。",
+          409
+        );
+      }
     }
 
     let result;
@@ -130,6 +166,9 @@ export async function onRequestPost(context) {
           await incrementGuestCount(request, env);
         }
       }
+      if (result.ok && hasShareOptions(shareOptions)) {
+        return await attachShareOptions(env, result, shareOptions);
+      }
       return result;
     }
 
@@ -156,6 +195,55 @@ function errorResponse(message, status = 500) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/**
+ * Publish the requested share settings on a file that has just been uploaded.
+ *
+ * The per-backend uploader owns the KV record, so this step only merges the
+ * share fields into it; `functions/file/[id].js` enforces them on every read.
+ * It deliberately does not rewrite the uploader's response body — the browser
+ * UI already knows the slug it submitted and derives `/s/<slug>` itself.
+ *
+ * @param env - Cloudflare Pages environment (needs the `img_url` KV binding).
+ * @param response - Successful uploader response (`[{ "src": "/file/<key>" }]`).
+ * @param options - Parsed share options.
+ * @returns The original response, or an explicit error when the settings could
+ *   not be attached — failing loudly beats handing back a link the user
+ *   believes is protected when it is not.
+ */
+async function attachShareOptions(env, response, options) {
+  if (!env?.img_url) {
+    return errorResponse("当前部署缺少 KV 绑定，无法设置有效期 / 密码 / 短链。", 500);
+  }
+
+  let payload = null;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = null;
+  }
+
+  const key = extractUploadKey(payload);
+  if (!key) {
+    return errorResponse("无法定位刚上传的文件，分享设置未生效。", 502);
+  }
+
+  const record = await env.img_url.getWithMetadata(key);
+  if (!record?.metadata) {
+    return errorResponse(
+      "该存储未写入元数据（可能启用了低 KV 写入模式），无法设置有效期 / 密码 / 短链。",
+      409
+    );
+  }
+
+  try {
+    await applyShareOptions(env, key, record.metadata, options);
+  } catch (error) {
+    return errorResponse(error?.message || "写入分享设置失败。", 409);
+  }
+
+  return response;
 }
 
 function validateDirectUpload(storageMode, fileSize) {

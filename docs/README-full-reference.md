@@ -4,7 +4,7 @@
 
 # K-Vault
 
-> 免费图片/文件托管解决方案，支持 Cloudflare Pages + Docker 双模部署，并兼容多种存储后端
+> 免费图片/文件托管解决方案，基于 Cloudflare Pages 部署，并兼容多种存储后端
 
 [English](README-EN.md) | **中文**
 
@@ -44,37 +44,37 @@
 - **分片上传** - 支持最大 100MB 文件（建议配合 R2/S3/WebDAV/GitHub，Telegram 网页上传按平台限制处理）
 - **访客上传** - 可选的访客上传功能，支持文件大小和每日次数限制
 - **API Token 认证** - 支持 `curl` / ShareX / 脚本等程序化上传与调用
-- **多种视图** - 网格、列表、瀑布流多种管理界面
+- **多种视图** - 网格、列表多种管理界面
 - **存储分类** - 直观区分不同存储后端的文件
-- **双模部署** - 保留 Cloudflare Pages 部署，同时新增 Docker 自托管（`docker compose up -d`）
-- **动态存储配置管理** - 支持在管理端通过 API 对存储配置进行新增/编辑/删除/测试/设为默认
-- **可插拔设置存储（Docker）** - 基础站点设置可使用 `sqlite`（默认）或 Redis 协议后端（Upstash / Redis / KVrocks）
-- **前端路径简化** - 以根路径页面为主流程（`/`、`/admin.html`、`/webdav.html`）
-- **GitHub Actions 镜像构建** - 主分支/Tag 自动构建并推送单镜像 `ghcr.io/katelya77/k-vault`
+- **分享控制** - 上传时可设置有效期、访问密码、下载次数上限与自定义短链（`/s/<slug>`）
+- **文本粘贴** - 内置 Pastebin（`/paste.html`），支持语言标记、过期与访问密码
+- **单一部署** - 只保留 Cloudflare Pages 部署（静态页 + Pages Functions，无构建步骤）
+- **前端路径简化** - 以根路径页面为主流程（`/`、`/admin.html`、`/paste.html`、`/webdav.html`）
+- **GitHub Actions** - 仅保留 CI 测试与 Pages 部署说明
 
 
 ---
 
 ## 部署方式
 
-K-Vault 只保留两类正式部署方式：
+K-Vault 只保留一种正式部署方式：
 
-1. **Cloudflare Pages 部署**：使用 Cloudflare Pages 静态页面 + Pages Functions，适合免费额度、边缘函数、Cloudflare KV/R2 场景。
-2. **Docker 部署**：使用单镜像 `ghcr.io/katelya77/k-vault:latest`，适合 VPS/NAS/内网部署，也适合 WebDAV、S3、GitHub、HuggingFace 等多存储后端长期自托管。
+**Cloudflare Pages 部署**：使用 Cloudflare Pages 静态页面 + Pages Functions，适合免费额度、边缘函数、Cloudflare KV/R2 场景。
 
-两种部署方式使用同一套根目录页面和同一组主入口：
+> Docker / Nginx 自托管部署已从本仓库移除（`Dockerfile`、`docker-compose.yml`、`docker/`、镜像构建工作流及相关脚本均不再提供）。`server/` 目录作为上游 Node 运行时源码保留，仅供参考与二次开发，**不是受支持的部署目标**：其中依赖 SQLite/Redis 的能力（动态存储配置管理、审计日志查询、签名分享链接）在 Pages 部署下不可用。
+
+部署后的主入口：
 
 - 上传首页：`/`
 - 管理后台：`/admin.html`
+- 文本粘贴：`/paste.html`
 - WebDAV 页面：`/webdav.html`
 - 管理/API 接口：`/api/*`
 - 普通上传：`POST /upload`
 - API Token 上传：`/api/v1/upload`
-- 文件直链/分享：`/file/*`、`/share/*`、`/s/*`
+- 文件直链/分享：`/file/*`、`/s/*`
 
-Docker 版本由 Nginx 在容器内代理到 Node API，对外仍是一个端口，因此用户看到的 UI、管理后台、WebDAV 页面、API Token 上传和多存储配置流程应与 Cloudflare Pages 部署保持一致。
-
-### 方式一：Cloudflare Pages 部署
+### Cloudflare Pages 部署
 
 适合想使用 Cloudflare 免费托管、KV、R2 和 Pages Functions 的用户。
 
@@ -138,105 +138,34 @@ npm run pages:deploy -- --project-name <你的 Pages 项目名>
 - 构建成功但页面 404：Build output directory 不应填写 `dist` 或 `frontend/dist`，留空即可发布仓库根目录页面。
 - R2 `invalid jurisdiction`：这是 Cloudflare 绑定元数据问题，不是 K-Vault 上传代码问题，按 [Cloudflare Pages R2 绑定排查](docs/cloudflare-pages-r2.md) 处理。
 
-### 方式二：Docker 部署
+### 已移除：Docker / Nginx 自托管部署
 
-适合 VPS、NAS、内网和自托管场景。Docker 部署不依赖 Cloudflare Pages 运行时，单镜像内置静态页面、Nginx 反向代理和 Node API。
+本仓库不再提供 Docker 部署路径。以下内容已从仓库删除，请不要按旧文档操作：
 
-#### 最简单：一条 Docker 命令
+- `Dockerfile`、`docker-compose.yml`、`.dockerignore`、`docker/`（Nginx 配置与 entrypoint）
+- `README-DOCKER.md`、`README-DOCKER-EN.md`
+- `.github/workflows/docker-image.yml`、`.github/workflows/docker-smoke.yml`
+- `scripts/bootstrap-env.js`、`scripts/bootstrap-env.sh`、`scripts/docker-ci-smoke.js`、`scripts/docker-storage-doctor.js`、`scripts/storage-regression.js`
+- `package.json` 中的全部 `docker:*` 脚本
 
-不需要克隆仓库，也不需要本机安装 Node/npm：
+`server/`（Node + Hono 运行时）源码仍然保留，但**不是受支持的部署目标**；根目录 `.env.example` 也只是该运行时的配置模板，Pages 部署不使用它。依赖 SQLite/Redis 的能力（`/api/storage/**` 动态存储配置管理、`/api/admin/audit-logs` 审计日志查询、`POST /api/share/sign` 签名分享链接）在 Pages 部署下不存在。
 
-```bash
-docker volume create kvault_data
-docker run -d \
-  --name kvault \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -v kvault_data:/app/data \
-  ghcr.io/katelya77/k-vault:latest
-```
+### WebDAV 回归验证
 
-访问：
-
-- 上传首页：`http://<host>:8080/`
-- 管理后台：`http://<host>:8080/admin.html`
-- WebDAV 页面：`http://<host>:8080/webdav.html`
-- 健康检查：`http://<host>:8080/api/health`
-
-首次启动时，如果没有提供 `CONFIG_ENCRYPTION_KEY` 和 `SESSION_SECRET`，容器会自动生成并保存到数据卷的 `/app/data/runtime.env`。删除容器不会丢失这些密钥；删除数据卷才会丢失。
-
-公网部署时建议显式设置后台账号：
+部署完成后建议至少确认一次 WebDAV 连通性：
 
 ```bash
-docker run -d \
-  --name kvault \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -v kvault_data:/app/data \
-  -e BASIC_USER=admin \
-  -e BASIC_PASS='换成强密码' \
-  ghcr.io/katelya77/k-vault:latest
-```
-
-#### 推荐：Docker Compose
-
-如果你已经克隆了仓库，直接运行：
-
-```bash
-docker compose up -d
-```
-
-`docker-compose.yml` 默认拉取 `ghcr.io/katelya77/k-vault:latest`，`.env` 是可选的。需要固定账号、域名、默认存储或上传限制时再创建 `.env`：
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env` 后重启：
-
-```bash
-docker compose up -d
-```
-
-常用 Docker 环境变量：
-
-| 变量 | 说明 |
-| :--- | :--- |
-| `BASIC_USER` / `BASIC_PASS` | 后台登录账号。**管理接口 fail-closed：未配置时 `/api/manage/**`、`/api/storage/**` 等一律返回 503**，公网部署必须设置 |
-| `PUBLIC_BASE_URL` | 外部访问域名，用于生成回链和 webhook URL |
-| `DEFAULT_STORAGE_TYPE` | 默认存储类型：`telegram` / `r2` / `s3` / `discord` / `huggingface` / `webdav` / `github` |
-| `TG_BOT_TOKEN` + `TG_CHAT_ID` | Docker 下的 Telegram 默认存储变量 |
-| `R2_*` / `S3_*` / `WEBDAV_*` / `GITHUB_*` / `HF_*` | 其他存储后端配置 |
-| `UPLOAD_MAX_SIZE` / `CHUNK_SIZE` | 上传限制和分片大小 |
-| `WEB_PORT` | Compose 对外端口，默认 `8080` |
-
-Docker 下也可以不预先写存储环境变量，启动后到管理后台新增/测试/切换存储配置。WebDAV 页面、API Token、API v1 上传、短链和文件直链都走同一个 `8080` 入口。
-
-完整 Docker 说明请查看 [README-DOCKER.md](README-DOCKER.md)。
-
-### WebDAV 回归验证（Cloudflare Pages / Docker 通用）
-
-部署完成后，建议至少执行一次 WebDAV 烟测，确认“配置测试 -> 上传 -> 下载 -> 删除”完整闭环。
-
-示例：
-
-```bash
-BASE_URL=https://你的域名 \
-BASIC_USER=admin BASIC_PASS=your_password \
-SMOKE_STORAGE_TYPE=webdav \
-SMOKE_STORAGE_CONFIG_JSON='{"baseUrl":"https://dav.example.com","username":"u","password":"p","rootPath":"uploads"}' \
-node scripts/storage-regression.js
+curl -s "https://你的域名/api/status" -u "$BASIC_USER:$BASIC_PASS" | grep -o '"webdav":[^}]*}'
 ```
 
 校验标准：
 
 - `/api/status` 中 `webdav.connected` 必须为 `true`
-- Docker 自托管部署可额外校验 `/api/storage/:id/test` 返回 `connected=true`
-- 回归脚本中的 WebDAV `upload / download / delete` 三步必须全部通过
+- 随后在 `/webdav.html` 页面完成一次真实上传，确认「配置测试 → 上传 → 下载」闭环
 
-如果是 Docker 部署，只需把 `BASE_URL` 换成你的自托管地址，例如 `http://localhost:8080`。
+> 旧版的 `node scripts/storage-regression.js` 回归脚本依赖 `/api/storage/**`（仅 Node 运行时提供），已随 Docker 部署路径一并移除。
 
-### Docker 登录 API（curl 示例）
+### 登录 API（curl 示例）
 
 `/api/auth/login` 同时兼容两种请求体：
 
@@ -244,18 +173,18 @@ node scripts/storage-regression.js
 - `{"user":"...","pass":"..."}`
 
 ```bash
-curl -i -X POST "http://localhost:8080/api/auth/login" \
+curl -i -X POST "https://你的域名/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your_password"}'
 ```
 
 ```bash
-curl -i -X POST "http://localhost:8080/api/auth/login" \
+curl -i -X POST "https://你的域名/api/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"user":"admin","pass":"your_password"}'
 ```
 
-安全提示：请勿泄露或提交 `.env` 内 token/secret（如 `TG_BOT_TOKEN`、`DISCORD_BOT_TOKEN`、`HF_TOKEN`、`SESSION_SECRET`、`CONFIG_ENCRYPTION_KEY`）；若疑似泄露请立即轮换并重启服务。
+安全提示：请勿泄露或提交各项 token/secret（如 `TG_BOT_TOKEN`、`DISCORD_BOT_TOKEN`、`HF_TOKEN`、`BASIC_PASS`）；若疑似泄露请立即轮换。Cloudflare Pages 的变量在 Dashboard 或 wrangler 中配置，不落在仓库文件里。
 
 ---
 
@@ -366,7 +295,7 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 **持久化机制：**
 
 - Cloudflare Pages：写入 KV 键 `ui_config`（通过 `img_url` 绑定访问）
-- Docker 自托管：写入 `data/ui_config.json`
+- Node 运行时（`server/`，非部署目标）：写入 `data/ui_config.json`
 - 前端会在接口失败时降级到 `localStorage`（仅本机生效）
 
 **接口说明：**
@@ -518,7 +447,7 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 1. 在你的 WebDAV 服务端准备一个可写目录，并确认具备 `PUT/GET/DELETE/MKCOL` 权限。
 2. 在 Cloudflare Pages 项目中添加上述 `WEBDAV_*` 变量（认证方式二选一：`用户名+密码` 或 `Bearer Token`）。
 3. 重新部署后，访问 `/api/status` 检查 `webdav.connected` 与 `webdav.enabled`，或直接打开 `/webdav.html` 测试上传。
-4. Docker 自托管场景下，可以在管理后台新增 WebDAV 配置；如果通过 `.env` 填写变量，则重启容器（`docker compose up -d` 或 `docker restart kvault`）。
+4. 修改 `WEBDAV_*` 变量后需在 Cloudflare Dashboard 或 wrangler 中重新部署才能生效。
 
 **常见问题：**
 
@@ -604,16 +533,18 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | `CHUNK_BACKEND` | 分片临时存储后端（`auto`/`r2`/`kv`） | `auto` |
 | `disable_telemetry` | 禁用遥测 | - |
 
-### Docker 运行时变量（自托管模式）
+### Node 运行时变量（`server/`，非部署目标）
+
+> 以下变量只对仓库内保留的 Node 运行时（`server/`）生效。**本仓库不再提供该运行时的部署路径**，列出仅供参考与二次开发；Pages 部署不使用其中任何一项。
 
 | 变量名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `PORT` | 容器内 API 服务端口 | `8787` |
-| `DATA_DIR` | 数据目录 | `/app/data` |
-| `DB_PATH` | SQLite 数据库路径 | `/app/data/k-vault.db` |
-| `CHUNK_DIR` | 分片临时目录 | `/app/data/chunks` |
-| `CONFIG_ENCRYPTION_KEY` | 用于加密存储配置密钥；Docker 未提供时会写入 `/app/data/runtime.env` | 自动生成 |
-| `SESSION_SECRET` | 会话/签名密钥；Docker 未提供时会写入 `/app/data/runtime.env` | 自动生成 |
+| `PORT` | Node 运行时 API 服务端口 | `8787` |
+| `DATA_DIR` | 数据目录 | `./data` |
+| `DB_PATH` | SQLite 数据库路径 | `./data/k-vault.db` |
+| `CHUNK_DIR` | 分片临时目录 | `./data/chunks` |
+| `CONFIG_ENCRYPTION_KEY` | 用于加密存储配置密钥，需显式设置 | 无默认 |
+| `SESSION_SECRET` | 会话/签名密钥，需显式设置 | 无默认 |
 | `UPLOAD_MAX_SIZE` | 最大上传大小（字节） | `104857600` |
 | `UPLOAD_SMALL_FILE_THRESHOLD` | 直传/分片策略阈值（字节） | `20971520` |
 | `CHUNK_SIZE` | 分片大小（字节） | `5242880` |
@@ -622,7 +553,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | `SETTINGS_REDIS_URL` | Redis URL（Upstash/Redis/KVrocks，`SETTINGS_STORE=redis` 时必填） | - |
 | `SETTINGS_REDIS_PREFIX` | Redis 键前缀 | `k-vault` |
 | `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Redis 连接/心跳超时（毫秒） | `5000` |
-| `WEB_PORT` | `docker compose` 对外 Web 端口 | `8080` |
 
 ---
 
@@ -630,12 +560,15 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 
 | 页面 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| 首页/上传 | `/` | 批量上传、拖拽、粘贴上传 |
+| 首页/上传 | `/` | 批量上传、拖拽、粘贴上传；抽屉内可设置有效期 / 密码 / 下载次数 / 自定义短链 |
 | WebDAV 独立页 | `/webdav.html` | WebDAV 上传/状态检查/URL 上传 |
 | 图片浏览 | `/gallery.html` | 图片网格浏览 |
-| 管理后台 | `/admin.html` | 文件管理、黑白名单 |
-| 文件预览 | `/preview.html` | 多格式文件预览 |
+| 管理后台 | `/admin.html` | 文件管理、目录树、收藏、存储状态、API Token 管理 |
+| 文本粘贴 | `/paste.html` | Pastebin：创建 / 列表 / 查看 / 删除，支持语言标记、过期与访问密码 |
+| 文件预览 | `/preview.html` | 多格式文件预览；受密码保护的文件会弹出密码输入 |
 | 登录页 | `/login.html` | 后台登录 |
+
+> 黑白名单（`/api/manage/block|white/:id`）后端就绪，但当前后台**没有 UI 入口**：此前唯一的入口 `admin-imgtc.html` 已随本次改造删除。
 
 ---
 
@@ -647,14 +580,12 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 - KV 每日 1,000 次写入、100,000 次读取、1,000 次列出
 - 超出后需升级付费计划（$5/月起）
 - 建议 Telegram 场景开启签名直链或低 KV 写入模式以降低额度压力
-- Docker 自托管模式下，Node 运行时不受 Cloudflare 免费额度限制（受你自己的服务器和存储后端限制）
 
 **各存储后端文件大小限制：**
 
 | 存储后端 | 单文件最大大小 |
 | :--- | :--- |
 | Telegram（Cloudflare Pages 网页上传） | 20MB；更大的 Telegram 文件建议通过 Telegram 客户端发送，再由 Webhook 回链 |
-| Telegram（Docker 网页上传） | 50MB（受 Bot API 上传限制影响） |
 | Telegram（自部署 Bot API + Telegram 客户端 + Webhook） | 受 Bot API 与部署环境影响，常见可达 2GB |
 | Cloudflare R2 | 100MB（分片上传） |
 | S3 兼容存储 | 100MB（分片上传） |
@@ -672,8 +603,8 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | :--- | :--- | :---: |
 | `TG_Bot_Token` | Telegram Bot Token | ✅ |
 | `TG_Chat_ID` | Telegram 频道 ID | ✅ |
-| `TG_BOT_TOKEN` | Telegram Bot Token（Docker/自托管命名） | 可选 |
-| `TG_CHAT_ID` | Telegram 频道 ID（Docker/自托管命名） | 可选 |
+| `TG_BOT_TOKEN` | Telegram Bot Token（兼容旧版命名） | 可选 |
+| `TG_CHAT_ID` | Telegram 频道 ID（兼容旧版命名） | 可选 |
 | `CUSTOM_BOT_API_URL` | 自部署 Telegram Bot API 地址 | 可选 |
 | `PUBLIC_BASE_URL` | Webhook 回链域名 | 可选 |
 | `TG_WEBHOOK_SECRET` | Telegram Webhook 密钥 | 可选 |
@@ -716,22 +647,21 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | `GUEST_DAILY_LIMIT` | 访客每日上传次数 | 可选 |
 | `ModerateContentApiKey` | 图片审核 API Key | 可选 |
 | `WhiteList_Mode` | 白名单模式 | 可选 |
-| `disable_telemetry` | 禁用遥测 | 可选 |
-| `PORT` | 单镜像容器内部 API 端口，保持 `8787` | 可选 |
-| `DATA_DIR` | Docker 自托管模式数据目录 | 可选 |
-| `DB_PATH` | Docker 自托管模式 SQLite 路径 | 可选 |
-| `CHUNK_DIR` | Docker 自托管模式分片目录 | 可选 |
-| `CONFIG_ENCRYPTION_KEY` | Docker 自托管模式存储配置加密密钥，未提供时自动生成并持久化 | 可选 |
-| `SESSION_SECRET` | Docker 自托管模式会话/签名密钥，未提供时自动生成并持久化 | 可选 |
-| `UPLOAD_MAX_SIZE` | Docker 自托管模式最大上传大小（字节） | 可选 |
-| `UPLOAD_SMALL_FILE_THRESHOLD` | Docker 自托管模式直传阈值（字节） | 可选 |
-| `CHUNK_SIZE` | Docker 自托管模式分片大小（字节） | 可选 |
-| `DEFAULT_STORAGE_TYPE` | Docker 自托管模式默认存储类型 | 可选 |
-| `SETTINGS_STORE` | Docker 自托管基础设置存储后端（`sqlite`/`redis`） | 可选 |
-| `SETTINGS_REDIS_URL` | Docker 自托管 Redis URL（Upstash/Redis/KVrocks） | 可选 |
-| `SETTINGS_REDIS_PREFIX` | Docker 自托管设置存储 Redis 键前缀 | 可选 |
-| `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Docker 自托管 Redis 连接/心跳超时（毫秒） | 可选 |
-| `WEB_PORT` | `docker compose` 对外 Web 端口 | 可选 |
+| `disable_telemetry` | 禁用遥测（遥测代码已移除，保留变量名仅作对照） | 可选 |
+| `PORT` | Node 运行时 API 端口（非部署目标） | 可选 |
+| `DATA_DIR` | Node 运行时数据目录 | 可选 |
+| `DB_PATH` | Node 运行时 SQLite 路径 | 可选 |
+| `CHUNK_DIR` | Node 运行时分片目录 | 可选 |
+| `CONFIG_ENCRYPTION_KEY` | Node 运行时存储配置加密密钥，需显式设置 | 可选 |
+| `SESSION_SECRET` | Node 运行时会话/签名密钥，需显式设置 | 可选 |
+| `UPLOAD_MAX_SIZE` | 最大上传大小（字节） | 可选 |
+| `UPLOAD_SMALL_FILE_THRESHOLD` | 直传阈值（字节） | 可选 |
+| `CHUNK_SIZE` | 分片大小（字节） | 可选 |
+| `DEFAULT_STORAGE_TYPE` | 默认存储类型 | 可选 |
+| `SETTINGS_STORE` | Node 运行时基础设置存储后端（`sqlite`/`redis`） | 可选 |
+| `SETTINGS_REDIS_URL` | Node 运行时 Redis URL（Upstash/Redis/KVrocks） | 可选 |
+| `SETTINGS_REDIS_PREFIX` | 设置存储 Redis 键前缀 | 可选 |
+| `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Redis 连接/心跳超时（毫秒） | 可选 |
 
 ---
 
@@ -760,7 +690,9 @@ curl -X POST "https://your-kvault-domain/api/admin/tokens" \
 
 `/api/admin/**`、`/api/manage/**`、`/api/storage/**`、`/api/settings`、`POST /api/ui-config`、`POST /api/share/sign`
 
-**未配置账密时统一返回 `503 ADMIN_AUTH_NOT_CONFIGURED`，而不是放行。**此前 `/api/manage/**` 在未配置账密时会对公网完全开放（包括删除、重命名、移动、黑白名单等写操作），现已与该策略对齐；Docker 与 Cloudflare Pages 两端行为一致。
+**未配置账密时统一返回 `503 ADMIN_AUTH_NOT_CONFIGURED`，而不是放行。**此前 `/api/manage/**` 在未配置账密时会对公网完全开放（包括删除、重命名、移动、黑白名单等写操作），现已与该策略对齐；Pages 与保留的 Node 运行时两端行为一致。
+
+> 其中 `/api/storage/**` 与 `POST /api/share/sign` 只存在于保留的 Node 运行时（`server/`），Pages 部署下这些路由不存在。
 
 两个例外与说明：
 
@@ -902,8 +834,6 @@ API_CORS_ORIGINS=https://app.example.com,https://dashboard.example.com
 ## 相关链接
 
 - [Cloudflare Pages 文档](https://developers.cloudflare.com/pages/)
-- [Docker 部署说明](README-DOCKER.md)
-- [Docker 镜像工作流](.github/workflows/docker-image.yml)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Telegram Bot API Server（自部署）](https://github.com/tdlib/telegram-bot-api)
 - [问题反馈](https://github.com/katelya77/K-Vault/issues)
@@ -916,7 +846,7 @@ K-Vault 的早期实现与功能演进参考并受益于多个开源项目、社
 
 - [Telegraph-Image](https://github.com/cf-pages/Telegraph-Image)：K-Vault 早期 Serverless 图床形态的重要上游参考之一。
 - [CloudFlare-ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed)：优秀的同类开源图床项目，对社区图床方案、多存储后端设计方向以及相关项目生态具有参考价值。
-- Linux.do 社区用户反馈：K-Vault 的多存储后端、Docker 部署形态、WebDAV 等功能方向，均受社区讨论与实际使用需求推动。
+- Linux.do 社区用户反馈：K-Vault 的多存储后端、WebDAV、API Token 等功能方向，均受社区讨论与实际使用需求推动。
 
 K-Vault 并非对上述项目的简单复制，而是在相关开源生态、社区反馈和实际使用需求的基础上，逐步整理、扩展和实现的个人项目。感谢所有开源项目作者与社区用户的贡献和建议。
 

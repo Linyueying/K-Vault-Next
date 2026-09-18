@@ -4,6 +4,13 @@
  */
 import { checkAuthentication, isAuthRequired } from '../../utils/auth.js';
 import { checkGuestUpload } from '../../utils/guest.js';
+import { shouldWriteTelegramMetadata } from '../../utils/telegram.js';
+import {
+  findShareSlugOwner,
+  hasShareOptions,
+  parseShareOptions,
+  validateShareOptions,
+} from '../../utils/share-options.js';
 
 const CHUNK_SIZE = 5 * 1024 * 1024;
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -46,6 +53,30 @@ export async function onRequestPost(context) {
       return jsonResponse({ error: validation.message, code: validation.code }, validation.status);
     }
 
+    // Optional share settings applied when the chunks are merged. Admin only,
+    // so a guest can neither squat a slug nor publish a protected link. The
+    // slug is reserved here, before any bytes are stored, so a conflict fails
+    // fast instead of orphaning an already-uploaded object.
+    const shareOptions = isAdmin ? parseShareOptions(body || {}) : null;
+    if (hasShareOptions(shareOptions)) {
+      const shareOptionError = validateShareOptions(shareOptions);
+      if (shareOptionError) {
+        return jsonResponse({ error: shareOptionError }, 400);
+      }
+      if (shareOptions.slug && (await findShareSlugOwner(env, shareOptions.slug))) {
+        return jsonResponse({ error: '自定义短链标识已被占用。', code: 'SLUG_CONFLICT' }, 409);
+      }
+      // Telegram can be configured to skip the KV metadata record
+      // (TELEGRAM_METADATA_MODE=off / TELEGRAM_SKIP_METADATA=1), which is exactly
+      // where the share fields live.
+      if (normalizedStorage === 'telegram' && !shouldWriteTelegramMetadata(env)) {
+        return jsonResponse({
+          error: '当前 Telegram 元数据写入已关闭（TELEGRAM_METADATA_MODE=off 或 TELEGRAM_SKIP_METADATA=1），无法设置有效期 / 密码 / 下载次数 / 短链。请改用其他存储后端，或恢复元数据写入。',
+          code: 'SHARE_OPTIONS_UNSUPPORTED',
+        }, 409);
+      }
+    }
+
     const uploadId = generateUploadId();
 
     const chunkBackend = resolveChunkBackend(env);
@@ -59,6 +90,7 @@ export async function onRequestPost(context) {
       storageMode: normalizedStorage,
       folderPath,
       chunkBackend,
+      shareOptions: hasShareOptions(shareOptions) ? shareOptions : null,
       uploadedChunks: [],
       createdAt: Date.now(),
       status: 'pending',

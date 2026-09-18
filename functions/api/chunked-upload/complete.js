@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Complete chunked upload request.
  * POST /api/chunked-upload/complete
  */
@@ -18,6 +18,7 @@ import {
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
 } from '../../utils/telegram.js';
+import { applyShareOptions, hasShareOptions } from '../../utils/share-options.js';
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 const MB = 1024 * 1024;
@@ -220,23 +221,41 @@ export async function onRequestPost(context) {
       storageType === 'telegram' ? shouldWriteTelegramMetadata(env) : true;
 
     if (shouldWriteMetadata && metadataKey) {
-      await env.img_url.put(metadataKey, '', {
-        metadata: {
-          TimeStamp: Date.now(),
-          ListType: 'None',
-          Label: 'None',
-          liked: false,
-          fileName: taskData.fileName,
-          fileSize: taskData.fileSize,
-          chunked: true,
-          totalChunks,
-          storageType,
-          folderPath: folderPath || undefined,
-          r2Key: storageType === 'r2' ? metadataKey.replace(/^r2:/, '') : undefined,
-          telegramMessageId: storageType === 'telegram' ? taskData.telegramMessageId : undefined,
-          ...extraMetadata,
-        },
-      });
+      const fileMetadata = {
+        TimeStamp: Date.now(),
+        ListType: 'None',
+        Label: 'None',
+        liked: false,
+        fileName: taskData.fileName,
+        fileSize: taskData.fileSize,
+        chunked: true,
+        totalChunks,
+        storageType,
+        folderPath: folderPath || undefined,
+        r2Key: storageType === 'r2' ? metadataKey.replace(/^r2:/, '') : undefined,
+        telegramMessageId: storageType === 'telegram' ? taskData.telegramMessageId : undefined,
+        ...extraMetadata,
+      };
+
+      const shareOptions = taskData.shareOptions || null;
+      if (hasShareOptions(shareOptions)) {
+        // applyShareOptions persists the record itself, with the share fields
+        // (expiry / password hash / download cap / slug mapping) merged in.
+        // The slug is only validated at init (never reserved), so a concurrent
+        // upload can take it in the meantime: surface that as 409 rather than a
+        // generic server error.
+        try {
+          await applyShareOptions(env, metadataKey, fileMetadata, shareOptions);
+        } catch (shareError) {
+          const message = shareError?.message || '写入分享设置失败。';
+          return jsonResponse(
+            { error: message, code: /已被占用/.test(message) ? 'SLUG_CONFLICT' : 'SHARE_OPTIONS_FAILED' },
+            /已被占用/.test(message) ? 409 : 500
+          );
+        }
+      } else {
+        await env.img_url.put(metadataKey, '', { metadata: fileMetadata });
+      }
     }
 
     if (storageType === 'telegram' && telegramNoticePayload) {
