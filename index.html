@@ -1479,87 +1479,6 @@
         .bottom-floating-dock { width: calc(100% - 20px); }
         .history-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
       }
-
-      /* ===== 分享设置（有效期 / 密码 / 下载次数 / 短链） ===== */
-      .share-panel-hint {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        font-size: 0.8rem;
-        line-height: 1.5;
-        color: var(--text-sub);
-        background: var(--primary-surface);
-        border: 1px solid var(--glass-border-ice);
-        border-radius: var(--radius-md);
-        padding: 12px 14px;
-        margin-bottom: 18px;
-      }
-      .share-panel-hint i { color: var(--primary); margin-top: 2px; }
-      .share-field { margin-bottom: 16px; }
-      .share-field > label {
-        display: block;
-        font-size: 0.78rem;
-        font-weight: 700;
-        color: var(--text-sub);
-        margin-bottom: 7px;
-      }
-      .share-input,
-      .share-select {
-        width: 100%;
-        box-sizing: border-box;
-        font-family: inherit;
-        font-size: 0.86rem;
-        color: var(--text-main);
-        background: var(--surface-1, rgba(255, 255, 255, 0.7));
-        border: 1px solid var(--glass-border-ice);
-        border-radius: var(--radius-sm, 10px);
-        padding: 10px 12px;
-        outline: none;
-        transition: border-color 0.2s ease;
-      }
-      .share-input:focus,
-      .share-select:focus { border-color: var(--primary); }
-      .share-slug-row { display: flex; align-items: center; gap: 8px; }
-      .share-slug-prefix {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.82rem;
-        color: var(--text-muted);
-        flex-shrink: 0;
-      }
-      .share-field-help {
-        font-size: 0.72rem;
-        color: var(--text-muted);
-        margin-top: 6px;
-        line-height: 1.5;
-      }
-      .share-inline-row { display: flex; align-items: center; gap: 8px; }
-      .share-inline-row .share-input { flex: 1; }
-      .share-active-tip {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        font-size: 0.76rem;
-        color: var(--primary-dark, var(--primary));
-        background: rgba(var(--primary-rgb), 0.08);
-        border: 1px solid rgba(var(--primary-rgb), 0.22);
-        border-radius: var(--radius-sm, 10px);
-        padding: 10px 12px;
-        margin-top: 4px;
-      }
-      .share-reset-btn {
-        font-family: inherit;
-        font-size: 0.74rem;
-        font-weight: 700;
-        color: var(--text-sub);
-        background: transparent;
-        border: 1px solid var(--glass-border-ice);
-        border-radius: 999px;
-        padding: 4px 12px;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-      .share-reset-btn:hover { color: var(--primary); border-color: var(--primary); }
     </style>
   </head>
   <body>
@@ -1698,7 +1617,6 @@
               <div class="task-name-text">{{ file.name }}</div>
               <div class="task-meta-text">
                 <span>{{ formatSize(file.size) }}</span>
-                <span v-if="file.compressionStatus" style="color: var(--primary);">• {{ file.compressionStatus }}</span>
                 <span v-if="file.error" style="color: #ef4444;">• {{ file.error }}</span>
                 <span>• {{ getStatusText(file.status) }} <span v-if="file.progress">({{ file.progress }}%)</span></span>
               </div>
@@ -1755,7 +1673,7 @@
             <img
               :src="getCleanFileUrl(file)"
               class="task-thumb-img"
-              @click="previewImage(getCleanFileUrl(file))"
+              @click="previewImage(file)"
               onerror="this.style.display='none'"
             />
             <div style="flex: 1; min-width: 0;">
@@ -1816,14 +1734,6 @@
             <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'folder' }" @click="switchDrawerTab('folder')">
               <i class="fas fa-folder"></i>
               <span>上传目录</span>
-            </button>
-            <button v-if="!isGuest" class="drawer-nav-item" :class="{ active: activeDrawerTab === 'share' }" @click="switchDrawerTab('share')">
-              <i class="fas fa-link"></i>
-              <span>分享设置</span>
-            </button>
-            <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'compress' }" @click="switchDrawerTab('compress')">
-              <i class="fas fa-wand-magic-sparkles"></i>
-              <span>图片转码</span>
             </button>
             <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'history' }" @click="switchDrawerTab('history')">
               <i class="fas fa-clock-rotate-left"></i>
@@ -1988,107 +1898,7 @@
           </div>
 
           <!-- ============================================================
-               Drawer Tab: 分享设置（有效期 / 访问密码 / 下载次数 / 自定义短链）
-               这些字段会随本次上传一起提交；后端在文件入库时写入元数据，
-               /file/:id 与 /s/:slug 在读取时强制校验。
-               ============================================================ -->
-          <div v-if="activeDrawerTab === 'share'">
-            <div class="share-panel-hint">
-              <i class="fas fa-shield-halved"></i>
-              <span>以下设置只作用于<strong>本次新上传</strong>的文件。全部留空即为普通永久直链；设置后无法在后台单独撤销，如需修改请重新上传。</span>
-            </div>
-
-            <div class="share-field">
-              <label>有效期</label>
-              <select class="share-select" v-model.number="shareSettings.expiresIn">
-                <option :value="0">永久有效</option>
-                <option :value="3600">1 小时</option>
-                <option :value="86400">1 天</option>
-                <option :value="604800">7 天</option>
-                <option :value="2592000">30 天</option>
-                <option :value="31536000">365 天</option>
-              </select>
-              <div class="share-field-help">到期后访问直链返回 410，文件本身仍保留在存储中。</div>
-            </div>
-
-            <div class="share-field">
-              <label>访问密码</label>
-              <div class="share-inline-row">
-                <input
-                  class="share-input"
-                  :type="shareSettings.showPassword ? 'text' : 'password'"
-                  v-model="shareSettings.password"
-                  autocomplete="new-password"
-                  placeholder="留空表示不加密"
-                />
-                <button class="share-reset-btn" type="button" @click="shareSettings.showPassword = !shareSettings.showPassword">
-                  {{ shareSettings.showPassword ? '隐藏' : '显示' }}
-                </button>
-              </div>
-              <div class="share-field-help">设置后直链需要 <code>?password=你的密码</code> 才能访问，否则返回 401。</div>
-            </div>
-
-            <div class="share-field">
-              <label>下载次数上限</label>
-              <input class="share-input" type="number" min="0" v-model.number="shareSettings.maxDownloads" placeholder="0 表示不限次数" />
-              <div class="share-field-help">每成功下载一次计数 +1，达到上限后直链返回 410。</div>
-            </div>
-
-            <div class="share-field">
-              <label>自定义短链</label>
-              <div class="share-slug-row">
-                <span class="share-slug-prefix">/s/</span>
-                <input class="share-input" type="text" v-model="shareSettings.slug" placeholder="例如 my-photo（可留空）" />
-              </div>
-              <div class="share-field-help">仅允许字母、数字、下划线、短横线；已被占用时上传会被拒绝，请换一个。</div>
-            </div>
-
-            <div v-if="shareSettingsActive" class="share-active-tip">
-              <span><i class="fas fa-circle-check"></i> 已启用：{{ shareSettingsSummary }}</span>
-              <button class="share-reset-btn" type="button" @click="resetShareSettings">全部清除</button>
-            </div>
-          </div>
-
-          <!-- Drawer Tab 3: Image Optimizer Settings -->
-          <div v-if="activeDrawerTab === 'compress'">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-              <div>
-                <div style="font-weight: 700;">智能图像压缩转换</div>
-                <div style="font-size: 0.78rem; color: var(--text-muted);">减少文件体积，加快直链与多端加载速度</div>
-              </div>
-              <input type="checkbox" v-model="imageCompress.enabled" @change="handleImageCompressToggle" style="width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer;" />
-            </div>
-            <div style="display: flex; gap: 8px; margin-bottom: 14px;">
-              <button class="format-chip-btn" :class="{ active: imageUploadDecision === 'original' }" @click="setImageUploadDecision('original')">原图上传</button>
-              <button class="format-chip-btn" :class="{ active: imageUploadDecision === 'optimized' }" @click="setImageUploadDecision('optimized')">自动压缩转换</button>
-              <button class="format-chip-btn" :class="{ active: imageUploadDecision === 'ask' }" @click="setImageUploadDecision('ask')">上传前询问</button>
-            </div>
-            <div v-if="imageCompressPanelExpanded" style="display: flex; flex-direction: column; gap: 14px;">
-              <div style="display: flex; gap: 8px;">
-                <button
-                  class="format-chip-btn"
-                  v-for="fmt in imageCompressFormats"
-                  :key="fmt.value"
-                  :class="{ active: imageCompress.format === fmt.value }"
-                  :disabled="!isFormatSupported(fmt.value)"
-                  @click="selectCompressFormat(fmt.value)"
-                >
-                  {{ fmt.label }}
-                </button>
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 0.85rem; font-weight: 600;">压缩质量：{{ imageCompress.quality }}%</span>
-                <input type="range" min="30" max="95" step="1" v-model.number="imageCompress.quality" @change="saveImageCompressSettings" style="width: 150px; accent-color: var(--primary);" />
-              </div>
-              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; cursor: pointer;">
-                <input type="checkbox" v-model="imageCompress.keepOriginalWhenLarger" @change="saveImageCompressSettings" style="accent-color: var(--primary);" />
-                <span>压缩后体积更大时自动保留原图</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- ============================================================
-               Drawer Tab 4: Local History Vault（全面升级版）
+               Drawer Tab 3: Local History Vault（全面升级版）
                ============================================================ -->
           <div v-if="activeDrawerTab === 'history'">
             <!-- 顶部统计 -->
@@ -2198,7 +2008,6 @@
                     <div class="history-grid-name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
                     <div class="history-grid-actions">
                       <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
-                      <button v-if="item.shareUrl" class="history-mini-btn" @click.stop="historyCopyShare(item)" title="复制短链"><i class="fas fa-link"></i></button>
                       <button class="history-mini-btn" @click.stop="historyDownload(item)" title="下载"><i class="fas fa-download"></i></button>
                       <button class="history-mini-btn danger" @click.stop="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
@@ -2229,12 +2038,10 @@
                         <span>{{ formatHistoryTime(item.uploadTime) }}</span>
                         <span v-if="item.storageMode">{{ storageLabel(item.storageMode) }}</span>
                         <span v-if="item.folderPath">/{{ item.folderPath }}</span>
-                        <span v-if="item.shareUrl" :title="item.shareUrl" style="color: var(--primary);">短链可用</span>
                       </div>
                     </div>
                     <div class="history-row-actions">
                       <button class="mini-icon-btn" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
-                      <button v-if="item.shareUrl" class="mini-icon-btn" @click="historyCopyShare(item)" title="复制短链"><i class="fas fa-link"></i></button>
                       <button class="mini-icon-btn" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
                       <button class="mini-icon-btn" @click="historyDownload(item)" title="下载"><i class="fas fa-download"></i></button>
                       <button class="mini-icon-btn danger" @click="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
@@ -2251,16 +2058,13 @@
             </div>
           </div>
 
-          <!-- Drawer Tab 5: System Navigation & Account Links -->
+          <!-- Drawer Tab 4: System Navigation & Account Links -->
           <div v-if="activeDrawerTab === 'menu'" style="display: flex; flex-direction: column; gap: 10px;">
             <a href="./gallery.html" v-if="!isGuest" class="action-pill-btn" style="justify-content: flex-start;">
               <i class="fas fa-images"></i><span>图片画廊浏览</span>
             </a>
             <a href="./admin.html" v-if="!isGuest" class="action-pill-btn" style="justify-content: flex-start;">
               <i class="fas fa-sliders"></i><span>管理后台</span>
-            </a>
-            <a href="./paste.html" v-if="!isGuest" class="action-pill-btn" style="justify-content: flex-start;">
-              <i class="fas fa-paste"></i><span>文本粘贴</span>
             </a>
             <a href="./webdav.html" v-if="!isGuest" class="action-pill-btn" style="justify-content: flex-start;">
               <i class="fas fa-hard-drive"></i><span>WebDAV 服务</span>
@@ -2382,23 +2186,12 @@
           currentTheme: "light",
           showDrawer: false,
           activeDrawerTab: "storage",
-          lastMoreTab: "compress",
+          lastMoreTab: "history",
           baseURL: document.location.origin,
           isDragging: false,
           showUrlInput: false,
           urlToUpload: "",
           urlUploading: false,
-          pendingUploadBatch: null,
-          pendingCompressionChoice: "original",
-          imageUploadDecision: "original",
-          imageCompress: {
-            enabled: false,
-            format: "webp",
-            quality: 82,
-            maxDimension: 0,
-            keepOriginalWhenLarger: true,
-            support: { webp: true, avif: true, jpeg: true, png: true },
-          },
           uploadingFiles: [],
           uploadedFiles: [],
           uploadHistory: [],
@@ -2416,14 +2209,6 @@
           expandedFolders: {},
           storageMode: "telegram",
           storageTarget: "Telegram 频道",
-          /* 分享设置：随本次上传提交给 /upload 或 /api/chunked-upload/init */
-          shareSettings: {
-            expiresIn: 0,
-            password: "",
-            maxDownloads: 0,
-            slug: "",
-            showPassword: false,
-          },
           r2Available: false,
           s3Available: false,
           discordAvailable: false,
@@ -2462,37 +2247,11 @@
           isAllSelected() {
             return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected);
           },
-          /* ===== 分享设置 ===== */
-          shareSettingsActive() {
-            const s = this.shareSettings || {};
-            return Boolean(s.expiresIn || s.password || Number(s.maxDownloads) > 0 || String(s.slug || "").trim());
-          },
-          shareSettingsSummary() {
-            const s = this.shareSettings || {};
-            const parts = [];
-            if (s.expiresIn) parts.push(`有效期 ${this.formatShareDuration(s.expiresIn)}`);
-            if (s.password) parts.push("访问密码");
-            if (Number(s.maxDownloads) > 0) parts.push(`限 ${Number(s.maxDownloads)} 次下载`);
-            const slug = String(s.slug || "").trim();
-            if (slug) parts.push(`短链 /s/${slug}`);
-            return parts.join(" · ") || "无";
-          },
           failedCount() {
             return this.uploadingFiles.filter((f) => f.status === "error").length;
           },
           isMoreTabActive() {
-            return ["compress", "history", "menu"].includes(this.activeDrawerTab);
-          },
-          imageCompressFormats() {
-            return [
-              { value: "webp", label: "WebP", mime: "image/webp", ext: "webp" },
-              { value: "avif", label: "AVIF", mime: "image/avif", ext: "avif" },
-              { value: "jpeg", label: "JPEG", mime: "image/jpeg", ext: "jpg" },
-              { value: "png", label: "PNG", mime: "image/png", ext: "png" },
-            ];
-          },
-          imageCompressPanelExpanded() {
-            return this.imageCompress.enabled || this.imageUploadDecision === "optimized";
+            return ["history", "menu"].includes(this.activeDrawerTab);
           },
           uploadFolderOptions() {
             const seen = new Set();
@@ -2637,12 +2396,12 @@
             this.showDrawer = true;
           },
           openMoreDrawer() {
-            this.activeDrawerTab = this.lastMoreTab || "compress";
+            this.activeDrawerTab = this.lastMoreTab || "history";
             this.showDrawer = true;
           },
           switchDrawerTab(tab) {
             this.activeDrawerTab = tab;
-            if (["compress", "history", "menu"].includes(tab)) {
+            if (["history", "menu"].includes(tab)) {
               this.lastMoreTab = tab;
             }
             if (tab === "folder" && !this.uploadFoldersFetched) {
@@ -2902,27 +2661,6 @@
               this.urlUploading = false;
             }
           },
-          handleImageCompressToggle() {
-            this.imageUploadDecision = this.imageCompress.enabled ? "optimized" : "original";
-            this.saveImageCompressSettings();
-          },
-          setImageUploadDecision(mode) {
-            this.imageUploadDecision = mode;
-            this.imageCompress.enabled = (mode === "optimized");
-            this.saveImageCompressSettings();
-          },
-          selectCompressFormat(fmt) {
-            this.imageCompress.format = fmt;
-            this.saveImageCompressSettings();
-          },
-          saveImageCompressSettings() {
-            try {
-              localStorage.setItem("imageCompressSettings", JSON.stringify(this.imageCompress));
-            } catch (e) {}
-          },
-          isFormatSupported(fmt) {
-            return this.imageCompress.support?.[fmt] !== false;
-          },
           setStorageMode(mode, silent = false) {
             const labels = {
               telegram: "Telegram 频道",
@@ -2979,7 +2717,7 @@
               const item = {
                 name: file.name, size: file.size, file: file, status: "waiting",
                 preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-                progress: 0, error: null, compressionStatus: "",
+                progress: 0, error: null,
               };
               this.uploadingFiles.push(item);
             }
@@ -3010,13 +2748,6 @@
             formData.append("file", item.file);
             formData.append("storageMode", this.storageMode);
             formData.append("folderPath", this.folderPath);
-            // 分享设置（有效期 / 密码 / 下载次数 / 短链）随上传一起提交
-            const shareFields = this.buildShareFields();
-            if (shareFields) {
-              Object.entries(shareFields).forEach(([key, value]) => {
-                formData.append(key, String(value));
-              });
-            }
             const res = await fetch(`${this.baseURL}/upload`, {
               method: "POST", body: formData, credentials: "include",
             });
@@ -3027,9 +2758,7 @@
             item.status = "success";
             item.progress = 100;
             const src = data[0]?.src;
-            const shareUrl = this.buildShareUrl(shareFields);
-            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false, shareUrl };
-            if (shareUrl) this.showToast(`短链已生效：${shareUrl}`, "success");
+            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj);
           },
@@ -3037,15 +2766,12 @@
             const file = item.file;
             const chunkSize = this.uploadConfig.chunkSize;
             const totalChunks = Math.ceil(file.size / chunkSize);
-            // 分享设置随分片任务一起下发，合并完成时由后端写入元数据
-            const shareFields = this.buildShareFields();
             const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 fileName: file.name, fileSize: file.size, fileType: file.type,
                 totalChunks: totalChunks, storageMode: this.storageMode, folderPath: this.folderPath,
-                ...(shareFields || {}),
               }),
               credentials: "include",
             });
@@ -3077,9 +2803,7 @@
             if (!completeRes.ok) throw new Error(completeData.error || "合并分片失败");
             item.status = "success";
             item.progress = 100;
-            const shareUrl = this.buildShareUrl(shareFields);
-            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false, shareUrl };
-            if (shareUrl) this.showToast(`短链已生效：${shareUrl}`, "success");
+            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj);
           },
@@ -3124,13 +2848,42 @@
           },
           clearResults() { this.uploadedFiles = []; },
           removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); },
-          downloadFile(file) {
+          /* =========================================================
+             统一「触发浏览器下载」入口
+             修复：历史记录里点下载要等十来秒才开始下载。
+             原因：带 download 属性的 <a> 如果同时设了 target="_blank" /
+             rel="noopener"，浏览器会把它当成「开新标签页」的导航，而不是
+             一次同源直链的直接下载 —— 于是先走新浏览上下文的创建 + 导航，
+             等服务器响应头回来后才真正开始下载。后端 /file/:id 是代理
+             转发（Telegram 等），首字节本来就要数秒，叠加起来就成了
+             「点了没反应，十秒后突然开始下载」。交付结果里的下载没有
+             target，所以一直是即点即下，两者行为不一致。
+             做法：与交付结果保持一致 —— 同源直链、默认 _self、挂到文档
+             再 click（兼容移动端 WebView），用完立即摘除。
+             ========================================================= */
+          triggerDownload(url, fileName) {
+            if (!url) return;
             const a = document.createElement("a");
-            a.href = this.getCleanFileUrl(file);
-            a.download = this.getDisplayName(file);
+            a.href = url;
+            a.download = fileName || "";
+            a.style.display = "none";
+            document.body.appendChild(a);
             a.click();
+            setTimeout(() => {
+              if (a.parentNode) a.parentNode.removeChild(a);
+            }, 0);
           },
-          previewImage(url) { this.previewData = { type: "native-image", url }; },
+          downloadFile(file) {
+            this.triggerDownload(this.getCleanFileUrl(file), this.getDisplayName(file));
+          },
+          previewImage(file) {
+            const url = this.getCleanFileUrl(file);
+            this.previewData = {
+              type: "native-image",
+              url,
+              fileName: this.getDisplayName(file),
+            };
+          },
           openPreview(file) {
             const name = this.getDisplayName(file);
             const url = this.getCleanFileUrl(file);
@@ -3157,10 +2910,7 @@
           },
           downloadPreviewFile() {
             if (this.previewData) {
-              const a = document.createElement("a");
-              a.href = this.previewData.url;
-              a.download = this.previewData.fileName || "file";
-              a.click();
+              this.triggerDownload(this.previewData.url, this.previewData.fileName || "file");
             }
           },
 
@@ -3177,7 +2927,6 @@
                 size: it.size,
                 storageMode: it.storageMode,
                 folderPath: it.folderPath,
-                shareUrl: it.shareUrl || "",
                 uploadTime: it.uploadTime,
               }));
               localStorage.setItem("uploadHistory", JSON.stringify(serialized));
@@ -3206,7 +2955,6 @@
                 size: Number(it.size) || 0,
                 storageMode: it.storageMode || "",
                 folderPath: it.folderPath || "",
-                shareUrl: it.shareUrl || "",
                 uploadTime: Number(it.uploadTime || it.time) || 0,
                 selected: false,
               }));
@@ -3224,7 +2972,6 @@
               size: Number(file.size) || 0,
               storageMode: this.storageMode,
               folderPath: this.folderPath || "",
-              shareUrl: file.shareUrl || "",
               uploadTime: Date.now(),
               selected: false,
             };
@@ -3272,51 +3019,6 @@
             this.copyToClipboard(this.formatLink(item));
             this.showToast("已复制直链", "success");
           },
-          /* ===== 分享设置 ===== */
-          resetShareSettings() {
-            this.shareSettings = {
-              expiresIn: 0,
-              password: "",
-              maxDownloads: 0,
-              slug: "",
-              showPassword: false,
-            };
-          },
-          formatShareDuration(seconds) {
-            const value = Number(seconds) || 0;
-            if (value <= 0) return "永久";
-            if (value % 86400 === 0) return `${value / 86400} 天`;
-            if (value % 3600 === 0) return `${value / 3600} 小时`;
-            return `${value} 秒`;
-          },
-          /**
-           * 构造本次上传要提交的分享字段。返回 null 表示未启用任何分享设置。
-           */
-          buildShareFields() {
-            if (this.isGuest || !this.shareSettingsActive) return null;
-            const s = this.shareSettings || {};
-            const fields = {};
-            const expiresIn = Number(s.expiresIn) || 0;
-            if (expiresIn > 0) fields.expires_in = expiresIn;
-            const maxDownloads = Number(s.maxDownloads) || 0;
-            if (maxDownloads > 0) fields.max_downloads = maxDownloads;
-            const password = String(s.password || "");
-            if (password) fields.password = password;
-            const slug = String(s.slug || "").trim();
-            if (slug) fields.slug = slug;
-            return Object.keys(fields).length ? fields : null;
-          },
-          /** 启用短链时返回 /s/<slug>，否则返回空字符串。 */
-          buildShareUrl(fields) {
-            if (!fields || !fields.slug) return "";
-            return `${this.baseURL}/s/${encodeURIComponent(fields.slug)}`;
-          },
-          historyCopyShare(item) {
-            const url = String(item?.shareUrl || "");
-            if (!url) return;
-            this.copyToClipboard(url);
-            this.showToast("已复制短链", "success");
-          },
           copyHistorySelected() {
             const list = this.historySorted.filter((it) => it.selected);
             if (!list.length) return;
@@ -3328,12 +3030,10 @@
             this.openPreview(item);
           },
           historyDownload(item) {
-            const a = document.createElement("a");
-            a.href = this.getCleanFileUrl(item);
-            a.download = this.getDisplayName(item);
-            a.target = "_blank";
-            a.rel = "noopener";
-            a.click();
+            // 修复：原来这里多了 target="_blank" + rel="noopener"，
+            // 把同源直链的下载变成了「开新标签页」的慢路径，导致点击后
+            // 要等十秒左右才开始下载。改为与交付结果一致的统一下载入口。
+            this.triggerDownload(this.getCleanFileUrl(item), this.getDisplayName(item));
           },
           addHistorySelectedToResults() {
             const list = this.historySorted.filter((it) => it.selected);
@@ -3509,6 +3209,9 @@
 
             const ex = localStorage.getItem("folderTreeExpanded");
             if (ex) this.expandedFolders = JSON.parse(ex) || {};
+
+            // 清理旧版本遗留的压缩配置（该功能已下线）
+            try { localStorage.removeItem("imageCompressSettings"); } catch (e) {}
 
             // 全面升级后的本地历史加载
             this.loadHistory();
