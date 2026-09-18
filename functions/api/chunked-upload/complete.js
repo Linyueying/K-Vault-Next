@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Complete chunked upload request.
  * POST /api/chunked-upload/complete
  */
@@ -22,6 +22,7 @@ import { applyShareOptions, hasShareOptions } from '../../utils/share-options.js
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 const MB = 1024 * 1024;
+const GB = 1024 * MB;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -54,167 +55,206 @@ export async function onRequestPost(context) {
       return jsonResponse({ error: 'Invalid totalChunks in upload task.' }, 400);
     }
 
-    const chunkBackend = resolveChunkBackend(taskData, env);
-    const completionValidation = validateCompletionTarget(taskData.storageMode || 'telegram', Number(taskData.fileSize || 0));
+    let storageType = taskData.storageMode || 'telegram';
+    const completionValidation = validateCompletionTarget(storageType, Number(taskData.fileSize || 0));
     if (!completionValidation.ok) {
       return jsonResponse({ error: completionValidation.message, code: completionValidation.code }, completionValidation.status);
     }
 
-    if (!isKvWriteMinimized(env)) {
-      if (!Array.isArray(taskData.uploadedChunks) || taskData.uploadedChunks.length !== totalChunks) {
-        return jsonResponse(
-          {
-            error: '分片未完全上传',
-            uploaded: Array.isArray(taskData.uploadedChunks) ? taskData.uploadedChunks.length : 0,
-            total: totalChunks,
-            missingChunks: getMissingChunks(taskData.uploadedChunks || [], totalChunks),
-          },
-          400
-        );
-      }
-    }
-
-    const chunks = [];
-    for (let i = 0; i < totalChunks; i++) {
-      const chunkData = await readChunkData(uploadId, i, chunkBackend, env);
-      if (!chunkData) {
-        return jsonResponse({ error: `分片 ${i} 数据缺失` }, 500);
-      }
-      chunks.push(chunkData);
-    }
-
-    const completeFile = new Blob(chunks, { type: taskData.fileType || 'application/octet-stream' });
-    const file = new File([completeFile], taskData.fileName, { type: taskData.fileType || 'application/octet-stream' });
-
-    const fileExtension = getFileExtension(taskData.fileName);
-    let storageType = taskData.storageMode || 'telegram';
     const folderPath = normalizeFolderPath(taskData.folderPath || '');
+    const fileExtension = getFileExtension(taskData.fileName);
     let responseFileKey = null;
     let metadataKey = null;
     let extraMetadata = {};
     let telegramNoticePayload = null;
 
-    if (storageType === 'r2') {
-      if (!env.R2_BUCKET) {
-        return jsonResponse({ error: 'R2 未配置，无法完成上传' }, 500);
-      }
-      const uploadResult = await uploadToR2(file, fileExtension, env);
-      responseFileKey = uploadResult.fileKey;
-      metadataKey = uploadResult.fileKey;
-    } else if (storageType === 's3') {
-      if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID) {
-        return jsonResponse({ error: 'S3 未配置，无法完成上传' }, 500);
-      }
-      const s3 = createS3Client(env);
-      const s3Id = `s3_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const s3Key = `${s3Id}.${fileExtension}`;
-      const arrayBuffer = await file.arrayBuffer();
-      await s3.putObject(s3Key, arrayBuffer, {
-        contentType: file.type || 'application/octet-stream',
-        metadata: { 'x-amz-meta-filename': taskData.fileName },
-      });
-      responseFileKey = `s3:${s3Key}`;
-      metadataKey = responseFileKey;
-      extraMetadata.s3Key = s3Key;
-    } else if (storageType === 'discord') {
-      if (!env.DISCORD_WEBHOOK_URL && !env.DISCORD_BOT_TOKEN) {
-        return jsonResponse({ error: 'Discord 未配置，无法完成上传' }, 500);
-      }
-      const arrayBuffer = await file.arrayBuffer();
-      const discordResult = await uploadToDiscord(arrayBuffer, taskData.fileName, taskData.fileType, env);
-      if (!discordResult.success) {
-        return jsonResponse({ error: 'Discord 上传失败: ' + discordResult.error }, 500);
-      }
-      const discordId = `discord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      responseFileKey = `discord:${discordId}.${fileExtension}`;
-      metadataKey = responseFileKey;
-      extraMetadata.discordChannelId = discordResult.channelId;
-      extraMetadata.discordMessageId = discordResult.messageId;
-      extraMetadata.discordAttachmentId = discordResult.attachmentId;
-      extraMetadata.discordUploadMode = discordResult.mode;
-      extraMetadata.discordSourceUrl = discordResult.sourceUrl;
-    } else if (storageType === 'huggingface') {
-      if (!hasHuggingFaceConfig(env)) {
-        return jsonResponse({ error: 'HuggingFace 未配置，无法完成上传' }, 500);
-      }
-      const arrayBuffer = await file.arrayBuffer();
-      const hfId = `hf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const hfPath = joinStoragePath(folderPath, `${hfId}.${fileExtension}`);
-      const hfResult = await uploadToHuggingFace(arrayBuffer, hfPath, taskData.fileName, env);
-      if (!hfResult.success) {
-        return jsonResponse({ error: 'HuggingFace 上传失败: ' + hfResult.error }, 500);
-      }
-      responseFileKey = `hf:${hfId}.${fileExtension}`;
-      metadataKey = responseFileKey;
-      extraMetadata.hfPath = hfPath;
-    } else if (storageType === 'webdav') {
-      if (!hasWebDAVConfig(env)) {
-        return jsonResponse({ error: 'WebDAV 未配置，无法完成上传' }, 500);
-      }
-      const arrayBuffer = await file.arrayBuffer();
-      const wdId = `wd_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const publicId = `${wdId}.${fileExtension}`;
-      const webdavPath = joinStoragePath(folderPath, publicId);
-      const webdavResult = await uploadToWebDAV(
-        arrayBuffer,
-        webdavPath,
-        file.type || 'application/octet-stream',
-        env
+    // ==============================================================
+    // 方案 A：针对 Cloudflare R2 原生 Multipart 完成合并（零内存消耗）
+    // ==============================================================
+    if (storageType === 'r2' && taskData.r2Multipart && env.R2_BUCKET) {
+      const mp = env.R2_BUCKET.resumeMultipartUpload(
+        taskData.r2Multipart.key,
+        taskData.r2Multipart.uploadId
       );
-      responseFileKey = `webdav:${publicId}`;
-      metadataKey = responseFileKey;
-      extraMetadata.webdavPath = normalizeWebDAVPath(webdavResult.path || webdavPath);
-      extraMetadata.webdavEtag = webdavResult.etag || undefined;
-    } else if (storageType === 'github') {
-      if (!hasGitHubConfig(env)) {
-        return jsonResponse({ error: 'GitHub 未配置，无法完成上传' }, 500);
-      }
-      const arrayBuffer = await file.arrayBuffer();
-      const ghId = `github_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      const publicId = `${ghId}.${fileExtension}`;
-      const githubStorageKey = joinStoragePath(folderPath, publicId);
-      const githubResult = await uploadToGitHub(
-        arrayBuffer,
-        normalizeGitHubStoragePath(githubStorageKey),
-        taskData.fileName,
-        file.type || 'application/octet-stream',
-        env
-      );
-      responseFileKey = `github:${publicId}`;
-      metadataKey = responseFileKey;
-      extraMetadata.githubStorageKey = normalizeGitHubStoragePath(
-        githubResult.storagePath || githubStorageKey
-      );
-      Object.assign(extraMetadata, githubResult.metadata || {});
-    } else {
-      storageType = 'telegram';
-      const result = await uploadToTelegram(file, env);
-      if (!result.success) {
-        return jsonResponse({ error: result.error }, 500);
+
+      const parts = (taskData.uploadedParts || []).sort((a, b) => a.partNumber - b.partNumber);
+      if (parts.length !== totalChunks) {
+        return jsonResponse(
+          {
+            error: '分片未完全上传',
+            uploaded: parts.length,
+            total: totalChunks,
+            missingChunks: getMissingChunks(parts.map((p) => p.partNumber - 1), totalChunks),
+          },
+          400
+        );
       }
 
-      metadataKey = `${result.fileId}.${fileExtension}`;
-      taskData.telegramMessageId = result.messageId || taskData.telegramMessageId;
+      // 底层自动合并并生成对象，执行耗时通常低于 1 秒
+      await mp.complete(parts);
 
-      responseFileKey = await buildTelegramDirectId(
-        result.fileId,
-        fileExtension,
-        taskData.fileName,
-        taskData.fileType,
-        taskData.fileSize,
-        taskData.telegramMessageId,
-        env
-      );
-      extraMetadata.signedLink = shouldUseSignedTelegramLinks(env);
-      extraMetadata.telegramFileId = result.fileId;
-      telegramNoticePayload = {
-        replyToMessageId: taskData.telegramMessageId || undefined,
-        directLink: buildTelegramDirectLink(env, responseFileKey, new URL(request.url).origin),
-        fileId: result.fileId,
-        messageId: taskData.telegramMessageId || undefined,
-        fileName: taskData.fileName,
-        fileSize: taskData.fileSize,
-      };
+      responseFileKey = `r2:${taskData.r2Multipart.key}`;
+      metadataKey = responseFileKey;
+      extraMetadata.r2Key = taskData.r2Multipart.key;
+    }
+    // ==============================================================
+    // 方案 B：其余存储端以及非原生分片模式的装配分支
+    // ==============================================================
+    else {
+      const chunkBackend = resolveChunkBackend(taskData, env);
+
+      if (!isKvWriteMinimized(env)) {
+        if (!Array.isArray(taskData.uploadedChunks) || taskData.uploadedChunks.length !== totalChunks) {
+          return jsonResponse(
+            {
+              error: '分片未完全上传',
+              uploaded: Array.isArray(taskData.uploadedChunks) ? taskData.uploadedChunks.length : 0,
+              total: totalChunks,
+              missingChunks: getMissingChunks(taskData.uploadedChunks || [], totalChunks),
+            },
+            400
+          );
+        }
+      }
+
+      const chunks = [];
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkData = await readChunkData(uploadId, i, chunkBackend, env);
+        if (!chunkData) {
+          return jsonResponse({ error: `分片 ${i} 数据缺失` }, 500);
+        }
+        chunks.push(chunkData);
+      }
+
+      const completeFile = new Blob(chunks, { type: taskData.fileType || 'application/octet-stream' });
+      const file = new File([completeFile], taskData.fileName, { type: taskData.fileType || 'application/octet-stream' });
+
+      if (storageType === 'r2') {
+        if (!env.R2_BUCKET) {
+          return jsonResponse({ error: 'R2 未配置，无法完成上传' }, 500);
+        }
+        const uploadResult = await uploadToR2(file, fileExtension, env);
+        responseFileKey = uploadResult.fileKey;
+        metadataKey = uploadResult.fileKey;
+      } else if (storageType === 's3') {
+        if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID) {
+          return jsonResponse({ error: 'S3 未配置，无法完成上传' }, 500);
+        }
+        const s3 = createS3Client(env);
+        const s3Id = `s3_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const s3Key = `${s3Id}.${fileExtension}`;
+        const arrayBuffer = await file.arrayBuffer();
+
+        // 对非 ASCII（中文）文件名使用 encodeURIComponent，防止 AWS S3 SigV4 抛出 Header 错误
+        await s3.putObject(s3Key, arrayBuffer, {
+          contentType: file.type || 'application/octet-stream',
+          metadata: { 'x-amz-meta-filename': encodeURIComponent(taskData.fileName) },
+        });
+        responseFileKey = `s3:${s3Key}`;
+        metadataKey = responseFileKey;
+        extraMetadata.s3Key = s3Key;
+      } else if (storageType === 'discord') {
+        if (!env.DISCORD_WEBHOOK_URL && !env.DISCORD_BOT_TOKEN) {
+          return jsonResponse({ error: 'Discord 未配置，无法完成上传' }, 500);
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const discordResult = await uploadToDiscord(arrayBuffer, taskData.fileName, taskData.fileType, env);
+        if (!discordResult.success) {
+          return jsonResponse({ error: 'Discord 上传失败: ' + discordResult.error }, 500);
+        }
+        const discordId = `discord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        responseFileKey = `discord:${discordId}.${fileExtension}`;
+        metadataKey = responseFileKey;
+        extraMetadata.discordChannelId = discordResult.channelId;
+        extraMetadata.discordMessageId = discordResult.messageId;
+        extraMetadata.discordAttachmentId = discordResult.attachmentId;
+        extraMetadata.discordUploadMode = discordResult.mode;
+        extraMetadata.discordSourceUrl = discordResult.sourceUrl;
+      } else if (storageType === 'huggingface') {
+        if (!hasHuggingFaceConfig(env)) {
+          return jsonResponse({ error: 'HuggingFace 未配置，无法完成上传' }, 500);
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const hfId = `hf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const hfPath = joinStoragePath(folderPath, `${hfId}.${fileExtension}`);
+        const hfResult = await uploadToHuggingFace(arrayBuffer, hfPath, taskData.fileName, env);
+        if (!hfResult.success) {
+          return jsonResponse({ error: 'HuggingFace 上传失败: ' + hfResult.error }, 500);
+        }
+        responseFileKey = `hf:${hfId}.${fileExtension}`;
+        metadataKey = responseFileKey;
+        extraMetadata.hfPath = hfPath;
+      } else if (storageType === 'webdav') {
+        if (!hasWebDAVConfig(env)) {
+          return jsonResponse({ error: 'WebDAV 未配置，无法完成上传' }, 500);
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const wdId = `wd_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const publicId = `${wdId}.${fileExtension}`;
+        const webdavPath = joinStoragePath(folderPath, publicId);
+        const webdavResult = await uploadToWebDAV(
+          arrayBuffer,
+          webdavPath,
+          file.type || 'application/octet-stream',
+          env
+        );
+        responseFileKey = `webdav:${publicId}`;
+        metadataKey = responseFileKey;
+        extraMetadata.webdavPath = normalizeWebDAVPath(webdavResult.path || webdavPath);
+        extraMetadata.webdavEtag = webdavResult.etag || undefined;
+      } else if (storageType === 'github') {
+        if (!hasGitHubConfig(env)) {
+          return jsonResponse({ error: 'GitHub 未配置，无法完成上传' }, 500);
+        }
+        const arrayBuffer = await file.arrayBuffer();
+        const ghId = `github_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const publicId = `${ghId}.${fileExtension}`;
+        const githubStorageKey = joinStoragePath(folderPath, publicId);
+        const githubResult = await uploadToGitHub(
+          arrayBuffer,
+          normalizeGitHubStoragePath(githubStorageKey),
+          taskData.fileName,
+          file.type || 'application/octet-stream',
+          env
+        );
+        responseFileKey = `github:${publicId}`;
+        metadataKey = responseFileKey;
+        extraMetadata.githubStorageKey = normalizeGitHubStoragePath(
+          githubResult.storagePath || githubStorageKey
+        );
+        Object.assign(extraMetadata, githubResult.metadata || {});
+      } else {
+        storageType = 'telegram';
+        const result = await uploadToTelegram(file, env);
+        if (!result.success) {
+          return jsonResponse({ error: result.error }, 500);
+        }
+
+        metadataKey = `${result.fileId}.${fileExtension}`;
+        taskData.telegramMessageId = result.messageId || taskData.telegramMessageId;
+
+        responseFileKey = await buildTelegramDirectId(
+          result.fileId,
+          fileExtension,
+          taskData.fileName,
+          taskData.fileType,
+          taskData.fileSize,
+          taskData.telegramMessageId,
+          env
+        );
+        extraMetadata.signedLink = shouldUseSignedTelegramLinks(env);
+        extraMetadata.telegramFileId = result.fileId;
+        telegramNoticePayload = {
+          replyToMessageId: taskData.telegramMessageId || undefined,
+          directLink: buildTelegramDirectLink(env, responseFileKey, new URL(request.url).origin),
+          fileId: result.fileId,
+          messageId: taskData.telegramMessageId || undefined,
+          fileName: taskData.fileName,
+          fileSize: taskData.fileSize,
+        };
+      }
+
+      await cleanupUploadTask(uploadId, totalChunks, chunkBackend, env);
     }
 
     const shouldWriteMetadata =
@@ -239,11 +279,6 @@ export async function onRequestPost(context) {
 
       const shareOptions = taskData.shareOptions || null;
       if (hasShareOptions(shareOptions)) {
-        // applyShareOptions persists the record itself, with the share fields
-        // (expiry / password hash / download cap / slug mapping) merged in.
-        // The slug is only validated at init (never reserved), so a concurrent
-        // upload can take it in the meantime: surface that as 409 rather than a
-        // generic server error.
         try {
           await applyShareOptions(env, metadataKey, fileMetadata, shareOptions);
         } catch (shareError) {
@@ -268,7 +303,8 @@ export async function onRequestPost(context) {
       }
     }
 
-    await cleanupUploadTask(uploadId, totalChunks, chunkBackend, env);
+    // 清理 KV 中保存的任务状态记录
+    await env.img_url.delete(`upload:${uploadId}`).catch(() => {});
 
     return jsonResponse({
       success: true,
@@ -299,6 +335,14 @@ function getMissingChunks(uploaded, total) {
 }
 
 function validateCompletionTarget(storageMode, fileSize) {
+  if (['r2', 's3'].includes(storageMode) && fileSize > 2 * GB) {
+    return {
+      ok: false,
+      status: 413,
+      code: 'FILE_TOO_LARGE',
+      message: '文件大小超过 2GB 上限',
+    };
+  }
   if (storageMode === 'telegram' && fileSize > 20 * MB) {
     return {
       ok: false,
@@ -321,6 +365,14 @@ function validateCompletionTarget(storageMode, fileSize) {
       status: 413,
       code: 'HUGGINGFACE_FILE_TOO_LARGE',
       message: 'HuggingFace 普通上传链路建议控制在 35MB 以内；更大的文件请使用 LFS 或其他对象存储。',
+    };
+  }
+  if (['github', 'webdav'].includes(storageMode) && fileSize > 100 * MB) {
+    return {
+      ok: false,
+      status: 413,
+      code: 'FILE_TOO_LARGE',
+      message: '当前存储端单文件上限为 100MB。更大的文件请使用 R2 或 S3。',
     };
   }
   return { ok: true };
@@ -363,7 +415,6 @@ async function cleanupUploadTask(uploadId, totalChunks, chunkBackend, env) {
       }
       await Promise.allSettled(toDelete);
       if (isKvWriteMinimized(env)) {
-        // Keep kv writes low in minimize mode, rely on TTL for upload task cleanup.
         return;
       }
     }
@@ -438,7 +489,7 @@ async function uploadToR2(file, fileExtension, env) {
       contentType: file.type || 'application/octet-stream',
     },
     customMetadata: {
-      fileName: file.name,
+      fileName: encodeURIComponent(file.name),
       uploadTime: Date.now().toString(),
     },
   });
