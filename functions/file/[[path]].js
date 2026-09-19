@@ -76,6 +76,10 @@ if (!fileId) {
   return errorResponse('Missing file id', 400);
 }
 
+  try {
+      fileId = decodeURIComponent(fileId);
+    } catch (e) {}
+
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
       return handleSignedTelegramFile(context, signedTelegramMeta);
