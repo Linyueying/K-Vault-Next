@@ -1779,7 +1779,7 @@
                 <i class="fas fa-cloud" style="font-size: 1.7rem; color: #f6821f;"></i>
                 <div>
                   <div class="storage-node-title">Cloudflare R2</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">2GB 零流费 CDN 存储</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">最高10GB零流费 CDN 存储</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 'r2'"><i class="fas fa-check"></i></div>
@@ -2244,13 +2244,13 @@
           isGuest: false,
           guestUploadConfig: null,
           uploadConfig: {
-            maxSize: 2048 * 1024 * 1024,
-            /* [FIX-P1-TASK2] 兜底 chunkSize 与后端 CHUNK_SIZE 保持一致（10MB）。
-               若 /api/status 返回 chunkSize，会在 checkStorageTarget 中被覆盖。 */
-            chunkSize: 10 * 1024 * 1024,
-            smallFileThreshold: 20 * 1024 * 1024,
-            maxConcurrent: 3,
-          },
+  maxSize: 10 * 1024 * 1024 * 1024,
+  /* [FIX-P1-TASK2] 兜底 chunkSize 与后端 CHUNK_SIZE 保持一致（50MB）。
+     若 /api/status 返回 chunkSize，会在 checkStorageTarget 中被覆盖。 */
+  chunkSize: 50 * 1024 * 1024,
+  smallFileThreshold: 20 * 1024 * 1024,
+  maxConcurrent: 3,
+},
           uploadLimits: {},
 
           /* ===== 下载队列追踪字典 ===== */
@@ -2803,7 +2803,7 @@
           getUploadLimit(storageMode) {
             const fallback = {
               telegram: { maxBytes: 20 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: false },
-              r2: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              r2: { maxBytes: 10 * 1024 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               s3: { maxBytes: 40 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               discord: { maxBytes: 25 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               huggingface: { maxBytes: 35 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
@@ -2911,7 +2911,10 @@
           },
           async chunkedUpload(item) {
             const file = item.file;
-            const chunkSize = this.uploadConfig.chunkSize || 10 * 1024 * 1024;
+            /* 有 R2 时用大分片（存 R2）；无 R2 时降到 20MB（KV 单值上限 25MB） */
+const chunkSize = this.r2Available
+  ? (this.uploadConfig.chunkSize || 50 * 1024 * 1024)
+  : 20 * 1024 * 1024;
             const totalChunks = Math.ceil(file.size / chunkSize);
 
             this.$set(item, "statusText", "初始化任务...");
@@ -2938,7 +2941,7 @@
             let uploadedBase = 0;
             let lastTime = Date.now();
             let lastLoaded = 0;
-            /* [TASK-1] 收集 R2 原生 multipart 的 { partNumber, etag }，用于 complete 时回传 */
+            /* [TASK-1] 收集  原生 multipart 的 { partNumber, etag }，用于 complete 时回传 */
             const collectedParts = [];
 
             this.$set(item, "statusText", "上传中");

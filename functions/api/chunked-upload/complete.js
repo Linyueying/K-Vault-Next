@@ -42,6 +42,11 @@
  * - HuggingFace / WebDAV / GitHub 回滚落地
  *
  * ================================================================
+ * 【本次变更】R2 单文件上限从 2GB 提升到 10GB。
+ *   validateCompletionTarget 改用共享常量 MAX_FILE_SIZE_R2，
+ *   与 chunk-limits.js / chunk.js 保持一致。
+ *
+ * ================================================================
  * ⚠️ 已知限制：
  *
  * 1. Discord 回滚需要 DISCORD_BOT_TOKEN。
@@ -93,7 +98,10 @@ import {
   shouldWriteTelegramMetadata,
 } from '../../utils/telegram.js';
 import { applyShareOptions, hasShareOptions } from '../../utils/share-options.js';
-import { MAX_IN_MEMORY_ASSEMBLY } from '../../utils/chunk-limits.js';
+import {
+  MAX_IN_MEMORY_ASSEMBLY,
+  MAX_FILE_SIZE_R2,
+} from '../../utils/chunk-limits.js';
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 const MB = 1024 * 1024;
@@ -817,12 +825,12 @@ function getMissingChunks(uploaded, total) {
 }
 
 function validateCompletionTarget(storageMode, fileSize) {
-  if (storageMode === 'r2' && fileSize > 2 * GB) {
+  if (storageMode === 'r2' && fileSize > MAX_FILE_SIZE_R2) {
     return {
       ok: false,
       status: 413,
       code: 'FILE_TOO_LARGE',
-      message: '文件大小超过 2GB 上限',
+      message: `文件大小超过 ${formatBytes(MAX_FILE_SIZE_R2)} 上限`,
     };
   }
   if (['s3', 'webdav', 'github'].includes(storageMode) && fileSize > MAX_IN_MEMORY_ASSEMBLY) {

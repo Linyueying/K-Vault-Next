@@ -9,9 +9,10 @@
  * 4. 限制 totalChunks 上限，防止 complete.js 循环 DoS
  * 5. 限制单分片大小，并根据文件大小推导软上限
  * 6. 任务归属校验（若 init.js 已写入 ownerId）
- * 7. 分片状态独立 KV 记录，避免 uploadedChunks 读改写竞态
+ * 7. 分片状态由客户端跟踪，服务端不再写 chunk-state（省 KV 写入）
  * 8. 空分片拒绝
  * 9. 统一 getOwnerId(auth)，禁止 ownerId 为空时跳过归属校验
+ * 10. KV 分片大小兜底：KV 单值上限 25MB，非 R2 后端拒绝过大分片
  *
  * ================================================================
  * 存储清理责任划分（与 R2 泄漏修复对齐）
@@ -28,20 +29,27 @@
  * - R2 原生 Multipart Upload：
  *   由 init.js / complete.js 主动 abort，
  *   或由 R2 生命周期规则"全局 1 天后自动 abort"兜底。
+ *
+ * - 分片状态（chunk-state:...）：
+ *   不再写入。已上传分片列表由前端内存维护，complete 时随
+ *   请求体 parts 一起提交。
  * ================================================================
  */
 import { checkAuthentication } from '../../utils/auth.js';
+import {
+  MAX_TOTAL_CHUNKS,
+  MAX_FILE_SIZE_R2,
+} from '../../utils/chunk-limits.js';
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 
 // 单个分片硬上限
-const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
+// 必须 >= CHUNK_SIZE（当前 50MB），且低于 Workers 100MB 请求体上限。
+const MAX_CHUNK_SIZE = 64 * 1024 * 1024; // 64MB
 
-// 单个上传任务的最大分片数量
-const MAX_TOTAL_CHUNKS = 10000;
-
-// 单任务声明的最大文件大小
-const MAX_FILE_SIZE = 2048 * 1024 * 1024; // 2GB
+// KV 单值上限 25MB，留安全余量按 24MB 作为 KV 分片硬上限。
+// 仅在 chunkBackend === 'kv' 时生效；R2 分片无此限制。
+const MAX_KV_CHUNK_SIZE = 24 * 1024 * 1024; // 24MB
 
 // 分片相关 KV TTL（与 init.js 的 TASK_TTL_SECONDS 对齐 = 90 分钟）
 const CHUNK_KV_TTL_SECONDS = 90 * 60;
@@ -144,9 +152,9 @@ export async function onRequestPost(context) {
       return jsonResponse({ error: 'Invalid fileSize in upload task.' }, 400);
     }
 
-    if (declaredFileSize > MAX_FILE_SIZE) {
+    if (declaredFileSize > MAX_FILE_SIZE_R2) {
       return jsonResponse(
-        { error: `fileSize 超过上限 (${MAX_FILE_SIZE} bytes)` },
+        { error: `fileSize 超过上限 (${MAX_FILE_SIZE_R2} bytes)` },
         413
       );
     }
@@ -218,24 +226,22 @@ export async function onRequestPost(context) {
     // ============================================
     // 6. 非 R2 原生存储节点：分片暂存分支
     // ============================================
+    // 注意：不再读取/写入 chunk-state。
+    // 已上传分片由前端内存维护，complete 时通过请求体提交。
     const chunkBackend = resolveChunkBackend(taskData, env);
 
-    // 重复分片检查：改为检查独立状态键，不再依赖 taskData.uploadedChunks。
-    // 始终检查/写入 chunk-state，因为它是独立键，不会造成读改写竞态，
-    // 且 init.js 断点续传需要列出已上传分片。
-    const stateKey = `chunk-state:${uploadId}:${chunkIndex}`;
-    const existingState = await env.img_url
-      .get(stateKey, { type: 'json' })
-      .catch(() => null);
-
-    if (existingState && Number(existingState.size) === chunk.size) {
-      return jsonResponse({
-        success: true,
-        message: '分片已存在',
-        chunkIndex,
-        size: chunk.size,
-        chunkBackend,
-      });
+    // KV 单值上限 25MB，非 R2 后端拒绝过大分片，避免 KV 写入失败。
+    // （正常情况下前端会在无 R2 时把分片降到 20MB，这里仅作兜底。）
+    if (chunkBackend === 'kv' && chunk.size > MAX_KV_CHUNK_SIZE) {
+      return jsonResponse(
+        {
+          error:
+            `当前未配置 R2，分片只能暂存到 KV（单个值上限 25MB），` +
+            `当前分片 ${chunk.size} 字节过大。请配置 R2 或减小分片大小。`,
+          code: 'KV_CHUNK_TOO_LARGE',
+        },
+        413
+      );
     }
 
     // 写入分片数据
@@ -276,23 +282,6 @@ export async function onRequestPost(context) {
         },
       });
     }
-
-    // ============================================
-    // 7. 写入独立分片状态键（替代主任务 JSON 全量回写）
-    // ============================================
-    // 无论 MINIMIZE_KV_WRITES 是否开启，都写 chunk-state：
-    // 它是独立键，不会与并发分片互相覆盖，且断点续传需要。
-    await env.img_url.put(
-      stateKey,
-      JSON.stringify({
-        uploadId,
-        chunkIndex,
-        size: chunk.size,
-        backend: chunkBackend,
-        createdAt: Date.now(),
-      }),
-      { expirationTtl: CHUNK_KV_TTL_SECONDS }
-    );
 
     // 非全局精确进度：仅基于当前请求的 chunkIndex 近似计算。
     const progress = (((chunkIndex + 1) / totalChunks) * 100).toFixed(1);
