@@ -6,7 +6,12 @@ import { checkGitHubConnection, hasGitHubConfig } from '../utils/github.js';
 import { getGuestConfig } from '../utils/guest.js';
 import { checkAuthentication } from '../utils/auth.js';
 import { buildTelegramBotApiUrl, getTelegramApiBase } from '../utils/telegram.js';
-import { MAX_IN_MEMORY_ASSEMBLY } from '../utils/chunk-limits.js';
+import {
+  MAX_IN_MEMORY_ASSEMBLY,
+  TELEGRAM_WEB_UPLOAD_LIMIT,
+  DISCORD_UPLOAD_LIMIT,
+  HUGGINGFACE_UPLOAD_LIMIT,
+} from '../utils/chunk-limits.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
@@ -341,8 +346,8 @@ export async function onRequestGet(context) {
 function getUploadLimits() {
   return {
     telegram: {
-      maxBytes: DIRECT_UPLOAD_THRESHOLD,
-      directThreshold: DIRECT_UPLOAD_THRESHOLD,
+      maxBytes: TELEGRAM_WEB_UPLOAD_LIMIT, // 20MB
+      directThreshold: TELEGRAM_WEB_UPLOAD_LIMIT,
       supportsChunkUpload: false,
       message: 'Cloudflare Pages 上的 Telegram 网页上传限制为 20MB。较大的浏览器上传请使用 R2、S3、WebDAV 或 GitHub，或直接把文件发到 Telegram 后使用 Webhook 回链。',
     },
@@ -358,13 +363,13 @@ function getUploadLimits() {
       message: 'S3 走 KV 中转分片上传，单文件上限 40MB。需要传大文件请选 R2（10GB）。',
     },
     discord: {
-      maxBytes: 25 * MB,
+      maxBytes: DISCORD_UPLOAD_LIMIT, // 25MB
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
       message: 'Discord 上传上限受服务器加成影响，K-Vault 默认按 25MB 保守处理。',
     },
     huggingface: {
-      maxBytes: 35 * MB,
+      maxBytes: HUGGINGFACE_UPLOAD_LIMIT, // 35MB
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
     },
