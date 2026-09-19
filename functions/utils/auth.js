@@ -66,22 +66,22 @@ export function getSessionFromCookie(request) {
  * 验证会话令牌
  */
 export async function verifySession(sessionToken, env) {
-  if (!sessionToken || !env.img_url) return false;
+  if (!sessionToken || !env.img_url) return null;
   
   try {
     const sessionData = await env.img_url.get(`session:${sessionToken}`, { type: 'json' });
-    if (!sessionData) return false;
+    if (!sessionData) return null;
     
     // 检查会话是否过期
     if (Date.now() > sessionData.expiresAt) {
       await env.img_url.delete(`session:${sessionToken}`);
-      return false;
+      return null;
     }
     
-    return true;
+    return sessionData;
   } catch (e) {
     console.error('Session verify error:', e);
-    return false;
+    return null;
   }
 }
 
@@ -149,10 +149,16 @@ export async function checkAuthentication(context) {
   }
   
   // 检查 Cookie 会话
-  const sessionToken = getSessionFromCookie(request);
-  if (sessionToken && await verifySession(sessionToken, env)) {
-    return { authenticated: true, reason: 'session', token: sessionToken };
-  }
+const sessionToken = getSessionFromCookie(request);
+const sessionData = sessionToken ? await verifySession(sessionToken, env) : null;
+if (sessionData) {
+  return {
+    authenticated: true,
+    reason: 'session',
+    token: sessionToken,
+    user: sessionData.user,
+  };
+}
   
   // 检查 Basic Auth
   const basicAuth = verifyBasicAuth(request, env);
