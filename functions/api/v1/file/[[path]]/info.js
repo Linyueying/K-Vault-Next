@@ -1,4 +1,4 @@
-import { onRequest as fileInfoInternal } from '../../../file-info/[id].js';
+import { onRequest as fileInfoInternal } from '../../../file-info/[[path]].js';
 import { apiError, apiSuccess, decodePathParam } from '../../../../utils/api-v1.js';
 
 function mapFileInfo(payload = {}) {
@@ -14,12 +14,18 @@ function mapFileInfo(payload = {}) {
   };
 }
 
+function resolveFileId(params) {
+  const raw = params?.path ?? params?.id;
+  const joined = Array.isArray(raw) ? raw.join('/') : (raw || '');
+  return decodePathParam(joined);
+}
+
 export async function onRequest(context) {
   if (context.request.method !== 'GET') {
     return apiError('METHOD_NOT_ALLOWED', 'Method not allowed.', 405);
   }
 
-  const id = decodePathParam(context.params?.id || '');
+  const id = resolveFileId(context.params);
   if (!id) {
     return apiError('VALIDATION_ERROR', 'File id is required.', 400);
   }
@@ -28,6 +34,7 @@ export async function onRequest(context) {
     ...context,
     params: {
       ...(context.params || {}),
+      path: id,
       id,
     },
   });

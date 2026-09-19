@@ -2,8 +2,18 @@ import { onRequest as serveFileInternal } from '../../../file/[[path]].js';
 import { onRequest as deleteFileInternal } from '../../manage/delete/[id].js';
 import { apiError, apiSuccess, decodePathParam } from '../../../utils/api-v1.js';
 
+/**
+ * 把 params 中的 path / id 统一解析成单个字符串 ID。
+ * [[path]] 路由下，params.path 可能是数组（多层路径），需要 join 后再解码。
+ */
+function resolveFileId(params) {
+  const raw = params?.path ?? params?.id;
+  const joined = Array.isArray(raw) ? raw.join('/') : (raw || '');
+  return decodePathParam(joined);
+}
+
 async function handleRead(context) {
-  const id = decodePathParam(context.params?.id || '');
+  const id = resolveFileId(context.params);
   if (!id) {
     return apiError('VALIDATION_ERROR', 'File id is required.', 400);
   }
@@ -12,7 +22,8 @@ async function handleRead(context) {
     ...context,
     params: {
       ...(context.params || {}),
-      id,
+      path: id, // 新参数名（serveFileInternal 读这个）
+      id,       // 兼容旧参数名
     },
   });
 
@@ -46,7 +57,7 @@ async function handleRead(context) {
 }
 
 async function handleDelete(context) {
-  const id = decodePathParam(context.params?.id || '');
+  const id = resolveFileId(context.params);
   if (!id) {
     return apiError('VALIDATION_ERROR', 'File id is required.', 400);
   }
@@ -55,6 +66,7 @@ async function handleDelete(context) {
     ...context,
     params: {
       ...(context.params || {}),
+      path: id, // 兼容两种写法
       id,
     },
   });
