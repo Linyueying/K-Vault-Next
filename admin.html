@@ -1333,17 +1333,22 @@ new Vue({
   computed: {
     /* ---------- 过滤 / 排序 / 分页 ---------- */
     filtered() {
-      const s = this.search.trim().toLowerCase();
-      return this.files.filter(f => {
-        const n = String(f.metadata.fileName || f.name || '').toLowerCase();
-        if (s && !n.includes(s) && !String(f.name).toLowerCase().includes(s)) return false;
-        if (this.filter === 'favorites' && !f.metadata.liked) return false;
-        const t = this.type(f.name);
-        if (this.fileType === 'document' ? t !== 'file' : (this.fileType !== 'all' && t !== this.fileType)) return false;
-        if (this.storage !== 'all' && this.storageType(f.name) !== this.storage) return false;
-        return true;
-      });
-    },
+  const s = this.search.trim().toLowerCase();
+  const curFolder = this.normalizeFolderPath(this.folderPath);
+  return this.files.filter(f => {
+    // 【本地目录过滤】不再请求后端，切目录零消耗
+    const fileFolder = this.normalizeFolderPath(f.metadata?.folderPath || '');
+    if (fileFolder !== curFolder) return false;
+
+    const n = String(f.metadata.fileName || f.name || '').toLowerCase();
+    if (s && !n.includes(s) && !String(f.name).toLowerCase().includes(s)) return false;
+    if (this.filter === 'favorites' && !f.metadata.liked) return false;
+    const t = this.type(f.name);
+    if (this.fileType === 'document' ? t !== 'file' : (this.fileType !== 'all' && t !== this.fileType)) return false;
+    if (this.storage !== 'all' && this.storageType(f.name) !== this.storage) return false;
+    return true;
+  });
+},
     sorted() {
       const a = this.filtered.slice();
       if (this.sort === 'nameAsc') a.sort((x, y) => String(x.name).localeCompare(String(y.name)));
@@ -1369,19 +1374,26 @@ new Vue({
 
     /* ---------- 目录 ---------- */
     folderTreeNodes() {
-      const out = [];
-      (this.folders || []).forEach(f => {
-        const p = this.normalizeFolderPath(f.path || f.folderPath || '');
-        if (!p) return;
-        out.push({
-          path: p,
-          name: f.name || p.split('/').pop() || p,
-          depth: f.depth || p.split('/').length,
-          fileCount: f.fileCount || 0
-        });
-      });
-      return out.sort((x, y) => x.path.localeCompare(y.path, 'zh-CN'));
-    },
+  // 【本地计数】目录里的文件数由本地 files 算出，避免依赖后端 folders 接口的计数
+  const countByFolder = {};
+  this.files.forEach(f => {
+    const fp = this.normalizeFolderPath(f.metadata?.folderPath || '');
+    if (fp) countByFolder[fp] = (countByFolder[fp] || 0) + 1;
+  });
+
+  const out = [];
+  (this.folders || []).forEach(f => {
+    const p = this.normalizeFolderPath(f.path || f.folderPath || '');
+    if (!p) return;
+    out.push({
+      path: p,
+      name: f.name || p.split('/').pop() || p,
+      depth: f.depth || p.split('/').length,
+      fileCount: countByFolder[p] || 0
+    });
+  });
+  return out.sort((x, y) => x.path.localeCompare(y.path, 'zh-CN'));
+},
     crumbs() {
       const parts = this.normalizeFolderPath(this.folderPath).split('/').filter(Boolean);
       const out = [];
@@ -1679,34 +1691,33 @@ new Vue({
     },
 
     /* ================= 数据加载 ================= */
-    async loadList(more) {
-  if (more && (this.loadingMore || !this.nextCursor)) return;
-  this.loadingMore = !!more;
+    async loadList() {
+  // 【省额度】一次性拉全部文件，前端本地过滤（切目录 0 次 KV list）
+  this.loadingMore = true;
   const p = new URLSearchParams();
-  if (more) p.set('cursor', this.nextCursor);
   p.set('_t', Date.now());
-  p.set('limit', more ? 48 : 24);
+  p.set('limit', '1000');
   p.set('includeStats', '1');
   p.set('sort', 'sizeAsc');
-  p.set('folderPath', this.folderPath || '');
+  // 注意：不传 folderPath，后端返回全部目录的文件
   if (this.storage !== 'all') p.set('storage', this.storage);
 
-      try {
-        const r = await fetch('./api/manage/list?' + p, { credentials: 'include' }).then(r => r.json());
-        const arr = (r.keys || []).map(x => ({
-          ...x,
-          selected: false,
-          metadata: Object.assign({ liked:false, fileName:x.name, fileSize:0, TimeStamp:0 }, x.metadata || {})
-        }));
-        this.files = more ? this.files.concat(arr) : arr;
-        this.nextCursor = r.list_complete ? null : r.cursor;
-        this.total = (r.stats && r.stats.total != null) ? r.stats.total : this.files.length;
-      } catch (e) {
-        this.showToast('加载文件失败', 'error');
-      } finally {
-        this.loadingMore = false;
-      }
-    },
+  try {
+    const r = await fetch('./api/manage/list?' + p, { credentials: 'include' }).then(r => r.json());
+    const arr = (r.keys || []).map(x => ({
+      ...x,
+      selected: false,
+      metadata: Object.assign({ liked:false, fileName:x.name, fileSize:0, TimeStamp:0 }, x.metadata || {})
+    }));
+    this.files = arr;
+    this.nextCursor = null;
+    this.total = arr.length;
+  } catch (e) {
+    this.showToast('加载文件失败', 'error');
+  } finally {
+    this.loadingMore = false;
+  }
+},
 
     async loadFolders() {
   this.folderLoading = true;
@@ -1729,11 +1740,11 @@ new Vue({
     loadMore() { this.loadList(true); },
 
     selectFolder(path) {
-      this.folderPath = this.normalizeFolderPath(path);
-      this.currentPage = 1;
-      try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
-      this.loadList();
-    },
+  // 【省额度】切目录只改本地状态，Vue 会自动重算 filtered，不打后端
+  this.folderPath = this.normalizeFolderPath(path);
+  this.currentPage = 1;
+  try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
+},
 
     /* ================= 目录操作 ================= */
     async createFolder() {
