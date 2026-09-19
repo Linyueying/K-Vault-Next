@@ -273,9 +273,10 @@ export async function onRequest(context) {
     payload.folders = buildFolderNodes(normalizedFiles, folderMarkers);
   }
 
-return new Response(JSON.stringify(payload), {
-  headers: {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-  },
-});
+  return new Response(JSON.stringify(payload), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    },
+  });
+}
