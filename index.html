@@ -1485,6 +1485,90 @@
         .bottom-floating-dock { width: calc(100% - 20px); }
         .history-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
       }
+
+      /* =========================================================
+         ===== 智能节点模式（Smart Routing）新增样式 =====
+         ========================================================= */
+      .smart-badge {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 6px;
+        border-radius: var(--radius-pill);
+        font-size: 0.58rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        color: #fff;
+        background: linear-gradient(135deg, #8b5cf6, #6366f1);
+        vertical-align: middle;
+        box-shadow: 0 2px 6px rgba(139, 92, 246, 0.35);
+      }
+
+      .smart-config-panel {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: var(--radius-md);
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.09), rgba(99, 102, 241, 0.04));
+        border: 1.5px dashed rgba(139, 92, 246, 0.42);
+        animation: fadeIn 0.22s ease;
+      }
+      html[data-theme="dark"] .smart-config-panel {
+        background: linear-gradient(135deg, rgba(139, 92, 246, 0.16), rgba(99, 102, 241, 0.08));
+        border-color: rgba(167, 139, 250, 0.4);
+      }
+      .smart-config-panel .folder-section-label {
+        margin-top: 0;
+        color: #7c3aed;
+      }
+      html[data-theme="dark"] .smart-config-panel .folder-section-label { color: #c4b5fd; }
+      .smart-config-panel .folder-section-label i { color: #8b5cf6; }
+
+      .smart-route-hint {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+      .smart-route-hint > i {
+        color: var(--text-muted);
+        font-size: 0.68rem;
+      }
+      .route-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--glass-border-ice);
+        background: var(--glass-surface);
+        color: var(--text-sub);
+        box-shadow: var(--shadow-soft);
+      }
+      .route-chip i { font-size: 0.78rem; }
+      .route-chip.small i { color: #0284c7; }
+      .route-chip.large i { color: #8b5cf6; }
+      html[data-theme="dark"] .route-chip.small i { color: #38bdf8; }
+      html[data-theme="dark"] .route-chip.large i { color: #c4b5fd; }
+
+      .target-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 7px;
+        border-radius: var(--radius-pill);
+        background: rgba(139, 92, 246, 0.14);
+        color: #7c3aed;
+        font-weight: 700;
+        font-size: 0.7rem;
+      }
+      html[data-theme="dark"] .target-badge {
+        color: #c4b5fd;
+        background: rgba(139, 92, 246, 0.22);
+      }
+      .target-badge i { font-size: 0.62rem; }
     </style>
   </head>
   <body>
@@ -1545,6 +1629,20 @@
           <p class="upload-sub-text">
             当前节点单文件上限：<strong style="color: var(--primary);">{{ currentUploadLimitLabel }}</strong>。支持全局快速粘贴文件 (<kbd style="padding: 2px 6px; border-radius: 6px; background: var(--primary-surface); color: var(--primary);">Ctrl+V</kbd>)。
           </p>
+
+          <!-- [SMART] 智能节点分流提示 -->
+          <div class="smart-route-hint" v-if="storageMode === 'auto'">
+            <span class="route-chip small">
+              <i class="fab fa-telegram"></i>
+              <span>≤ {{ formatSize(smartThreshold) }} → Telegram</span>
+            </span>
+            <i class="fas fa-arrow-right-long"></i>
+            <span class="route-chip large">
+              <i :class="getStorageIcon(smartLargeMode)"></i>
+              <span>&gt; {{ formatSize(smartThreshold) }} → {{ storageLabel(smartLargeMode) }}</span>
+            </span>
+          </div>
+
           <input
             type="file"
             style="display: none;"
@@ -1626,6 +1724,11 @@
                 <span v-if="file.speed" style="color: var(--primary); font-weight: 600;">• {{ file.speed }}</span>
                 <span v-if="file.error" style="color: #ef4444;">• {{ file.error }}</span>
                 <span>• {{ file.statusText || getStatusText(file.status) }} <span v-if="file.progress !== undefined">({{ file.progress }}%)</span></span>
+                <!-- [SMART] 显示该文件的智能分流目标节点 -->
+                <span class="target-badge" v-if="storageMode === 'auto' && file.targetMode">
+                  <i :class="getStorageIcon(file.targetMode)"></i>
+                  <span>{{ storageLabel(file.targetMode) }}</span>
+                </span>
               </div>
               <div class="task-progress-bar" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
                 <div class="task-progress-val" :style="{ width: (file.progress || 0) + '%' }"></div>
@@ -1767,6 +1870,23 @@
             </div>
 
             <div class="storage-cards-grid">
+              <!-- [SMART] 智能节点卡片 -->
+              <div
+                class="storage-node-card"
+                v-if="!isGuest"
+                :class="{ active: storageMode === 'auto' }"
+                @click="setStorageMode('auto')"
+              >
+                <i class="fas fa-wand-magic-sparkles" style="font-size: 1.7rem; color: #8b5cf6;"></i>
+                <div>
+                  <div class="storage-node-title">智能节点<span class="smart-badge">AUTO</span></div>
+                  <div class="storage-node-desc">
+                    ≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出自动分流
+                  </div>
+                </div>
+                <div class="storage-check-circle" v-if="storageMode === 'auto'"><i class="fas fa-check"></i></div>
+              </div>
+
               <div class="storage-node-card" :class="{ active: storageMode === 'telegram' }" @click="setStorageMode('telegram')">
                 <i class="fab fa-telegram" style="font-size: 1.7rem; color: #0284c7;"></i>
                 <div>
@@ -1819,6 +1939,31 @@
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 'github'"><i class="fas fa-check"></i></div>
+              </div>
+            </div>
+
+            <!-- [SMART] 智能节点大文件后端配置面板 -->
+            <div class="smart-config-panel" v-if="storageMode === 'auto' && !isGuest">
+              <div class="folder-section-label">
+                <i class="fas fa-sliders"></i>
+                <span>大文件节点（&gt; {{ formatSize(smartThreshold) }}）</span>
+              </div>
+              <div class="storage-cards-grid">
+                <div
+                  class="storage-node-card"
+                  v-for="opt in largeStorageOptions"
+                  :key="opt.value"
+                  :class="{ active: smartLargeMode === opt.value, disabled: !isStorageAvailable(opt.value) }"
+                  @click="setSmartLargeMode(opt.value)"
+                >
+                  <i :class="opt.icon" :style="{ fontSize: '1.7rem', color: opt.color }"></i>
+                  <div>
+                    <div class="storage-node-title">{{ opt.label }}</div>
+                    <div class="storage-node-desc" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</div>
+                    <span class="unconfigured-tag" v-else>未配置</span>
+                  </div>
+                  <div class="storage-check-circle" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></div>
+                </div>
               </div>
             </div>
           </div>
@@ -2133,6 +2278,12 @@
     <script>
       const LOCAL_PREVIEW_PAGE = "/preview.html";
 
+      /* ===== 智能节点模式常量 ===== */
+      // 小文件上限阈值（20MB）：<= 阈值走 Telegram，> 阈值走大文件节点
+      const SMART_SMALL_FILE_LIMIT = 20 * 1024 * 1024;
+      // 大文件节点候选（Telegram 不参与，因为其上限就是 20MB）
+      const SMART_LARGE_CANDIDATES = ["r2", "s3", "github", "discord", "huggingface"];
+
       /* ===== 递归目录树节点组件 ===== */
       Vue.component("folder-node", {
         name: "folder-node",
@@ -2246,7 +2397,7 @@
           uploadConfig: {
             maxSize: 10 * 1024 * 1024 * 1024,
             /* [P0 修复] 此字段不再用于分片大小推导。
-             * 分片大小由 chunkedUpload 按 r2Available 显式选择：
+             * 分片大小由 chunkedUpload 按目标存储节点显式选择：
              *   - R2 后端可用 → CHUNK_SIZE_R2 = 50MB
              *   - 仅 KV 后端 → CHUNK_SIZE_KV = 20MB
              * 保留此字段仅为兼容旧代码引用，禁止再读取它决定分片大小。 */
@@ -2255,6 +2406,12 @@
             maxConcurrent: 3,
           },
           uploadLimits: {},
+
+          /* ===== [SMART] 智能节点模式状态 ===== */
+          // 小文件阈值（字节），<= 该值走 Telegram
+          smartThreshold: SMART_SMALL_FILE_LIMIT,
+          // 大文件节点（用户可切换，默认 r2）
+          smartLargeMode: "r2",
 
           /* ===== 下载队列追踪字典 ===== */
           downloadingUrls: {},
@@ -2329,7 +2486,28 @@
           folderPathSegments() {
             return this.folderPath.split("/").filter(Boolean);
           },
+
+          /* [SMART] 大文件节点候选列表（用于抽屉内的配置面板） */
+          largeStorageOptions() {
+            return [
+              { value: "r2", label: "Cloudflare R2", desc: "最高 10GB 零流费 CDN 存储", icon: "fas fa-cloud", color: "#f6821f" },
+              { value: "s3", label: "Amazon S3", desc: "40MB 工业级对象存储", icon: "fas fa-database", color: "#10b981" },
+              { value: "discord", label: "Discord 频道", desc: "25MB 媒体托管节点", icon: "fab fa-discord", color: "#6366f1" },
+              { value: "huggingface", label: "HuggingFace", desc: "35MB 开放模型与数据集", icon: "fas fa-robot", color: "#ec4899" },
+              { value: "github", label: "GitHub Releases", desc: "40MB 仓库文件资产", icon: "fab fa-github", color: "#334155" },
+            ];
+          },
+
           currentUploadLimitLabel() {
+            /* [SMART] 智能节点模式：上限取"大文件节点"的上限 */
+            if (this.storageMode === "auto") {
+              const largeLimit = this.getUploadLimit(this.smartLargeMode).maxBytes || this.uploadConfig.maxSize;
+              const cap =
+                this.isGuest && this.guestUploadConfig
+                  ? Math.min(largeLimit, this.guestUploadConfig.maxFileSize)
+                  : largeLimit;
+              return `${this.formatSize(cap)}（智能分流）`;
+            }
             const limit = this.getUploadLimit(this.storageMode);
             const maxBytes =
               this.isGuest && this.guestUploadConfig
@@ -2495,6 +2673,104 @@
             }
           },
 
+          /* =========================================================
+             ===== [SMART] 智能节点模式核心逻辑 =====
+             ========================================================= */
+
+          /**
+           * 解析某个文件实际应该落到哪个存储节点。
+           * - 非智能模式：原样返回当前节点
+           * - 智能模式：<= 阈值 → telegram；> 阈值 → 用户指定的大文件节点
+           *   若首选节点装不下，则在其它已启用节点中寻找能装下的；
+           *   若都装不下，仍返回首选节点（由上层统一拦截并提示超限）。
+           */
+          resolveStorageForFile(size) {
+            if (this.storageMode !== "auto") return this.storageMode;
+
+            const threshold = this.smartThreshold || SMART_SMALL_FILE_LIMIT;
+
+            // ① 小文件 → Telegram
+            if (size <= threshold) return "telegram";
+
+            // ② 大文件 → 用户首选的大文件节点
+            const preferred = this.smartLargeMode;
+            if (preferred && preferred !== "telegram" && this.isStorageAvailable(preferred)) {
+              const cap = this.getUploadLimit(preferred).maxBytes || this.uploadConfig.maxSize;
+              if (size <= cap) return preferred;
+            }
+
+            // ③ 首选装不下 → 依次尝试其它已启用节点
+            for (const m of SMART_LARGE_CANDIDATES) {
+              if (m === preferred || !this.isStorageAvailable(m)) continue;
+              const cap = this.getUploadLimit(m).maxBytes || 0;
+              if (size <= cap) return m;
+            }
+
+            // ④ 全部装不下，返回首选节点让上层做超限提示
+            return preferred || "r2";
+          },
+
+          /**
+           * 根据目标存储节点计算分片大小。
+           * 必须与后端 utils/chunk-limits.js 的 resolveChunkSizeForBackend() 一致：
+           *   - R2 原生 multipart → 50MB
+           *   - 其余走 KV 中转 → 20MB（KV 单值上限 25MB，留安全余量）
+           */
+          resolveChunkSizeForMode(mode) {
+            const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
+            const CHUNK_SIZE_KV = 20 * 1024 * 1024;
+            if (mode === "r2") return CHUNK_SIZE_R2;
+            return this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
+          },
+
+          /** 智能节点是否可用（至少有一个大文件节点已启用） */
+          isSmartModeAvailable() {
+            return this.largeStorageOptions.some((o) => this.isStorageAvailable(o.value));
+          },
+
+          /** 切换"大文件节点" */
+          setSmartLargeMode(mode, silent = false) {
+            if (mode === "telegram") {
+              this.showToast("Telegram 单文件上限 20MB，不能作为大文件节点", "error");
+              return;
+            }
+            if (!this.isStorageAvailable(mode)) {
+              this.showToast(`${this.storageLabel(mode)} 未配置或未启用`, "error");
+              return;
+            }
+            if (this.smartLargeMode === mode) return;
+
+            this.smartLargeMode = mode;
+            try { localStorage.setItem("smartLargeMode", mode); } catch (e) {}
+
+            if (!silent) {
+              this.showToast(`大文件节点已切换为：${this.storageLabel(mode)}`, "success");
+            }
+          },
+
+          /** 探测远端 URL 的文件体积（用于 URL 转存的智能分流），失败返回 null */
+          async probeRemoteFileSize(url) {
+            try {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 4000);
+              const res = await fetch(url, {
+                method: "HEAD",
+                mode: "cors",
+                signal: controller.signal,
+              });
+              clearTimeout(timer);
+              if (!res.ok) return null;
+              const len = res.headers.get("content-length");
+              if (len === null) return null;
+              const n = Number(len);
+              return Number.isFinite(n) && n >= 0 ? n : null;
+            } catch (_) {
+              return null;
+            }
+          },
+
+          /* ========================================================= */
+
           openDrawer(tab) {
             this.activeDrawerTab = tab;
             this.showDrawer = true;
@@ -2514,6 +2790,7 @@
           },
           getStorageIcon(mode) {
             const map = {
+              auto: "fas fa-wand-magic-sparkles",
               telegram: "fab fa-telegram",
               r2: "fas fa-cloud",
               s3: "fas fa-database",
@@ -2524,6 +2801,7 @@
             return map[mode] || "fas fa-server";
           },
           isStorageAvailable(mode) {
+            if (mode === "auto") return true;
             if (mode === "telegram") return true;
             if (mode === "r2") return !!this.r2Available;
             if (mode === "s3") return !!this.s3Available;
@@ -2723,11 +3001,24 @@
             const files = Array.from(e.dataTransfer.files || []);
             this.processFiles(files);
           },
+
           async uploadFromUrl() {
             if (!this.urlToUpload.trim()) return;
             this.urlUploading = true;
 
             const extractedName = this.parseUrlFileName(this.urlToUpload);
+
+            /* [SMART] 智能模式下先探测远端文件体积，决定落到哪个节点 */
+            let targetMode = this.storageMode;
+            if (this.storageMode === "auto") {
+              const remoteSize = await this.probeRemoteFileSize(this.urlToUpload);
+              if (remoteSize !== null) {
+                targetMode = this.resolveStorageForFile(remoteSize);
+              } else {
+                // 探测失败（跨域限制等）→ 保守走大文件节点，避免超限
+                targetMode = this.smartLargeMode || "r2";
+              }
+            }
 
             try {
               const res = await fetch(`${this.baseURL}/api/upload-from-url`, {
@@ -2735,7 +3026,7 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   url: this.urlToUpload,
-                  storageMode: this.storageMode,
+                  storageMode: targetMode,
                   folderPath: this.folderPath,
                   fileName: extractedName,
                 }),
@@ -2763,8 +3054,11 @@
                   selected: false,
                 };
                 this.uploadedFiles.unshift(fileObj);
-                this.addToHistory(fileObj);
-                this.showToast("URL 转存成功", "success");
+                this.addToHistory(fileObj, targetMode);
+
+                const routeTip =
+                  this.storageMode === "auto" ? `（已分流至 ${this.storageLabel(targetMode)}）` : "";
+                this.showToast(`URL 转存成功${routeTip}`, "success");
                 this.urlToUpload = "";
                 this.showUrlInput = false;
               }
@@ -2774,8 +3068,10 @@
               this.urlUploading = false;
             }
           },
+
           setStorageMode(mode, silent = false) {
             const labels = {
+              auto: "智能节点",
               telegram: "Telegram 频道",
               r2: "Cloudflare R2",
               s3: "Amazon S3",
@@ -2784,13 +3080,25 @@
               github: "GitHub Releases",
             };
 
-            if (this.isGuest && !["telegram", "r2"].includes(mode)) {
-              this.showToast("访客模式仅支持 Telegram 和 R2 存储", "error");
-              return;
-            }
-            if (!this.isStorageAvailable(mode) && mode !== "telegram") {
-              this.showToast(`${labels[mode] || mode} 未配置或未启用`, "error");
-              return;
+            /* [SMART] 智能节点模式的前置校验 */
+            if (mode === "auto") {
+              if (this.isGuest) {
+                this.showToast("访客模式暂不支持智能节点", "error");
+                return;
+              }
+              if (!this.isSmartModeAvailable()) {
+                this.showToast("智能节点需要至少配置一个 20MB 以上的存储节点", "error");
+                return;
+              }
+            } else {
+              if (this.isGuest && !["telegram", "r2"].includes(mode)) {
+                this.showToast("访客模式仅支持 Telegram 和 R2 存储", "error");
+                return;
+              }
+              if (!this.isStorageAvailable(mode) && mode !== "telegram") {
+                this.showToast(`${labels[mode] || mode} 未配置或未启用`, "error");
+                return;
+              }
             }
 
             this.storageMode = mode;
@@ -2800,11 +3108,12 @@
             this.loadFolderPathForMode(mode);
 
             if (!silent) {
-              this.showToast(`已切换至：${this.storageTarget} (${this.currentUploadLimitLabel})`, "success");
+              this.showToast(`已切换至：${this.storageTarget}`, "success");
             }
           },
           getUploadLimit(storageMode) {
             const fallback = {
+              auto: { maxBytes: 10 * 1024 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               telegram: { maxBytes: 20 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: false },
               r2: { maxBytes: 10 * 1024 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               s3: { maxBytes: 40 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
@@ -2816,22 +3125,34 @@
             const remote = this.uploadLimits?.[storageMode];
             return { ...base, ...(remote || {}) };
           },
+
           async processFiles(files) {
             if (!files || !files.length) return;
-            const limit = this.getUploadLimit(this.storageMode);
-            const maxBytes = this.isGuest && this.guestUploadConfig
-                ? Math.min(limit.maxBytes || Infinity, this.guestUploadConfig.maxFileSize)
-                : limit.maxBytes;
 
             for (const file of files) {
+              /* [SMART] 先解析该文件实际落入的节点，再按该节点的限额校验 */
+              const targetMode = this.resolveStorageForFile(file.size);
+              const limit = this.getUploadLimit(targetMode);
+
+              let maxBytes = limit.maxBytes || this.uploadConfig.maxSize;
+              if (this.isGuest && this.guestUploadConfig) {
+                maxBytes = Math.min(maxBytes, this.guestUploadConfig.maxFileSize);
+              }
+
               if (maxBytes && file.size > maxBytes) {
-                this.showToast(`文件 [${file.name}] 超过限制 (${this.formatSize(maxBytes)})`, "error");
+                const viaTip = this.storageMode === "auto" ? `（智能分流 → ${this.storageLabel(targetMode)}）` : "";
+                this.showToast(
+                  `文件 [${file.name}] ${this.formatSize(file.size)} 超过 ${this.storageLabel(targetMode)} 上限 ${this.formatSize(maxBytes)}${viaTip}`,
+                  "error"
+                );
                 continue;
               }
+
               const item = {
                 name: file.name,
                 size: file.size,
                 file: file,
+                targetMode: targetMode, // [SMART] 锁定该文件的目标节点
                 status: "waiting",
                 statusText: "等待中",
                 speed: "",
@@ -2844,12 +3165,15 @@
             }
             this.startUpload();
           },
+
           async startUpload() {
             const waiting = this.uploadingFiles.filter((f) => f.status === "waiting");
             for (const item of waiting) {
+              /* [SMART] 使用该文件锁定的目标节点，而非全局 storageMode */
+              const mode = item.targetMode || this.storageMode;
               try {
                 item.status = "uploading";
-                const limit = this.getUploadLimit(this.storageMode);
+                const limit = this.getUploadLimit(mode);
                 const threshold = this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
                 if (item.file.size > threshold && limit.supportsChunkUpload) {
                   await this.chunkedUpload(item);
@@ -2867,10 +3191,14 @@
               this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
             }, 2500);
           },
+
           async directUpload(item) {
+            /* [SMART] 使用文件自身的目标节点 */
+            const mode = item.targetMode || this.storageMode;
+
             const formData = new FormData();
             formData.append("file", item.file);
-            formData.append("storageMode", this.storageMode);
+            formData.append("storageMode", mode);
             formData.append("folderPath", this.folderPath);
 
             let lastTime = Date.now();
@@ -2910,10 +3238,13 @@
               selected: false,
             };
             this.uploadedFiles.unshift(uploadedObj);
-            this.addToHistory(uploadedObj);
+            this.addToHistory(uploadedObj, mode);
           },
+
           async chunkedUpload(item) {
             const file = item.file;
+            /* [SMART] 使用文件自身的目标节点 */
+            const mode = item.targetMode || this.storageMode;
 
             /* ============================================================
              * 【P0 修复】分片大小必须与后端 utils/chunk-limits.js 的
@@ -2925,13 +3256,10 @@
              * 后端 init.js 会用同一规则校验：
              *   totalChunks === Math.ceil(fileSize / chunkSize)
              *
-             * 因此前端只能根据 r2Available 选择分片大小，
-             * 不能再读取 this.uploadConfig.chunkSize（全局值会把
-             * 非 R2 也当成 50MB，重新引入 CHUNK_COUNT_MISMATCH）。
+             * 智能模式下每个文件可能落到不同节点，因此分片大小必须
+             * 按该文件的目标节点计算，不能再读全局 uploadConfig.chunkSize。
              * ============================================================ */
-            const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
-            const CHUNK_SIZE_KV = 20 * 1024 * 1024;
-            const chunkSize = this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
+            const chunkSize = this.resolveChunkSizeForMode(mode);
             const totalChunks = Math.ceil(file.size / chunkSize);
 
             this.$set(item, "statusText", "初始化任务...");
@@ -2946,7 +3274,7 @@
                 fileSize: file.size,
                 fileType: file.type,
                 totalChunks: totalChunks,
-                storageMode: this.storageMode,
+                storageMode: mode,
                 folderPath: this.folderPath,
               }),
               credentials: "include",
@@ -3061,9 +3389,12 @@
               selected: false,
             };
             this.uploadedFiles.unshift(uploadedObj);
-            this.addToHistory(uploadedObj);
+            this.addToHistory(uploadedObj, mode);
           },
+
           retryUpload(file) {
+            /* [SMART] 重试时按当前配置重新解析目标节点 */
+            file.targetMode = this.resolveStorageForFile(file.size);
             file.status = "waiting";
             file.statusText = "等待中";
             file.speed = "";
@@ -3074,6 +3405,7 @@
           },
           retryAllFailed() {
             this.uploadingFiles.filter((f) => f.status === "error").forEach((f) => {
+              f.targetMode = this.resolveStorageForFile(f.size);
               f.status = "waiting";
               f.statusText = "等待中";
               f.speed = "";
@@ -3249,15 +3581,17 @@
               this.uploadHistory = [];
             }
           },
-          addToHistory(file) {
+          /* [SMART] 支持传入实际落地的存储节点 */
+          addToHistory(file, modeOverride) {
             const url = this.getCleanFileUrl(file);
+            const resolvedMode = modeOverride || file.storageMode || this.storageMode;
             const entry = {
               id: `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
               name: file.name || "",
               fileName: file.fileName || file.name || "未命名文件",
               url: file.url || file.path || "",
               size: Number(file.size) || 0,
-              storageMode: this.storageMode,
+              storageMode: resolvedMode,
               folderPath: this.folderPath || "",
               uploadTime: Date.now(),
               selected: false,
@@ -3381,6 +3715,7 @@
           },
           storageLabel(mode) {
             const map = {
+              auto: "智能节点",
               telegram: "Telegram",
               r2: "R2",
               s3: "S3",
@@ -3476,15 +3811,35 @@
               this.githubAvailable = isEnabled(st.github);
 
               /* [P0 修复] 不再从 /api/status 读取 chunkSize 覆盖本地值。
-                 分片大小已改为按 storageMode / r2Available 在 chunkedUpload
-                 内部按与后端 utils/chunk-limits.js 一致的规则确定。
+                 分片大小已改为按文件的 storageMode / r2Available 在
+                 resolveChunkSizeForMode() 内部按与后端 utils/chunk-limits.js
+                 一致的规则确定。
                  仅保留 smallFileThreshold 的可配置覆盖。 */
               if (Number.isFinite(st.smallFileThreshold) && st.smallFileThreshold > 0) {
                 this.uploadConfig.smallFileThreshold = st.smallFileThreshold;
               }
 
+              /* [SMART] 恢复"大文件节点"设置，并校验可用性 */
+              try {
+                const savedLarge = localStorage.getItem("smartLargeMode");
+                if (savedLarge && SMART_LARGE_CANDIDATES.includes(savedLarge)) {
+                  this.smartLargeMode = savedLarge;
+                }
+              } catch (e) {}
+
+              if (!this.isStorageAvailable(this.smartLargeMode)) {
+                const fallback = SMART_LARGE_CANDIDATES.find((m) => this.isStorageAvailable(m));
+                this.smartLargeMode = fallback || "r2";
+                try { localStorage.setItem("smartLargeMode", this.smartLargeMode); } catch (e) {}
+              }
+
+              /* [SMART] 恢复节点选择：auto 需要额外校验大文件节点可用性 */
               const saved = localStorage.getItem("storageMode") || "telegram";
-              if (this.isStorageAvailable(saved)) {
+              const autoUsable = this.isSmartModeAvailable();
+
+              if (saved === "auto" && autoUsable && !this.isGuest) {
+                this.setStorageMode("auto", true);
+              } else if (saved !== "auto" && this.isStorageAvailable(saved)) {
                 this.setStorageMode(saved, true);
               } else {
                 this.setStorageMode("telegram", true);
