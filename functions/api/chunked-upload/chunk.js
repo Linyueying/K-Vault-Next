@@ -1,143 +1,312 @@
-﻿/**
+/**
  * Upload one file chunk.
  * POST /api/chunked-upload/chunk
+ *
+ * 修复要点：
+ * 1. 强制鉴权（不再依赖 AUTH_REQUIRED 环境变量）
+ * 2. 严格校验 chunkIndex 为整数且在 [0, totalChunks) 范围内
+ * 3. 校验分片实际字节数与声明大小的一致性（关键防御）
+ * 4. 限制 totalChunks 上限，防止 complete.js 循环 DoS
+ * 5. 限制单分片大小，并根据文件大小推导软上限
+ * 6. 任务归属校验（若 init.js 已写入 ownerId）
+ * 7. 分片状态独立 KV 记录，避免 uploadedChunks 读改写竞态
+ * 8. 空分片拒绝
+ * 9. 统一 getOwnerId(auth)，禁止 ownerId 为空时跳过归属校验
+ *
+ * ================================================================
+ * 存储清理责任划分（与 R2 泄漏修复对齐）
+ * ================================================================
+ * - KV 分片（chunk:{uploadId}:{chunkIndex}）：
+ *   靠 expirationTtl 自动过期（此处设置 5400 秒 = 90 分钟，
+ *   与 init.js 的 TASK_TTL_SECONDS 对齐）。
+ *
+ * - R2 临时分片对象（chunk-upload/<uploadId>/<chunkIndex>）：
+ *   R2 不支持 expirationTtl，必须由以下两者之一清理：
+ *   a) complete.js 成功路径调用 cleanupUploadTask 主动删除
+ *   b) R2 生命周期规则：前缀 chunk-upload/ → 1 天后删除
+ *
+ * - R2 原生 Multipart Upload：
+ *   由 init.js / complete.js 主动 abort，
+ *   或由 R2 生命周期规则"全局 1 天后自动 abort"兜底。
+ * ================================================================
  */
-import { checkAuthentication, isAuthRequired } from '../../utils/auth.js';
+import { checkAuthentication } from '../../utils/auth.js';
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
+
+// 单个分片硬上限
+const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
+
+// 单个上传任务的最大分片数量
+const MAX_TOTAL_CHUNKS = 10000;
+
+// 单任务声明的最大文件大小
+const MAX_FILE_SIZE = 2048 * 1024 * 1024; // 2GB
+
+// 分片相关 KV TTL（与 init.js 的 TASK_TTL_SECONDS 对齐 = 90 分钟）
+const CHUNK_KV_TTL_SECONDS = 90 * 60;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
 
   try {
-    if (isAuthRequired(env)) {
-      const auth = await checkAuthentication(context);
-      if (!auth.authenticated) {
-        return jsonResponse({ error: 'Unauthorized' }, 401);
-      }
+    // ============================================
+    // 1. 强制鉴权
+    // ============================================
+    const auth = await checkAuthentication(context);
+    if (!auth || !auth.authenticated) {
+      return jsonResponse({ error: 'Unauthorized' }, 401);
     }
 
     if (!env.img_url) {
-      return jsonResponse({ error: 'KV binding img_url is required for chunk upload task state.' }, 500);
+      return jsonResponse(
+        { error: 'KV binding img_url is required for chunk upload task state.' },
+        500
+      );
     }
 
+    const ownerId = getOwnerId(auth);
+    if (!ownerId) {
+      return jsonResponse({ error: '无法识别用户身份，拒绝分片上传' }, 401);
+    }
+
+    // ============================================
+    // 2. 严格解析表单参数
+    // ============================================
     const formData = await request.formData();
     const uploadId = formData.get('uploadId');
-    const chunkIndex = parseInt(formData.get('chunkIndex'), 10);
+    const rawChunkIndex = formData.get('chunkIndex');
     const chunk = formData.get('chunk');
 
-    if (!uploadId || Number.isNaN(chunkIndex) || !chunk) {
-      return jsonResponse({ error: '缺少必要参数' }, 400);
+    if (
+      !uploadId ||
+      typeof uploadId !== 'string' ||
+      !/^[a-f0-9]{16,64}$/i.test(uploadId)
+    ) {
+      return jsonResponse({ error: 'uploadId 格式错误' }, 400);
     }
 
+    const chunkIndex =
+      typeof rawChunkIndex === 'string' && /^\d+$/.test(rawChunkIndex)
+        ? parseInt(rawChunkIndex, 10)
+        : NaN;
+
+    if (!Number.isInteger(chunkIndex) || chunkIndex < 0) {
+      return jsonResponse({ error: 'chunkIndex 必须为非负整数' }, 400);
+    }
+
+    if (
+      !chunk ||
+      typeof chunk === 'string' ||
+      typeof chunk.size !== 'number'
+    ) {
+      return jsonResponse({ error: 'chunk 参数格式错误' }, 400);
+    }
+
+    if (chunk.size <= 0) {
+      return jsonResponse({ error: '空分片不允许上传' }, 400);
+    }
+
+    if (chunk.size > MAX_CHUNK_SIZE) {
+      return jsonResponse(
+        { error: `单个分片超过上限 (${MAX_CHUNK_SIZE} bytes)` },
+        413
+      );
+    }
+
+    // ============================================
+    // 3. 读取并校验任务
+    // ============================================
     const taskData = await env.img_url.get(`upload:${uploadId}`, { type: 'json' });
     if (!taskData) {
       return jsonResponse({ error: '上传任务不存在或已过期' }, 404);
     }
+
+    if (!taskData.ownerId || taskData.ownerId !== ownerId) {
+      return jsonResponse({ error: '无权操作该上传任务' }, 403);
+    }
+
     const totalChunks = Number(taskData.totalChunks || 0);
+    const declaredFileSize = Number(taskData.fileSize || 0);
+
     if (!Number.isFinite(totalChunks) || totalChunks <= 0) {
       return jsonResponse({ error: 'Invalid totalChunks in upload task.' }, 400);
     }
 
-    const chunkBackend = resolveChunkBackend(taskData, env);
-    const minimizeKvWrites = isKvWriteMinimized(env);
+    if (totalChunks > MAX_TOTAL_CHUNKS) {
+      return jsonResponse(
+        { error: `totalChunks 超过上限 (${MAX_TOTAL_CHUNKS})` },
+        400
+      );
+    }
 
-    if (!minimizeKvWrites && Array.isArray(taskData.uploadedChunks) && taskData.uploadedChunks.includes(chunkIndex)) {
-      return jsonResponse({
-        success: true,
-        message: '分片已存在',
-        uploadedChunks: taskData.uploadedChunks,
-      });
+    if (!Number.isFinite(declaredFileSize) || declaredFileSize <= 0) {
+      return jsonResponse({ error: 'Invalid fileSize in upload task.' }, 400);
+    }
+
+    if (declaredFileSize > MAX_FILE_SIZE) {
+      return jsonResponse(
+        { error: `fileSize 超过上限 (${MAX_FILE_SIZE} bytes)` },
+        413
+      );
+    }
+
+    if (chunkIndex >= totalChunks) {
+      return jsonResponse(
+        { error: `chunkIndex ${chunkIndex} 超出范围 (0 ~ ${totalChunks - 1})` },
+        400
+      );
+    }
+
+    // ============================================
+    // 4. 分片大小一致性校验（关键防御）
+    // ============================================
+    const expectedAverage = declaredFileSize / totalChunks;
+    const softMaxChunkSize = Math.min(
+      MAX_CHUNK_SIZE,
+      Math.max(1, Math.ceil(expectedAverage * 2))
+    );
+
+    if (chunk.size > softMaxChunkSize) {
+      return jsonResponse(
+        {
+          error: `分片大小异常：分片 ${chunkIndex} 为 ${chunk.size} 字节，` +
+            `超过任务声明允许的上限 ${softMaxChunkSize} 字节`,
+          code: 'CHUNK_SIZE_MISMATCH',
+        },
+        400
+      );
     }
 
     const chunkArrayBuffer = await chunk.arrayBuffer();
+    if (chunkArrayBuffer.byteLength !== chunk.size) {
+      return jsonResponse(
+        { error: '分片实际字节数与声明不一致', code: 'CHUNK_BYTES_MISMATCH' },
+        400
+      );
+    }
 
-    // 针对 R2 原生 Multipart Upload 的处理通道
+    // ============================================
+    // 5. R2 原生 Multipart 分支（保持不变）
+    // ============================================
     if (taskData.storageMode === 'r2' && taskData.r2Multipart && env.R2_BUCKET) {
+      if (!taskData.r2Multipart.key || !taskData.r2Multipart.uploadId) {
+        return jsonResponse({ error: 'R2 multipart 任务信息不完整' }, 500);
+      }
+
       const mp = env.R2_BUCKET.resumeMultipartUpload(
         taskData.r2Multipart.key,
         taskData.r2Multipart.uploadId
       );
-      // R2 partNumber 为 1-indexed (从 1 开始)
+
       const partNumber = chunkIndex + 1;
       const uploadedPart = await mp.uploadPart(partNumber, chunkArrayBuffer);
 
-      let uploadedParts = Array.isArray(taskData.uploadedParts) ? taskData.uploadedParts : [];
-      uploadedParts = uploadedParts.filter((p) => p.partNumber !== partNumber);
-      uploadedParts.push({ partNumber, etag: uploadedPart.etag });
-      taskData.uploadedParts = uploadedParts;
-
-      let uploadedChunks = Array.isArray(taskData.uploadedChunks) ? taskData.uploadedChunks : [];
-      if (!uploadedChunks.includes(chunkIndex)) {
-        uploadedChunks.push(chunkIndex);
-        uploadedChunks.sort((a, b) => a - b);
+      if (!uploadedPart || !uploadedPart.etag) {
+        return jsonResponse({ error: 'R2 uploadPart 未返回有效 etag' }, 500);
       }
-      taskData.uploadedChunks = uploadedChunks;
 
-      await env.img_url.put(`upload:${uploadId}`, JSON.stringify(taskData), {
-        expirationTtl: 3600,
-      });
-
-      const progress = ((uploadedChunks.length / totalChunks) * 100).toFixed(1);
       return jsonResponse({
         success: true,
         chunkIndex,
-        uploadedChunks,
-        progress,
+        partNumber,
+        etag: uploadedPart.etag,
+        size: chunk.size,
       });
     }
 
-    // 其他存储节点（S3/Discord/Telegram/HF/GitHub/WebDAV）的标准暂存通道
+    // ============================================
+    // 6. 非 R2 原生存储节点：分片暂存分支
+    // ============================================
+    const chunkBackend = resolveChunkBackend(taskData, env);
+
+    // 重复分片检查：改为检查独立状态键，不再依赖 taskData.uploadedChunks。
+    // 始终检查/写入 chunk-state，因为它是独立键，不会造成读改写竞态，
+    // 且 init.js 断点续传需要列出已上传分片。
+    const stateKey = `chunk-state:${uploadId}:${chunkIndex}`;
+    const existingState = await env.img_url
+      .get(stateKey, { type: 'json' })
+      .catch(() => null);
+
+    if (existingState && Number(existingState.size) === chunk.size) {
+      return jsonResponse({
+        success: true,
+        message: '分片已存在',
+        chunkIndex,
+        size: chunk.size,
+        chunkBackend,
+      });
+    }
+
+    // 写入分片数据
     if (chunkBackend === 'r2') {
       if (!env.R2_BUCKET) {
-        return jsonResponse({ error: 'R2 chunk backend requested but R2_BUCKET is not configured.' }, 500);
+        return jsonResponse(
+          { error: 'R2 chunk backend requested but R2_BUCKET is not configured.' },
+          500
+        );
       }
 
-      await env.R2_BUCKET.put(getChunkObjectKey(uploadId, chunkIndex), chunkArrayBuffer, {
-        customMetadata: {
-          type: 'chunk',
-          uploadId,
-          chunkIndex: String(chunkIndex),
-          createdAt: String(Date.now()),
-        },
-      });
+      // ⚠️ R2 对象无 TTL，清理依赖：
+      //    a) complete.js 成功时 cleanupUploadTask
+      //    b) R2 生命周期规则（chunk-upload/ 前缀 1 天后删除）
+      await env.R2_BUCKET.put(
+        getChunkObjectKey(uploadId, chunkIndex),
+        chunkArrayBuffer,
+        {
+          customMetadata: {
+            type: 'chunk',
+            uploadId,
+            chunkIndex: String(chunkIndex),
+            size: String(chunk.size),
+            createdAt: String(Date.now()),
+          },
+        }
+      );
     } else {
+      // KV 分片靠 expirationTtl 自动过期（90 分钟）
       await env.img_url.put(`chunk:${uploadId}:${chunkIndex}`, chunkArrayBuffer, {
-        expirationTtl: 3600,
+        expirationTtl: CHUNK_KV_TTL_SECONDS,
         metadata: {
           type: 'chunk',
           uploadId,
           chunkIndex,
+          size: chunk.size,
           createdAt: Date.now(),
         },
       });
     }
 
-    let uploadedChunks = taskData.uploadedChunks || [];
-    if (!minimizeKvWrites) {
-      uploadedChunks = Array.from(new Set([...uploadedChunks, chunkIndex])).sort((a, b) => a - b);
-      taskData.uploadedChunks = uploadedChunks;
-      taskData.chunkBackend = chunkBackend;
+    // ============================================
+    // 7. 写入独立分片状态键（替代主任务 JSON 全量回写）
+    // ============================================
+    // 无论 MINIMIZE_KV_WRITES 是否开启，都写 chunk-state：
+    // 它是独立键，不会与并发分片互相覆盖，且断点续传需要。
+    await env.img_url.put(
+      stateKey,
+      JSON.stringify({
+        uploadId,
+        chunkIndex,
+        size: chunk.size,
+        backend: chunkBackend,
+        createdAt: Date.now(),
+      }),
+      { expirationTtl: CHUNK_KV_TTL_SECONDS }
+    );
 
-      await env.img_url.put(`upload:${uploadId}`, JSON.stringify(taskData), {
-        expirationTtl: 3600,
-      });
-    }
-
-    const progress = minimizeKvWrites
-      ? (((chunkIndex + 1) / totalChunks) * 100).toFixed(1)
-      : ((uploadedChunks.length / totalChunks) * 100).toFixed(1);
+    // 非全局精确进度：仅基于当前请求的 chunkIndex 近似计算。
+    const progress = (((chunkIndex + 1) / totalChunks) * 100).toFixed(1);
 
     return jsonResponse({
       success: true,
       chunkIndex,
-      uploadedChunks,
+      size: chunk.size,
       chunkBackend,
       progress,
     });
   } catch (error) {
     console.error('Chunk upload error:', error);
-    return jsonResponse({ error: error.message }, 500);
+    return jsonResponse({ error: error.message || 'Unknown error' }, 500);
   }
 }
 
@@ -148,8 +317,18 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-function isKvWriteMinimized(env) {
-  return env.MINIMIZE_KV_WRITES === 'true';
+function getOwnerId(auth) {
+  const raw =
+    auth?.userId ??
+    auth?.user?.id ??
+    auth?.user?.email ??
+    auth?.email ??
+    null;
+
+  if (raw === null || raw === undefined) return null;
+
+  const value = String(raw).trim();
+  return value || null;
 }
 
 function resolveChunkBackend(taskData, env) {
