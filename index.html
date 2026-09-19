@@ -3559,112 +3559,44 @@
             const url = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
             return !!this.downloadingUrls[url];
           },
-          async triggerDownload(url, fileName) {
-            if (!url) return;
-            if (this.downloadingUrls[url]) {
-              this.showToast("文件正在拉取中，请勿重复点击", "info");
-              return;
-            }
+          triggerDownload(url, fileName) {
+  if (!url) return;
+  if (this.downloadingUrls[url]) {
+    this.showToast('下载已开始，请查看浏览器下载栏', 'info');
+    return;
+  }
+  this.$set(this.downloadingUrls, url, true);
 
-            this.$set(this.downloadingUrls, url, true);
+  /* 【一次进度】先轻量 HEAD 探一下文件是否失效，再交给浏览器原生下载 */
+  fetch(url, { method: 'HEAD', credentials: 'include' })
+    .then(res => {
+      if (res.status === 404 || res.status === 410) {
+        this.markHistoryAsMissing(url);
+        this.showToast(`[${fileName || '文件'}] 已被删除（${res.status}）`, 'error');
+        this.$delete(this.downloadingUrls, url);
+        return;
+      }
+      this._doNativeDownload(url, fileName);
+    })
+    .catch(() => {
+      /* HEAD 失败（比如 TG 服务器不支持）→ 不挡住用户，直接下载 */
+      this._doNativeDownload(url, fileName);
+    });
+},
 
-            /* [UX] 打开下载进度浮层 */
-            this.downloadProgress = {
-              active: true,
-              url,
-              fileName: fileName || '文件',
-              loaded: 0,
-              total: 0,
-              speed: '',
-            };
-
-            try {
-              const res = await fetch(url, { credentials: "include" });
-
-              /* [HISTORY] 404 / 410 → 文件已被删除，顺手清理本地历史 */
-              if (res.status === 404 || res.status === 410) {
-                this.markHistoryAsMissing(url);
-                this.downloadProgress.active = false;
-                this.$delete(this.downloadingUrls, url);
-                this.showToast(`[${fileName || '文件'}] 已被删除（${res.status}）`, "error");
-                return;
-              }
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-              const total = Number(res.headers.get('content-length')) || 0;
-              this.downloadProgress.total = total;
-
-              let blob;
-              if (res.body && typeof res.body.getReader === 'function') {
-                /* [UX] 流式读取：边读边更新进度 + 速度 */
-                const reader = res.body.getReader();
-                const chunks = [];
-                let loaded = 0;
-                let lastTime = Date.now();
-                let lastLoaded = 0;
-
-                this.showToast(`正在从节点获取 [${fileName || "文件"}]，请稍候...`, "info");
-
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  chunks.push(value);
-                  loaded += value.length;
-                  this.downloadProgress.loaded = loaded;
-
-                  const now = Date.now();
-                  const diff = (now - lastTime) / 1000;
-                  if (diff >= 0.4) {
-                    const bps = (loaded - lastLoaded) / diff;
-                    this.downloadProgress.speed = this.formatSpeed(bps);
-                    lastTime = now;
-                    lastLoaded = loaded;
-                  }
-                }
-                blob = new Blob(chunks);
-              } else {
-                /* 兜底：老浏览器不支持流式读取 */
-                blob = await res.blob();
-                this.downloadProgress.loaded = blob.size;
-              }
-
-              const blobUrl = URL.createObjectURL(blob);
-
-              const a = document.createElement("a");
-              a.href = blobUrl;
-              a.download = fileName || "download";
-              a.style.display = "none";
-              document.body.appendChild(a);
-              a.click();
-
-              setTimeout(() => {
-                if (a.parentNode) a.parentNode.removeChild(a);
-                URL.revokeObjectURL(blobUrl);
-              }, 1000);
-
-              this.showToast(`[${fileName || "文件"}] 已开始保存`, "success");
-            } catch (err) {
-              console.warn("Fetch 流拉取失败，回退原生下载通道：", err);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = fileName || "";
-              a.style.display = "none";
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                if (a.parentNode) a.parentNode.removeChild(a);
-              }, 0);
-            } finally {
-              this.$delete(this.downloadingUrls, url);
-              /* 进度面板延迟关闭，让用户看到 100% */
-              const closingUrl = url;
-              setTimeout(() => {
-                if (this.downloadProgress.url === closingUrl) {
-                  this.downloadProgress.active = false;
-                }
-              }, 800);
-            }
-          },
+_doNativeDownload(url, fileName) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName || '';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    if (a.parentNode) a.parentNode.removeChild(a);
+    this.$delete(this.downloadingUrls, url);
+  }, 2000);
+  this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
+},
           downloadFile(file) {
             this.triggerDownload(this.getCleanFileUrl(file), this.getDisplayName(file));
           },
