@@ -1680,15 +1680,16 @@ new Vue({
 
     /* ================= 数据加载 ================= */
     async loadList(more) {
-      if (more && (this.loadingMore || !this.nextCursor)) return;
-      this.loadingMore = !!more;
-      const p = new URLSearchParams();
-      if (more) p.set('cursor', this.nextCursor);
-      p.set('limit', more ? 48 : 24);
-      p.set('includeStats', '1');
-      p.set('sort', 'sizeAsc');
-      p.set('folderPath', this.folderPath || '');
-      if (this.storage !== 'all') p.set('storage', this.storage);
+  if (more && (this.loadingMore || !this.nextCursor)) return;
+  this.loadingMore = !!more;
+  const p = new URLSearchParams();
+  if (more) p.set('cursor', this.nextCursor);
+  p.set('_t', Date.now());
+  p.set('limit', more ? 48 : 24);
+  p.set('includeStats', '1');
+  p.set('sort', 'sizeAsc');
+  p.set('folderPath', this.folderPath || '');
+  if (this.storage !== 'all') p.set('storage', this.storage);
 
       try {
         const r = await fetch('./api/manage/list?' + p, { credentials: 'include' }).then(r => r.json());
@@ -1708,11 +1709,12 @@ new Vue({
     },
 
     async loadFolders() {
-      this.folderLoading = true;
-      try {
-        const p = new URLSearchParams();
-        if (this.storage !== 'all') p.set('storage', this.storage);
-        const r = await fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => r.json());
+  this.folderLoading = true;
+  try {
+    const p = new URLSearchParams();
+    p.set('_t', Date.now());
+    if (this.storage !== 'all') p.set('storage', this.storage);
+    const r = await fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => r.json());
         this.folders = Array.isArray(r.folders) ? r.folders : [];
       } catch (e) {
         this.folders = [];

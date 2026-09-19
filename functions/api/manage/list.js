@@ -81,11 +81,6 @@ function matchStorage(storageType, storageFilter) {
   return storageType === storageFilter;
 }
 
-function matchFolder(folderPath, folderFilter) {
-  if (!folderFilter) return true;
-  return normalizeFolderPath(folderPath) === folderFilter;
-}
-
 function compareByTimestampDesc(a, b) {
   const left = Number(a?.metadata?.TimeStamp || 0);
   const right = Number(b?.metadata?.TimeStamp || 0);
@@ -218,7 +213,10 @@ export async function onRequest(context) {
   if (!env.img_url) {
     return new Response(JSON.stringify({ error: 'KV binding img_url is not configured.' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      },
     });
   }
 
@@ -230,7 +228,15 @@ export async function onRequest(context) {
   const offset = Math.max(0, parseInt(url.searchParams.get('cursor') || '0', 10) || 0);
   const prefix = url.searchParams.get('prefix') || '';
   const storageFilter = String(url.searchParams.get('storage') || '').toLowerCase();
-  const folderFilter = normalizeFolderPath(url.searchParams.get('folderPath') || url.searchParams.get('folder') || '');
+
+  // 修复：区分"没传 folderPath"和"传了空的 folderPath（=根目录）"
+  const rawFolderPath = url.searchParams.get('folderPath');
+  const rawFolderAlias = url.searchParams.get('folder');
+  const hasFolderFilter = rawFolderPath !== null || rawFolderAlias !== null;
+  const folderFilter = hasFolderFilter
+    ? normalizeFolderPath(rawFolderPath !== null ? rawFolderPath : (rawFolderAlias || ''))
+    : '';
+
   const sort = String(url.searchParams.get('sort') || '').toLowerCase();
   const includeStats = ['1', 'true', 'yes'].includes(
     String(url.searchParams.get('includeStats') || url.searchParams.get('stats') || '').toLowerCase()
@@ -251,8 +257,13 @@ export async function onRequest(context) {
     ? compareByFileSizeAsc
     : compareByTimestampDesc;
 
+  // 修复：folderPath 为空字符串时 → 只返回根目录文件（folderPath 也是空）
   const filtered = normalizedFiles
-    .filter((item) => matchFolder(item.metadata?.folderPath || '', folderFilter))
+    .filter((item) => {
+      if (!hasFolderFilter) return true;
+      const itemFolder = normalizeFolderPath(item.metadata?.folderPath || '');
+      return itemFolder === folderFilter;
+    })
     .sort(sorter);
 
   const page = filtered.slice(offset, offset + limit);
