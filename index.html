@@ -1788,7 +1788,7 @@
                 <i class="fas fa-database" style="font-size: 1.7rem; color: #10b981;"></i>
                 <div>
                   <div class="storage-node-title">Amazon S3</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">2GB 工业级对象存储</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">40MB 工业级对象存储</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 's3'"><i class="fas fa-check"></i></div>
@@ -1815,7 +1815,7 @@
                 <i class="fab fa-github" style="font-size: 1.7rem; color: #334155;"></i>
                 <div>
                   <div class="storage-node-title">GitHub Releases</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('github')">100MB 仓库文件资产</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('github')">40MB 仓库文件资产</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 'github'"><i class="fas fa-check"></i></div>
@@ -2244,8 +2244,10 @@
           isGuest: false,
           guestUploadConfig: null,
           uploadConfig: {
-            maxSize: 2048 * 1024 * 1024, // 默认放宽到 2GB
-            chunkSize: 5 * 1024 * 1024,
+            maxSize: 2048 * 1024 * 1024,
+            /* [FIX-P1-TASK2] 兜底 chunkSize 与后端 CHUNK_SIZE 保持一致（10MB）。
+               若 /api/status 返回 chunkSize，会在 checkStorageTarget 中被覆盖。 */
+            chunkSize: 10 * 1024 * 1024,
             smallFileThreshold: 20 * 1024 * 1024,
             maxConcurrent: 3,
           },
@@ -2799,17 +2801,17 @@
             }
           },
           getUploadLimit(storageMode) {
-            // R2 与 S3 单文件上限提升为 2GB (2048MB)
             const fallback = {
               telegram: { maxBytes: 20 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: false },
               r2: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
-              s3: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              s3: { maxBytes: 40 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               discord: { maxBytes: 25 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               huggingface: { maxBytes: 35 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
-              github: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              github: { maxBytes: 40 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
             };
             const base = fallback[storageMode] || fallback.telegram;
-            return { ...base, ...(this.uploadLimits?.[storageMode] || {}) };
+            const remote = this.uploadLimits?.[storageMode];
+            return { ...base, ...(remote || {}) };
           },
           async processFiles(files) {
             if (!files || !files.length) return;
@@ -2844,7 +2846,9 @@
             for (const item of waiting) {
               try {
                 item.status = "uploading";
-                if (!this.isGuest && item.file.size > this.uploadConfig.smallFileThreshold && this.getUploadLimit(this.storageMode).supportsChunkUpload) {
+                const limit = this.getUploadLimit(this.storageMode);
+                const threshold = this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
+                if (item.file.size > threshold && limit.supportsChunkUpload) {
                   await this.chunkedUpload(item);
                 } else {
                   await this.directUpload(item);
@@ -2907,7 +2911,7 @@
           },
           async chunkedUpload(item) {
             const file = item.file;
-            const chunkSize = this.uploadConfig.chunkSize;
+            const chunkSize = this.uploadConfig.chunkSize || 10 * 1024 * 1024;
             const totalChunks = Math.ceil(file.size / chunkSize);
 
             this.$set(item, "statusText", "初始化任务...");
@@ -2934,6 +2938,8 @@
             let uploadedBase = 0;
             let lastTime = Date.now();
             let lastLoaded = 0;
+            /* [TASK-1] 收集 R2 原生 multipart 的 { partNumber, etag }，用于 complete 时回传 */
+            const collectedParts = [];
 
             this.$set(item, "statusText", "上传中");
 
@@ -2948,7 +2954,8 @@
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
 
-              await this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, fd, (loadedChunk) => {
+              /* [TASK-1] 接收 chunk 响应体，提取 R2 返回的 etag / partNumber */
+              const chunkResp = await this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, fd, (loadedChunk) => {
                 const currentTotal = uploadedBase + loadedChunk;
                 const now = Date.now();
                 const diff = (now - lastTime) / 1000;
@@ -2959,29 +2966,67 @@
                   lastLoaded = currentTotal;
                 }
                 this.$set(item, "uploadedBytes", currentTotal);
-                // 预留 5% 给予服务端完成确认
                 const percent = Math.min(95, Math.round((currentTotal / file.size) * 95));
                 this.$set(item, "progress", percent);
               });
+
+              /* [TASK-1] 收集 R2 原生 multipart 返回的 etag / partNumber。
+                 非 R2 存储（s3/webdav/github/telegram/discord/huggingface）不返回 etag，此分支自动跳过。 */
+              if (
+                chunkResp &&
+                typeof chunkResp.etag === "string" &&
+                Number.isInteger(chunkResp.partNumber)
+              ) {
+                collectedParts.push({
+                  partNumber: chunkResp.partNumber,
+                  etag: chunkResp.etag,
+                });
+              }
 
               uploadedBase += chunkBytes;
               this.$set(item, "uploadedBytes", uploadedBase);
             }
 
-            // 所有切片上传完毕，通知合并并转为确认状态
-            this.$set(item, "status", "processing");
-            this.$set(item, "statusText", "校验与合并中...");
-            this.$set(item, "speed", "");
-            this.$set(item, "progress", 96);
+// 所有切片上传完毕，通知合并并转为确认状态
+this.$set(item, "status", "processing");
+this.$set(item, "statusText", "校验与合并中...");
+this.$set(item, "speed", "");
+this.$set(item, "progress", 96);
 
-            const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ uploadId }),
-              credentials: "include",
-            });
-            const completeData = await completeRes.json();
-            if (!completeRes.ok) throw new Error(completeData.error || "合并分片失败");
+/* 发起合并，遇到 R2_HEAD_RETRY(503) 自动延迟重试 */
+let completeData = null;
+const maxCompleteAttempts = 3;
+
+for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
+  /* [TASK-1] 无条件携带 parts；非 R2 分支后端不读取该字段，安全。 */
+  const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uploadId, parts: collectedParts }),
+    credentials: "include",
+  });
+
+  completeData = await completeRes.json();
+
+  if (completeRes.ok) break;
+
+  // 仅对 R2 head 瞬时失败做自动重试；其它错误直接抛出
+  if (
+    completeRes.status === 503 &&
+    completeData?.code === "R2_HEAD_RETRY" &&
+    attempt < maxCompleteAttempts
+  ) {
+    this.$set(
+      item,
+      "statusText",
+      `云端校验中，正在重试 (${attempt}/${maxCompleteAttempts - 1})...`
+    );
+    await new Promise((r) => setTimeout(r, 1500 * attempt));
+    continue;
+  }
+
+  throw new Error(completeData?.error || "合并分片失败");
+}
 
             this.$set(item, "status", "success");
             this.$set(item, "statusText", "已完成");
@@ -3409,6 +3454,15 @@
               this.discordAvailable = isEnabled(st.discord);
               this.huggingfaceAvailable = isEnabled(st.huggingface);
               this.githubAvailable = isEnabled(st.github);
+
+              /* [TASK-2] 若 /api/status 返回 chunkSize / smallFileThreshold，动态覆盖兜底值；
+                 未返回时继续使用 10MB / 20MB 的本地默认值。 */
+              if (Number.isFinite(st.chunkSize) && st.chunkSize > 0) {
+                this.uploadConfig.chunkSize = st.chunkSize;
+              }
+              if (Number.isFinite(st.smallFileThreshold) && st.smallFileThreshold > 0) {
+                this.uploadConfig.smallFileThreshold = st.smallFileThreshold;
+              }
 
               const saved = localStorage.getItem("storageMode") || "telegram";
               if (this.isStorageAvailable(saved)) {
