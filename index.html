@@ -563,7 +563,7 @@
         box-shadow: inset 0 0 0 1px var(--glass-border-ice);
       }
       html[data-theme="dark"] .folder-tree-row.active {
-        background: linear-gradient(135deg, rgba(2, 132, 199, 0.35), rgba(56, 189, 248, 0.15));
+        background: linear-gradient(135deg, rgba(224, 242, 254, 0.12), rgba(56, 189, 248, 0.15));
         color: #f0f9ff;
       }
 
@@ -2037,7 +2037,7 @@
                   <span class="folder-crumb" :key="'seg-' + i" @click="selectUploadFolder(folderPathUpTo(i))">{{ seg }}</span>
                 </template>
               </div>
-              <button class="mini-icon-btn" @click="fetchUploadFolders(true)" title="刷新目录结构">
+              <button class="mini-icon-btn" @click="fetchUploadFolders(true)" title="从云端同步目录（新增/删除后请点此）">
                 <i class="fas fa-rotate" :class="{ 'fa-spin': uploadFoldersLoading }"></i>
               </button>
             </div>
@@ -2502,12 +2502,6 @@
             total: 0,
             speed: '',
           },
-
-          /* ===== [SYNC] 乐观目录更新：path -> 过期时间戳 ===== */
-          optimisticFolders: {},
-
-          /* ===== [SYNC] 已删除目录墓碑：path -> 过期时间戳 ===== */
-          optimisticDeletedFolders: {},
 
           /* ===== [HISTORY] 失效历史清理状态 ===== */
           historyCleanupRunning: false,
@@ -3006,9 +3000,6 @@
               this.persistExpanded();
 
               this.showToast(`已创建目录：${createdPath}`, "success");
-
-              /* [SYNC] 后台错峰刷新，绕过 KV 最终一致性 */
-              this.refreshFoldersWithRetry();
             } catch (err) {
               this.showToast(err.message, "error");
             } finally {
@@ -3044,8 +3035,6 @@
                 const suffix = this.folderPath.slice(node.path.length);
                 this.selectUploadFolder(targetPath + suffix, true);
               }
-
-              this.refreshFoldersWithRetry();
             } catch (err) {
               this.showToast(err.message, "error");
             }
@@ -3070,8 +3059,6 @@
               if (this.folderPath === node.path || this.folderPath.startsWith(node.path + "/")) {
                 this.selectUploadFolder("", true);
               }
-
-              this.refreshFoldersWithRetry();
             } catch (err) {
               this.showToast(err.message, "error");
             }
@@ -3081,14 +3068,9 @@
              ===== [SYNC] 目录同步优化辅助方法 =====
              ========================================================= */
 
-          /**
-           * 乐观新增目录：立刻把它插进本地列表，并在 30 秒内
-           * 用它覆盖服务端可能返回的旧数据（KV 最终一致性兜底）。
-           */
           applyOptimisticFolderAdd(path) {
             const normalized = this.normalizeFolderPath(path);
             if (!normalized) return;
-            this.$set(this.optimisticFolders, normalized, Date.now() + 30000);
             const exists = (this.uploadFolders || []).some(
               (f) => this.normalizeFolderPath(f.path) === normalized
             );
@@ -3098,15 +3080,10 @@
             this.uploadFoldersFetched = true;
           },
 
-          /**
-           * 乐观重命名：本地把 oldPath 及其所有子路径替换为 newPath。
-           */
           applyOptimisticFolderRename(oldPath, newPath) {
             const oldN = this.normalizeFolderPath(oldPath);
             const newN = this.normalizeFolderPath(newPath);
             if (!oldN || !newN) return;
-            const expires = Date.now() + 30000;
-            this.$set(this.optimisticFolders, newN, expires);
             this.uploadFolders = (this.uploadFolders || []).map((f) => {
               const p = this.normalizeFolderPath(f.path);
               if (p === oldN) return { ...f, path: newN };
@@ -3115,29 +3092,13 @@
             });
           },
 
-          /**
-           * 乐观删除：本地移除 oldPath 及其所有子路径，并打上确认制墓碑
-           */
           applyOptimisticFolderDelete(oldPath) {
             const oldN = this.normalizeFolderPath(oldPath);
             if (!oldN) return;
-            /* [SYNC] 墓碑：不依赖时间，由 fetchUploadFolders 根据服务端是否
-               还返回这条路径来决定"续期"或"清除"。 */
-            this.$set(this.optimisticDeletedFolders, oldN, Number.MAX_SAFE_INTEGER);
             this.uploadFolders = (this.uploadFolders || []).filter((f) => {
               const p = this.normalizeFolderPath(f.path);
               return p !== oldN && !p.startsWith(oldN + "/");
             });
-          },
-
-          /**
-           * 错峰刷新：立即一次 + 3 秒 + 10 秒各一次，
-           * 用来在 KV 最终一致性窗口内反复对齐服务端状态。
-           */
-          refreshFoldersWithRetry() {
-            this.fetchUploadFolders(true);
-            setTimeout(() => this.fetchUploadFolders(true), 3000);
-            setTimeout(() => this.fetchUploadFolders(true), 10000);
           },
 
           async fetchUploadFolders(force = false) {
@@ -3152,54 +3113,7 @@
               const res = await fetch("/api/manage/folders", { credentials: "include" });
               if (res.ok) {
                 const data = await res.json();
-                const serverFolders = data.folders || [];
-
-                const now = Date.now();
-                const serverPaths = new Set(
-                  serverFolders.map((f) => this.normalizeFolderPath(f.path))
-                );
-
-                /* [SYNC] 墓碑处理：服务端仍返回 → 续期；服务端不再返回 → 清除 */
-                Object.keys(this.optimisticDeletedFolders).forEach((t) => {
-                  const stillExists = [...serverPaths].some(
-                    (p) => p === t || p.startsWith(t + "/")
-                  );
-                  if (stillExists) {
-                    /* 服务端还在返回这条 → 继续屏蔽 */
-                    this.$set(this.optimisticDeletedFolders, t, Number.MAX_SAFE_INTEGER);
-                  } else {
-                    /* 服务端已确认删除 → 墓碑功成身退 */
-                    this.$delete(this.optimisticDeletedFolders, t);
-                  }
-                });
-
-                /* [SYNC] 乐观新增：按时间过期（30 秒足够服务端落库） */
-                Object.keys(this.optimisticFolders).forEach((p) => {
-                  if (this.optimisticFolders[p] <= now) {
-                    this.$delete(this.optimisticFolders, p);
-                  }
-                });
-
-                /* [SYNC] 用墓碑过滤服务端数据 */
-                const tombstonePaths = Object.keys(this.optimisticDeletedFolders);
-                const filteredServer = serverFolders.filter((f) => {
-                  const p = this.normalizeFolderPath(f.path);
-                  return !tombstonePaths.some(
-                    (t) => p === t || p.startsWith(t + "/")
-                  );
-                });
-
-                const filteredServerPaths = new Set(
-                  filteredServer.map((f) => this.normalizeFolderPath(f.path))
-                );
-                const merged = [...filteredServer];
-                Object.keys(this.optimisticFolders).forEach((p) => {
-                  if (!filteredServerPaths.has(p)) {
-                    merged.push({ path: p, fileCount: 0 });
-                  }
-                });
-
-                this.uploadFolders = merged;
+                this.uploadFolders = data.folders || [];
                 this.uploadFoldersFetched = true;
                 if (this.folderPath) this.autoExpandAncestors(this.folderPath);
               }
