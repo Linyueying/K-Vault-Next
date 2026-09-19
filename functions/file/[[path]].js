@@ -68,10 +68,13 @@ export async function onRequest(context) {
   }
 
   try {
-    let fileId = params.id;
-    if (!fileId) {
-      return errorResponse('Missing file id', 400);
-    }
+    let fileId = params.path;
+if (Array.isArray(fileId)) {
+  fileId = fileId.join('/');
+}
+if (!fileId) {
+  return errorResponse('Missing file id', 400);
+}
 
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
