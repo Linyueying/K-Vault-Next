@@ -2,6 +2,23 @@
  * Upload one file chunk.
  * POST /api/chunked-upload/chunk
  *
+ * ================================================================
+ * 【P0 修复说明】
+ * 本文件的分片大小校验逻辑不依赖全局 CHUNK_SIZE，而是基于任务
+ * 声明的 fileSize / totalChunks 推导，因此本次前后端分片契约
+ * 修复（utils/chunk-limits.js + init.js + index.html）不需要修改
+ * 本文件的校验逻辑。
+ *
+ * 任务 KV 中的 chunkSize 字段现在写入的是实际值：
+ *   - chunkBackend === 'r2' → 50MB
+ *   - chunkBackend === 'kv' → 20MB
+ * 本文件不直接读取 taskData.chunkSize，而是通过
+ * declaredFileSize / totalChunks 反推 expectedAverage，
+ * 因此对任意合法分片大小都自适应。
+ *
+ * 仅同步更新文件头注释，避免后来人误以为仍固定 50MB。
+ * ================================================================
+ *
  * 修复要点：
  * 1. 强制鉴权（不再依赖 AUTH_REQUIRED 环境变量）
  * 2. 严格校验 chunkIndex 为整数且在 [0, totalChunks) 范围内
@@ -44,7 +61,7 @@ import {
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 
 // 单个分片硬上限
-// 必须 >= CHUNK_SIZE（当前 50MB），且低于 Workers 100MB 请求体上限。
+// 必须 >= CHUNK_SIZE_R2（当前 50MB），且低于 Workers 100MB 请求体上限。
 const MAX_CHUNK_SIZE = 64 * 1024 * 1024; // 64MB
 
 // KV 单值上限 25MB，留安全余量按 24MB 作为 KV 分片硬上限。
@@ -168,6 +185,12 @@ export async function onRequestPost(context) {
 
     // ============================================
     // 4. 分片大小一致性校验（关键防御）
+    //
+    // 本校验不依赖全局 CHUNK_SIZE / CHUNK_SIZE_R2 / CHUNK_SIZE_KV，
+    // 而是基于任务声明的 fileSize / totalChunks 反推 expectedAverage：
+    //   - R2 原生 multipart： expectedAverage ≈ 50MB
+    //   - KV 暂存后端：       expectedAverage ≈ 20MB
+    // 因此前后端分片契约变更（P0 修复）后本逻辑自适应，无需改动。
     // ============================================
     const expectedAverage = declaredFileSize / totalChunks;
     const softMaxChunkSize = Math.min(

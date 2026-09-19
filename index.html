@@ -2244,13 +2244,16 @@
           isGuest: false,
           guestUploadConfig: null,
           uploadConfig: {
-  maxSize: 10 * 1024 * 1024 * 1024,
-  /* [FIX-P1-TASK2] 兜底 chunkSize 与后端 CHUNK_SIZE 保持一致（50MB）。
-     若 /api/status 返回 chunkSize，会在 checkStorageTarget 中被覆盖。 */
-  chunkSize: 50 * 1024 * 1024,
-  smallFileThreshold: 20 * 1024 * 1024,
-  maxConcurrent: 3,
-},
+            maxSize: 10 * 1024 * 1024 * 1024,
+            /* [P0 修复] 此字段不再用于分片大小推导。
+             * 分片大小由 chunkedUpload 按 r2Available 显式选择：
+             *   - R2 后端可用 → CHUNK_SIZE_R2 = 50MB
+             *   - 仅 KV 后端 → CHUNK_SIZE_KV = 20MB
+             * 保留此字段仅为兼容旧代码引用，禁止再读取它决定分片大小。 */
+            chunkSize: 50 * 1024 * 1024,
+            smallFileThreshold: 20 * 1024 * 1024,
+            maxConcurrent: 3,
+          },
           uploadLimits: {},
 
           /* ===== 下载队列追踪字典 ===== */
@@ -2911,10 +2914,24 @@
           },
           async chunkedUpload(item) {
             const file = item.file;
-            /* 有 R2 时用大分片（存 R2）；无 R2 时降到 20MB（KV 单值上限 25MB） */
-const chunkSize = this.r2Available
-  ? (this.uploadConfig.chunkSize || 50 * 1024 * 1024)
-  : 20 * 1024 * 1024;
+
+            /* ============================================================
+             * 【P0 修复】分片大小必须与后端 utils/chunk-limits.js 的
+             * resolveChunkSizeForBackend() 完全一致：
+             *   - 后端 chunkBackend === 'r2' → CHUNK_SIZE_R2 = 50MB
+             *   - 后端 chunkBackend === 'kv' → CHUNK_SIZE_KV = 20MB
+             *     （KV 单值上限 25MB，留安全余量）
+             *
+             * 后端 init.js 会用同一规则校验：
+             *   totalChunks === Math.ceil(fileSize / chunkSize)
+             *
+             * 因此前端只能根据 r2Available 选择分片大小，
+             * 不能再读取 this.uploadConfig.chunkSize（全局值会把
+             * 非 R2 也当成 50MB，重新引入 CHUNK_COUNT_MISMATCH）。
+             * ============================================================ */
+            const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
+            const CHUNK_SIZE_KV = 20 * 1024 * 1024;
+            const chunkSize = this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
             const totalChunks = Math.ceil(file.size / chunkSize);
 
             this.$set(item, "statusText", "初始化任务...");
@@ -2941,7 +2958,7 @@ const chunkSize = this.r2Available
             let uploadedBase = 0;
             let lastTime = Date.now();
             let lastLoaded = 0;
-            /* [TASK-1] 收集  原生 multipart 的 { partNumber, etag }，用于 complete 时回传 */
+            /* [TASK-1] 收集 R2 原生 multipart 的 { partNumber, etag }，用于 complete 时回传 */
             const collectedParts = [];
 
             this.$set(item, "statusText", "上传中");
@@ -2990,46 +3007,46 @@ const chunkSize = this.r2Available
               this.$set(item, "uploadedBytes", uploadedBase);
             }
 
-// 所有切片上传完毕，通知合并并转为确认状态
-this.$set(item, "status", "processing");
-this.$set(item, "statusText", "校验与合并中...");
-this.$set(item, "speed", "");
-this.$set(item, "progress", 96);
+            // 所有切片上传完毕，通知合并并转为确认状态
+            this.$set(item, "status", "processing");
+            this.$set(item, "statusText", "校验与合并中...");
+            this.$set(item, "speed", "");
+            this.$set(item, "progress", 96);
 
-/* 发起合并，遇到 R2_HEAD_RETRY(503) 自动延迟重试 */
-let completeData = null;
-const maxCompleteAttempts = 3;
+            /* 发起合并，遇到 R2_HEAD_RETRY(503) 自动延迟重试 */
+            let completeData = null;
+            const maxCompleteAttempts = 3;
 
-for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
-  /* [TASK-1] 无条件携带 parts；非 R2 分支后端不读取该字段，安全。 */
-  const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uploadId, parts: collectedParts }),
-    credentials: "include",
-  });
+            for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
+              /* [TASK-1] 无条件携带 parts；非 R2 分支后端不读取该字段，安全。 */
+              const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ uploadId, parts: collectedParts }),
+                credentials: "include",
+              });
 
-  completeData = await completeRes.json();
+              completeData = await completeRes.json();
 
-  if (completeRes.ok) break;
+              if (completeRes.ok) break;
 
-  // 仅对 R2 head 瞬时失败做自动重试；其它错误直接抛出
-  if (
-    completeRes.status === 503 &&
-    completeData?.code === "R2_HEAD_RETRY" &&
-    attempt < maxCompleteAttempts
-  ) {
-    this.$set(
-      item,
-      "statusText",
-      `云端校验中，正在重试 (${attempt}/${maxCompleteAttempts - 1})...`
-    );
-    await new Promise((r) => setTimeout(r, 1500 * attempt));
-    continue;
-  }
+              // 仅对 R2 head 瞬时失败做自动重试；其它错误直接抛出
+              if (
+                completeRes.status === 503 &&
+                completeData?.code === "R2_HEAD_RETRY" &&
+                attempt < maxCompleteAttempts
+              ) {
+                this.$set(
+                  item,
+                  "statusText",
+                  `云端校验中，正在重试 (${attempt}/${maxCompleteAttempts - 1})...`
+                );
+                await new Promise((r) => setTimeout(r, 1500 * attempt));
+                continue;
+              }
 
-  throw new Error(completeData?.error || "合并分片失败");
-}
+              throw new Error(completeData?.error || "合并分片失败");
+            }
 
             this.$set(item, "status", "success");
             this.$set(item, "statusText", "已完成");
@@ -3458,11 +3475,10 @@ for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
               this.huggingfaceAvailable = isEnabled(st.huggingface);
               this.githubAvailable = isEnabled(st.github);
 
-              /* [TASK-2] 若 /api/status 返回 chunkSize / smallFileThreshold，动态覆盖兜底值；
-                 未返回时继续使用 10MB / 20MB 的本地默认值。 */
-              if (Number.isFinite(st.chunkSize) && st.chunkSize > 0) {
-                this.uploadConfig.chunkSize = st.chunkSize;
-              }
+              /* [P0 修复] 不再从 /api/status 读取 chunkSize 覆盖本地值。
+                 分片大小已改为按 storageMode / r2Available 在 chunkedUpload
+                 内部按与后端 utils/chunk-limits.js 一致的规则确定。
+                 仅保留 smallFileThreshold 的可配置覆盖。 */
               if (Number.isFinite(st.smallFileThreshold) && st.smallFileThreshold > 0) {
                 this.uploadConfig.smallFileThreshold = st.smallFileThreshold;
               }

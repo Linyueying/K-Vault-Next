@@ -24,7 +24,7 @@
  *
  * 修复要点：
  * 1. 强制鉴权，不再依赖 AUTH_REQUIRED 环境变量
- * 2. 强制校验 totalChunks === Math.ceil(fileSize / CHUNK_SIZE)
+ * 2. 强制校验 totalChunks === Math.ceil(fileSize / chunkSize)
  * 3. 限制 totalChunks 上限，限制 fileSize 上限
  * 4. 将 ownerId / chunkSize / chunkSizes / shareOptions 写入任务
  * 5. R2 存储模式预创建 Multipart Upload
@@ -50,10 +50,29 @@
  * 17. S3 / WebDAV / GitHub 等非 R2 原生分支限制到 MAX_IN_MEMORY_ASSEMBLY
  * 18. GET 断点续传改为从 chunk-state:${uploadId}:${chunkIndex}
  *     或 R2 chunk-upload/${uploadId}/ 动态列出已上传分片
+ *
+ * ================================================================
+ * 【P0 修复】前后端分片契约不一致
+ * ================================================================
+ * 旧实现用全局 CHUNK_SIZE = 50MB 强校验 totalChunks，但前端非 R2
+ * 分支按 20MB/片 切片，导致非 R2 存储（S3/Discord/HF/GitHub/WebDAV）
+ * 的 20MB~40MB 文件分片上传 100% 返回 CHUNK_COUNT_MISMATCH。
+ *
+ * 现改为：
+ *   1. 先解析 chunkBackend（'r2' 或 'kv'）
+ *   2. 用 resolveChunkSizeForBackend(chunkBackend === 'r2') 推导 chunkSize
+ *      - r2 → 50MB
+ *      - kv → 20MB（KV 单值上限 25MB，留安全余量）
+ *   3. 用实际 chunkSize 计算 expectedTotalChunks 并校验
+ *   4. 任务 KV 与响应写入实际 chunkSize，不再写全局 CHUNK_SIZE
+ *
+ * 前端 index.html 必须使用同一规则：
+ *   this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV
+ * ================================================================
  */
 import { checkAuthentication } from '../../utils/auth.js';
 import {
-  CHUNK_SIZE,
+  resolveChunkSizeForBackend,
   MAX_IN_MEMORY_ASSEMBLY,
   MAX_FILE_SIZE_R2,
   MAX_TOTAL_CHUNKS,
@@ -175,22 +194,6 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 4. totalChunks 必须与 fileSize / CHUNK_SIZE 完全一致
-    // ============================================
-    const expectedTotalChunks = Math.ceil(normalizedFileSize / CHUNK_SIZE);
-    if (normalizedTotalChunks !== expectedTotalChunks) {
-      return jsonResponse(
-        {
-          error:
-            `totalChunks 与 fileSize 不一致：声明 ${normalizedTotalChunks}，` +
-            `期望 ${expectedTotalChunks}（fileSize=${normalizedFileSize}, CHUNK_SIZE=${CHUNK_SIZE}）`,
-          code: 'CHUNK_COUNT_MISMATCH',
-        },
-        400
-      );
-    }
-
-    // ============================================
     // 5. 存储模式与存储级大小限制
     // ============================================
     const normalizedStorage = VALID_STORAGE_MODES.includes(storageMode)
@@ -213,7 +216,36 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 6. 惰性清理 + 单用户配额检查
+    // 6. 【P0 修复】先确定分片暂存后端，再据此推导 chunkSize
+    //    与 totalChunks 校验
+    //
+    //    分片大小必须由"分片暂存后端"决定，而不是全局 CHUNK_SIZE。
+    //    否则前端非 R2 分支（20MB/片）与后端期望（50MB/片）对不上，
+    //    所有非 R2 分片上传会 100% 返回 CHUNK_COUNT_MISMATCH。
+    //
+    //    规则（前后端必须完全一致）：
+    //      - chunkBackend === 'r2' → 50MB
+    //      - chunkBackend === 'kv' → 20MB（KV 单值上限 25MB）
+    // ============================================
+    const chunkBackend = resolveChunkBackend(env);
+    const chunkSize = resolveChunkSizeForBackend(chunkBackend === 'r2');
+
+    const expectedTotalChunks = Math.ceil(normalizedFileSize / chunkSize);
+    if (normalizedTotalChunks !== expectedTotalChunks) {
+      return jsonResponse(
+        {
+          error:
+            `totalChunks 与 fileSize 不一致：声明 ${normalizedTotalChunks}，` +
+            `期望 ${expectedTotalChunks}（fileSize=${normalizedFileSize}, ` +
+            `chunkSize=${chunkSize}, chunkBackend=${chunkBackend}）`,
+          code: 'CHUNK_COUNT_MISMATCH',
+        },
+        400
+      );
+    }
+
+    // ============================================
+    // 7. 惰性清理 + 单用户配额检查
     //    注意：并发/每日为【软限制】，KV 最终一致性下可能超限，
     //          仅防误用；防恶意请依赖 Cloudflare Rate Limiting。
     // ============================================
@@ -228,13 +260,13 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 7. 生成 uploadId 与分片后端
+    // 8. 生成 uploadId
+    //    （chunkBackend 已在第 6 步提前解析，这里不再重复）
     // ============================================
     const uploadId = generateUploadId();
-    const chunkBackend = resolveChunkBackend(env);
 
     // ============================================
-    // 8. R2 存储模式预创建 Multipart Upload
+    // 9. R2 存储模式预创建 Multipart Upload
     // ============================================
     let mp = null;
     let r2Multipart = null;
@@ -293,9 +325,10 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 9. 写入任务到 KV
+    // 10. 写入任务到 KV
     //    - KV 写入失败时：立即 abort 刚创建的 multipart（关键回滚）
     //    - delete upload: 为幂等兜底（正常情况 KV 未写入）
+    //    - 【P0 修复】写入实际 chunkSize，不再写全局 CHUNK_SIZE
     // ============================================
     const uploadTask = {
       uploadId,
@@ -304,7 +337,7 @@ export async function onRequestPost(context) {
       fileSize: normalizedFileSize,
       fileType: fileType || 'application/octet-stream',
       totalChunks: normalizedTotalChunks,
-      chunkSize: CHUNK_SIZE,
+      chunkSize,
       storageMode: normalizedStorage,
       folderPath,
       chunkBackend,
@@ -346,7 +379,7 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 10. 后续副作用：失败不阻塞主流程
+    // 11. 后续副作用：失败不阻塞主流程
     // ============================================
     if (r2Multipart) {
       await addPendingMultipart(env, ownerId, {
@@ -366,7 +399,7 @@ export async function onRequestPost(context) {
     return jsonResponse({
       success: true,
       uploadId,
-      chunkSize: CHUNK_SIZE,
+      chunkSize,
       totalChunks: normalizedTotalChunks,
       chunkBackend,
       r2Multipart: !!r2Multipart,
