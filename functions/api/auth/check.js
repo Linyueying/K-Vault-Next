@@ -13,9 +13,10 @@ export async function onRequestGet(context) {
 
   try {
     const guestConfig = getGuestConfig(env);
+    const authRequired = isAuthRequired(env); // 明确转为布尔值使用
 
     // 如果没有配置认证
-    if (!isAuthRequired(env)) {
+    if (!authRequired) {
       return new Response(JSON.stringify({
         authenticated: true,
         authRequired: false,
