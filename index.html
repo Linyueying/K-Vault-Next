@@ -1575,9 +1575,12 @@
          ========================================================= */
       .download-progress-panel {
         position: fixed;
-        bottom: 88px;
+        bottom: calc(112px + env(safe-area-inset-bottom, 0px));
         right: 16px;
-        width: min(320px, calc(100% - 32px));
+        left: 16px;
+        width: auto;
+        max-width: 380px;
+        margin-left: auto;
         padding: 12px 14px;
         border-radius: var(--radius-md);
         background: var(--glass-elevated);
@@ -1585,7 +1588,7 @@
         -webkit-backdrop-filter: blur(24px);
         border: 1.5px solid var(--glass-border-ice);
         box-shadow: var(--shadow-elevated);
-        z-index: 1500;
+        z-index: 1700;
         animation: fadeIn 0.2s ease;
       }
       .download-progress-title {
@@ -2503,6 +2506,9 @@
           /* ===== [SYNC] 乐观目录更新：path -> 过期时间戳 ===== */
           optimisticFolders: {},
 
+          /* ===== [SYNC] 已删除目录墓碑：path -> 过期时间戳 ===== */
+          optimisticDeletedFolders: {},
+
           /* ===== [HISTORY] 失效历史清理状态 ===== */
           historyCleanupRunning: false,
           historyCleanupProgress: { checked: 0, total: 0 },
@@ -3110,11 +3116,14 @@
           },
 
           /**
-           * 乐观删除：本地移除 oldPath 及其所有子路径。
+           * 乐观删除：本地移除 oldPath 及其所有子路径，并打上 30 秒墓碑
            */
           applyOptimisticFolderDelete(oldPath) {
             const oldN = this.normalizeFolderPath(oldPath);
             if (!oldN) return;
+            /* [SYNC] 记下墓碑：30 秒内忽略服务端返回的这条（含子路径） */
+            const expires = Date.now() + 30000;
+            this.$set(this.optimisticDeletedFolders, oldN, expires);
             this.uploadFolders = (this.uploadFolders || []).filter((f) => {
               const p = this.normalizeFolderPath(f.path);
               return p !== oldN && !p.startsWith(oldN + "/");
@@ -3155,10 +3164,26 @@
                   }
                 });
 
+                /* 清理过期墓碑 */
+                Object.keys(this.optimisticDeletedFolders).forEach((p) => {
+                  if (this.optimisticDeletedFolders[p] <= now) {
+                    this.$delete(this.optimisticDeletedFolders, p);
+                  }
+                });
+
+                /* 过滤服务端数据：命中墓碑的（含子路径）直接丢弃 */
+                const tombstonePaths = Object.keys(this.optimisticDeletedFolders);
+                const filteredServer = serverFolders.filter((f) => {
+                  const p = this.normalizeFolderPath(f.path);
+                  return !tombstonePaths.some(
+                    (t) => p === t || p.startsWith(t + "/")
+                  );
+                });
+
                 const serverPaths = new Set(
-                  serverFolders.map((f) => this.normalizeFolderPath(f.path))
+                  filteredServer.map((f) => this.normalizeFolderPath(f.path))
                 );
-                const merged = [...serverFolders];
+                const merged = [...filteredServer];
                 Object.keys(this.optimisticFolders).forEach((p) => {
                   if (!serverPaths.has(p)) {
                     merged.push({ path: p, fileCount: 0 });
@@ -3318,7 +3343,6 @@
             if (!files || !files.length) return;
 
             for (const file of files) {
-              /* [SMART] 先解析该文件实际落入的节点，再按该节点的限额校验 */
               const targetMode = this.resolveStorageForFile(file.size);
               const limit = this.getUploadLimit(targetMode);
 
