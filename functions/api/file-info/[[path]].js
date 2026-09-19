@@ -16,9 +16,18 @@ export async function onRequest(context) {
     });
   }
 
-  const fileId = params.id;
+  // [[path]] 路由：多层路径会被解析成数组，需要 join 后再解码
+  let fileId = params.path ?? params.id;
+  if (Array.isArray(fileId)) {
+    fileId = fileId.join('/');
+  }
   if (!fileId) {
     return jsonResponse({ error: 'Missing file ID' }, 400);
+  }
+  try {
+    fileId = decodeURIComponent(fileId);
+  } catch (_) {
+    // 解码失败则保留原值
   }
 
   try {
