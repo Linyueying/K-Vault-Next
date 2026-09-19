@@ -1,4 +1,4 @@
-import { onRequest as serveFileInternal } from '../../../file/[id].js';
+import { onRequest as serveFileInternal } from '../../../file/[[path]].js';
 import { onRequest as deleteFileInternal } from '../../manage/delete/[id].js';
 import { apiError, apiSuccess, decodePathParam } from '../../../utils/api-v1.js';
 
