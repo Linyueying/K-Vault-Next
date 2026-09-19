@@ -323,6 +323,7 @@ function getOwnerId(auth) {
     auth?.user?.id ??
     auth?.user?.email ??
     auth?.email ??
+    (typeof auth?.user === 'string' ? auth.user : null) ??
     null;
 
   if (raw === null || raw === undefined) return null;
