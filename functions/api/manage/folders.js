@@ -157,10 +157,12 @@ export async function onRequestGet(context) {
     .filter(isFolderMarker)
     .filter((item) => matchStorage(inferStorageType(item.name, item.metadata || {}), storageFilter));
 
-  return json({
-    success: true,
-    folders: buildFolderNodes(fileRecords, folderMarkers),
-  });
+  const response = json({
+  success: true,
+  folders: buildFolderNodes(fileRecords, folderMarkers),
+});
+response.headers.set('Cache-Control', 'no-store, max-age=0');
+return response;
 }
 
 export async function onRequestPost(context) {

@@ -1569,6 +1569,59 @@
         background: rgba(139, 92, 246, 0.22);
       }
       .target-badge i { font-size: 0.62rem; }
+
+      /* =========================================================
+         ===== 下载进度浮层 =====
+         ========================================================= */
+      .download-progress-panel {
+        position: fixed;
+        bottom: 88px;
+        right: 16px;
+        width: min(320px, calc(100% - 32px));
+        padding: 12px 14px;
+        border-radius: var(--radius-md);
+        background: var(--glass-elevated);
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        border: 1.5px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-elevated);
+        z-index: 1500;
+        animation: fadeIn 0.2s ease;
+      }
+      .download-progress-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .download-progress-title i { color: var(--primary); }
+      .download-progress-name {
+        flex: 1;
+        min-width: 0;
+        font-size: 0.82rem;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .download-progress-pct {
+        font-size: 0.75rem;
+        color: var(--primary);
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .download-progress-meta {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 6px;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+      }
+      .download-progress-meta .speed {
+        color: var(--primary);
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -2125,6 +2178,10 @@
               <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem;" @click="exportHistory" :disabled="!historySorted.length">
                 <i class="fas fa-file-export"></i> 导出
               </button>
+              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem;" @click="cleanupExpiredHistory" :disabled="!uploadHistory.length || historyCleanupRunning">
+                <i :class="historyCleanupRunning ? 'fas fa-spinner fa-spin' : 'fas fa-magnifying-glass-chart'"></i>
+                {{ historyCleanupRunning ? `检查 ${historyCleanupProgress.checked}/${historyCleanupProgress.total}` : '清理失效' }}
+              </button>
               <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem; color: #ef4444;" @click="clearHistory" :disabled="!uploadHistory.length">
                 <i class="fas fa-broom"></i> 清空
               </button>
@@ -2266,6 +2323,30 @@
         </div>
       </div>
 
+      <!-- Download Progress Floating Panel -->
+      <div class="download-progress-panel" v-if="downloadProgress.active">
+        <div class="download-progress-title">
+          <i class="fas fa-download"></i>
+          <span class="download-progress-name">{{ downloadProgress.fileName || '下载中' }}</span>
+          <span class="download-progress-pct">
+            {{ downloadProgress.total > 0 ? Math.round((downloadProgress.loaded / downloadProgress.total) * 100) + '%' : '' }}
+          </span>
+        </div>
+        <div class="task-progress-bar" style="margin-top: 0;">
+          <div
+            class="task-progress-val"
+            :style="{ width: (downloadProgress.total > 0 ? (downloadProgress.loaded / downloadProgress.total) * 100 : 0) + '%' }"
+          ></div>
+        </div>
+        <div class="download-progress-meta">
+          <span>
+            {{ formatSize(downloadProgress.loaded) }}
+            / {{ downloadProgress.total > 0 ? formatSize(downloadProgress.total) : '未知大小' }}
+          </span>
+          <span class="speed" v-if="downloadProgress.speed">{{ downloadProgress.speed }}</span>
+        </div>
+      </div>
+
       <!-- Floating Toast Pill -->
       <div class="toast-glass-banner" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0">
         <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
@@ -2396,11 +2477,6 @@
           guestUploadConfig: null,
           uploadConfig: {
             maxSize: 10 * 1024 * 1024 * 1024,
-            /* [P0 修复] 此字段不再用于分片大小推导。
-             * 分片大小由 chunkedUpload 按目标存储节点显式选择：
-             *   - R2 后端可用 → CHUNK_SIZE_R2 = 50MB
-             *   - 仅 KV 后端 → CHUNK_SIZE_KV = 20MB
-             * 保留此字段仅为兼容旧代码引用，禁止再读取它决定分片大小。 */
             chunkSize: 50 * 1024 * 1024,
             smallFileThreshold: 20 * 1024 * 1024,
             maxConcurrent: 3,
@@ -2408,13 +2484,28 @@
           uploadLimits: {},
 
           /* ===== [SMART] 智能节点模式状态 ===== */
-          // 小文件阈值（字节），<= 该值走 Telegram
           smartThreshold: SMART_SMALL_FILE_LIMIT,
-          // 大文件节点（用户可切换，默认 r2）
           smartLargeMode: "r2",
 
           /* ===== 下载队列追踪字典 ===== */
           downloadingUrls: {},
+
+          /* ===== [UX] 下载进度面板状态 ===== */
+          downloadProgress: {
+            active: false,
+            url: '',
+            fileName: '',
+            loaded: 0,
+            total: 0,
+            speed: '',
+          },
+
+          /* ===== [SYNC] 乐观目录更新：path -> 过期时间戳 ===== */
+          optimisticFolders: {},
+
+          /* ===== [HISTORY] 失效历史清理状态 ===== */
+          historyCleanupRunning: false,
+          historyCleanupProgress: { checked: 0, total: 0 },
 
           /* ===== 本地历史面板状态 ===== */
           historySearch: "",
@@ -2901,18 +2992,24 @@
               this.showUploadFolderCreator = false;
               this.newUploadFolderPath = "";
 
-              await this.fetchUploadFolders(true);
+              /* [SYNC] 乐观更新：立刻把新目录塞进本地树，不等服务器 */
+              this.applyOptimisticFolderAdd(createdPath);
+
               this.selectUploadFolder(createdPath, true);
               this.$set(this.expandedFolders, createdPath, true);
               this.persistExpanded();
 
               this.showToast(`已创建目录：${createdPath}`, "success");
+
+              /* [SYNC] 后台错峰刷新，绕过 KV 最终一致性 */
+              this.refreshFoldersWithRetry();
             } catch (err) {
               this.showToast(err.message, "error");
             } finally {
               this.uploadFolderCreating = false;
             }
           },
+
           async handleRenameFolder(node) {
             const newPath = window.prompt(`重命名目录：\n"${node.path}"\n\n请输入新路径（包含完整路径）：`, node.path);
             if (newPath === null) return;
@@ -2934,15 +3031,20 @@
 
               this.showToast(`已重命名：${targetPath}`, "success");
 
+              /* [SYNC] 乐观更新：本地把旧路径替换为新路径（含子目录） */
+              this.applyOptimisticFolderRename(node.path, targetPath);
+
               if (this.folderPath === node.path || this.folderPath.startsWith(node.path + "/")) {
                 const suffix = this.folderPath.slice(node.path.length);
                 this.selectUploadFolder(targetPath + suffix, true);
               }
-              await this.fetchUploadFolders(true);
+
+              this.refreshFoldersWithRetry();
             } catch (err) {
               this.showToast(err.message, "error");
             }
           },
+
           async handleDeleteFolder(node) {
             if (!window.confirm(`⚠️ 确定要删除目录 "${node.path}" 及其所有子目录和文件吗？\n\n此操作不可撤销！`)) return;
 
@@ -2956,14 +3058,79 @@
 
               this.showToast(`已删除目录：${node.path}`, "success");
 
+              /* [SYNC] 乐观更新：本地立刻移除该目录及其子目录 */
+              this.applyOptimisticFolderDelete(node.path);
+
               if (this.folderPath === node.path || this.folderPath.startsWith(node.path + "/")) {
                 this.selectUploadFolder("", true);
               }
-              await this.fetchUploadFolders(true);
+
+              this.refreshFoldersWithRetry();
             } catch (err) {
               this.showToast(err.message, "error");
             }
           },
+
+          /* =========================================================
+             ===== [SYNC] 目录同步优化辅助方法 =====
+             ========================================================= */
+
+          /**
+           * 乐观新增目录：立刻把它插进本地列表，并在 30 秒内
+           * 用它覆盖服务端可能返回的旧数据（KV 最终一致性兜底）。
+           */
+          applyOptimisticFolderAdd(path) {
+            const normalized = this.normalizeFolderPath(path);
+            if (!normalized) return;
+            this.$set(this.optimisticFolders, normalized, Date.now() + 30000);
+            const exists = (this.uploadFolders || []).some(
+              (f) => this.normalizeFolderPath(f.path) === normalized
+            );
+            if (!exists) {
+              this.uploadFolders = [...(this.uploadFolders || []), { path: normalized, fileCount: 0 }];
+            }
+            this.uploadFoldersFetched = true;
+          },
+
+          /**
+           * 乐观重命名：本地把 oldPath 及其所有子路径替换为 newPath。
+           */
+          applyOptimisticFolderRename(oldPath, newPath) {
+            const oldN = this.normalizeFolderPath(oldPath);
+            const newN = this.normalizeFolderPath(newPath);
+            if (!oldN || !newN) return;
+            const expires = Date.now() + 30000;
+            this.$set(this.optimisticFolders, newN, expires);
+            this.uploadFolders = (this.uploadFolders || []).map((f) => {
+              const p = this.normalizeFolderPath(f.path);
+              if (p === oldN) return { ...f, path: newN };
+              if (p.startsWith(oldN + "/")) return { ...f, path: newN + p.slice(oldN.length) };
+              return f;
+            });
+          },
+
+          /**
+           * 乐观删除：本地移除 oldPath 及其所有子路径。
+           */
+          applyOptimisticFolderDelete(oldPath) {
+            const oldN = this.normalizeFolderPath(oldPath);
+            if (!oldN) return;
+            this.uploadFolders = (this.uploadFolders || []).filter((f) => {
+              const p = this.normalizeFolderPath(f.path);
+              return p !== oldN && !p.startsWith(oldN + "/");
+            });
+          },
+
+          /**
+           * 错峰刷新：立即一次 + 3 秒 + 10 秒各一次，
+           * 用来在 KV 最终一致性窗口内反复对齐服务端状态。
+           */
+          refreshFoldersWithRetry() {
+            this.fetchUploadFolders(true);
+            setTimeout(() => this.fetchUploadFolders(true), 3000);
+            setTimeout(() => this.fetchUploadFolders(true), 10000);
+          },
+
           async fetchUploadFolders(force = false) {
             if (this.isGuest) {
               this.uploadFoldersLoading = false;
@@ -2976,7 +3143,29 @@
               const res = await fetch("/api/manage/folders", { credentials: "include" });
               if (res.ok) {
                 const data = await res.json();
-                this.uploadFolders = data.folders || [];
+                const serverFolders = data.folders || [];
+
+                /* [SYNC] 合并：服务端数据 + 未过期的乐观条目。
+                   KV 最终一致性期间，服务端可能返回旧数据，
+                   用乐观条目兜底，避免目录"闪现又消失"。 */
+                const now = Date.now();
+                Object.keys(this.optimisticFolders).forEach((p) => {
+                  if (this.optimisticFolders[p] <= now) {
+                    this.$delete(this.optimisticFolders, p);
+                  }
+                });
+
+                const serverPaths = new Set(
+                  serverFolders.map((f) => this.normalizeFolderPath(f.path))
+                );
+                const merged = [...serverFolders];
+                Object.keys(this.optimisticFolders).forEach((p) => {
+                  if (!serverPaths.has(p)) {
+                    merged.push({ path: p, fileCount: 0 });
+                  }
+                });
+
+                this.uploadFolders = merged;
                 this.uploadFoldersFetched = true;
                 if (this.folderPath) this.autoExpandAncestors(this.folderPath);
               }
@@ -3015,7 +3204,6 @@
               if (remoteSize !== null) {
                 targetMode = this.resolveStorageForFile(remoteSize);
               } else {
-                // 探测失败（跨域限制等）→ 保守走大文件节点，避免超限
                 targetMode = this.smartLargeMode || "r2";
               }
             }
@@ -3152,7 +3340,7 @@
                 name: file.name,
                 size: file.size,
                 file: file,
-                targetMode: targetMode, // [SMART] 锁定该文件的目标节点
+                targetMode: targetMode,
                 status: "waiting",
                 statusText: "等待中",
                 speed: "",
@@ -3169,7 +3357,6 @@
           async startUpload() {
             const waiting = this.uploadingFiles.filter((f) => f.status === "waiting");
             for (const item of waiting) {
-              /* [SMART] 使用该文件锁定的目标节点，而非全局 storageMode */
               const mode = item.targetMode || this.storageMode;
               try {
                 item.status = "uploading";
@@ -3193,7 +3380,6 @@
           },
 
           async directUpload(item) {
-            /* [SMART] 使用文件自身的目标节点 */
             const mode = item.targetMode || this.storageMode;
 
             const formData = new FormData();
@@ -3243,22 +3429,7 @@
 
           async chunkedUpload(item) {
             const file = item.file;
-            /* [SMART] 使用文件自身的目标节点 */
             const mode = item.targetMode || this.storageMode;
-
-            /* ============================================================
-             * 【P0 修复】分片大小必须与后端 utils/chunk-limits.js 的
-             * resolveChunkSizeForBackend() 完全一致：
-             *   - 后端 chunkBackend === 'r2' → CHUNK_SIZE_R2 = 50MB
-             *   - 后端 chunkBackend === 'kv' → CHUNK_SIZE_KV = 20MB
-             *     （KV 单值上限 25MB，留安全余量）
-             *
-             * 后端 init.js 会用同一规则校验：
-             *   totalChunks === Math.ceil(fileSize / chunkSize)
-             *
-             * 智能模式下每个文件可能落到不同节点，因此分片大小必须
-             * 按该文件的目标节点计算，不能再读全局 uploadConfig.chunkSize。
-             * ============================================================ */
             const chunkSize = this.resolveChunkSizeForMode(mode);
             const totalChunks = Math.ceil(file.size / chunkSize);
 
@@ -3286,7 +3457,6 @@
             let uploadedBase = 0;
             let lastTime = Date.now();
             let lastLoaded = 0;
-            /* [TASK-1] 收集 R2 原生 multipart 的 { partNumber, etag }，用于 complete 时回传 */
             const collectedParts = [];
 
             this.$set(item, "statusText", "上传中");
@@ -3302,7 +3472,6 @@
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
 
-              /* [TASK-1] 接收 chunk 响应体，提取 R2 返回的 etag / partNumber */
               const chunkResp = await this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, fd, (loadedChunk) => {
                 const currentTotal = uploadedBase + loadedChunk;
                 const now = Date.now();
@@ -3318,8 +3487,6 @@
                 this.$set(item, "progress", percent);
               });
 
-              /* [TASK-1] 收集 R2 原生 multipart 返回的 etag / partNumber。
-                 非 R2 存储（s3/webdav/github/telegram/discord/huggingface）不返回 etag，此分支自动跳过。 */
               if (
                 chunkResp &&
                 typeof chunkResp.etag === "string" &&
@@ -3335,18 +3502,15 @@
               this.$set(item, "uploadedBytes", uploadedBase);
             }
 
-            // 所有切片上传完毕，通知合并并转为确认状态
             this.$set(item, "status", "processing");
             this.$set(item, "statusText", "校验与合并中...");
             this.$set(item, "speed", "");
             this.$set(item, "progress", 96);
 
-            /* 发起合并，遇到 R2_HEAD_RETRY(503) 自动延迟重试 */
             let completeData = null;
             const maxCompleteAttempts = 3;
 
             for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
-              /* [TASK-1] 无条件携带 parts；非 R2 分支后端不读取该字段，安全。 */
               const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -3358,7 +3522,6 @@
 
               if (completeRes.ok) break;
 
-              // 仅对 R2 head 瞬时失败做自动重试；其它错误直接抛出
               if (
                 completeRes.status === 503 &&
                 completeData?.code === "R2_HEAD_RETRY" &&
@@ -3393,7 +3556,6 @@
           },
 
           retryUpload(file) {
-            /* [SMART] 重试时按当前配置重新解析目标节点 */
             file.targetMode = this.resolveStorageForFile(file.size);
             file.status = "waiting";
             file.statusText = "等待中";
@@ -3458,13 +3620,67 @@
             }
 
             this.$set(this.downloadingUrls, url, true);
-            this.showToast(`正在从节点获取 [${fileName || "文件"}]，请稍候...`, "info");
+
+            /* [UX] 打开下载进度浮层 */
+            this.downloadProgress = {
+              active: true,
+              url,
+              fileName: fileName || '文件',
+              loaded: 0,
+              total: 0,
+              speed: '',
+            };
 
             try {
               const res = await fetch(url, { credentials: "include" });
+
+              /* [HISTORY] 404 / 410 → 文件已被删除，顺手清理本地历史 */
+              if (res.status === 404 || res.status === 410) {
+                this.markHistoryAsMissing(url);
+                this.downloadProgress.active = false;
+                this.$delete(this.downloadingUrls, url);
+                this.showToast(`[${fileName || '文件'}] 已被删除（${res.status}）`, "error");
+                return;
+              }
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-              const blob = await res.blob();
+              const total = Number(res.headers.get('content-length')) || 0;
+              this.downloadProgress.total = total;
+
+              let blob;
+              if (res.body && typeof res.body.getReader === 'function') {
+                /* [UX] 流式读取：边读边更新进度 + 速度 */
+                const reader = res.body.getReader();
+                const chunks = [];
+                let loaded = 0;
+                let lastTime = Date.now();
+                let lastLoaded = 0;
+
+                this.showToast(`正在从节点获取 [${fileName || "文件"}]，请稍候...`, "info");
+
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  chunks.push(value);
+                  loaded += value.length;
+                  this.downloadProgress.loaded = loaded;
+
+                  const now = Date.now();
+                  const diff = (now - lastTime) / 1000;
+                  if (diff >= 0.4) {
+                    const bps = (loaded - lastLoaded) / diff;
+                    this.downloadProgress.speed = this.formatSpeed(bps);
+                    lastTime = now;
+                    lastLoaded = loaded;
+                  }
+                }
+                blob = new Blob(chunks);
+              } else {
+                /* 兜底：老浏览器不支持流式读取 */
+                blob = await res.blob();
+                this.downloadProgress.loaded = blob.size;
+              }
+
               const blobUrl = URL.createObjectURL(blob);
 
               const a = document.createElement("a");
@@ -3493,6 +3709,13 @@
               }, 0);
             } finally {
               this.$delete(this.downloadingUrls, url);
+              /* 进度面板延迟关闭，让用户看到 100% */
+              const closingUrl = url;
+              setTimeout(() => {
+                if (this.downloadProgress.url === closingUrl) {
+                  this.downloadProgress.active = false;
+                }
+              }, 800);
             }
           },
           downloadFile(file) {
@@ -3581,7 +3804,6 @@
               this.uploadHistory = [];
             }
           },
-          /* [SMART] 支持传入实际落地的存储节点 */
           addToHistory(file, modeOverride) {
             const url = this.getCleanFileUrl(file);
             const resolvedMode = modeOverride || file.storageMode || this.storageMode;
@@ -3620,6 +3842,80 @@
             this.persistHistory();
             this.showToast("已删除该历史记录");
           },
+
+          /**
+           * [HISTORY] 下载遇到 404/410 时，把对应历史条目标记为失效并提示用户。
+           */
+          markHistoryAsMissing(url) {
+            const cleanUrl = (u) => {
+              if (!u) return '';
+              return u.startsWith('http') ? u : `${this.baseURL}${u}`;
+            };
+            const target = cleanUrl(url);
+            const hit = this.uploadHistory.filter(
+              (it) => cleanUrl(this.getCleanFileUrl(it)) === target
+            );
+            if (!hit.length) return;
+            const ids = new Set(hit.map((it) => it.id));
+            this.uploadHistory = this.uploadHistory.filter((it) => !ids.has(it.id));
+            this.persistHistory();
+          },
+
+          /**
+           * [HISTORY] 批量验证历史记录，把 404/410 的条目清掉。
+           * 并发 5，避免打爆 Cloudflare。
+           */
+          async cleanupExpiredHistory() {
+            if (!this.uploadHistory.length) {
+              this.showToast("历史记录为空");
+              return;
+            }
+            if (this.historyCleanupRunning) return;
+
+            this.historyCleanupRunning = true;
+            this.historyCleanupProgress = { checked: 0, total: this.uploadHistory.length };
+
+            const items = [...this.uploadHistory];
+            const expiredIds = new Set();
+            let cursor = 0;
+            const CONCURRENCY = 5;
+
+            const worker = async () => {
+              while (true) {
+                const i = cursor++;
+                if (i >= items.length) return;
+                const item = items[i];
+                const url = this.getCleanFileUrl(item);
+                try {
+                  const res = await fetch(url, {
+                    method: 'HEAD',
+                    credentials: 'include',
+                  });
+                  if (res.status === 404 || res.status === 410) {
+                    expiredIds.add(item.id);
+                  }
+                } catch (e) {
+                  /* 网络错误不标记为失效，避免误删 */
+                }
+                this.historyCleanupProgress.checked++;
+              }
+            };
+
+            await Promise.all(
+              Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker())
+            );
+
+            if (expiredIds.size > 0) {
+              this.uploadHistory = this.uploadHistory.filter((it) => !expiredIds.has(it.id));
+              this.persistHistory();
+              this.showToast(`已清理 ${expiredIds.size} 条失效记录`, "success");
+            } else {
+              this.showToast("没有发现失效记录", "info");
+            }
+
+            this.historyCleanupRunning = false;
+          },
+
           deleteHistorySelected() {
             const list = this.historySorted.filter((it) => it.selected);
             if (!list.length) return;
@@ -3810,11 +4106,6 @@
               this.huggingfaceAvailable = isEnabled(st.huggingface);
               this.githubAvailable = isEnabled(st.github);
 
-              /* [P0 修复] 不再从 /api/status 读取 chunkSize 覆盖本地值。
-                 分片大小已改为按文件的 storageMode / r2Available 在
-                 resolveChunkSizeForMode() 内部按与后端 utils/chunk-limits.js
-                 一致的规则确定。
-                 仅保留 smallFileThreshold 的可配置覆盖。 */
               if (Number.isFinite(st.smallFileThreshold) && st.smallFileThreshold > 0) {
                 this.uploadConfig.smallFileThreshold = st.smallFileThreshold;
               }
