@@ -116,7 +116,6 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 /* ============ 工具栏 ============ */
 .toolbar-card{
   padding:14px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:12px;
-  /* 修复下拉菜单被裁剪问题 */
   overflow:visible !important;
   position:relative;
   z-index:10;
@@ -483,6 +482,53 @@ html[data-theme="dark"] .move-item.active{background:linear-gradient(135deg,rgba
 }
 .lightbox-bar .fname{font-size:.83rem;font-weight:600;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ============ 下载进度浮层 ============ */
+.download-progress-panel {
+  position: fixed;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  left: 16px;
+  width: auto;
+  max-width: 380px;
+  margin-left: auto;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--glass-elevated);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  z-index: 2500;
+  animation: fadeIn 0.2s ease;
+}
+.download-progress-title {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.download-progress-title i { color: var(--primary); }
+.download-progress-name {
+  flex: 1; min-width: 0; font-size: .82rem; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.download-progress-pct {
+  font-size: .75rem; color: var(--primary);
+  font-family: 'JetBrains Mono', monospace; font-weight: 700; flex-shrink: 0;
+}
+.download-progress-meta {
+  display: flex; justify-content: space-between; margin-top: 6px;
+  font-size: .72rem; color: var(--text-muted);
+}
+.download-progress-meta .speed { color: var(--primary); font-weight: 600; }
+
+.task-progress-bar {
+  height: 4px; border-radius: var(--radius-pill);
+  background: rgba(148,163,184,.2); margin-top: 6px; overflow: hidden;
+}
+.task-progress-val {
+  height: 100%; border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--primary-light), var(--primary));
+  transition: width .2s ease;
+}
+
 /* Toast */
 .toast-glass-banner{
   position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:var(--radius-pill);
@@ -520,7 +566,6 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
   .row-actions{flex-wrap:wrap;max-width:80px;justify-content:flex-end}
   .lightbox-bar .fname{max-width:60vw}
 
-  /* ===== 移动端下拉菜单改为居中弹出，限制最大高度并允许内部滚动 ===== */
   .dropdown-panel {
     position: fixed;
     left: 15px !important;
@@ -542,7 +587,6 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
     from { opacity: 0; transform: translateY(-50%) scale(.92); }
     to { opacity: 1; transform: translateY(-50%) scale(1); }
   }
-  /* 增大移动端点击区域 */
   .dropdown-item {
     padding: 12px 15px;
     font-size: .88rem;
@@ -551,7 +595,6 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
     font-size: .9rem;
     width: 20px;
   }
-  /* 移动端下拉面板滚动条 */
   .dropdown-panel::-webkit-scrollbar { width: 5px; }
   .dropdown-panel::-webkit-scrollbar-thumb {
     background: rgba(148,163,184,.35);
@@ -582,6 +625,10 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
     </div>
 
     <div class="top-actions">
+      <a href="./" class="action-pill-btn" style="padding: 8px 14px; font-size: .82rem; text-decoration: none;">
+        <i class="fas fa-cloud-arrow-up"></i>
+        <span>上传中心</span>
+      </a>
       <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
         <span class="status-chip" v-for="s in statusItems" :key="s.key">
           <i class="fas fa-circle" :style="{color: dot(s.key)}"></i>
@@ -708,9 +755,6 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
           <i class="fas fa-chevron-down caret"></i>
         </button>
         <div class="dropdown-panel right" v-if="openMenu==='tool'">
-          <button class="dropdown-item" @click="handleTool('uploader')">
-            <i class="fas fa-cloud-arrow-up"></i><span>打开上传中心</span>
-          </button>
           <button class="dropdown-item" @click="handleTool('status')">
             <i class="fas fa-heart-pulse"></i><span>检查连接状态</span>
           </button>
@@ -1154,6 +1198,28 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
     </div>
   </div>
 
+  <!-- ===== 下载进度浮层 ===== -->
+  <div class="download-progress-panel" v-if="downloadProgress.active">
+    <div class="download-progress-title">
+      <i class="fas fa-download"></i>
+      <span class="download-progress-name">{{ downloadProgress.fileName || '下载中' }}</span>
+      <span class="download-progress-pct">
+        {{ downloadProgress.total > 0 ? Math.round((downloadProgress.loaded / downloadProgress.total) * 100) + '%' : '' }}
+      </span>
+    </div>
+    <div class="task-progress-bar" style="margin-top: 0;">
+      <div class="task-progress-val"
+           :style="{ width: (downloadProgress.total > 0 ? (downloadProgress.loaded / downloadProgress.total) * 100 : 0) + '%' }"></div>
+    </div>
+    <div class="download-progress-meta">
+      <span>
+        {{ formatSize(downloadProgress.loaded) }}
+        / {{ downloadProgress.total > 0 ? formatSize(downloadProgress.total) : '未知大小' }}
+      </span>
+      <span class="speed" v-if="downloadProgress.speed">{{ downloadProgress.speed }}</span>
+    </div>
+  </div>
+
   <!-- ===== Toast ===== -->
   <div class="toast-glass-banner" :class="toasts[toasts.length-1].type" v-if="toasts.length">
     <i :class="toasts[toasts.length-1].type==='error' ? 'fas fa-triangle-exclamation' : (toasts[toasts.length-1].type==='success' ? 'fas fa-circle-check' : 'fas fa-circle-info')"></i>
@@ -1186,6 +1252,17 @@ new Vue({
 
     openMenu: null,
     toasts: [],
+
+    /* ===== 下载队列追踪 ===== */
+    downloadingUrls: {},
+    downloadProgress: {
+      active: false,
+      url: '',
+      fileName: '',
+      loaded: 0,
+      total: 0,
+      speed: '',
+    },
 
     dialog: {
       visible: false, title: '', message: '', html: '',
@@ -1455,6 +1532,105 @@ new Vue({
     showToast(message, type = 'info') {
       this.toasts.push({ message, type });
       setTimeout(() => { this.toasts.shift(); }, 2600);
+    },
+
+    /* ================= 下载（流式 + 进度浮层） ================= */
+    formatSpeed(bps) {
+      if (!bps || bps <= 0) return '0 KB/s';
+      if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/s';
+      return (bps / 1024).toFixed(0) + ' KB/s';
+    },
+
+    isDownloading(item) {
+      if (!item) return false;
+      const url = typeof item === 'string' ? item : (item.url || '');
+      return !!this.downloadingUrls[url];
+    },
+
+    async triggerDownload(url, fileName) {
+      if (!url) return;
+      if (this.downloadingUrls[url]) {
+        this.showToast('文件正在拉取中，请勿重复点击', 'info');
+        return;
+      }
+      this.$set(this.downloadingUrls, url, true);
+      this.downloadProgress = {
+        active: true, url,
+        fileName: fileName || '文件',
+        loaded: 0, total: 0, speed: '',
+      };
+
+      try {
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const total = Number(res.headers.get('content-length')) || 0;
+        this.downloadProgress.total = total;
+
+        let blob;
+        if (res.body && typeof res.body.getReader === 'function') {
+          const reader = res.body.getReader();
+          const chunks = [];
+          let loaded = 0;
+          let lastTime = Date.now();
+          let lastLoaded = 0;
+
+          this.showToast(`正在从节点获取 [${fileName || '文件'}]，请稍候...`, 'info');
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            loaded += value.length;
+            this.downloadProgress.loaded = loaded;
+
+            const now = Date.now();
+            const diff = (now - lastTime) / 1000;
+            if (diff >= 0.4) {
+              const bps = (loaded - lastLoaded) / diff;
+              this.downloadProgress.speed = this.formatSpeed(bps);
+              lastTime = now;
+              lastLoaded = loaded;
+            }
+          }
+          blob = new Blob(chunks);
+        } else {
+          blob = await res.blob();
+          this.downloadProgress.loaded = blob.size;
+        }
+
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = fileName || 'download';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (a.parentNode) a.parentNode.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+        }, 1000);
+        this.showToast(`[${fileName || '文件'}] 已开始保存`, 'success');
+      } catch (err) {
+        console.warn('Fetch 流拉取失败，回退原生下载通道：', err);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName || '';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (a.parentNode) a.parentNode.removeChild(a);
+        }, 0);
+      } finally {
+        this.$delete(this.downloadingUrls, url);
+        const closingUrl = url;
+        setTimeout(() => {
+          if (this.downloadProgress.url === closingUrl) {
+            this.downloadProgress.active = false;
+          }
+        }, 800);
+      }
     },
 
     /* ================= 通用对话框 ================= */
@@ -1796,15 +1972,19 @@ new Vue({
       this.copyText(this.selectedFiles.map(f => this.baseURL + '/file/' + f.name).join('\n'));
       this.showToast(`已复制 ${this.selectedFiles.length} 条链接`, 'success');
     },
-    batchDownload() {
-      this.selectedFiles.forEach((f, i) => {
-        setTimeout(() => {
-          const a = document.createElement('a');
-          a.href = '/file/' + f.name;
-          a.download = f.metadata.fileName || f.name;
-          a.click();
-        }, i * 500);
-      });
+    async batchDownload() {
+      if (!this.selectedFiles.length) return;
+      const list = this.selectedFiles.slice();
+      for (let i = 0; i < list.length; i++) {
+        const f = list[i];
+        await this.triggerDownload(
+          this.baseURL + '/file/' + f.name,
+          f.metadata.fileName || f.name
+        );
+        if (i < list.length - 1) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
     },
 
     copyText(t) {
@@ -1848,10 +2028,10 @@ new Vue({
     },
     downloadPreview() {
       if (!this.preview) return;
-      const a = document.createElement('a');
-      a.href = this.preview.fileUrl || this.preview.url;
-      a.download = this.preview.fileName;
-      a.click();
+      this.triggerDownload(
+        this.preview.fileUrl || this.preview.url,
+        this.preview.fileName
+      );
     },
 
     /* ================= 批量菜单 ================= */
@@ -1876,9 +2056,7 @@ new Vue({
 
     handleTool(c) {
       this.openMenu = null;
-      if (c === 'uploader') {
-        window.open('./', '_blank');
-      } else if (c === 'status') {
+      if (c === 'status') {
         this.checkStatus();
       } else if (c === 'tokens') {
         this.openTokenPanel();
