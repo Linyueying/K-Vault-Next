@@ -6,13 +6,15 @@ import { checkGitHubConnection, hasGitHubConfig } from '../utils/github.js';
 import { getGuestConfig } from '../utils/guest.js';
 import { checkAuthentication } from '../utils/auth.js';
 import { buildTelegramBotApiUrl, getTelegramApiBase } from '../utils/telegram.js';
+import { MAX_IN_MEMORY_ASSEMBLY } from '../utils/chunk-limits.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
 const DIRECT_UPLOAD_THRESHOLD = 20 * MB;
-const CHUNK_UPLOAD_LIMIT = 100 * MB;
-const R2_OBJECT_STORAGE_LIMIT = 10 * GB;   // R2：10GB
-const S3_OBJECT_STORAGE_LIMIT = 2048 * MB; // S3：2GB（保持不变）
+const R2_OBJECT_STORAGE_LIMIT = 10 * GB;   // R2：10GB（原生 multipart）
+// 非 R2 存储（S3 / WebDAV / GitHub）走 KV 中转 + 内存拼装，
+// 上限由 chunk-limits.js 的 MAX_IN_MEMORY_ASSEMBLY 统一约束
+const NON_R2_UPLOAD_LIMIT = MAX_IN_MEMORY_ASSEMBLY;
 
 function storageCapability(type, label, layer = 'direct') {
   return {
@@ -350,9 +352,10 @@ function getUploadLimits() {
       supportsChunkUpload: true,
     },
     s3: {
-      maxBytes: S3_OBJECT_STORAGE_LIMIT, // 2GB（保持不变）
+      maxBytes: NON_R2_UPLOAD_LIMIT, // 40MB
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
+      message: 'S3 走 KV 中转分片上传，单文件上限 40MB。需要传大文件请选 R2（10GB）。',
     },
     discord: {
       maxBytes: 25 * MB,
@@ -366,14 +369,16 @@ function getUploadLimits() {
       supportsChunkUpload: true,
     },
     webdav: {
-      maxBytes: CHUNK_UPLOAD_LIMIT,
+      maxBytes: NON_R2_UPLOAD_LIMIT, // 40MB
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
+      message: 'WebDAV 走 KV 中转分片上传，单文件上限 40MB。需要传大文件请选 R2（10GB）。',
     },
     github: {
-      maxBytes: CHUNK_UPLOAD_LIMIT,
+      maxBytes: NON_R2_UPLOAD_LIMIT, // 40MB
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
+      message: 'GitHub 走 KV 中转分片上传，单文件上限 40MB。需要传大文件请选 R2（10GB）。',
     },
   };
 }
