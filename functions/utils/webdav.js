@@ -367,3 +367,4 @@ export async function checkWebDAVConnection(env = {}) {
 export function normalizeWebDAVPath(value = '') {
   return normalizePath(value);
 }
+export { deleteWebDAVFile as deleteFromWebDAV };

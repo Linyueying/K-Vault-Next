@@ -500,3 +500,4 @@ export async function checkGitHubConnection(env = {}) {
 export function normalizeGitHubStoragePath(value = '') {
   return normalizePath(value);
 }
+export { deleteGitHubFile as deleteFromGitHub };

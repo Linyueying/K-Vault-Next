@@ -475,3 +475,4 @@ export async function checkHuggingFaceConnection(env) {
         return { connected: false, error: e.message };
     }
 }
+export { deleteHuggingFaceFile as deleteFromHuggingFace };
