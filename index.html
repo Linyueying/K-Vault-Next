@@ -1588,7 +1588,7 @@
         -webkit-backdrop-filter: blur(24px);
         border: 1.5px solid var(--glass-border-ice);
         box-shadow: var(--shadow-elevated);
-        z-index: 1700;
+        z-index: 2500;
         animation: fadeIn 0.2s ease;
       }
       .download-progress-title {
@@ -3116,14 +3116,14 @@
           },
 
           /**
-           * 乐观删除：本地移除 oldPath 及其所有子路径，并打上 30 秒墓碑
+           * 乐观删除：本地移除 oldPath 及其所有子路径，并打上确认制墓碑
            */
           applyOptimisticFolderDelete(oldPath) {
             const oldN = this.normalizeFolderPath(oldPath);
             if (!oldN) return;
-            /* [SYNC] 记下墓碑：30 秒内忽略服务端返回的这条（含子路径） */
-            const expires = Date.now() + 30000;
-            this.$set(this.optimisticDeletedFolders, oldN, expires);
+            /* [SYNC] 墓碑：不依赖时间，由 fetchUploadFolders 根据服务端是否
+               还返回这条路径来决定"续期"或"清除"。 */
+            this.$set(this.optimisticDeletedFolders, oldN, Number.MAX_SAFE_INTEGER);
             this.uploadFolders = (this.uploadFolders || []).filter((f) => {
               const p = this.normalizeFolderPath(f.path);
               return p !== oldN && !p.startsWith(oldN + "/");
@@ -3154,24 +3154,33 @@
                 const data = await res.json();
                 const serverFolders = data.folders || [];
 
-                /* [SYNC] 合并：服务端数据 + 未过期的乐观条目。
-                   KV 最终一致性期间，服务端可能返回旧数据，
-                   用乐观条目兜底，避免目录"闪现又消失"。 */
                 const now = Date.now();
+                const serverPaths = new Set(
+                  serverFolders.map((f) => this.normalizeFolderPath(f.path))
+                );
+
+                /* [SYNC] 墓碑处理：服务端仍返回 → 续期；服务端不再返回 → 清除 */
+                Object.keys(this.optimisticDeletedFolders).forEach((t) => {
+                  const stillExists = [...serverPaths].some(
+                    (p) => p === t || p.startsWith(t + "/")
+                  );
+                  if (stillExists) {
+                    /* 服务端还在返回这条 → 继续屏蔽 */
+                    this.$set(this.optimisticDeletedFolders, t, Number.MAX_SAFE_INTEGER);
+                  } else {
+                    /* 服务端已确认删除 → 墓碑功成身退 */
+                    this.$delete(this.optimisticDeletedFolders, t);
+                  }
+                });
+
+                /* [SYNC] 乐观新增：按时间过期（30 秒足够服务端落库） */
                 Object.keys(this.optimisticFolders).forEach((p) => {
                   if (this.optimisticFolders[p] <= now) {
                     this.$delete(this.optimisticFolders, p);
                   }
                 });
 
-                /* 清理过期墓碑 */
-                Object.keys(this.optimisticDeletedFolders).forEach((p) => {
-                  if (this.optimisticDeletedFolders[p] <= now) {
-                    this.$delete(this.optimisticDeletedFolders, p);
-                  }
-                });
-
-                /* 过滤服务端数据：命中墓碑的（含子路径）直接丢弃 */
+                /* [SYNC] 用墓碑过滤服务端数据 */
                 const tombstonePaths = Object.keys(this.optimisticDeletedFolders);
                 const filteredServer = serverFolders.filter((f) => {
                   const p = this.normalizeFolderPath(f.path);
@@ -3180,12 +3189,12 @@
                   );
                 });
 
-                const serverPaths = new Set(
+                const filteredServerPaths = new Set(
                   filteredServer.map((f) => this.normalizeFolderPath(f.path))
                 );
                 const merged = [...filteredServer];
                 Object.keys(this.optimisticFolders).forEach((p) => {
-                  if (!serverPaths.has(p)) {
+                  if (!filteredServerPaths.has(p)) {
                     merged.push({ path: p, fileCount: 0 });
                   }
                 });
