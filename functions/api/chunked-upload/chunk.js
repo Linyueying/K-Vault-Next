@@ -52,6 +52,42 @@ export async function onRequestPost(context) {
 
     const chunkArrayBuffer = await chunk.arrayBuffer();
 
+    // 针对 R2 原生 Multipart Upload 的处理通道
+    if (taskData.storageMode === 'r2' && taskData.r2Multipart && env.R2_BUCKET) {
+      const mp = env.R2_BUCKET.resumeMultipartUpload(
+        taskData.r2Multipart.key,
+        taskData.r2Multipart.uploadId
+      );
+      // R2 partNumber 为 1-indexed (从 1 开始)
+      const partNumber = chunkIndex + 1;
+      const uploadedPart = await mp.uploadPart(partNumber, chunkArrayBuffer);
+
+      let uploadedParts = Array.isArray(taskData.uploadedParts) ? taskData.uploadedParts : [];
+      uploadedParts = uploadedParts.filter((p) => p.partNumber !== partNumber);
+      uploadedParts.push({ partNumber, etag: uploadedPart.etag });
+      taskData.uploadedParts = uploadedParts;
+
+      let uploadedChunks = Array.isArray(taskData.uploadedChunks) ? taskData.uploadedChunks : [];
+      if (!uploadedChunks.includes(chunkIndex)) {
+        uploadedChunks.push(chunkIndex);
+        uploadedChunks.sort((a, b) => a - b);
+      }
+      taskData.uploadedChunks = uploadedChunks;
+
+      await env.img_url.put(`upload:${uploadId}`, JSON.stringify(taskData), {
+        expirationTtl: 3600,
+      });
+
+      const progress = ((uploadedChunks.length / totalChunks) * 100).toFixed(1);
+      return jsonResponse({
+        success: true,
+        chunkIndex,
+        uploadedChunks,
+        progress,
+      });
+    }
+
+    // 其他存储节点（S3/Discord/Telegram/HF/GitHub/WebDAV）的标准暂存通道
     if (chunkBackend === 'r2') {
       if (!env.R2_BUCKET) {
         return jsonResponse({ error: 'R2 chunk backend requested but R2_BUCKET is not configured.' }, 500);

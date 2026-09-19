@@ -8,8 +8,10 @@ import { checkAuthentication } from '../utils/auth.js';
 import { buildTelegramBotApiUrl, getTelegramApiBase } from '../utils/telegram.js';
 
 const MB = 1024 * 1024;
+const GB = 1024 * MB;
 const DIRECT_UPLOAD_THRESHOLD = 20 * MB;
 const CHUNK_UPLOAD_LIMIT = 100 * MB;
+const OBJECT_STORAGE_LIMIT = 2048 * MB; // 2GB
 
 function storageCapability(type, label, layer = 'direct') {
   return {
@@ -342,12 +344,12 @@ function getUploadLimits() {
       message: 'Cloudflare Pages 上的 Telegram 网页上传限制为 20MB。较大的浏览器上传请使用 R2、S3、WebDAV 或 GitHub，或直接把文件发到 Telegram 后使用 Webhook 回链。',
     },
     r2: {
-      maxBytes: CHUNK_UPLOAD_LIMIT,
+      maxBytes: OBJECT_STORAGE_LIMIT, // 提升至 2GB (2048MB)
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
     },
     s3: {
-      maxBytes: CHUNK_UPLOAD_LIMIT,
+      maxBytes: OBJECT_STORAGE_LIMIT, // 提升至 2GB (2048MB)
       directThreshold: DIRECT_UPLOAD_THRESHOLD,
       supportsChunkUpload: true,
     },

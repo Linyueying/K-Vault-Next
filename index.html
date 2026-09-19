@@ -800,12 +800,16 @@
         cursor: pointer;
         transition: var(--transition);
       }
-      .mini-icon-btn:hover {
+      .mini-icon-btn:hover:not(:disabled) {
         background: var(--primary);
         color: #ffffff;
         border-color: var(--primary);
       }
-      .mini-icon-btn.danger:hover {
+      .mini-icon-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .mini-icon-btn.danger:hover:not(:disabled) {
         background: #ef4444;
         border-color: #ef4444;
       }
@@ -826,7 +830,7 @@
       }
 
       /* =========================================================
-         ===== 本地历史面板（全面升级） =====
+         ===== 本地历史面板 =====
          ========================================================= */
       .history-stats-bar {
         display: flex;
@@ -1087,12 +1091,16 @@
         cursor: pointer;
         transition: var(--transition);
       }
-      .history-mini-btn:hover {
+      .history-mini-btn:hover:not(:disabled) {
         background: var(--primary);
         border-color: var(--primary);
         transform: scale(1.08);
       }
-      .history-mini-btn.danger:hover {
+      .history-mini-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .history-mini-btn.danger:hover:not(:disabled) {
         background: #ef4444;
         border-color: #ef4444;
       }
@@ -1188,8 +1196,6 @@
         font-size: 1.8rem;
         opacity: 0.4;
       }
-
-      /* ===== 历史面板样式结束 ===== */
 
       .bottom-floating-dock {
         position: fixed;
@@ -1548,7 +1554,7 @@
           />
         </section>
 
-        <!-- Quick Action Bar (粘贴上传 -> 图片浏览) -->
+        <!-- Quick Action Bar -->
         <div class="quick-action-strip">
           <button class="action-pill-btn" @click="triggerUpload">
             <i class="fas fa-folder-open"></i>
@@ -1568,7 +1574,7 @@
           </button>
         </div>
 
-        <!-- Streamlined, compact, horizontal URL transfer pill -->
+        <!-- URL Transfer Pill -->
         <div class="url-pill-bar" v-if="showUrlInput">
           <i class="fas fa-link url-pill-icon"></i>
           <input
@@ -1585,7 +1591,7 @@
           </button>
         </div>
 
-        <!-- Active Upload Task Queue -->
+        <!-- Active Upload Task Queue (支持真实进度与速度) -->
         <section class="liquid-card panel-section" v-if="uploadingFiles.length > 0">
           <div class="panel-header">
             <span class="panel-title">
@@ -1616,13 +1622,13 @@
             <div class="task-info-block">
               <div class="task-name-text">{{ file.name }}</div>
               <div class="task-meta-text">
-                <span>{{ formatSize(file.size) }}</span>
-                <span v-if="file.compressionStatus" style="color: var(--primary);">• {{ file.compressionStatus }}</span>
+                <span>{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
+                <span v-if="file.speed" style="color: var(--primary); font-weight: 600;">• {{ file.speed }}</span>
                 <span v-if="file.error" style="color: #ef4444;">• {{ file.error }}</span>
-                <span>• {{ getStatusText(file.status) }} <span v-if="file.progress">({{ file.progress }}%)</span></span>
+                <span>• {{ file.statusText || getStatusText(file.status) }} <span v-if="file.progress !== undefined">({{ file.progress }}%)</span></span>
               </div>
               <div class="task-progress-bar" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
-                <div class="task-progress-val" :style="{ width: (file.progress || 20) + '%' }"></div>
+                <div class="task-progress-val" :style="{ width: (file.progress || 0) + '%' }"></div>
               </div>
             </div>
             <button
@@ -1636,6 +1642,7 @@
           </div>
         </section>
 
+        <!-- Uploaded Results -->
         <section class="liquid-card panel-section" v-if="uploadedFiles.length > 0">
           <div class="panel-header">
             <span class="panel-title">
@@ -1674,7 +1681,7 @@
             <img
               :src="getCleanFileUrl(file)"
               class="task-thumb-img"
-              @click="previewImage(getCleanFileUrl(file))"
+              @click="previewImage(file)"
               onerror="this.style.display='none'"
             />
             <div style="flex: 1; min-width: 0;">
@@ -1685,7 +1692,14 @@
             </div>
             <div style="display: flex; gap: 6px;">
               <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
-              <button class="mini-icon-btn" @click="downloadFile(file)" title="下载"><i class="fas fa-download"></i></button>
+              <button
+                class="mini-icon-btn"
+                :disabled="isDownloading(file)"
+                @click="downloadFile(file)"
+                title="下载"
+              >
+                <i :class="isDownloading(file) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+              </button>
               <button class="mini-icon-btn" @click="openPreview(file)" title="媒体预览"><i class="fas fa-eye"></i></button>
               <button class="mini-icon-btn danger" @click="removeFromResults(index)" title="移除"><i class="fas fa-xmark"></i></button>
             </div>
@@ -1701,7 +1715,7 @@
         </section>
       </main>
 
-      <!-- UNIFIED 4-ITEM FLOATING BOTTOM DOCK -->
+      <!-- Bottom Floating Dock -->
       <nav class="bottom-floating-dock">
         <button class="dock-pill-btn" :class="{ active: !showDrawer }" @click="showDrawer = false">
           <i class="fas fa-cloud-arrow-up"></i>
@@ -1721,12 +1735,11 @@
         </button>
       </nav>
 
-      <!-- Secondary Liquid Glass Drawer Sheet -->
+      <!-- Liquid Glass Drawer Sheet -->
       <div class="drawer-backdrop" v-if="showDrawer" @click.self="showDrawer = false">
         <div class="drawer-modal-sheet">
           <div class="drawer-top-handle"></div>
 
-          <!-- Horizontal Scrolling Drawer Nav -->
           <div class="drawer-tabs-nav">
             <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'storage' }" @click="switchDrawerTab('storage')">
               <i class="fas fa-database"></i>
@@ -1735,10 +1748,6 @@
             <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'folder' }" @click="switchDrawerTab('folder')">
               <i class="fas fa-folder"></i>
               <span>上传目录</span>
-            </button>
-            <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'compress' }" @click="switchDrawerTab('compress')">
-              <i class="fas fa-wand-magic-sparkles"></i>
-              <span>图片转码</span>
             </button>
             <button class="drawer-nav-item" :class="{ active: activeDrawerTab === 'history' }" @click="switchDrawerTab('history')">
               <i class="fas fa-clock-rotate-left"></i>
@@ -1770,7 +1779,7 @@
                 <i class="fas fa-cloud" style="font-size: 1.7rem; color: #f6821f;"></i>
                 <div>
                   <div class="storage-node-title">Cloudflare R2</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">100MB 零流费 CDN 存储</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">2GB 零流费 CDN 存储</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 'r2'"><i class="fas fa-check"></i></div>
@@ -1779,7 +1788,7 @@
                 <i class="fas fa-database" style="font-size: 1.7rem; color: #10b981;"></i>
                 <div>
                   <div class="storage-node-title">Amazon S3</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">100MB 工业级对象存储</div>
+                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">2GB 工业级对象存储</div>
                   <span class="unconfigured-tag" v-else>未配置</span>
                 </div>
                 <div class="storage-check-circle" v-if="storageMode === 's3'"><i class="fas fa-check"></i></div>
@@ -1814,7 +1823,7 @@
             </div>
           </div>
 
-          <!-- ================= Drawer Tab 2: Target Upload Folder ================= -->
+          <!-- Drawer Tab 2: Target Upload Folder -->
           <div v-if="activeDrawerTab === 'folder'">
             <div class="folder-current-bar">
               <div class="folder-breadcrumb">
@@ -1858,7 +1867,6 @@
               <button class="folder-pill-btn" @click="cancelUploadFolderCreator">取消</button>
             </div>
 
-            <!-- 真实目录结构树 -->
             <div class="folder-section-label">
               <i class="fas fa-sitemap"></i>
               <span>云端目录结构</span>
@@ -1877,7 +1885,6 @@
                 <span class="folder-tree-name">根目录</span>
               </div>
 
-              <!-- 递归子节点组件 -->
               <folder-node
                 v-for="node in uploadFolderTree.children"
                 :key="node.path"
@@ -1902,49 +1909,8 @@
             </div>
           </div>
 
-          <!-- Drawer Tab 3: Image Optimizer Settings -->
-          <div v-if="activeDrawerTab === 'compress'">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-              <div>
-                <div style="font-weight: 700;">智能图像压缩转换</div>
-                <div style="font-size: 0.78rem; color: var(--text-muted);">减少文件体积，加快直链与多端加载速度</div>
-              </div>
-              <input type="checkbox" v-model="imageCompress.enabled" @change="handleImageCompressToggle" style="width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer;" />
-            </div>
-            <div style="display: flex; gap: 8px; margin-bottom: 14px;">
-              <button class="format-chip-btn" :class="{ active: imageUploadDecision === 'original' }" @click="setImageUploadDecision('original')">原图上传</button>
-              <button class="format-chip-btn" :class="{ active: imageUploadDecision === 'optimized' }" @click="setImageUploadDecision('optimized')">自动压缩转换</button>
-              <button class="format-chip-btn" :class="{ active: imageUploadDecision === 'ask' }" @click="setImageUploadDecision('ask')">上传前询问</button>
-            </div>
-            <div v-if="imageCompressPanelExpanded" style="display: flex; flex-direction: column; gap: 14px;">
-              <div style="display: flex; gap: 8px;">
-                <button
-                  class="format-chip-btn"
-                  v-for="fmt in imageCompressFormats"
-                  :key="fmt.value"
-                  :class="{ active: imageCompress.format === fmt.value }"
-                  :disabled="!isFormatSupported(fmt.value)"
-                  @click="selectCompressFormat(fmt.value)"
-                >
-                  {{ fmt.label }}
-                </button>
-              </div>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 0.85rem; font-weight: 600;">压缩质量：{{ imageCompress.quality }}%</span>
-                <input type="range" min="30" max="95" step="1" v-model.number="imageCompress.quality" @change="saveImageCompressSettings" style="width: 150px; accent-color: var(--primary);" />
-              </div>
-              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.84rem; cursor: pointer;">
-                <input type="checkbox" v-model="imageCompress.keepOriginalWhenLarger" @change="saveImageCompressSettings" style="accent-color: var(--primary);" />
-                <span>压缩后体积更大时自动保留原图</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- ============================================================
-               Drawer Tab 4: Local History Vault（全面升级版）
-               ============================================================ -->
+          <!-- Drawer Tab 3: Local History Vault -->
           <div v-if="activeDrawerTab === 'history'">
-            <!-- 顶部统计 -->
             <div class="history-stats-bar">
               <span class="history-stat-item">
                 <i class="fas fa-clock-rotate-left"></i>
@@ -1960,7 +1926,6 @@
               </span>
             </div>
 
-            <!-- 搜索 / 排序 / 视图切换 -->
             <div class="history-toolbar">
               <div class="history-search-box">
                 <i class="fas fa-magnifying-glass"></i>
@@ -1983,7 +1948,6 @@
               </div>
             </div>
 
-            <!-- 类型筛选 -->
             <div class="format-tabs-row">
               <button
                 class="format-chip-btn"
@@ -1996,7 +1960,6 @@
               </button>
             </div>
 
-            <!-- 批量操作栏 -->
             <div class="history-batch-bar">
               <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 700;">
                 <input type="checkbox" :checked="historyAllSelected" @change="toggleHistorySelectAll" style="accent-color: var(--primary); cursor: pointer;" />
@@ -2022,7 +1985,6 @@
               </button>
             </div>
 
-            <!-- 历史内容区 -->
             <div v-if="historySorted.length">
               <div class="history-group" v-for="(group, gIdx) in historyGroups" :key="'group-' + gIdx">
                 <div class="history-group-label" v-if="group.label">
@@ -2051,7 +2013,14 @@
                     <div class="history-grid-name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
                     <div class="history-grid-actions">
                       <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
-                      <button class="history-mini-btn" @click.stop="historyDownload(item)" title="下载"><i class="fas fa-download"></i></button>
+                      <button
+                        class="history-mini-btn"
+                        :disabled="isDownloading(item)"
+                        @click.stop="historyDownload(item)"
+                        title="下载"
+                      >
+                        <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                      </button>
                       <button class="history-mini-btn danger" @click.stop="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
@@ -2086,7 +2055,14 @@
                     <div class="history-row-actions">
                       <button class="mini-icon-btn" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button class="mini-icon-btn" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
-                      <button class="mini-icon-btn" @click="historyDownload(item)" title="下载"><i class="fas fa-download"></i></button>
+                      <button
+                        class="mini-icon-btn"
+                        :disabled="isDownloading(item)"
+                        @click="historyDownload(item)"
+                        title="下载"
+                      >
+                        <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                      </button>
                       <button class="mini-icon-btn danger" @click="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
@@ -2101,7 +2077,7 @@
             </div>
           </div>
 
-          <!-- Drawer Tab 5: System Navigation & Account Links -->
+          <!-- Drawer Tab 4: System Navigation & Account Links -->
           <div v-if="activeDrawerTab === 'menu'" style="display: flex; flex-direction: column; gap: 10px;">
             <a href="./gallery.html" v-if="!isGuest" class="action-pill-btn" style="justify-content: flex-start;">
               <i class="fas fa-images"></i><span>图片画廊浏览</span>
@@ -2132,7 +2108,14 @@
           </div>
           <div style="margin-top: 14px; display: flex; gap: 8px;">
             <button class="btn-pill-action" @click="copyPreviewLink"><i class="fas fa-copy"></i> 复制直链</button>
-            <button class="action-pill-btn" @click="downloadPreviewFile"><i class="fas fa-download"></i> 下载</button>
+            <button
+              class="action-pill-btn"
+              :disabled="isDownloading(previewData)"
+              @click="downloadPreviewFile"
+            >
+              <i :class="isDownloading(previewData) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+              <span>{{ isDownloading(previewData) ? '拉取中...' : '下载' }}</span>
+            </button>
             <button class="action-pill-btn" @click="closePreview"><i class="fas fa-xmark"></i> 关闭</button>
           </div>
         </div>
@@ -2145,12 +2128,12 @@
       </div>
     </div>
 
-    <!-- 更换为国内加速 CDN，解决部分网络无法加载问题 -->
+    <!-- 国内加速 CDN -->
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/2.6.14/vue.min.js"></script>
     <script>
       const LOCAL_PREVIEW_PAGE = "/preview.html";
 
-      /* ===== 递归目录树节点组件（集成重命名/删除及文件数显示） ===== */
+      /* ===== 递归目录树节点组件 ===== */
       Vue.component("folder-node", {
         name: "folder-node",
         props: {
@@ -2229,23 +2212,12 @@
           currentTheme: "light",
           showDrawer: false,
           activeDrawerTab: "storage",
-          lastMoreTab: "compress",
+          lastMoreTab: "history",
           baseURL: document.location.origin,
           isDragging: false,
           showUrlInput: false,
           urlToUpload: "",
           urlUploading: false,
-          pendingUploadBatch: null,
-          pendingCompressionChoice: "original",
-          imageUploadDecision: "original",
-          imageCompress: {
-            enabled: false,
-            format: "webp",
-            quality: 82,
-            maxDimension: 0,
-            keepOriginalWhenLarger: true,
-            support: { webp: true, avif: true, jpeg: true, png: true },
-          },
           uploadingFiles: [],
           uploadedFiles: [],
           uploadHistory: [],
@@ -2272,12 +2244,15 @@
           isGuest: false,
           guestUploadConfig: null,
           uploadConfig: {
-            maxSize: 100 * 1024 * 1024,
+            maxSize: 2048 * 1024 * 1024, // 默认放宽到 2GB
             chunkSize: 5 * 1024 * 1024,
             smallFileThreshold: 20 * 1024 * 1024,
             maxConcurrent: 3,
           },
           uploadLimits: {},
+
+          /* ===== 下载队列追踪字典 ===== */
+          downloadingUrls: {},
 
           /* ===== 本地历史面板状态 ===== */
           historySearch: "",
@@ -2305,18 +2280,7 @@
             return this.uploadingFiles.filter((f) => f.status === "error").length;
           },
           isMoreTabActive() {
-            return ["compress", "history", "menu"].includes(this.activeDrawerTab);
-          },
-          imageCompressFormats() {
-            return [
-              { value: "webp", label: "WebP", mime: "image/webp", ext: "webp" },
-              { value: "avif", label: "AVIF", mime: "image/avif", ext: "avif" },
-              { value: "jpeg", label: "JPEG", mime: "image/jpeg", ext: "jpg" },
-              { value: "png", label: "PNG", mime: "image/png", ext: "png" },
-            ];
-          },
-          imageCompressPanelExpanded() {
-            return this.imageCompress.enabled || this.imageUploadDecision === "optimized";
+            return ["history", "menu"].includes(this.activeDrawerTab);
           },
           uploadFolderOptions() {
             const seen = new Set();
@@ -2369,7 +2333,6 @@
             return this.formatSize(maxBytes);
           },
 
-          /* ===== 本地历史计算属性 ===== */
           historyStats() {
             const list = this.uploadHistory || [];
             const totalSize = list.reduce((sum, it) => sum + (Number(it.size) || 0), 0);
@@ -2456,17 +2419,88 @@
           },
         },
         methods: {
+          /* 格式化实时网络上传速率 */
+          formatSpeed(bps) {
+            if (!bps || bps <= 0) return "0 KB/s";
+            if (bps >= 1024 * 1024) {
+              return (bps / (1024 * 1024)).toFixed(1) + " MB/s";
+            }
+            return (bps / 1024).toFixed(0) + " KB/s";
+          },
+
+          /* 原生 XHR 封装：支持真实字节上传事件监听 */
+          xhrUpload(url, formData, onProgress) {
+            return new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("POST", url);
+              xhr.withCredentials = true;
+
+              if (xhr.upload && onProgress) {
+                xhr.upload.onprogress = (e) => {
+                  if (e.lengthComputable) {
+                    onProgress(e.loaded, e.total);
+                  }
+                };
+              }
+
+              xhr.onload = () => {
+                let data = null;
+                try {
+                  data = JSON.parse(xhr.responseText);
+                } catch (_) {}
+
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve(data || {});
+                } else {
+                  const err = (data && (data.error || data.message)) || `HTTP ${xhr.status}`;
+                  reject(new Error(err));
+                }
+              };
+
+              xhr.onerror = () => reject(new Error("网络连接失败，上传中断"));
+              xhr.ontimeout = () => reject(new Error("网络请求超时"));
+              xhr.send(formData);
+            });
+          },
+
+          /* 安全解码可能被 URL 编码的文件名 */
+          safeDecodeFileName(str) {
+            if (!str) return "";
+            try {
+              let decoded = decodeURIComponent(str);
+              if (decoded.includes("%")) {
+                try { decoded = decodeURIComponent(decoded); } catch (_) {}
+              }
+              return decoded;
+            } catch (_) {
+              return str;
+            }
+          },
+
+          /* 从输入的 URL 路径中解析并解码文件名 */
+          parseUrlFileName(rawUrl) {
+            try {
+              const u = new URL(rawUrl, window.location.origin);
+              const pathname = u.pathname;
+              const rawName = pathname.substring(pathname.lastIndexOf("/") + 1);
+              return this.safeDecodeFileName(rawName) || "remote_file";
+            } catch (_) {
+              const segment = (rawUrl || "").split("?")[0].split("#")[0].split("/").pop();
+              return this.safeDecodeFileName(segment) || "remote_file";
+            }
+          },
+
           openDrawer(tab) {
             this.activeDrawerTab = tab;
             this.showDrawer = true;
           },
           openMoreDrawer() {
-            this.activeDrawerTab = this.lastMoreTab || "compress";
+            this.activeDrawerTab = this.lastMoreTab || "history";
             this.showDrawer = true;
           },
           switchDrawerTab(tab) {
             this.activeDrawerTab = tab;
-            if (["compress", "history", "menu"].includes(tab)) {
+            if (["history", "menu"].includes(tab)) {
               this.lastMoreTab = tab;
             }
             if (tab === "folder" && !this.uploadFoldersFetched) {
@@ -2596,8 +2630,6 @@
               this.uploadFolderCreating = false;
             }
           },
-
-          /* ===== 目录重命名与删除操作 ===== */
           async handleRenameFolder(node) {
             const newPath = window.prompt(`重命名目录：\n"${node.path}"\n\n请输入新路径（包含完整路径）：`, node.path);
             if (newPath === null) return;
@@ -2628,7 +2660,6 @@
               this.showToast(err.message, "error");
             }
           },
-
           async handleDeleteFolder(node) {
             if (!window.confirm(`⚠️ 确定要删除目录 "${node.path}" 及其所有子目录和文件吗？\n\n此操作不可撤销！`)) return;
 
@@ -2650,7 +2681,6 @@
               this.showToast(err.message, "error");
             }
           },
-
           async fetchUploadFolders(force = false) {
             if (this.isGuest) {
               this.uploadFoldersLoading = false;
@@ -2673,7 +2703,6 @@
             }
           },
 
-          /* ===== 原有上传功能 ===== */
           triggerUpload() {
             this.$refs.fileInput.click();
           },
@@ -2692,6 +2721,9 @@
           async uploadFromUrl() {
             if (!this.urlToUpload.trim()) return;
             this.urlUploading = true;
+
+            const extractedName = this.parseUrlFileName(this.urlToUpload);
+
             try {
               const res = await fetch(`${this.baseURL}/api/upload-from-url`, {
                 method: "POST",
@@ -2700,18 +2732,29 @@
                   url: this.urlToUpload,
                   storageMode: this.storageMode,
                   folderPath: this.folderPath,
+                  fileName: extractedName,
                 }),
                 credentials: "include",
               });
               const data = await res.json();
               if (!res.ok) throw new Error(data.error || "转存失败");
               if (Array.isArray(data) && data[0]?.src) {
-                const fileName = this.urlToUpload.split("/").pop().split("?")[0] || "remote_file";
+                const item = data[0];
+                let resolvedName = item.fileName || item.name || item.originalName;
+                if (!resolvedName && item.src) {
+                  const srcPart = item.src.split("/").pop().split("?")[0];
+                  resolvedName = this.safeDecodeFileName(srcPart);
+                }
+                if (!resolvedName) {
+                  resolvedName = extractedName;
+                }
+                resolvedName = this.safeDecodeFileName(resolvedName);
+
                 const fileObj = {
-                  name: fileName,
-                  fileName: fileName,
-                  url: `${this.baseURL}${data[0].src}`,
-                  size: 0,
+                  name: resolvedName,
+                  fileName: resolvedName,
+                  url: `${this.baseURL}${item.src}`,
+                  size: Number(item.size) || 0,
                   selected: false,
                 };
                 this.uploadedFiles.unshift(fileObj);
@@ -2725,27 +2768,6 @@
             } finally {
               this.urlUploading = false;
             }
-          },
-          handleImageCompressToggle() {
-            this.imageUploadDecision = this.imageCompress.enabled ? "optimized" : "original";
-            this.saveImageCompressSettings();
-          },
-          setImageUploadDecision(mode) {
-            this.imageUploadDecision = mode;
-            this.imageCompress.enabled = (mode === "optimized");
-            this.saveImageCompressSettings();
-          },
-          selectCompressFormat(fmt) {
-            this.imageCompress.format = fmt;
-            this.saveImageCompressSettings();
-          },
-          saveImageCompressSettings() {
-            try {
-              localStorage.setItem("imageCompressSettings", JSON.stringify(this.imageCompress));
-            } catch (e) {}
-          },
-          isFormatSupported(fmt) {
-            return this.imageCompress.support?.[fmt] !== false;
           },
           setStorageMode(mode, silent = false) {
             const labels = {
@@ -2777,10 +2799,11 @@
             }
           },
           getUploadLimit(storageMode) {
+            // R2 与 S3 单文件上限提升为 2GB (2048MB)
             const fallback = {
               telegram: { maxBytes: 20 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: false },
-              r2: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
-              s3: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              r2: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+              s3: { maxBytes: 2048 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               discord: { maxBytes: 25 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               huggingface: { maxBytes: 35 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
               github: { maxBytes: 100 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
@@ -2801,9 +2824,16 @@
                 continue;
               }
               const item = {
-                name: file.name, size: file.size, file: file, status: "waiting",
+                name: file.name,
+                size: file.size,
+                file: file,
+                status: "waiting",
+                statusText: "等待中",
+                speed: "",
+                uploadedBytes: 0,
                 preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-                progress: 0, error: null, compressionStatus: "",
+                progress: 0,
+                error: null,
               };
               this.uploadingFiles.push(item);
             }
@@ -2814,7 +2844,6 @@
             for (const item of waiting) {
               try {
                 item.status = "uploading";
-                item.progress = 15;
                 if (!this.isGuest && item.file.size > this.uploadConfig.smallFileThreshold && this.getUploadLimit(this.storageMode).supportsChunkUpload) {
                   await this.chunkedUpload(item);
                 } else {
@@ -2822,6 +2851,8 @@
                 }
               } catch (err) {
                 item.status = "error";
+                item.statusText = "上传失败";
+                item.speed = "";
                 item.error = err.message;
               }
             }
@@ -2834,17 +2865,43 @@
             formData.append("file", item.file);
             formData.append("storageMode", this.storageMode);
             formData.append("folderPath", this.folderPath);
-            const res = await fetch(`${this.baseURL}/upload`, {
-              method: "POST", body: formData, credentials: "include",
+
+            let lastTime = Date.now();
+            let lastLoaded = 0;
+
+            this.$set(item, "statusText", "上传中");
+
+            const data = await this.xhrUpload(`${this.baseURL}/upload`, formData, (loaded, total) => {
+              const now = Date.now();
+              const diff = (now - lastTime) / 1000;
+              if (diff >= 0.4) {
+                const speedBps = (loaded - lastLoaded) / diff;
+                this.$set(item, "speed", this.formatSpeed(speedBps));
+                lastTime = now;
+                lastLoaded = loaded;
+              }
+              this.$set(item, "uploadedBytes", loaded);
+              const percent = Math.min(99, Math.round((loaded / total) * 100));
+              this.$set(item, "progress", percent);
             });
-            const data = await res.json();
-            if (!res.ok || (Array.isArray(data) && data[0]?.error)) {
-              throw new Error(data[0]?.error || data.error || "上传未成功");
+
+            if (Array.isArray(data) && data[0]?.error) {
+              throw new Error(data[0]?.error || "上传未成功");
             }
-            item.status = "success";
-            item.progress = 100;
+
+            this.$set(item, "status", "success");
+            this.$set(item, "statusText", "已完成");
+            this.$set(item, "progress", 100);
+            this.$set(item, "speed", "");
+
             const src = data[0]?.src;
-            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
+            const uploadedObj = {
+              name: item.name,
+              fileName: item.name,
+              url: `${this.baseURL}${src}`,
+              size: item.size,
+              selected: false,
+            };
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj);
           },
@@ -2852,12 +2909,21 @@
             const file = item.file;
             const chunkSize = this.uploadConfig.chunkSize;
             const totalChunks = Math.ceil(file.size / chunkSize);
+
+            this.$set(item, "statusText", "初始化任务...");
+            this.$set(item, "progress", 0);
+            this.$set(item, "uploadedBytes", 0);
+
             const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                fileName: file.name, fileSize: file.size, fileType: file.type,
-                totalChunks: totalChunks, storageMode: this.storageMode, folderPath: this.folderPath,
+                fileName: file.name,
+                fileSize: file.size,
+                fileType: file.type,
+                totalChunks: totalChunks,
+                storageMode: this.storageMode,
+                folderPath: this.folderPath,
               }),
               credentials: "include",
             });
@@ -2865,20 +2931,49 @@
             if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
             const uploadId = initData.uploadId;
 
+            let uploadedBase = 0;
+            let lastTime = Date.now();
+            let lastLoaded = 0;
+
+            this.$set(item, "statusText", "上传中");
+
             for (let i = 0; i < totalChunks; i++) {
               const start = i * chunkSize;
               const end = Math.min(start + chunkSize, file.size);
               const chunk = file.slice(start, end);
+              const chunkBytes = end - start;
+
               const fd = new FormData();
               fd.append("chunk", chunk);
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
-              const chunkRes = await fetch(`${this.baseURL}/api/chunked-upload/chunk`, {
-                method: "POST", body: fd, credentials: "include",
+
+              await this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, fd, (loadedChunk) => {
+                const currentTotal = uploadedBase + loadedChunk;
+                const now = Date.now();
+                const diff = (now - lastTime) / 1000;
+                if (diff >= 0.4) {
+                  const speedBps = (currentTotal - lastLoaded) / diff;
+                  this.$set(item, "speed", this.formatSpeed(speedBps));
+                  lastTime = now;
+                  lastLoaded = currentTotal;
+                }
+                this.$set(item, "uploadedBytes", currentTotal);
+                // 预留 5% 给予服务端完成确认
+                const percent = Math.min(95, Math.round((currentTotal / file.size) * 95));
+                this.$set(item, "progress", percent);
               });
-              if (!chunkRes.ok) throw new Error(`分片 ${i + 1} 上传失败`);
-              item.progress = Math.round(((i + 1) / totalChunks) * 90);
+
+              uploadedBase += chunkBytes;
+              this.$set(item, "uploadedBytes", uploadedBase);
             }
+
+            // 所有切片上传完毕，通知合并并转为确认状态
+            this.$set(item, "status", "processing");
+            this.$set(item, "statusText", "校验与合并中...");
+            this.$set(item, "speed", "");
+            this.$set(item, "progress", 96);
+
             const completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -2887,20 +2982,38 @@
             });
             const completeData = await completeRes.json();
             if (!completeRes.ok) throw new Error(completeData.error || "合并分片失败");
-            item.status = "success";
-            item.progress = 100;
-            const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
+
+            this.$set(item, "status", "success");
+            this.$set(item, "statusText", "已完成");
+            this.$set(item, "progress", 100);
+            this.$set(item, "uploadedBytes", file.size);
+
+            const uploadedObj = {
+              name: item.name,
+              fileName: item.name,
+              url: `${this.baseURL}${completeData.src}`,
+              size: item.size,
+              selected: false,
+            };
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj);
           },
           retryUpload(file) {
             file.status = "waiting";
+            file.statusText = "等待中";
+            file.speed = "";
+            file.progress = 0;
+            file.uploadedBytes = 0;
             file.error = null;
             this.startUpload();
           },
           retryAllFailed() {
             this.uploadingFiles.filter((f) => f.status === "error").forEach((f) => {
               f.status = "waiting";
+              f.statusText = "等待中";
+              f.speed = "";
+              f.progress = 0;
+              f.uploadedBytes = 0;
               f.error = null;
             });
             this.startUpload();
@@ -2934,13 +3047,68 @@
           },
           clearResults() { this.uploadedFiles = []; },
           removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); },
-          downloadFile(file) {
-            const a = document.createElement("a");
-            a.href = this.getCleanFileUrl(file);
-            a.download = this.getDisplayName(file);
-            a.click();
+
+          isDownloading(item) {
+            if (!item) return false;
+            const url = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
+            return !!this.downloadingUrls[url];
           },
-          previewImage(url) { this.previewData = { type: "native-image", url }; },
+          async triggerDownload(url, fileName) {
+            if (!url) return;
+            if (this.downloadingUrls[url]) {
+              this.showToast("文件正在拉取中，请勿重复点击", "info");
+              return;
+            }
+
+            this.$set(this.downloadingUrls, url, true);
+            this.showToast(`正在从节点获取 [${fileName || "文件"}]，请稍候...`, "info");
+
+            try {
+              const res = await fetch(url, { credentials: "include" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+              const blob = await res.blob();
+              const blobUrl = URL.createObjectURL(blob);
+
+              const a = document.createElement("a");
+              a.href = blobUrl;
+              a.download = fileName || "download";
+              a.style.display = "none";
+              document.body.appendChild(a);
+              a.click();
+
+              setTimeout(() => {
+                if (a.parentNode) a.parentNode.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+              }, 1000);
+
+              this.showToast(`[${fileName || "文件"}] 已开始保存`, "success");
+            } catch (err) {
+              console.warn("Fetch 流拉取失败，回退原生下载通道：", err);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = fileName || "";
+              a.style.display = "none";
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                if (a.parentNode) a.parentNode.removeChild(a);
+              }, 0);
+            } finally {
+              this.$delete(this.downloadingUrls, url);
+            }
+          },
+          downloadFile(file) {
+            this.triggerDownload(this.getCleanFileUrl(file), this.getDisplayName(file));
+          },
+          previewImage(file) {
+            const url = this.getCleanFileUrl(file);
+            this.previewData = {
+              type: "native-image",
+              url,
+              fileName: this.getDisplayName(file),
+            };
+          },
           openPreview(file) {
             const name = this.getDisplayName(file);
             const url = this.getCleanFileUrl(file);
@@ -2967,16 +3135,11 @@
           },
           downloadPreviewFile() {
             if (this.previewData) {
-              const a = document.createElement("a");
-              a.href = this.previewData.url;
-              a.download = this.previewData.fileName || "file";
-              a.click();
+              this.triggerDownload(this.previewData.url, this.previewData.fileName || "file");
             }
           },
 
-          /* =========================================================
-             ===== 本地历史：核心方法（全面升级） =====
-             ========================================================= */
+          /* ===== 本地历史管理 ===== */
           persistHistory() {
             try {
               const serialized = this.uploadHistory.map((it) => ({
@@ -2991,7 +3154,6 @@
               }));
               localStorage.setItem("uploadHistory", JSON.stringify(serialized));
             } catch (e) {
-              // 存储空间不足时自动裁剪一半后重试
               try {
                 this.uploadHistory = this.uploadHistory.slice(
                   0,
@@ -3035,7 +3197,6 @@
               uploadTime: Date.now(),
               selected: false,
             };
-            // 去重：同一地址只保留最新一条
             const dupIdx = this.uploadHistory.findIndex(
               (it) => this.getCleanFileUrl(it) === url
             );
@@ -3090,12 +3251,7 @@
             this.openPreview(item);
           },
           historyDownload(item) {
-            const a = document.createElement("a");
-            a.href = this.getCleanFileUrl(item);
-            a.download = this.getDisplayName(item);
-            a.target = "_blank";
-            a.rel = "noopener";
-            a.click();
+            this.triggerDownload(this.getCleanFileUrl(item), this.getDisplayName(item));
           },
           addHistorySelectedToResults() {
             const list = this.historySorted.filter((it) => it.selected);
@@ -3169,9 +3325,17 @@
             };
             return map[mode] || mode || "";
           },
-          /* ===== 本地历史核心方法结束 ===== */
 
-          getDisplayName(item) { return item.fileName || item.name || "未命名文件"; },
+          /* 防御乱码与编码展示 */
+          getDisplayName(item) {
+            let name = item.fileName || item.name || "未命名文件";
+            if (typeof name === "string" && name.includes("%")) {
+              try {
+                name = decodeURIComponent(name);
+              } catch (_) {}
+            }
+            return name;
+          },
           getCleanFileUrl(item) {
             const raw = item.url || item.path || "";
             if (raw.startsWith("http")) return raw;
@@ -3272,7 +3436,7 @@
             const ex = localStorage.getItem("folderTreeExpanded");
             if (ex) this.expandedFolders = JSON.parse(ex) || {};
 
-            // 全面升级后的本地历史加载
+            try { localStorage.removeItem("imageCompressSettings"); } catch (e) {}
             this.loadHistory();
           } catch (e) {}
 

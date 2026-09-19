@@ -4,7 +4,7 @@
 
 # K-Vault
 
-> Free image/file hosting solution with dual deployment modes (Cloudflare Pages + Docker), supporting multiple storage backends.
+> Free image/file hosting solution deployed on **Cloudflare Pages**, compatible with Telegram, R2, S3, Discord, HuggingFace, WebDAV, and GitHub storage backends.
 
 **English** | [中文](README.md)
 
@@ -43,13 +43,14 @@
 - **Online Preview** - Supports preview for images, videos, audio, and documents (pdf, docx, txt)
 - **Chunked Upload** - Supports files up to 100MB (with R2/S3)
 - **Guest Upload** - Optional guest upload with file size and daily upload limits
-- **Multiple Views** - Grid, list, and waterfall management views
+- **Multiple Views** - Grid and list management views
 - **Storage Classification** - Clearly distinguishes files from different storage backends
-- **Dual Deployment Modes** - Keep Cloudflare Pages deployment, and add Docker self-host deployment (`docker compose up -d`)
-- **Dynamic Storage Config Management** - Add/Edit/Delete/Test storage configs and switch default storage via admin API
-- **Pluggable Settings Store (Docker)** - Basic app settings can use `sqlite` (default) or Redis protocol backends (Upstash / Redis / KVrocks)
+- **Single Deployment Mode** - Cloudflare Pages only (static root pages + Pages Functions), with no build step
+- **API Tokens** - Isolated from the web session, with `upload` / `read` / `delete` / `paste` scopes, rotation, and per-token policies
+- **Text Paste (Pastebin)** - Create / list / view / delete text pastes with language tag, expiry, and access password
+- **Share Options on Web Upload** - Set `expires_in`, `password`, `max_downloads`, and a custom `slug` (`/s/<slug>`) from the upload drawer
 - **Simplified Frontend** - Root pages remain the primary UX for upload/admin deployment.
-- **GitHub Actions Docker Build** - Auto-build/push the single `ghcr.io/katelya77/k-vault` image on main/tag push
+- **GitHub Actions** - Cloudflare Pages deployment notes and CI test workflows only
 
 ### 2026-03 Product Update
 
@@ -57,7 +58,7 @@
   - folder tree + breadcrumbs
   - file/folder operations (create, rename, move, delete, batch actions)
   - drag upload queue (progress, retry, cancel)
-  - direct link + signed share link copy
+  - direct link copy (signed `/share/:id` links are **not** part of the Pages deployment; only the retained Node runtime implements them)
 - Storage capability cards now keep all adapters visible (configured or not) with explicit status/hints.
 - Existing direct links (`/file/:id`) remain compatible.
 
@@ -80,12 +81,15 @@ Recommended architecture for multi-cloud mounts:
 
 ## Deployment
 
-K-Vault has two official deployment modes:
+K-Vault provides a single deployment form:
 
-1. **Cloudflare Pages**: static root pages plus Pages Functions. This is best for Cloudflare KV/R2, edge functions, and free-tier deployments.
-2. **Docker**: one image, `ghcr.io/katelya77/k-vault:latest`, for VPS/NAS/private self-hosting and long-running multi-storage deployments.
+| Form | How it runs | Best for |
+| :--- | :--- | :--- |
+| **Cloudflare Pages** | Static root pages + `functions/` Pages Functions | Zero cost within the free quota, edge acceleration, globally available |
 
-Both modes expose the same main entrypoints:
+> Docker / Nginx self-hosted deployment has been removed from this repository. The `server/` directory is retained as upstream Node runtime source (for reference and further development) and is **no longer a supported deployment target**; its exclusive capabilities (dynamic storage config management, audit log query, signed share links) are unavailable on the Cloudflare Pages deployment.
+
+This deployment form exposes the following main entrypoints:
 
 - Upload UI: `/`
 - Admin console: `/admin.html`
@@ -95,9 +99,7 @@ Both modes expose the same main entrypoints:
 - API Token upload: `/api/v1/upload`
 - Direct/share links: `/file/*`, `/share/*`, `/s/*`
 
-The Docker image runs Nginx and the Node API inside one container. From the user's perspective, the UI, admin console, WebDAV page, API Token upload, direct links, short links, and storage profile management should match the Cloudflare Pages deployment.
-
-### Option 1: Cloudflare Pages
+### Cloudflare Pages Deployment
 
 Use this when you want Cloudflare-hosted static pages, Pages Functions, KV, and R2.
 
@@ -148,98 +150,16 @@ Common Pages mistakes:
 - Do not set Build output directory to `dist` or `frontend/dist`.
 - If R2 binding deployment fails with `invalid jurisdiction`, follow [Cloudflare Pages R2 binding troubleshooting](docs/cloudflare-pages-r2.md).
 
-### Option 2: Docker
-
-Use this for VPS, NAS, private network, or self-hosted multi-storage deployments. Docker does not depend on the Cloudflare Pages runtime.
-
-#### Simplest Docker Run
-
-No repository checkout and no local Node/npm installation are required:
-
-```bash
-docker volume create kvault_data
-docker run -d \
-  --name kvault \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -v kvault_data:/app/data \
-  ghcr.io/katelya77/k-vault:latest
-```
-
-Open:
-
-- Upload UI: `http://<host>:8080/`
-- Admin: `http://<host>:8080/admin.html`
-- WebDAV page: `http://<host>:8080/webdav.html`
-- Health check: `http://<host>:8080/api/health`
-
-On first start, if `CONFIG_ENCRYPTION_KEY` and `SESSION_SECRET` are not provided, the container generates persistent values in `/app/data/runtime.env`. Recreating the container keeps them as long as the Docker volume is kept.
-
-For public deployments, set admin credentials explicitly:
-
-```bash
-docker run -d \
-  --name kvault \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -v kvault_data:/app/data \
-  -e BASIC_USER=admin \
-  -e BASIC_PASS='replace-with-a-strong-password' \
-  ghcr.io/katelya77/k-vault:latest
-```
-
-#### Recommended Docker Compose
-
-If you cloned the repository:
-
-```bash
-docker compose up -d
-```
-
-The Compose file pulls `ghcr.io/katelya77/k-vault:latest` by default. `.env` is optional. Create it only when you want fixed credentials, domain, upload limits, or environment-bootstrapped storage:
-
-```bash
-cp .env.example .env
-docker compose up -d
-```
-
-Common Docker variables:
-
-| Variable | Description |
-| :--- | :--- |
-| `BASIC_USER` / `BASIC_PASS` | Admin login credentials. **The management API fails closed: without them `/api/manage/**` and friends return 503**, so set them for any public deployment |
-| `PUBLIC_BASE_URL` | Public URL used for generated links and webhooks |
-| `DEFAULT_STORAGE_TYPE` | Default storage: `telegram` / `r2` / `s3` / `discord` / `huggingface` / `webdav` / `github` |
-| `TG_BOT_TOKEN` + `TG_CHAT_ID` | Telegram bootstrap storage variables for Docker |
-| `R2_*` / `S3_*` / `WEBDAV_*` / `GITHUB_*` / `HF_*` | Other storage backend configuration |
-| `UPLOAD_MAX_SIZE` / `CHUNK_SIZE` | Upload limits and chunk size |
-| `WEB_PORT` | Public Compose port, default `8080` |
-
-You can also start Docker first and add/test/switch storage profiles later in the admin console. The WebDAV page, API Tokens, API v1 uploads, direct links, and short links all use the same `8080` entrypoint.
-
-For full Docker guide, see [README-DOCKER.md](README-DOCKER.md).
-
-### WebDAV Regression Validation (Works for Pages and Docker)
+### WebDAV Validation
 
 After deployment, run at least one WebDAV smoke check to verify the full flow: config test -> upload -> download -> delete.
-
-Example:
-
-```bash
-BASE_URL=https://your-domain \
-BASIC_USER=admin BASIC_PASS=your_password \
-SMOKE_STORAGE_TYPE=webdav \
-SMOKE_STORAGE_CONFIG_JSON='{"baseUrl":"https://dav.example.com","username":"u","password":"p","rootPath":"uploads"}' \
-node scripts/storage-regression.js
-```
 
 Validation criteria:
 
 - `webdav.connected` in `/api/status` must be `true`
-- Docker/self-hosted deployments can additionally verify `/api/storage/:id/test` returns `connected=true`
-- WebDAV `upload / download / delete` in the regression script must all pass
+- WebDAV `upload / download / delete` exercised from the WebDAV page (`/webdav.html`) must all pass
 
-For Docker deployment, simply change `BASE_URL` to your self-hosted address, for example `http://localhost:8080`.
+> This repository no longer ships a standalone storage regression runner: it was removed together with the Docker self-hosted deployment path. Storage connectivity is validated through `/api/status` and the WebDAV page instead.
 
 ---
 
@@ -474,11 +394,13 @@ Allows non-logged-in users to upload files. Site owners can configure whether it
 | `CHUNK_BACKEND` | Chunk temporary storage backend (`auto`/`r2`/`kv`) | `auto` |
 | `disable_telemetry` | Disable telemetry | - |
 
-### Docker Runtime Variables (Self-host Mode)
+### Retained Node Runtime Variables (`server/`, Not a Deployment Target)
+
+> These variables belong to the retained upstream Node runtime source under `server/`. That runtime is kept for reference and further development only and is **not a supported deployment target**; none of these variables affect the Cloudflare Pages deployment.
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `PORT` | API service port inside container | `8787` |
+| `PORT` | API service port of the retained Node runtime | `8787` |
 | `DATA_DIR` | Data directory | `/app/data` |
 | `DB_PATH` | SQLite database path | `/app/data/k-vault.db` |
 | `CHUNK_DIR` | Chunk temp directory | `/app/data/chunks` |
@@ -492,7 +414,7 @@ Allows non-logged-in users to upload files. Site owners can configure whether it
 | `SETTINGS_REDIS_URL` | Redis URL for Upstash/Redis/KVrocks (required when `SETTINGS_STORE=redis`) | - |
 | `SETTINGS_REDIS_PREFIX` | Redis key prefix for settings hash | `k-vault` |
 | `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Redis connect/ping timeout in milliseconds | `5000` |
-| `WEB_PORT` | Public web port for `docker compose` | `8080` |
+| `WEB_PORT` | Public web port of the retained Node runtime | `8080` |
 
 ---
 
@@ -500,12 +422,40 @@ Allows non-logged-in users to upload files. Site owners can configure whether it
 
 | Page | Path | Description |
 | :--- | :--- | :--- |
-| Home/Upload | `/` | Batch upload, drag-and-drop, paste upload |
+| Home/Upload | `/` | Batch upload, drag-and-drop, paste upload; the upload drawer can set expiry / password / download limit / custom short link |
+| Admin Panel | `/admin.html` | File management, folder tree, favorites, storage status, **API Token management** |
+| Text Paste | `/paste.html` | Pastebin: create / list / view / delete, with language tag, expiry, and access password |
 | WebDAV Page | `/webdav.html` | Dedicated WebDAV upload page with root-style UI |
 | Gallery | `/gallery.html` | Image grid browsing |
-| Admin Panel | `/admin.html` | File management, blacklist/whitelist |
-| File Preview | `/preview.html` | Multi-format file preview |
+| File Preview | `/preview.html` | Multi-format file preview; password-protected files prompt for the password inline |
 | Login Page | `/login.html` | Admin login |
+| Intercept Notice | `/block-img.html`, `/whitelist-on.html` | Blacklist / whitelist mode notice pages |
+
+---
+
+## Directory Structure
+
+```
+├── index.html                  # Home / upload (share settings drawer)
+├── admin.html                  # Admin console (rewritten, with API Token management panel)
+├── paste.html                  # Text paste (Pastebin) frontend
+├── gallery.html                # Image gallery (rewritten)
+├── webdav.html / preview.html / login.html
+├── theme.css / theme.js        # Theme and site-wide UI design config
+├── functions/                  # Cloudflare Pages Functions backend
+│   ├── api/                    # auth / manage (incl. paste) / admin / v1 / chunked-upload ...
+│   ├── file/[id].js            # Direct links, block/whitelist, password / expiry / download-limit checks
+│   ├── utils/share-options.js  # Shared implementation of expiry / password / download limit / short link
+│   └── s/[slug].js             # Short share links
+├── server/                     # Upstream Node runtime (Hono) source retained, not a deployment target
+│   ├── app.js                  # All routes
+│   ├── lib/                    # Repository layer, storage adapters, auth, SSRF guard
+│   └── db/                     # SQLite schema
+├── test/                       # Tests (incl. deployment contract and Pages upload route regression)
+├── docs/                       # OpenAPI, integration guide, full config reference
+├── scripts/                    # Cloudflare Pages R2 binding troubleshooting
+└── .github/workflows/          # Pages deployment notes and CI tests only
+```
 
 ---
 
@@ -517,7 +467,7 @@ Allows non-logged-in users to upload files. Site owners can configure whether it
 - KV: 1,000 writes/day, 100,000 reads/day, 1,000 list operations/day
 - Upgrade to a paid plan if exceeded (starting from $5/month)
 - For Telegram-heavy scenarios, signed direct links or low-KV-write mode are recommended to reduce quota pressure
-- In Docker self-host mode, these Cloudflare quotas do not apply to the Node runtime itself (limits depend on your server/storage backend)
+- These Cloudflare quotas are the only operational budget for the single supported deployment form; the retained Node runtime source under `server/` is not a supported deployment target and has no separate quota
 
 **File size limits by storage backend:**
 
@@ -571,29 +521,93 @@ Allows non-logged-in users to upload files. Site owners can configure whether it
 | `ModerateContentApiKey` | Image moderation API key | Optional |
 | `WhiteList_Mode` | Whitelist mode | Optional |
 | `disable_telemetry` | Disable telemetry | Optional |
-| `PORT` | Internal API port for the single Docker image, keep `8787` | Optional |
-| `DATA_DIR` | Data directory in Docker self-host mode | Optional |
-| `DB_PATH` | SQLite database path in Docker self-host mode | Optional |
-| `CHUNK_DIR` | Chunk temp directory in Docker self-host mode | Optional |
-| `CONFIG_ENCRYPTION_KEY` | Docker storage-config encryption key; generated and persisted if omitted | Optional |
-| `SESSION_SECRET` | Docker session/signing secret; generated and persisted if omitted | Optional |
-| `UPLOAD_MAX_SIZE` | Max upload size (bytes) in Docker self-host mode | Optional |
-| `UPLOAD_SMALL_FILE_THRESHOLD` | Direct-upload threshold (bytes) in Docker self-host mode | Optional |
-| `CHUNK_SIZE` | Chunk size (bytes) in Docker self-host mode | Optional |
-| `DEFAULT_STORAGE_TYPE` | Bootstrap default storage type in Docker self-host mode | Optional |
-| `SETTINGS_STORE` | Basic app settings backend in Docker mode (`sqlite`/`redis`) | Optional |
-| `SETTINGS_REDIS_URL` | Redis URL in Docker mode (Upstash/Redis/KVrocks) | Optional |
-| `SETTINGS_REDIS_PREFIX` | Redis key prefix for Docker settings store | Optional |
-| `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Redis connect/ping timeout in Docker mode (ms) | Optional |
-| `WEB_PORT` | Exposed web port for `docker compose` | Optional |
+| `PORT` | Internal API port of the retained Node runtime (`server/`, not a deployment target) | Optional |
+| `DATA_DIR` | Data directory of the retained Node runtime | Optional |
+| `DB_PATH` | SQLite database path of the retained Node runtime | Optional |
+| `CHUNK_DIR` | Chunk temp directory of the retained Node runtime | Optional |
+| `CONFIG_ENCRYPTION_KEY` | Storage-config encryption key of the retained Node runtime; generated and persisted if omitted | Optional |
+| `SESSION_SECRET` | Session/signing secret of the retained Node runtime; generated and persisted if omitted | Optional |
+| `UPLOAD_MAX_SIZE` | Max upload size (bytes) of the retained Node runtime | Optional |
+| `UPLOAD_SMALL_FILE_THRESHOLD` | Direct-upload threshold (bytes) of the retained Node runtime | Optional |
+| `CHUNK_SIZE` | Chunk size (bytes) of the retained Node runtime | Optional |
+| `DEFAULT_STORAGE_TYPE` | Bootstrap default storage type of the retained Node runtime | Optional |
+| `SETTINGS_STORE` | Basic app settings backend of the retained Node runtime (`sqlite`/`redis`) | Optional |
+| `SETTINGS_REDIS_URL` | Redis URL of the retained Node runtime (Upstash/Redis/KVrocks) | Optional |
+| `SETTINGS_REDIS_PREFIX` | Redis key prefix for the retained Node runtime settings store | Optional |
+| `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Redis connect/ping timeout of the retained Node runtime (ms) | Optional |
+| `WEB_PORT` | Public web port of the retained Node runtime | Optional |
+
+---
+
+## Changes in this revision
+
+### (1) Cloudflare Pages is the only deployment form
+
+| Action | Content |
+| :--- | :--- |
+| Removed deployment artifacts | `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docker/` (Nginx config and entrypoint), `server/.dockerignore` |
+| Removed deployment docs | `README-DOCKER.md`, `README-DOCKER-EN.md`, plus the Docker sections in `README.md` / `docs/` |
+| Removed image workflows | `.github/workflows/docker-image.yml`, `.github/workflows/docker-smoke.yml` |
+| Removed deployment scripts | `scripts/bootstrap-env.js`, `scripts/bootstrap-env.sh`, `scripts/docker-ci-smoke.js`, `scripts/docker-storage-doctor.js`, `scripts/storage-regression.js` |
+| Cleaned npm scripts | all `docker:*` scripts and `regression:storage` |
+| Retained | `server/` Node runtime source (no longer a supported deployment target), `docs/`, and the server-side tests in `test/` |
+| Regression guard | `test/deployment-contract.test.js` asserts that the files above must not exist and that `package.json` no longer contains `docker:` scripts |
+
+### (2) Legacy admin pages removed
+
+`admin-imgtc.html` (Element UI admin) and `admin-waterfall.html` (waterfall admin) were removed together with `admin-imgtc.css`. Both pages were already orphans (no page linked to them), so admin capability is now consolidated into `admin.html`.
+
+### (3) Expiry / password / download limit / short link on web upload
+
+`/api/v1/upload` has always accepted `expires_in`, `password`, `max_downloads`, and `slug`, but they were only exposed on the Token-authenticated API, while the web upload route `POST /upload` did not accept these fields at all. This revision closes that gap:
+
+| Change | File |
+| :--- | :--- |
+| Extract the shared implementation (field parsing, validation, metadata merge, short-link mapping) | new `functions/utils/share-options.js` |
+| Web direct upload accepts the four fields (admin only; guests are rejected to avoid short-link squatting) | `functions/upload.js` |
+| The chunked upload path supports them too (short link reserved at init, metadata written on complete) | `functions/api/chunked-upload/init.js`, `complete.js` |
+| New "share settings" tab in the upload drawer | `index.html` |
+| Password-protected files: inline password form + automatic retry; 410 explicitly reports expiry / limit reached | `preview.html` |
+
+### (4) Missing console panels added
+
+| Panel | Status | Implementation |
+| :--- | :--- | :--- |
+| API Token management | ✅ Added | `admin.html` -> Tools -> API Token management: list / create / edit (scopes, policies, expiry, enable-disable) / rotate / delete; the secret is shown only once |
+| Text paste (Pastebin) | ✅ Added | New `paste.html` plus the session-authenticated endpoints `functions/api/manage/paste.js` and `functions/api/manage/paste/[id].js` (reusing `functions/utils/paste-store.js`) |
+| Frontend UI design panel | ❌ Still missing | Read/write capability remains in `UIDesignManager` in `theme.js` and `/api/ui-config` |
+
+---
+
+## Known Gaps
+
+| Capability | Upstream `admin.html` | This project's `admin.html` | Backend API |
+| :--- | :---: | :---: | :--- |
+| API Token management | ✅ | ✅ Added | `/api/admin/tokens*` |
+| Text paste | ❌ (API only) | ✅ Added (`paste.html`) | `/api/manage/paste*`, `/api/v1/paste*` |
+| Upload expiry / password / download limit / short link | ❌ (API only) | ✅ Added | `POST /upload`, chunked upload |
+| File block/whitelist | ✅ | ❌ | `/api/manage/block\|white/:id` |
+| Frontend UI design panel | ✅ | ❌ | `GET/POST /api/ui-config` |
+
+**Block/whitelist is currently the only capability whose backend is ready but which has no frontend entry point at all**: the rewritten `admin.html` never implemented it, it used to be covered by `admin-imgtc.html`, and that page was deleted in this revision. To restore it, add calls to `/api/manage/block/:id` and `/api/manage/white/:id` in the card and batch actions of `admin.html`.
+
+---
+
+## Full Documentation
+
+| Document | Content |
+| :--- | :--- |
+| [docs/README-full-reference.md](docs/README-full-reference.md) | **Full configuration reference**: every environment variable, backend-specific setup steps, API usage, ShareX setup, limits |
+| [docs/openapi.yaml](docs/openapi.yaml) | Machine-readable API v1 definition |
+| [docs/agent-integration.md](docs/agent-integration.md) | Agent / script integration guide |
+| [docs/cloudflare-pages-r2.md](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 binding troubleshooting |
+| [PROJECT_INTRO.md](PROJECT_INTRO.md) | Project positioning and architecture |
 
 ---
 
 ## Related Links
 
 - [Cloudflare Pages Documentation](https://developers.cloudflare.com/pages/)
-- [Docker Deployment Guide](README-DOCKER.md)
-- [Docker Image Workflow](.github/workflows/docker-image.yml)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Telegram Bot API Server (Self-hosted)](https://github.com/tdlib/telegram-bot-api)
 - [Issue Tracker](https://github.com/katelya77/K-Vault/issues)

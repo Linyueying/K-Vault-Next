@@ -403,6 +403,52 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .dialog-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
 .dialog-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
 
+/* ============ API Token 管理面板 ============ */
+.dialog-panel.wide{width:min(880px,100%)}
+.token-section{margin-bottom:18px}
+.token-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.token-section-title{font-size:.86rem;font-weight:800;display:flex;align-items:center;gap:8px}
+.token-section-title i{color:var(--primary)}
+.token-field{margin-bottom:12px}
+.token-field > label{display:block;font-size:.75rem;font-weight:700;color:var(--text-sub);margin-bottom:6px}
+.token-input,.token-select{
+  width:100%;padding:9px 12px;border-radius:var(--radius-md);border:1.5px solid var(--glass-border-ice);
+  background:var(--glass-subtle);color:var(--text-main);font-size:.83rem;font-family:inherit;outline:none;transition:var(--transition);
+}
+.token-input:focus,.token-select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
+.token-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.token-chips{display:flex;gap:8px;flex-wrap:wrap}
+.token-chip{
+  display:inline-flex;align-items:center;gap:6px;font-size:.74rem;font-weight:700;padding:6px 12px;
+  border-radius:999px;border:1.5px solid var(--glass-border-ice);background:var(--glass-subtle);
+  color:var(--text-sub);cursor:pointer;transition:var(--transition);
+}
+.token-chip:hover{border-color:var(--primary);color:var(--primary)}
+.token-chip.active{background:var(--primary-surface);border-color:var(--primary);color:var(--primary-dark)}
+html[data-theme="dark"] .token-chip.active{color:var(--primary-light)}
+.token-list{display:flex;flex-direction:column;gap:9px;max-height:340px;overflow:auto;padding-right:2px}
+.token-row{border:1.5px solid var(--glass-border-ice);border-radius:var(--radius-md);background:var(--glass-subtle);padding:11px 13px}
+.token-row.disabled{opacity:.62}
+.token-row-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.token-name{font-weight:700;font-size:.85rem}
+.token-preview{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--text-muted)}
+.token-badge{font-size:.66rem;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(var(--primary-rgb),.12);color:var(--primary-dark)}
+html[data-theme="dark"] .token-badge{color:var(--primary-light)}
+.token-badge.off{background:rgba(148,163,184,.18);color:var(--text-muted)}
+.token-badge.warn{background:rgba(245,158,11,.16);color:#b45309}
+.token-row-meta{display:flex;gap:12px;flex-wrap:wrap;font-size:.71rem;color:var(--text-muted);margin-top:7px}
+.token-row-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.token-secret{margin-bottom:14px;padding:12px 14px;border-radius:var(--radius-md);border:1.5px solid rgba(34,197,94,.4);background:rgba(34,197,94,.08)}
+.token-secret-title{font-size:.78rem;font-weight:800;color:#16a34a;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+.token-secret-value{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.token-secret-value code{
+  flex:1;min-width:180px;font-family:'JetBrains Mono',monospace;font-size:.76rem;word-break:break-all;
+  background:var(--glass-elevated);border:1px solid var(--glass-border-ice);border-radius:10px;padding:8px 10px;
+}
+.token-empty{text-align:center;color:var(--text-muted);font-size:.8rem;padding:22px}
+.token-hint{font-size:.71rem;color:var(--text-muted);margin-top:5px;line-height:1.55}
+.token-divider{height:1px;background:var(--glass-border-ice);margin:16px 0}
+
 /* 移动目录 */
 .move-list{max-height:260px;overflow:auto;margin:8px 0 12px;border:1.5px solid var(--glass-border-ice);border-radius:var(--radius-md);padding:5px;background:var(--glass-subtle)}
 .move-list::-webkit-scrollbar{width:6px}
@@ -671,6 +717,12 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
           <button class="dropdown-item" @click="handleTool('export')">
             <i class="fas fa-file-export"></i><span>导出全部链接</span>
           </button>
+          <button class="dropdown-item" @click="handleTool('tokens')">
+            <i class="fas fa-key"></i><span>API Token 管理</span>
+          </button>
+          <button class="dropdown-item" @click="handleTool('paste')">
+            <i class="fas fa-paste"></i><span>文本粘贴</span>
+          </button>
         </div>
       </div>
 
@@ -893,6 +945,154 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
     </div>
   </div>
 
+  <!-- ===== API Token 管理 ===== -->
+  <div class="overlay" v-if="tokenPanelVisible" @click.self="closeTokenPanel">
+    <div class="dialog-panel wide">
+      <div class="dialog-title">
+        <i class="fas fa-key"></i>
+        <span>API Token 管理</span>
+      </div>
+      <div class="dialog-message">
+        面向机器客户端（curl / ShareX / 脚本 / Agent）的长期凭据，与网页登录态完全隔离。密钥<strong>仅在创建或轮换时返回一次</strong>，请立即保存。
+      </div>
+
+      <!-- 一次性密钥展示 -->
+      <div class="token-secret" v-if="tokenSecret">
+        <div class="token-secret-title">
+          <i class="fas fa-circle-check"></i>
+          <span>{{ tokenSecret.mode === 'rotate' ? '已轮换：新密钥仅显示这一次，旧密钥立即失效' : '创建成功：密钥仅显示这一次' }}</span>
+        </div>
+        <div class="token-secret-value">
+          <code>{{ tokenSecret.token }}</code>
+          <button class="action-pill-btn" @click="copyTokenText(tokenSecret.token, '密钥已复制')"><i class="fas fa-copy"></i> 复制</button>
+          <button class="mini-icon-btn" @click="tokenSecret = null" title="我已保存，隐藏"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+
+      <!-- 创建 / 编辑 -->
+      <div class="token-section">
+        <div class="token-section-head">
+          <div class="token-section-title">
+            <i class="fas" :class="tokenEditingId ? 'fa-pen-to-square' : 'fa-plus'"></i>
+            <span>{{ tokenEditingId ? ('编辑 Token：' + tokenEditingId) : '新建 Token' }}</span>
+          </div>
+          <button class="action-pill-btn" v-if="tokenEditingId" @click="resetTokenForm">取消编辑</button>
+        </div>
+
+        <div class="token-grid">
+          <div class="token-field" v-if="!tokenEditingId">
+            <label>名称</label>
+            <input class="token-input" v-model="tokenForm.name" placeholder="例如 blog-bot" @keyup.enter="submitTokenForm">
+          </div>
+          <div class="token-field">
+            <label>有效期</label>
+            <select class="token-select" v-model.number="tokenForm.expiresInSeconds">
+              <option :value="0">永久</option>
+              <option :value="604800">7 天</option>
+              <option :value="2592000">30 天</option>
+              <option :value="7776000">90 天</option>
+              <option :value="31536000">365 天</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="token-field">
+          <label>权限（scopes）</label>
+          <div class="token-chips">
+            <button class="token-chip" v-for="s in tokenScopeCatalog" :key="s.value"
+                    :class="{active: tokenForm.scopes.includes(s.value)}"
+                    :title="s.desc" @click="toggleTokenScope(s.value)">
+              <i class="fas fa-check" v-if="tokenForm.scopes.includes(s.value)"></i>{{ s.label }}
+            </button>
+          </div>
+          <div class="token-hint">未勾选任何权限的 Token 无法调用任何 API。</div>
+        </div>
+
+        <div class="token-field">
+          <label>策略：限定存储后端（留空 = 不限制）</label>
+          <div class="token-chips">
+            <button class="token-chip" v-for="name in tokenPolicyStorages" :key="name"
+                    :class="{active: tokenForm.allowedStorages.includes(name)}"
+                    @click="toggleTokenStorage(name)">
+              <i class="fas fa-check" v-if="tokenForm.allowedStorages.includes(name)"></i>{{ name }}
+            </button>
+          </div>
+        </div>
+
+        <div class="token-grid">
+          <div class="token-field">
+            <label>策略：目录前缀</label>
+            <input class="token-input" v-model="tokenForm.folderPrefix" placeholder="例如 blog（留空 = 不限制）">
+          </div>
+          <div class="token-field">
+            <label>策略：单文件上限（MB）</label>
+            <input class="token-input" type="number" min="0" v-model.number="tokenForm.maxFileSizeMb" placeholder="0 = 不限制">
+          </div>
+        </div>
+
+        <div class="token-field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" v-model="tokenForm.enabled" style="width:16px;height:16px;accent-color:var(--primary)">
+            <span>启用该 Token</span>
+          </label>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="btn-pill-action" :disabled="tokenSubmitting" @click="submitTokenForm">
+            <i class="fas" :class="tokenSubmitting ? 'fa-circle-notch fa-spin' : (tokenEditingId ? 'fa-floppy-disk' : 'fa-key')"></i>
+            {{ tokenSubmitting ? '提交中…' : (tokenEditingId ? '保存修改' : '创建 Token') }}
+          </button>
+        </div>
+      </div>
+
+      <div class="token-divider"></div>
+
+      <!-- 列表 -->
+      <div class="token-section" style="margin-bottom:0">
+        <div class="token-section-head">
+          <div class="token-section-title"><i class="fas fa-list"></i><span>已有 Token（{{ tokens.length }}）</span></div>
+          <button class="action-pill-btn" :disabled="tokenLoading" @click="loadTokens">
+            <i class="fas" :class="tokenLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
+          </button>
+        </div>
+
+        <div v-if="tokenLoading && !tokens.length" class="token-empty"><i class="fas fa-circle-notch fa-spin"></i> 加载中…</div>
+        <div v-else-if="!tokens.length" class="token-empty">还没有任何 Token。</div>
+        <div v-else class="token-list">
+          <div class="token-row" v-for="t in tokens" :key="t.id" :class="{disabled: !t.enabled}">
+            <div class="token-row-top">
+              <span class="token-name">{{ t.name || '未命名' }}</span>
+              <span class="token-preview">{{ t.tokenPreview || t.id }}</span>
+              <span class="token-badge" :class="{off: !t.enabled}">{{ t.enabled ? '启用' : '已禁用' }}</span>
+              <span class="token-badge warn" v-if="isTokenExpired(t)">已过期</span>
+              <div class="token-row-actions">
+                <button class="mini-icon-btn" @click="startEditToken(t)" title="编辑"><i class="fas fa-pen"></i></button>
+                <button class="mini-icon-btn" @click="toggleTokenEnabled(t)" :title="t.enabled ? '禁用' : '启用'">
+                  <i class="fas" :class="t.enabled ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
+                </button>
+                <button class="mini-icon-btn" @click="rotateToken(t)" title="轮换密钥"><i class="fas fa-rotate"></i></button>
+                <button class="mini-icon-btn danger" @click="deleteToken(t)" title="删除"><i class="fas fa-trash"></i></button>
+              </div>
+            </div>
+            <div class="token-row-meta">
+              <span><i class="fas fa-shield-halved"></i> {{ (t.scopes && t.scopes.length) ? t.scopes.join(' / ') : '无权限' }}</span>
+              <span><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(t.createdAt) }}</span>
+              <span><i class="fas fa-hourglass-half"></i> {{ formatTokenExpiry(t.expiresAt) }}</span>
+              <span><i class="fas fa-bolt"></i> 调用 {{ t.usageCount || 0 }} 次</span>
+              <span v-if="t.lastUsedAt"><i class="fas fa-history"></i> 最近 {{ formatTokenTime(t.lastUsedAt) }}</span>
+              <span v-if="t.lastOperation"><i class="fas fa-tag"></i> {{ t.lastOperation }}</span>
+              <span v-if="tokenPoliciesLabel(t)"><i class="fas fa-filter"></i> {{ tokenPoliciesLabel(t) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-actions" style="margin-top:16px">
+        <button class="action-pill-btn" @click="closeTokenPanel">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 移动文件对话框 ===== -->
   <div class="overlay" v-if="moveVisible" @click.self="moveVisible=false">
     <div class="dialog-panel">
@@ -1026,7 +1226,31 @@ new Vue({
       { value:'dateDesc', label:'按时间倒序', icon:'fas fa-clock-rotate-left' },
       { value:'nameAsc',  label:'按名称升序', icon:'fas fa-arrow-down-a-z' },
       { value:'sizeDesc', label:'按大小倒序', icon:'fas fa-arrow-down-wide-short' }
-    ]
+    ],
+
+    /* ================= API Token 管理 ================= */
+    tokenPanelVisible: false,
+    tokenLoading: false,
+    tokenSubmitting: false,
+    tokens: [],
+    tokenEditingId: '',
+    tokenSecret: null,
+    tokenScopeCatalog: [
+      { value:'upload', label:'上传', desc:'写入新文件（POST /api/v1/upload、/import）' },
+      { value:'read',   label:'读取', desc:'列出文件、下载、查询元信息与粘贴' },
+      { value:'delete', label:'删除', desc:'删除文件与粘贴' },
+      { value:'paste',  label:'粘贴', desc:'创建文本粘贴' }
+    ],
+    tokenPolicyStorages: ['telegram','r2','s3','discord','huggingface','webdav','github'],
+    tokenForm: {
+      name: '',
+      scopes: ['upload','read'],
+      expiresInSeconds: 0,
+      allowedStorages: [],
+      folderPrefix: '',
+      maxFileSizeMb: 0,
+      enabled: true
+    }
   },
 
   computed: {
@@ -1656,6 +1880,10 @@ new Vue({
         window.open('./', '_blank');
       } else if (c === 'status') {
         this.checkStatus();
+      } else if (c === 'tokens') {
+        this.openTokenPanel();
+      } else if (c === 'paste') {
+        window.open('./paste.html', '_blank');
       } else if (c === 'export') {
         const t = this.files.map(f => this.baseURL + '/file/' + f.name).join('\n');
         const a = document.createElement('a');
@@ -1665,6 +1893,212 @@ new Vue({
         setTimeout(() => URL.revokeObjectURL(a.href), 1200);
         this.showToast(`已导出 ${this.files.length} 条链接`, 'success');
       }
+    },
+
+    /* ================= API Token 管理 ================= */
+    openTokenPanel() {
+      this.tokenPanelVisible = true;
+      this.tokenSecret = null;
+      this.resetTokenForm();
+      this.loadTokens();
+    },
+    closeTokenPanel() {
+      this.tokenPanelVisible = false;
+      this.tokenSecret = null;
+      this.resetTokenForm();
+    },
+    resetTokenForm() {
+      this.tokenEditingId = '';
+      this.tokenForm = {
+        name: '',
+        scopes: ['upload','read'],
+        expiresInSeconds: 0,
+        allowedStorages: [],
+        folderPrefix: '',
+        maxFileSizeMb: 0,
+        enabled: true
+      };
+    },
+    async loadTokens() {
+      this.tokenLoading = true;
+      try {
+        const res = await fetch('./api/admin/tokens', { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        this.tokens = Array.isArray(data.tokens) ? data.tokens : [];
+      } catch (e) {
+        this.showToast('读取 Token 列表失败：' + (e.message || ''), 'error');
+      } finally {
+        this.tokenLoading = false;
+      }
+    },
+    toggleTokenScope(scope) {
+      const idx = this.tokenForm.scopes.indexOf(scope);
+      if (idx > -1) this.tokenForm.scopes.splice(idx, 1);
+      else this.tokenForm.scopes.push(scope);
+    },
+    toggleTokenStorage(name) {
+      const idx = this.tokenForm.allowedStorages.indexOf(name);
+      if (idx > -1) this.tokenForm.allowedStorages.splice(idx, 1);
+      else this.tokenForm.allowedStorages.push(name);
+    },
+    buildTokenPolicies() {
+      const policies = {};
+      if (this.tokenForm.allowedStorages.length) {
+        policies.allowedStorages = this.tokenForm.allowedStorages.slice();
+      }
+      const prefix = String(this.tokenForm.folderPrefix || '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+      if (prefix) policies.folderPrefix = prefix;
+      const mb = Number(this.tokenForm.maxFileSizeMb) || 0;
+      if (mb > 0) policies.maxFileSize = Math.round(mb * 1024 * 1024);
+      return Object.keys(policies).length ? policies : null;
+    },
+    startEditToken(token) {
+      this.tokenEditingId = token.id;
+      this.tokenSecret = null;
+      this.tokenForm = {
+        name: token.name || '',
+        scopes: Array.isArray(token.scopes) ? token.scopes.slice() : [],
+        expiresInSeconds: 0,
+        allowedStorages: token.policies && Array.isArray(token.policies.allowedStorages)
+          ? token.policies.allowedStorages.slice() : [],
+        folderPrefix: (token.policies && token.policies.folderPrefix) || '',
+        maxFileSizeMb: token.policies && token.policies.maxFileSize
+          ? Math.round(Number(token.policies.maxFileSize) / 1024 / 1024) : 0,
+        enabled: token.enabled !== false
+      };
+      this.showToast('正在编辑 ' + token.id + '；有效期选择「永久」表示不修改', 'info');
+    },
+    async submitTokenForm() {
+      if (this.tokenSubmitting) return;
+      const scopes = this.tokenForm.scopes.slice();
+      const name = String(this.tokenForm.name || '').trim();
+
+      if (!this.tokenEditingId) {
+        if (!name) { this.showToast('请填写 Token 名称', 'error'); return; }
+        if (!scopes.length) { this.showToast('请至少勾选一个权限', 'error'); return; }
+      }
+
+      const policies = this.buildTokenPolicies();
+      const payload = { scopes: scopes, enabled: Boolean(this.tokenForm.enabled) };
+      if (Number(this.tokenForm.expiresInSeconds) > 0) {
+        payload.expiresInSeconds = Number(this.tokenForm.expiresInSeconds);
+      }
+      if (policies) payload.policies = policies;
+
+      this.tokenSubmitting = true;
+      try {
+        if (this.tokenEditingId) {
+          const res = await fetch('./api/admin/tokens/' + encodeURIComponent(this.tokenEditingId), {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+          this.showToast('已保存 ' + this.tokenEditingId, 'success');
+          this.resetTokenForm();
+        } else {
+          payload.name = name;
+          const res = await fetch('./api/admin/tokens', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+          this.tokenSecret = { token: String(data.token || ''), mode: 'create' };
+          this.showToast('Token 已创建，请立即保存密钥', 'success');
+          this.resetTokenForm();
+        }
+        await this.loadTokens();
+      } catch (e) {
+        this.showToast('提交失败：' + (e.message || ''), 'error');
+      } finally {
+        this.tokenSubmitting = false;
+      }
+    },
+    async toggleTokenEnabled(token) {
+      try {
+        const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id), {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !token.enabled })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        token.enabled = !token.enabled;
+        this.showToast(token.id + (token.enabled ? ' 已启用' : ' 已禁用'), 'success');
+      } catch (e) {
+        this.showToast('操作失败：' + (e.message || ''), 'error');
+      }
+    },
+    async rotateToken(token) {
+      if (!window.confirm('轮换 ' + token.id + ' 的密钥？旧密钥会立即失效，调用方需要更新配置。')) return;
+      try {
+        const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id) + '/rotate', {
+          method: 'POST',
+          credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        this.tokenSecret = { token: String(data.token || ''), mode: 'rotate' };
+        this.showToast('已轮换，请立即保存新密钥', 'success');
+        await this.loadTokens();
+      } catch (e) {
+        this.showToast('轮换失败：' + (e.message || ''), 'error');
+      }
+    },
+    async deleteToken(token) {
+      if (!window.confirm('删除 Token「' + (token.name || token.id) + '」？使用该密钥的调用方会立即失效。')) return;
+      try {
+        const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id), {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        this.tokens = this.tokens.filter(t => t.id !== token.id);
+        if (this.tokenEditingId === token.id) this.resetTokenForm();
+        this.showToast('已删除 ' + token.id, 'success');
+      } catch (e) {
+        this.showToast('删除失败：' + (e.message || ''), 'error');
+      }
+    },
+    isTokenExpired(token) {
+      const exp = Number(token && token.expiresAt);
+      return Number.isFinite(exp) && exp > 0 && Date.now() > exp;
+    },
+    formatTokenTime(ts) {
+      const value = Number(ts || 0);
+      if (!value) return '—';
+      const d = new Date(value);
+      const pad = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    },
+    formatTokenExpiry(expiresAt) {
+      const exp = Number(expiresAt);
+      if (!Number.isFinite(exp) || exp <= 0) return '永久有效';
+      if (Date.now() > exp) return '已过期（' + this.formatTokenTime(exp) + '）';
+      return '剩余 ' + Math.ceil((exp - Date.now()) / 86400000) + ' 天';
+    },
+    tokenPoliciesLabel(token) {
+      const p = token && token.policies;
+      if (!p) return '';
+      const parts = [];
+      if (Array.isArray(p.allowedStorages) && p.allowedStorages.length) parts.push('存储 ' + p.allowedStorages.join('/'));
+      if (p.folderPrefix) parts.push('目录 ' + p.folderPrefix + '/');
+      if (p.maxFileSize) parts.push('≤ ' + Math.round(Number(p.maxFileSize) / 1024 / 1024) + 'MB');
+      return parts.join(' · ');
+    },
+    copyTokenText(value, message) {
+      const text = String(value == null ? '' : value);
+      if (!text) return;
+      this.copyText(text);
+      this.showToast(message || '已复制', 'success');
     },
 
     /* ================= 状态 / 退出 ================= */

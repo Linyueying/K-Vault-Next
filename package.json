@@ -8,15 +8,7 @@
     "test": "mocha",
     "start": "npx wrangler pages dev ./ --kv \"img_url\" --r2=R2_BUCKET --compatibility-date=2026-05-03 --port 8080 --binding BASIC_USER=admin --binding BASIC_PASS=123 --persist-to ./data",
     "pages:r2:doctor": "node scripts/cloudflare-pages-r2-doctor.js",
-    "pages:deploy": "npx wrangler pages deploy .",
-    "docker:init-env": "node scripts/bootstrap-env.js",
-    "server:dev": "npm --prefix server run dev",
-    "docker:build": "docker build -t k-vault:local .",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
-    "docker:doctor": "node scripts/docker-storage-doctor.js",
-    "docker:smoke:ci": "node scripts/docker-ci-smoke.js",
-    "regression:storage": "node scripts/storage-regression.js"
+    "pages:deploy": "npx wrangler pages deploy ."
   },
   "devDependencies": {
     "concurrently": "^10.0.3",

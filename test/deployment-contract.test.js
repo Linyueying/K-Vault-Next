@@ -31,24 +31,32 @@ describe('deployment entrypoint contract', function () {
     }
   });
 
-  it('serves Docker from the same root static pages and proxies share routes', function () {
-    const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
-    const entrypoint = fs.readFileSync(path.join(root, 'docker', 'entrypoint.sh'), 'utf8');
-    const nginx = fs.readFileSync(path.join(root, 'docker', 'nginx.conf'), 'utf8');
-    const compose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
-    const imageWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'docker-image.yml'), 'utf8');
+  it('exposes Cloudflare Pages as the only deployment entrypoint', function () {
+    const removedPaths = [
+      'Dockerfile',
+      'docker-compose.yml',
+      '.dockerignore',
+      'docker',
+      path.join('server', '.dockerignore'),
+      'README-DOCKER.md',
+      'README-DOCKER-EN.md',
+      path.join('.github', 'workflows', 'docker-image.yml'),
+      path.join('.github', 'workflows', 'docker-smoke.yml'),
+      path.join('scripts', 'docker-ci-smoke.js'),
+      path.join('scripts', 'docker-storage-doctor.js'),
+      path.join('scripts', 'bootstrap-env.js'),
+      path.join('scripts', 'bootstrap-env.sh'),
+      path.join('scripts', 'storage-regression.js'),
+    ];
 
-    assert.match(dockerfile, /COPY index\.html admin\.html gallery\.html webdav\.html/);
-    assert.doesNotMatch(dockerfile, /_nuxt|frontend\/dist|frontend\/landing/);
-    assert.match(dockerfile, /ENTRYPOINT \["k-vault-entrypoint"\]/);
-    assert.match(entrypoint, /ensure_secret CONFIG_ENCRYPTION_KEY/);
-    assert.match(entrypoint, /runtime\.env/);
-    assert.match(nginx, /location\s+\/s\//);
-    assert.match(nginx, /GET\/HEAD render the root upload UI/);
-    assert.match(compose, /ghcr\.io\/katelya77\/k-vault:latest/);
-    assert.match(compose, /required:\s+false/);
-    assert.doesNotMatch(compose, /kvault-api|kvault-web|frontend\/Dockerfile|server\/Dockerfile/);
-    assert.match(imageWorkflow, /IMAGE_NAME: k-vault/);
-    assert.doesNotMatch(imageWorkflow, /k-vault-api|k-vault-web|matrix:/);
+    for (const relativePath of removedPaths) {
+      assert.strictEqual(fs.existsSync(path.join(root, relativePath)), false, `${relativePath} should not exist`);
+    }
+
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    for (const scriptName of Object.keys(pkg.scripts)) {
+      assert.doesNotMatch(scriptName, /^docker:/, `package.json script "${scriptName}" should have been removed`);
+    }
+    assert.strictEqual(pkg.scripts['regression:storage'], undefined);
   });
 });

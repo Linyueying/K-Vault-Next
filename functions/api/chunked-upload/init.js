@@ -4,10 +4,28 @@
  */
 import { checkAuthentication, isAuthRequired } from '../../utils/auth.js';
 import { checkGuestUpload } from '../../utils/guest.js';
+import { shouldWriteTelegramMetadata } from '../../utils/telegram.js';
+import {
+  findShareSlugOwner,
+  hasShareOptions,
+  parseShareOptions,
+  validateShareOptions,
+} from '../../utils/share-options.js';
 
 const CHUNK_SIZE = 5 * 1024 * 1024;
-const MAX_FILE_SIZE = 100 * 1024 * 1024;
-const TELEGRAM_WEB_UPLOAD_LIMIT = 20 * 1024 * 1024;
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+
+// 存储端单文件上限矩阵（R2 与 S3 提升至 2GB，其余保持各平台原有限制）
+const STORAGE_MAX_LIMITS = {
+  telegram: 20 * MB,
+  r2: 2 * GB,
+  s3: 2 * GB,
+  discord: 25 * MB,
+  huggingface: 35 * MB,
+  github: 100 * MB,
+  webdav: 100 * MB,
+};
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -46,9 +64,59 @@ export async function onRequestPost(context) {
       return jsonResponse({ error: validation.message, code: validation.code }, validation.status);
     }
 
-    const uploadId = generateUploadId();
+    // Optional share settings applied when the chunks are merged. Admin only,
+    // so a guest can neither squat a slug nor publish a protected link. The
+    // slug is reserved here, before any bytes are stored, so a conflict fails
+    // fast instead of orphaning an already-uploaded object.
+    const shareOptions = isAdmin ? parseShareOptions(body || {}) : null;
+    if (hasShareOptions(shareOptions)) {
+      const shareOptionError = validateShareOptions(shareOptions);
+      if (shareOptionError) {
+        return jsonResponse({ error: shareOptionError }, 400);
+      }
+      if (shareOptions.slug && (await findShareSlugOwner(env, shareOptions.slug))) {
+        return jsonResponse({ error: '自定义短链标识已被占用。', code: 'SLUG_CONFLICT' }, 409);
+      }
+      // Telegram can be configured to skip the KV metadata record
+      // (TELEGRAM_METADATA_MODE=off / TELEGRAM_SKIP_METADATA=1), which is exactly
+      // where the share fields live.
+      if (normalizedStorage === 'telegram' && !shouldWriteTelegramMetadata(env)) {
+        return jsonResponse({
+          error: '当前 Telegram 元数据写入已关闭（TELEGRAM_METADATA_MODE=off 或 TELEGRAM_SKIP_METADATA=1），无法设置有效期 / 密码 / 下载次数 / 短链。请改用其他存储后端，或恢复元数据写入。',
+          code: 'SHARE_OPTIONS_UNSUPPORTED',
+        }, 409);
+      }
+    }
 
+    const uploadId = generateUploadId();
     const chunkBackend = resolveChunkBackend(env);
+
+    // 针对 R2 存储节点初始化 R2 原生 Multipart Upload，彻底免除合并时将整个大文件载入 Worker 内存
+    let r2Multipart = null;
+    if (normalizedStorage === 'r2') {
+      if (!env.R2_BUCKET) {
+        return jsonResponse({ error: 'R2 未配置，无法初始化分片上传任务' }, 500);
+      }
+      const fileExtension = getFileExtension(fileName);
+      const r2Id = `r2_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const objectKey = `${r2Id}.${fileExtension}`;
+
+      // 自定义元数据 fileName 经过 encodeURIComponent 处理，确保非 ASCII（中文）文件名安全
+      const multipart = await env.R2_BUCKET.createMultipartUpload(objectKey, {
+        httpMetadata: {
+          contentType: fileType || 'application/octet-stream',
+        },
+        customMetadata: {
+          fileName: encodeURIComponent(fileName),
+          uploadTime: Date.now().toString(),
+        },
+      });
+
+      r2Multipart = {
+        uploadId: multipart.uploadId,
+        key: objectKey,
+      };
+    }
 
     const uploadTask = {
       uploadId,
@@ -59,7 +127,10 @@ export async function onRequestPost(context) {
       storageMode: normalizedStorage,
       folderPath,
       chunkBackend,
+      r2Multipart,
+      shareOptions: hasShareOptions(shareOptions) ? shareOptions : null,
       uploadedChunks: [],
+      uploadedParts: [],
       createdAt: Date.now(),
       status: 'pending',
     };
@@ -132,16 +203,18 @@ function generateUploadId() {
 }
 
 function validateChunkUpload(storageMode, fileSize) {
-  if (fileSize > MAX_FILE_SIZE) {
+  const maxLimit = STORAGE_MAX_LIMITS[storageMode] || (100 * MB);
+  if (fileSize > maxLimit) {
+    const desc = maxLimit >= GB ? `${maxLimit / GB}GB` : `${maxLimit / MB}MB`;
     return {
       ok: false,
       status: 413,
       code: 'FILE_TOO_LARGE',
-      message: `文件大小超过限制 (最大 ${MAX_FILE_SIZE / 1024 / 1024}MB)`,
+      message: `文件大小超过当前存储端限制 (最大 ${desc})`,
     };
   }
 
-  if (storageMode === 'telegram' && fileSize > TELEGRAM_WEB_UPLOAD_LIMIT) {
+  if (storageMode === 'telegram' && fileSize > 20 * MB) {
     return {
       ok: false,
       status: 400,
@@ -150,7 +223,7 @@ function validateChunkUpload(storageMode, fileSize) {
     };
   }
 
-  if (storageMode === 'discord' && fileSize > 25 * 1024 * 1024) {
+  if (storageMode === 'discord' && fileSize > 25 * MB) {
     return {
       ok: false,
       status: 413,
@@ -159,7 +232,7 @@ function validateChunkUpload(storageMode, fileSize) {
     };
   }
 
-  if (storageMode === 'huggingface' && fileSize > 35 * 1024 * 1024) {
+  if (storageMode === 'huggingface' && fileSize > 35 * MB) {
     return {
       ok: false,
       status: 413,
@@ -169,6 +242,12 @@ function validateChunkUpload(storageMode, fileSize) {
   }
 
   return { ok: true };
+}
+
+function getFileExtension(fileName) {
+  const ext = String(fileName || '').split('.').pop()?.toLowerCase();
+  if (!ext || ext === String(fileName || '').toLowerCase()) return 'bin';
+  return ext.replace(/[^a-z0-9]/g, '') || 'bin';
 }
 
 function normalizeFolderPath(value) {

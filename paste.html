@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>文本粘贴 | K-Vault</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.2/css/all.min.css">
+<link rel="stylesheet" href="/theme.css">
+<script src="/theme.js?v=20260305"></script>
+<style>
+[v-cloak]{display:none!important}
+
+:root{
+  --primary:#0284c7;--primary-rgb:2,132,199;--primary-light:#38bdf8;--primary-dark:#0369a1;--primary-surface:#e0f2fe;
+  --bg-body:#f0f7ff;
+  --bg-gradient:radial-gradient(at 8% 8%,#e0f2fe 0px,transparent 45%),radial-gradient(at 92% 92%,#bae6fd 0px,transparent 48%),#f0f7ff;
+  --glass-surface:rgba(255,255,255,.84);
+  --glass-elevated:rgba(255,255,255,.95);
+  --glass-subtle:rgba(255,255,255,.65);
+  --glass-border:rgba(255,255,255,.95);
+  --glass-border-ice:rgba(186,230,253,.75);
+  --text-main:#0f172a;--text-sub:#334155;--text-muted:#64748b;
+  --shadow-soft:0 8px 24px -4px rgba(2,132,199,.08),0 2px 8px -2px rgba(0,0,0,.03);
+  --shadow-elevated:0 16px 36px -6px rgba(2,132,199,.16),0 4px 12px -2px rgba(0,0,0,.04);
+  --radius-sm:10px;--radius-md:14px;--radius-lg:22px;--radius-pill:9999px;
+  --ease-fluid:cubic-bezier(.16,1,.3,1);
+  --transition:all .22s var(--ease-fluid);
+}
+
+html[data-theme="dark"]{
+  --primary:#38bdf8;--primary-rgb:56,189,248;--primary-light:#7dd3fc;--primary-dark:#0284c7;--primary-surface:rgba(2,132,199,.18);
+  --bg-body:#070d19;
+  --bg-gradient:radial-gradient(at 10% 10%,rgba(2,132,199,.18) 0px,transparent 50%),radial-gradient(at 90% 90%,rgba(14,165,233,.12) 0px,transparent 50%),#070d19;
+  --glass-surface:rgba(15,27,49,.85);
+  --glass-elevated:rgba(20,36,66,.95);
+  --glass-subtle:rgba(15,27,49,.6);
+  --glass-border:rgba(255,255,255,.14);
+  --glass-border-ice:rgba(56,189,248,.25);
+  --text-main:#f8fafc;--text-sub:#cbd5e1;--text-muted:#94a3b8;
+  --shadow-soft:0 10px 30px -6px rgba(0,0,0,.55);
+  --shadow-elevated:0 18px 45px -6px rgba(0,0,0,.7);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg-gradient);background-attachment:fixed;color:var(--text-main);
+  font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  min-height:100vh;line-height:1.55;-webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+
+.ambient-glow{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.ambient-orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+.orb-1{width:340px;height:340px;background:rgba(var(--primary-rgb),.28);top:-90px;left:-80px}
+.orb-2{width:300px;height:300px;background:rgba(56,189,248,.22);bottom:-100px;right:-70px}
+
+#app{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:22px 20px 80px}
+
+/* ===== 顶栏 ===== */
+.micro-topbar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:var(--glass-surface);backdrop-filter:blur(18px);
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-soft);padding:12px 18px;margin-bottom:20px;
+}
+.brand-box{display:flex;align-items:center;gap:11px;cursor:pointer}
+.brand-logo{
+  width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:1.05rem;flex-shrink:0;
+}
+.brand-text{font-weight:800;font-size:1.02rem;letter-spacing:-.01em}
+.brand-sub{font-size:.72rem;color:var(--text-muted);font-weight:600}
+.topbar-spacer{flex:1}
+.nav-pills{display:flex;gap:6px;flex-wrap:wrap}
+.nav-pill{
+  display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;
+  padding:7px 13px;border-radius:var(--radius-pill);color:var(--text-sub);
+  border:1px solid transparent;cursor:pointer;transition:var(--transition);background:transparent;
+}
+.nav-pill:hover{background:rgba(var(--primary-rgb),.09);color:var(--primary)}
+.nav-pill.active{background:var(--primary-surface);color:var(--primary-dark);border-color:var(--glass-border-ice)}
+
+/* ===== 布局 ===== */
+.paste-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}
+@media (max-width:900px){.paste-layout{grid-template-columns:1fr}}
+
+.liquid-card{
+  background:var(--glass-surface);backdrop-filter:blur(18px);
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-soft);padding:20px;
+}
+.card-title{display:flex;align-items:center;gap:9px;font-weight:800;font-size:.95rem;margin-bottom:4px}
+.card-title i{color:var(--primary)}
+.card-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6}
+
+.field{margin-bottom:14px}
+.field > label{display:block;font-size:.76rem;font-weight:700;color:var(--text-sub);margin-bottom:6px}
+.input,.select,.textarea{
+  width:100%;font-size:.86rem;padding:10px 12px;border-radius:var(--radius-sm);
+  border:1px solid var(--glass-border-ice);background:var(--glass-subtle);
+  color:var(--text-main);outline:none;transition:var(--transition);
+}
+.textarea{
+  min-height:200px;resize:vertical;
+  font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.8rem;line-height:1.6;
+}
+.input:focus,.select:focus,.textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field-help{font-size:.7rem;color:var(--text-muted);margin-top:5px}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  font-size:.84rem;font-weight:700;padding:10px 18px;border-radius:var(--radius-sm);
+  border:1px solid var(--glass-border-ice);background:var(--glass-subtle);
+  color:var(--text-sub);cursor:pointer;transition:var(--transition);
+}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn-primary{
+  background:linear-gradient(135deg,var(--primary),var(--primary-light));
+  color:#fff;border-color:transparent;box-shadow:0 6px 16px -6px rgba(var(--primary-rgb),.6);
+}
+.btn-primary:hover{color:#fff;filter:brightness(1.04)}
+.btn-danger{color:#ef4444;border-color:rgba(239,68,68,.3)}
+.btn-danger:hover{color:#fff;background:#ef4444;border-color:#ef4444}
+.btn-block{width:100%}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap}
+
+/* ===== 列表 ===== */
+.list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.list-count{font-size:.75rem;color:var(--text-muted);font-weight:700}
+.paste-list{display:flex;flex-direction:column;gap:10px}
+.paste-item{
+  border:1px solid var(--glass-border-ice);border-radius:var(--radius-md);
+  background:var(--glass-subtle);padding:12px 14px;transition:var(--transition);
+}
+.paste-item:hover{box-shadow:var(--shadow-soft);transform:translateY(-1px)}
+.paste-item-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.paste-id{
+  font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:600;
+  color:var(--primary-dark);cursor:pointer;
+}
+html[data-theme="dark"] .paste-id{color:var(--primary-light)}
+.paste-id:hover{text-decoration:underline}
+.chip{
+  display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;
+  padding:2px 8px;border-radius:var(--radius-pill);
+  background:rgba(var(--primary-rgb),.1);color:var(--primary-dark);
+}
+html[data-theme="dark"] .chip{color:var(--primary-light)}
+.chip-warn{background:rgba(245,158,11,.14);color:#b45309}
+html[data-theme="dark"] .chip-warn{color:#fbbf24}
+.paste-meta{display:flex;gap:10px;flex-wrap:wrap;font-size:.72rem;color:var(--text-muted);margin-top:7px}
+.paste-actions{display:flex;gap:6px;margin-left:auto}
+.icon-btn{
+  width:30px;height:30px;border-radius:9px;border:1px solid var(--glass-border-ice);
+  background:transparent;color:var(--text-muted);cursor:pointer;transition:var(--transition);
+  display:inline-flex;align-items:center;justify-content:center;font-size:.78rem;
+}
+.icon-btn:hover{color:var(--primary);border-color:var(--primary)}
+.icon-btn.danger:hover{color:#fff;background:#ef4444;border-color:#ef4444}
+
+.empty-state{
+  text-align:center;padding:38px 18px;color:var(--text-muted);font-size:.82rem;
+}
+.empty-state i{font-size:1.7rem;display:block;margin-bottom:10px;opacity:.5}
+
+/* ===== 查看弹窗 ===== */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:60;background:rgba(8,15,30,.5);backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;padding:18px;
+}
+.modal-card{
+  width:100%;max-width:760px;max-height:86vh;display:flex;flex-direction:column;
+  background:var(--glass-elevated);border:1px solid var(--glass-border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-elevated);overflow:hidden;
+}
+.modal-head{
+  display:flex;align-items:center;gap:10px;padding:14px 18px;
+  border-bottom:1px solid var(--glass-border-ice);flex-wrap:wrap;
+}
+.modal-title{font-weight:800;font-size:.92rem;font-family:'JetBrains Mono',monospace}
+.modal-body{padding:16px 18px;overflow:auto}
+.paste-view{
+  margin:0;white-space:pre-wrap;word-break:break-word;
+  font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.8rem;line-height:1.65;color:var(--text-main);
+  background:var(--glass-subtle);border:1px solid var(--glass-border-ice);
+  border-radius:var(--radius-sm);padding:14px;max-height:52vh;overflow:auto;
+}
+.modal-foot{display:flex;gap:10px;padding:12px 18px;border-top:1px solid var(--glass-border-ice);flex-wrap:wrap}
+.gate{text-align:center;padding:16px 8px}
+.gate i{font-size:1.4rem;color:var(--primary);display:block;margin-bottom:10px}
+.gate-desc{font-size:.78rem;color:var(--text-muted);margin-bottom:14px}
+.gate-error{font-size:.75rem;color:#ef4444;margin-top:8px}
+
+/* ===== Toast ===== */
+.toast-wrap{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{
+  font-size:.8rem;font-weight:600;padding:9px 16px;border-radius:var(--radius-pill);
+  background:var(--glass-elevated);border:1px solid var(--glass-border-ice);
+  box-shadow:var(--shadow-elevated);animation:toastIn .22s var(--ease-fluid);
+}
+.toast.error{border-color:rgba(239,68,68,.4);color:#ef4444}
+.toast.success{border-color:rgba(34,197,94,.4);color:#16a34a}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+.loading-block{text-align:center;padding:26px;color:var(--text-muted);font-size:.8rem}
+</style>
+</head>
+<body>
+
+<div class="ambient-glow">
+  <div class="ambient-orb orb-1"></div>
+  <div class="ambient-orb orb-2"></div>
+</div>
+
+<div id="app" v-cloak>
+
+  <header class="micro-topbar">
+    <div class="brand-box" @click="goHome">
+      <div class="brand-logo"><i class="fas fa-cloud"></i></div>
+      <div>
+        <div class="brand-text">文本粘贴</div>
+        <div class="brand-sub">Pastebin · K-Vault</div>
+      </div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <nav class="nav-pills">
+      <a class="nav-pill" href="./index.html"><i class="fas fa-cloud-arrow-up"></i>上传</a>
+      <a class="nav-pill" href="./gallery.html"><i class="fas fa-images"></i>画廊</a>
+      <a class="nav-pill active" href="./paste.html"><i class="fas fa-paste"></i>粘贴</a>
+      <a class="nav-pill" href="./admin.html"><i class="fas fa-sliders"></i>管理后台</a>
+      <button class="nav-pill" @click="logout"><i class="fas fa-right-from-bracket"></i>退出</button>
+    </nav>
+  </header>
+
+  <div v-if="checkingAuth" class="liquid-card loading-block">
+    <i class="fas fa-circle-notch fa-spin"></i> 正在校验登录状态…
+  </div>
+
+  <div v-else-if="!authenticated" class="liquid-card empty-state">
+    <i class="fas fa-lock"></i>
+    <div>需要登录后才能使用文本粘贴。</div>
+    <div class="btn-row" style="justify-content:center;margin-top:14px">
+      <a class="btn btn-primary" href="./login.html?redirect=%2Fpaste.html"><i class="fas fa-right-to-bracket"></i>前往登录</a>
+    </div>
+  </div>
+
+  <div v-else class="paste-layout">
+
+    <!-- ===== 新建粘贴 ===== -->
+    <section class="liquid-card">
+      <div class="card-title"><i class="fas fa-plus"></i>新建粘贴</div>
+      <div class="card-desc">内容保存在 Cloudflare KV 中，支持访问密码与自动过期；单条上限 1 MiB。</div>
+
+      <div class="field">
+        <label>内容</label>
+        <textarea class="textarea" v-model="form.content" placeholder="在此粘贴任意文本…"></textarea>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>语言标记</label>
+          <select class="select" v-model="form.language">
+            <option v-for="opt in languageOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>有效期</label>
+          <select class="select" v-model.number="form.expiresIn">
+            <option :value="0">永久</option>
+            <option :value="3600">1 小时</option>
+            <option :value="86400">1 天</option>
+            <option :value="604800">7 天</option>
+            <option :value="2592000">30 天</option>
+            <option :value="31536000">365 天</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>访问密码</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="input" :type="showPassword ? 'text' : 'password'" v-model="form.password" autocomplete="new-password" placeholder="留空表示不加密" />
+          <button class="icon-btn" type="button" @click="showPassword = !showPassword" :title="showPassword ? '隐藏' : '显示'">
+            <i :class="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+          </button>
+        </div>
+        <div class="field-help">设置后读取该粘贴需要提供密码。</div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary btn-block" :disabled="submitting" @click="createPaste">
+          <i class="fas" :class="submitting ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'"></i>
+          {{ submitting ? '创建中…' : '创建粘贴' }}
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== 粘贴列表 ===== -->
+    <section class="liquid-card">
+      <div class="list-head">
+        <div>
+          <div class="card-title" style="margin-bottom:0"><i class="fas fa-list"></i>已有粘贴</div>
+          <div class="list-count">共 {{ total }} 条 · 已加载 {{ items.length }} 条</div>
+        </div>
+        <button class="btn" :disabled="listLoading" @click="loadList(true)">
+          <i class="fas" :class="listLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i>刷新
+        </button>
+      </div>
+
+      <div v-if="listLoading && !items.length" class="loading-block">
+        <i class="fas fa-circle-notch fa-spin"></i> 加载中…
+      </div>
+
+      <div v-else-if="!items.length" class="empty-state">
+        <i class="fas fa-inbox"></i>
+        <div>还没有任何粘贴，先在左侧创建一条。</div>
+      </div>
+
+      <div v-else class="paste-list">
+        <div class="paste-item" v-for="item in items" :key="item.id">
+          <div class="paste-item-top">
+            <span class="paste-id" @click="openPaste(item.id)">{{ item.id }}</span>
+            <span class="chip"><i class="fas fa-code"></i>{{ item.language || 'text' }}</span>
+            <span class="chip chip-warn" v-if="item.hasPassword"><i class="fas fa-lock"></i>已加密</span>
+            <span class="chip chip-warn" v-if="item.expiresAt"><i class="fas fa-hourglass-half"></i>{{ item.expiresAt > now ? '剩余 ' + remaining(item.expiresAt) : '已过期' }}</span>
+            <div class="paste-actions">
+              <button class="icon-btn" @click="openPaste(item.id)" title="查看内容"><i class="fas fa-eye"></i></button>
+              <button class="icon-btn" @click="copyId(item.id)" title="复制 ID"><i class="fas fa-copy"></i></button>
+              <button class="icon-btn" @click="openRaw(item.id)" title="在新标签打开 JSON"><i class="fas fa-arrow-up-right-from-square"></i></button>
+              <button class="icon-btn danger" @click="removePaste(item)" title="删除"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          <div class="paste-meta">
+            <span><i class="far fa-clock"></i> {{ formatTime(item.createdAt) }}</span>
+            <span><i class="fas fa-weight-hanging"></i> {{ formatSize(item.size) }}</span>
+            <span v-if="!item.expiresAt"><i class="fas fa-infinity"></i> 永久有效</span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="cursor" class="btn-row" style="margin-top:14px">
+        <button class="btn btn-block" :disabled="listLoading" @click="loadList(false)">
+          <i class="fas" :class="listLoading ? 'fa-circle-notch fa-spin' : 'fa-chevron-down'"></i>加载更多
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== 查看弹窗 ===== -->
+  <div class="modal-backdrop" v-if="viewing" @click.self="closeView">
+    <div class="modal-card">
+      <div class="modal-head">
+        <i class="fas fa-file-lines" style="color:var(--primary)"></i>
+        <div class="modal-title">{{ viewId }}</div>
+        <span class="chip" v-if="viewPaste && viewPaste.language">{{ viewPaste.language }}</span>
+        <span class="chip chip-warn" v-if="viewPaste && viewPaste.expiresAt">
+          {{ viewPaste.expiresAt > now ? '剩余 ' + remaining(viewPaste.expiresAt) : '已过期' }}
+        </span>
+        <div class="paste-actions">
+          <button class="icon-btn" @click="closeView" title="关闭"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div v-if="viewLoading" class="loading-block"><i class="fas fa-circle-notch fa-spin"></i> 读取中…</div>
+
+        <div v-else-if="viewNeedsPassword" class="gate">
+          <i class="fas fa-lock"></i>
+          <div class="gate-desc">该粘贴已设置访问密码，请输入后查看。</div>
+          <div style="display:flex;gap:8px;max-width:340px;margin:0 auto">
+            <input class="input" type="password" v-model="viewPassword" @keyup.enter="submitViewPassword" placeholder="访问密码" />
+            <button class="btn btn-primary" @click="submitViewPassword">查看</button>
+          </div>
+          <div class="gate-error" v-if="viewError">{{ viewError }}</div>
+        </div>
+
+        <div v-else-if="viewError" class="empty-state">
+          <i class="fas fa-triangle-exclamation"></i>
+          <div>{{ viewError }}</div>
+        </div>
+
+        <pre v-else class="paste-view">{{ viewPaste && viewPaste.content }}</pre>
+      </div>
+
+      <div class="modal-foot" v-if="viewPaste && !viewLoading">
+        <button class="btn" @click="copyText(viewPaste.content, '内容已复制')"><i class="fas fa-copy"></i>复制内容</button>
+        <button class="btn" @click="copyId(viewId)"><i class="fas fa-hashtag"></i>复制 ID</button>
+        <button class="btn btn-danger" @click="removePaste(viewPaste)"><i class="fas fa-trash"></i>删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap">
+    <div class="toast" :class="toast.type" v-for="toast in toasts" :key="toast.id">{{ toast.text }}</div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const API_BASE = "./api/manage/paste";
+
+  new Vue({
+    el: "#app",
+    data: function () {
+      return {
+        checkingAuth: true,
+        authenticated: false,
+        now: Date.now(),
+
+        form: {
+          content: "",
+          language: "text",
+          expiresIn: 0,
+          password: ""
+        },
+        showPassword: false,
+        submitting: false,
+        languageOptions: [
+          { value: "text", label: "纯文本" },
+          { value: "markdown", label: "Markdown" },
+          { value: "json", label: "JSON" },
+          { value: "javascript", label: "JavaScript" },
+          { value: "typescript", label: "TypeScript" },
+          { value: "python", label: "Python" },
+          { value: "shell", label: "Shell" },
+          { value: "sql", label: "SQL" },
+          { value: "yaml", label: "YAML" },
+          { value: "html", label: "HTML" },
+          { value: "css", label: "CSS" },
+          { value: "log", label: "日志" }
+        ],
+
+        items: [],
+        total: 0,
+        cursor: null,
+        listLoading: false,
+
+        viewing: false,
+        viewId: "",
+        viewPaste: null,
+        viewLoading: false,
+        viewNeedsPassword: false,
+        viewPassword: "",
+        viewError: "",
+
+        toasts: []
+      };
+    },
+    mounted: function () {
+      this.init();
+      setInterval(() => { this.now = Date.now(); }, 30000);
+    },
+    methods: {
+      async init() {
+        await this.checkAuth();
+        if (!this.authenticated) return;
+        await this.loadList(true);
+        const deepLink = new URLSearchParams(window.location.search).get("id");
+        if (deepLink) this.openPaste(deepLink);
+      },
+
+      async checkAuth() {
+        try {
+          const res = await fetch("./api/auth/check", { credentials: "include" });
+          const data = await res.json();
+          this.authenticated = Boolean(data.authenticated) || !data.authRequired;
+          if (data.authRequired && !data.authenticated) {
+            location.href = "./login.html?redirect=" + encodeURIComponent(location.pathname);
+            return;
+          }
+        } catch (e) {
+          this.authenticated = false;
+          this.showToast("认证检查失败：" + e.message, "error");
+        } finally {
+          this.checkingAuth = false;
+        }
+      },
+
+      async loadList(reset) {
+        this.listLoading = true;
+        try {
+          const cursor = reset ? "0" : String(this.cursor || "0");
+          const res = await fetch(API_BASE + "?limit=30&cursor=" + encodeURIComponent(cursor), {
+            credentials: "include"
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          this.items = reset ? (data.items || []) : this.items.concat(data.items || []);
+          this.total = Number(data.total || 0);
+          this.cursor = data.cursor || null;
+        } catch (e) {
+          this.showToast("读取列表失败：" + e.message, "error");
+        } finally {
+          this.listLoading = false;
+        }
+      },
+
+      async createPaste() {
+        if (!this.form.content.trim()) {
+          this.showToast("粘贴内容不能为空", "error");
+          return;
+        }
+        this.submitting = true;
+        try {
+          const body = {
+            content: this.form.content,
+            language: this.form.language
+          };
+          if (Number(this.form.expiresIn) > 0) body.expires_in = Number(this.form.expiresIn);
+          if (this.form.password) body.password = this.form.password;
+
+          const res = await fetch(API_BASE, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+
+          const paste = data.paste || {};
+          this.form.content = "";
+          this.form.password = "";
+          this.showPassword = false;
+          this.showToast("已创建粘贴 " + paste.id, "success");
+          await this.loadList(true);
+          if (paste.id) this.openPaste(paste.id, {
+            language: paste.language,
+            createdAt: paste.createdAt,
+            expiresAt: paste.expiresAt,
+            hasPassword: paste.hasPassword,
+            size: paste.size,
+            content: body.content
+          });
+          history.replaceState(null, "", "./paste.html?id=" + encodeURIComponent(paste.id));
+        } catch (e) {
+          this.showToast("创建失败：" + e.message, "error");
+        } finally {
+          this.submitting = false;
+        }
+      },
+
+      async openPaste(id, knownSummary) {
+        if (!id) return;
+        this.viewing = true;
+        this.viewId = id;
+        this.viewPaste = null;
+        this.viewNeedsPassword = false;
+        this.viewPassword = "";
+        this.viewError = "";
+        this.viewLoading = true;
+        try {
+          await this.loadPasteContent(id, "");
+        } finally {
+          this.viewLoading = false;
+        }
+        if (!this.viewPaste && !this.viewNeedsPassword && !this.viewError && knownSummary) {
+          this.viewPaste = knownSummary;
+        }
+      },
+
+      async loadPasteContent(id, password) {
+        try {
+          const query = password ? "?password=" + encodeURIComponent(password) : "";
+          const res = await fetch(API_BASE + "/" + encodeURIComponent(id) + query, {
+            credentials: "include"
+          });
+          const data = await res.json();
+          if (res.status === 401) {
+            this.viewNeedsPassword = true;
+            this.viewError = password ? "密码不正确，请重试。" : "";
+            return;
+          }
+          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          this.viewPaste = data.paste || null;
+          this.viewNeedsPassword = false;
+          this.viewError = "";
+        } catch (e) {
+          this.viewError = "读取失败：" + e.message;
+        }
+      },
+
+      async submitViewPassword() {
+        if (!this.viewPassword) {
+          this.viewError = "请输入密码。";
+          return;
+        }
+        this.viewLoading = true;
+        try {
+          await this.loadPasteContent(this.viewId, this.viewPassword);
+        } finally {
+          this.viewLoading = false;
+        }
+      },
+
+      closeView() {
+        this.viewing = false;
+        this.viewPaste = null;
+        this.viewNeedsPassword = false;
+        this.viewPassword = "";
+        this.viewError = "";
+        history.replaceState(null, "", "./paste.html");
+      },
+
+      async removePaste(item) {
+        const id = typeof item === "string" ? item : (item && item.id);
+        if (!id) return;
+        if (!window.confirm("确定删除粘贴 " + id + " 吗？此操作不可恢复。")) return;
+        try {
+          const res = await fetch(API_BASE + "/" + encodeURIComponent(id), {
+            method: "DELETE",
+            credentials: "include"
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          this.items = this.items.filter((it) => it.id !== id);
+          this.total = Math.max(0, this.total - 1);
+          if (this.viewId === id) this.closeView();
+          this.showToast("已删除 " + id, "success");
+        } catch (e) {
+          this.showToast("删除失败：" + e.message, "error");
+        }
+      },
+
+      openRaw(id) {
+        window.open(API_BASE + "/" + encodeURIComponent(id), "_blank", "noopener,noreferrer");
+      },
+
+      copyId(id) {
+        this.copyText(window.location.origin + "/paste.html?id=" + encodeURIComponent(id), "已复制粘贴链接");
+      },
+
+      copyText(text, message) {
+        const value = String(text == null ? "" : text);
+        if (!value) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(value).then(
+            () => this.showToast(message || "已复制", "success"),
+            () => this.fallbackCopy(value, message)
+          );
+          return;
+        }
+        this.fallbackCopy(value, message);
+      },
+
+      fallbackCopy(value, message) {
+        try {
+          const area = document.createElement("textarea");
+          area.value = value;
+          area.style.position = "fixed";
+          area.style.opacity = "0";
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand("copy");
+          area.remove();
+          this.showToast(message || "已复制", "success");
+        } catch (e) {
+          window.prompt("手动复制", value);
+        }
+      },
+
+      formatTime(ts) {
+        const value = Number(ts || 0);
+        if (!value) return "未知时间";
+        const d = new Date(value);
+        const pad = (n) => String(n).padStart(2, "0");
+        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+      },
+
+      formatSize(bytes) {
+        const value = Number(bytes || 0);
+        if (!value) return "0 B";
+        if (value < 1024) return value + " B";
+        if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
+        return (value / 1024 / 1024).toFixed(2) + " MB";
+      },
+
+      remaining(expiresAt) {
+        const delta = Number(expiresAt || 0) - this.now;
+        if (delta <= 0) return "已过期";
+        const hours = Math.floor(delta / 3600000);
+        if (hours >= 24) return Math.floor(hours / 24) + " 天";
+        if (hours >= 1) return hours + " 小时";
+        return Math.max(1, Math.floor(delta / 60000)) + " 分钟";
+      },
+
+      goHome() {
+        location.href = "./index.html";
+      },
+
+      async logout() {
+        try {
+          await fetch("./api/auth/logout", { method: "POST", credentials: "include" });
+        } catch (e) {}
+        location.href = "./login.html";
+      },
+
+      showToast(text, type) {
+        const id = Date.now() + Math.random();
+        this.toasts.push({ id: id, text: text, type: type || "" });
+        setTimeout(() => {
+          this.toasts = this.toasts.filter((t) => t.id !== id);
+        }, 2600);
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
