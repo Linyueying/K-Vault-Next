@@ -8,7 +8,7 @@
 
 K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文件上传到你选择的存储后端，元数据写入 Cloudflare KV，对外提供直链、预览、目录管理、API Token 与机器可调用接口。
 
-**只有一种部署形态**：Cloudflare Pages（静态页 + Pages Functions）。无构建步骤，无 Docker，无服务器运维，免费额度内零成本。
+**只有一种部署形态**：Cloudflare Pages（静态页 + Pages Functions）。无构建步骤，无 Docker，无服务器运维，免费额度内**零成本**。
 
 ---
 
@@ -63,7 +63,7 @@ K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文�
 | WebDAV | `/webdav.html` | WebDAV 上传 / 状态检查 / URL 上传 |
 | 文件预览 | `/preview.html` | 多格式预览，受密码保护的文件弹出密码输入 |
 | 登录 | `/login.html` | 后台登录 |
-| 拦截提示 | `/block-img.html`、`/whitelist-on.html` | 黑白名单模式提示页 |
+
 
 ---
 
@@ -124,8 +124,8 @@ K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文�
 
 | 文档 | 内容 |
 | :--- | :--- |
-| [docs/README-full-reference.md](docs/README-full-reference.md) | **完整配置参考**：全部环境变量、各后端详细配置步骤、API 使用指南、ShareX 配置、使用限制 |
-| [docs/openapi.yaml](docs/openapi.yaml) | API v1 机器可读定义 |
+| [docs/README-full-reference.md](docs/README-full-reference.md) | **完整配置参考**：全部环境变量、各后端详细配置步骤、API 使用指南、ShareX 配置、使用限制，部分内容可能不适用于Next版 |
+| [docs/oenapi.yaml](docs/openapi.yaml) | API v1 机器可读定义 |
 | [docs/agent-integration.md](docs/agent-integration.md) | Agent / 脚本接入指南 |
 | [docs/cloudflare-pages-r2.md](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
 | [PROJECT_INTRO.md](PROJECT_INTRO.md) | 项目定位与架构说明 |
@@ -137,7 +137,6 @@ K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文�
 本项目的后端实现来自 **K-Vault**，感谢原作者与社区：
 
 - [katelya77/K-Vault](https://github.com/katelya77/K-Vault) — 全部后端能力的来源
-- [Linyueying/K-Vault](https://github.com/Linyueying/K-Vault) — fork 基点
 - [Telegraph-Image](https://github.com/cf-pages/Telegraph-Image) — 早期 Serverless 图床形态参考
 - [CloudFlare-ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) — 同类优秀开源图床项目
 - Linux.do 社区用户反馈
