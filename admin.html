@@ -959,9 +959,9 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
                 </div>
               </div>
             </div>
-            <div class="kv-usage-meta" style="margin-top:8px">
-              <span style="font-size:.68rem">今日操作次数 · 每日 00:00 UTC 重置</span>
-            </div>
+            <div class="kv-usage-label">
+  <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
+</div>
           </template>
         </div>
 
@@ -1037,9 +1037,9 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
           </template>
         </div>
 
-        <div class="kv-usage-footer">
-          <i class="fas fa-clock"></i> {{ kvUsage.resetAt || '每日 00:00 UTC 重置' }}
-        </div>
+       <div class="kv-usage-footer">
+  <i class="fas fa-clock"></i> {{ kvUsage.planType === 'paid' ? '按月计费，超出按量付费' : 'KV 每日 00:00 UTC 重置 · R2 按月重置' }}
+</div>
       </div>
     </div>
   </section>

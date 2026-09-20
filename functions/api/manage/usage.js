@@ -137,14 +137,24 @@ async function getBillingPeriod(env, plan) {
 
 function getDateRange(plan, billingPeriod) {
   const today = new Date().toISOString().slice(0, 10);
-  if (plan.type === 'free' || plan.limits.resetType === 'daily') return { start: today, end: today };
+
+  // KV：免费计划按日查询，保持原有逻辑
+  if (plan.type === 'free' || plan.limits.resetType === 'daily') {
+    return { start: today, end: today };
+  }
+
+  // 付费计划：使用计费周期
   if (billingPeriod && billingPeriod.start) {
     const start = new Date(billingPeriod.start).toISOString().slice(0, 10);
     const end = new Date(billingPeriod.end).toISOString().slice(0, 10);
-    const startDate = new Date(start), endDate = new Date(end);
-    if ((endDate - startDate) > 31 * 86400000) startDate.setTime(endDate.getTime() - 31 * 86400000);
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if ((endDate - startDate) > 31 * 86400000) {
+      startDate.setTime(endDate.getTime() - 31 * 86400000);
+    }
     return { start: startDate.toISOString().slice(0, 10), end: endDate.toISOString().slice(0, 10) };
   }
+
   const now = new Date();
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   return { start: monthStart, end: today };
