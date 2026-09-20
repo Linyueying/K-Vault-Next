@@ -1,11 +1,6 @@
 /**
  * GET /api/manage/usage
  * 查询 KV 和 R2 的存储用量与操作次数，自动识别计划类型。
- *
- * 绑定识别顺序：
- *   1. 从 env 中自动识别 R2Bucket / KVNamespace 绑定（使用 createMultipartUpload 精确区分）
- *   2. 若配置了环境变量 R2_BUCKET_NAMES，则优先使用真实桶名
- *   3. 都没有时优雅降级，返回 r2Available: false
  */
 
 const PLAN_LIMITS = {
@@ -32,55 +27,64 @@ async function cachePut(env, key, value, expirationTtl) {
 }
 
 /* ============================================================
- * 核心修复：绑定识别（精确区分 KV 和 R2）
+ * 核心修复：绑定识别
  * ============================================================ */
 function detectBindings(env) {
   const r2Buckets = [];
   const kvNamespaces = [];
 
+  // 1. 优先读取环境变量中的 R2 真实桶名（彻底解决重复卡片问题）
+  const envR2Names = String(env.R2_BUCKET_NAMES || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (envR2Names.length > 0) {
+    envR2Names.forEach(name => {
+      r2Buckets.push({ binding: `env:${name}`, bucketName: name, source: 'env' });
+    });
+    // 如果配置了真实桶名，直接返回，不再去扫描绑定，避免产生多余卡片
+    return { r2Buckets, kvNamespaces: detectKV(env) };
+  }
+
+  // 2. 如果没有环境变量，则自动扫描
   for (const [key, value] of Object.entries(env)) {
     if (!value || typeof value !== 'object') continue;
-
-    // 必须有 get/put/list 方法才可能是 KV 或 R2
     if (typeof value.get !== 'function' || typeof value.put !== 'function' || typeof value.list !== 'function') continue;
 
-    // ★ 核心修复：利用 R2 独有的 createMultipartUpload 方法精确区分
-    // KV 没有这个方法，绝对不会误判！
+    // 用 createMultipartUpload 精确区分 R2 和 KV
     const isR2 = typeof value.createMultipartUpload === 'function';
-    const isKV = !isR2;
-
-    if (isKV) {
-      // 真实环境中 namespaceId 可能不存在，给个默认值
-      kvNamespaces.push({ binding: key, namespaceId: value.namespaceId || 'unknown' });
-    } else if (isR2) {
-      // ★ 注意：R2 的绑定名称（key）通常不等于真实的桶名（bucketName）
-      // 真实的桶名在 Workers 运行时无法通过代码读取，所以默认先用绑定名占位
-      // 后续会通过环境变量 R2_BUCKET_NAMES 进行覆盖修正
+    if (isR2) {
       const bucketName = value.bucketName || value.name || key;
       r2Buckets.push({ binding: key, bucketName, source: 'binding' });
     }
   }
 
-  // ★ 如果环境变量配置了真实桶名（强烈推荐），则强制修正
-  const envR2Names = String(env.R2_BUCKET_NAMES || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (envR2Names.length > 0) {
-    envR2Names.forEach(name => {
-      const existing = r2Buckets.find(b => b.bucketName === name);
-      if (existing) {
-        existing.source = 'env'; // 标记为来自环境变量（真实桶名）
-      } else {
-        r2Buckets.push({ binding: `env:${name}`, bucketName: name, source: 'env' });
-      }
-    });
-  }
+  return { r2Buckets, kvNamespaces: detectKV(env) };
+}
 
-  return { r2Buckets, kvNamespaces };
+// 提取 KV 检测逻辑
+function detectKV(env) {
+  const kvNamespaces = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (!value || typeof value !== 'object') continue;
+    if (typeof value.get !== 'function' || typeof value.put !== 'function' || typeof value.list !== 'function') continue;
+
+    const isKV = typeof value.createMultipartUpload !== 'function';
+    if (isKV) {
+      // ★ 修复：Runtime 无法读取 KV 的 namespaceId，必须从环境变量获取
+      const nsId = value.namespaceId || env.KV_NAMESPACE_ID || '';
+      kvNamespaces.push({ binding: key, namespaceId: nsId });
+    }
+  }
+  return kvNamespaces;
 }
 
 /* ============================================================
- * 计划检测（增强健壮性，输出明确的错误原因）
+ * 计划检测（支持 CF_PLAN_TYPE 强制指定，彻底绕过 API）
  * ============================================================ */
 async function detectPlan(env) {
+  // ★ 终极退路：如果环境变量里直接指定了计划，直接返回，完全不请求 Cloudflare API
+  if (env.CF_PLAN_TYPE === 'paid' || env.CF_PLAN_TYPE === 'free') {
+    return { type: env.CF_PLAN_TYPE, limits: PLAN_LIMITS[env.CF_PLAN_TYPE], billingPeriod: null, fromCache: false, error: null };
+  }
+
   const accountId = env.CF_ACCOUNT_ID;
   const apiToken = env.CF_API_TOKEN;
 
@@ -95,11 +99,14 @@ async function detectPlan(env) {
 
   try {
     const resp = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/subscriptions`, {
-      headers: { 'Authorization': `Bearer ${apiToken}` }
+      headers: { 'Authorization': `Bearer ${apiToken}`, 'Content-Type': 'application/json' }
     });
-    const data = await resp.json();
+    
+    let data;
+    try { data = await resp.json(); } catch (e) { throw new Error(`解析失败, HTTP ${resp.status}`); }
+
     if (!resp.ok || !data.success) {
-      let errMsg = data.errors ? data.errors.map(e => e.message).join(', ') : `HTTP ${resp.status}`;
+      let errMsg = data.errors ? data.errors.map(e => `${e.code}: ${e.message}`).join('; ') : `HTTP ${resp.status}`;
       throw new Error(errMsg);
     }
 
@@ -117,7 +124,6 @@ async function detectPlan(env) {
     return { type: planType, limits: PLAN_LIMITS[planType], billingPeriod, fromCache: false, error: null };
 
   } catch (e) {
-    console.error("Plan detection failed:", e);
     return { type: 'free', limits: PLAN_LIMITS.free, billingPeriod: null, fromCache: false, error: e.message || '计划检测失败' };
   }
 }
@@ -131,17 +137,12 @@ async function getBillingPeriod(env, plan) {
 
 function getDateRange(plan, billingPeriod) {
   const today = new Date().toISOString().slice(0, 10);
-  if (plan.type === 'free' || plan.limits.resetType === 'daily') {
-    return { start: today, end: today };
-  }
+  if (plan.type === 'free' || plan.limits.resetType === 'daily') return { start: today, end: today };
   if (billingPeriod && billingPeriod.start) {
     const start = new Date(billingPeriod.start).toISOString().slice(0, 10);
     const end = new Date(billingPeriod.end).toISOString().slice(0, 10);
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    if ((endDate - startDate) > 31 * 86400000) {
-      startDate.setTime(endDate.getTime() - 31 * 86400000);
-    }
+    const startDate = new Date(start), endDate = new Date(end);
+    if ((endDate - startDate) > 31 * 86400000) startDate.setTime(endDate.getTime() - 31 * 86400000);
     return { start: startDate.toISOString().slice(0, 10), end: endDate.toISOString().slice(0, 10) };
   }
   const now = new Date();
@@ -161,15 +162,8 @@ async function gql(apiToken, query, variables) {
 }
 
 async function fetchKvStorage(accountId, apiToken, namespaceId, dateRange) {
-  const query = `
-    query KvStorage($accountTag: string!, $namespaceId: string, $start: Date, $end: Date) {
-      viewer { accounts(filter: { accountTag: $accountTag }) {
-        kvStorageAdaptiveGroups(
-          filter: { date_geq: $start, date_leq: $end, namespaceId: $namespaceId }
-          limit: 1 orderBy: [date_DESC]
-        ) { max { keyCount byteCount } dimensions { date } }
-      } }
-    }`;
+  if (!namespaceId) throw new Error('无法获取 KV Namespace ID，请在环境变量中配置 KV_NAMESPACE_ID');
+  const query = `query KvStorage($accountTag: string!, $namespaceId: string, $start: Date, $end: Date) { viewer { accounts(filter: { accountTag: $accountTag }) { kvStorageAdaptiveGroups(filter: { date_geq: $start, date_leq: $end, namespaceId: $namespaceId } limit: 1 orderBy: [date_DESC]) { max { keyCount byteCount } dimensions { date } } } } }`;
   const data = await gql(apiToken, query, { accountTag: accountId, namespaceId, start: dateRange.start, end: dateRange.end });
   const groups = data?.viewer?.accounts?.[0]?.kvStorageAdaptiveGroups || [];
   const latest = groups[0]?.max || { keyCount: 0, byteCount: 0 };
@@ -177,72 +171,33 @@ async function fetchKvStorage(accountId, apiToken, namespaceId, dateRange) {
 }
 
 async function fetchKvOperations(accountId, apiToken, namespaceId, dateRange) {
-  const query = `
-    query KvOps($accountTag: string!, $namespaceId: string, $start: Date, $end: Date) {
-      viewer { accounts(filter: { accountTag: $accountTag }) {
-        kvOperationsAdaptiveGroups(
-          filter: { namespaceId: $namespaceId, date_geq: $start, date_leq: $end }
-          limit: 100
-        ) { sum { requests } dimensions { actionType } }
-      } }
-    }`;
+  if (!namespaceId) return { read: 0, write: 0, delete: 0, list: 0 };
+  const query = `query KvOps($accountTag: string!, $namespaceId: string, $start: Date, $end: Date) { viewer { accounts(filter: { accountTag: $accountTag }) { kvOperationsAdaptiveGroups(filter: { namespaceId: $namespaceId, date_geq: $start, date_leq: $end } limit: 100) { sum { requests } dimensions { actionType } } } } }`;
   const data = await gql(apiToken, query, { accountTag: accountId, namespaceId, start: dateRange.start, end: dateRange.end });
   const groups = data?.viewer?.accounts?.[0]?.kvOperationsAdaptiveGroups || [];
   const ops = { read: 0, write: 0, delete: 0, list: 0 };
   groups.forEach(g => {
     const raw = String(g.dimensions?.actionType || '').toLowerCase();
-    let key = raw;
-    if (raw.includes('read')) key = 'read';
-    else if (raw.includes('write') || raw.includes('put')) key = 'write';
-    else if (raw.includes('delete') || raw.includes('remove')) key = 'delete';
-    else if (raw.includes('list')) key = 'list';
+    let key = raw.includes('read') ? 'read' : raw.includes('write') || raw.includes('put') ? 'write' : raw.includes('delete') || raw.includes('remove') ? 'delete' : raw.includes('list') ? 'list' : raw;
     if (ops[key] !== undefined) ops[key] += Number(g.sum?.requests || 0);
   });
   return ops;
 }
 
 async function fetchR2Storage(accountId, apiToken, bucketName, dateRange) {
-  const query = `
-    query R2Storage($accountTag: string!, $bucketName: string!, $start: Date, $end: Date) {
-      viewer { accounts(filter: { accountTag: $accountTag }) {
-        r2StorageAdaptiveGroups(
-          filter: { date_geq: $start, date_leq: $end, bucketName: $bucketName }
-          limit: 1 orderBy: [date_DESC]
-        ) {
-          max { payloadSize metadataSize objectCount uploadCount }
-          dimensions { date bucketName }
-        }
-      } }
-    }`;
+  const query = `query R2Storage($accountTag: string!, $bucketName: string!, $start: Date, $end: Date) { viewer { accounts(filter: { accountTag: $accountTag }) { r2StorageAdaptiveGroups(filter: { date_geq: $start, date_leq: $end, bucketName: $bucketName } limit: 1 orderBy: [date_DESC]) { max { payloadSize metadataSize objectCount uploadCount } dimensions { date bucketName } } } } }`;
   const data = await gql(apiToken, query, { accountTag: accountId, bucketName, start: dateRange.start, end: dateRange.end });
   const groups = data?.viewer?.accounts?.[0]?.r2StorageAdaptiveGroups || [];
   const latest = groups[0]?.max || {};
-  return {
-    payloadSize: Number(latest.payloadSize || 0),
-    metadataSize: Number(latest.metadataSize || 0),
-    objectCount: Number(latest.objectCount || 0),
-    uploadCount: Number(latest.uploadCount || 0)
-  };
+  return { payloadSize: Number(latest.payloadSize || 0), metadataSize: Number(latest.metadataSize || 0), objectCount: Number(latest.objectCount || 0), uploadCount: Number(latest.uploadCount || 0) };
 }
 
 async function fetchR2Operations(accountId, apiToken, bucketName, dateRange) {
-  const query = `
-    query R2Ops($accountTag: string!, $bucketName: string!, $start: Date, $end: Date) {
-      viewer { accounts(filter: { accountTag: $accountTag }) {
-        r2OperationsAdaptiveGroups(
-          filter: { bucketName: $bucketName, date_geq: $start, date_leq: $end }
-          limit: 100
-        ) { sum { requests } dimensions { actionType } }
-      } }
-    }`;
+  const query = `query R2Ops($accountTag: string!, $bucketName: string!, $start: Date, $end: Date) { viewer { accounts(filter: { accountTag: $accountTag }) { r2OperationsAdaptiveGroups(filter: { bucketName: $bucketName, date_geq: $start, date_leq: $end } limit: 100) { sum { requests } dimensions { actionType } } } } }`;
   const data = await gql(apiToken, query, { accountTag: accountId, bucketName, start: dateRange.start, end: dateRange.end });
   const groups = data?.viewer?.accounts?.[0]?.r2OperationsAdaptiveGroups || [];
-
-  const classA_actions = ['PutObject', 'CopyObject', 'ListObjects', 'ListObjectsV2',
-    'ListMultipartUploads', 'CreateMultipartUpload', 'UploadPart',
-    'CompleteMultipartUpload', 'AbortMultipartUpload'];
+  const classA_actions = ['PutObject', 'CopyObject', 'ListObjects', 'ListObjectsV2', 'ListMultipartUploads', 'CreateMultipartUpload', 'UploadPart', 'CompleteMultipartUpload', 'AbortMultipartUpload'];
   const classB_actions = ['GetObject', 'HeadObject', 'HeadBucket', 'GetBucketLocation'];
-
   let classA = 0, classB = 0;
   groups.forEach(g => {
     const action = g.dimensions?.actionType || '';
@@ -262,21 +217,11 @@ export async function onRequestGet(context) {
   const { r2Buckets, kvNamespaces } = detectBindings(env);
 
   if (!kvNamespaces.length && !r2Buckets.length) {
-    return Response.json({
-      success: false, configured: false,
-      error: '未检测到 KV 或 R2 绑定，请检查 Pages 项目的绑定配置',
-      plan: null, kv: null, r2: [], r2Available: false, date: '', resetAt: ''
-    }, { status: 503 });
+    return Response.json({ success: false, configured: false, error: '未检测到 KV 或 R2 绑定', plan: null, kv: null, r2: [], r2Available: false, date: '', resetAt: '' }, { status: 503 });
   }
 
   if (!accountId || !apiToken) {
-    return Response.json({
-      success: false, configured: true,
-      error: '缺少 CF_ACCOUNT_ID 或 CF_API_TOKEN，无法查询用量数据',
-      plan: null, kv: null, r2: [], r2Available: r2Buckets.length > 0,
-      r2Bindings: r2Buckets.map(b => ({ binding: b.binding, bucketName: b.bucketName, source: b.source })),
-      date: '', resetAt: ''
-    }, { status: 503 });
+    return Response.json({ success: false, configured: true, error: '缺少 CF_ACCOUNT_ID 或 CF_API_TOKEN', plan: null, kv: null, r2: [], r2Available: r2Buckets.length > 0, date: '', resetAt: '' }, { status: 503 });
   }
 
   try {
@@ -295,12 +240,7 @@ export async function onRequestGet(context) {
         const kvLimits = plan.limits.kv;
         kvResult = {
           binding: kvBinding.binding,
-          storage: {
-            usedBytes: kvStorage.byteCount,
-            totalBytes: kvLimits.storageBytes,
-            keyCount: kvStorage.keyCount,
-            usagePercent: kvLimits.storageBytes ? (kvStorage.byteCount / kvLimits.storageBytes) * 100 : null
-          },
+          storage: { usedBytes: kvStorage.byteCount, totalBytes: kvLimits.storageBytes, keyCount: kvStorage.keyCount, usagePercent: kvLimits.storageBytes ? (kvStorage.byteCount / kvLimits.storageBytes) * 100 : null },
           operations: {
             read:   { used: kvOps.read,   limit: kvLimits.reads,   remaining: Math.max(0, kvLimits.reads - kvOps.read) },
             write:  { used: kvOps.write,  limit: kvLimits.writes,  remaining: Math.max(0, kvLimits.writes - kvOps.write) },
@@ -308,9 +248,7 @@ export async function onRequestGet(context) {
             list:   { used: kvOps.list,   limit: kvLimits.lists,   remaining: Math.max(0, kvLimits.lists - kvOps.list) }
           }
         };
-      } catch (e) {
-        kvResult = { binding: kvBinding.binding, error: e.message || 'KV 查询失败' };
-      }
+      } catch (e) { kvResult = { binding: kvBinding.binding, error: e.message || 'KV 查询失败' }; }
     }
 
     const r2Results = [];
@@ -322,61 +260,16 @@ export async function onRequestGet(context) {
         ]);
         const r2Limits = plan.limits.r2;
         r2Results.push({
-          binding: r2.binding,
-          bucketName: r2.bucketName,
-          source: r2.source,
-          storage: {
-            usedBytes: r2Storage.payloadSize + r2Storage.metadataSize,
-            payloadSize: r2Storage.payloadSize,
-            metadataSize: r2Storage.metadataSize,
-            objectCount: r2Storage.objectCount,
-            uploadCount: r2Storage.uploadCount,
-            totalBytes: r2Limits.storageBytes,
-            usagePercent: r2Limits.storageBytes
-              ? ((r2Storage.payloadSize + r2Storage.metadataSize) / r2Limits.storageBytes) * 100
-              : null
-          },
-          operations: {
-            classA: { used: r2Ops.classA, limit: r2Limits.classA, remaining: r2Limits.classA ? Math.max(0, r2Limits.classA - r2Ops.classA) : null },
-            classB: { used: r2Ops.classB, limit: r2Limits.classB, remaining: r2Limits.classB ? Math.max(0, r2Limits.classB - r2Ops.classB) : null }
-          }
-        });
-      } catch (e) {
-        r2Results.push({
           binding: r2.binding, bucketName: r2.bucketName, source: r2.source,
-          error: e.message || 'R2 查询失败'
+          storage: { usedBytes: r2Storage.payloadSize + r2Storage.metadataSize, payloadSize: r2Storage.payloadSize, metadataSize: r2Storage.metadataSize, objectCount: r2Storage.objectCount, uploadCount: r2Storage.uploadCount, totalBytes: r2Limits.storageBytes, usagePercent: r2Limits.storageBytes ? ((r2Storage.payloadSize + r2Storage.metadataSize) / r2Limits.storageBytes) * 100 : null },
+          operations: { classA: { used: r2Ops.classA, limit: r2Limits.classA, remaining: r2Limits.classA ? Math.max(0, r2Limits.classA - r2Ops.classA) : null }, classB: { used: r2Ops.classB, limit: r2Limits.classB, remaining: r2Limits.classB ? Math.max(0, r2Limits.classB - r2Ops.classB) : null } }
         });
-      }
+      } catch (e) { r2Results.push({ binding: r2.binding, bucketName: r2.bucketName, source: r2.source, error: e.message || 'R2 查询失败' }); }
     }
 
-    const resetLabel = plan.type === 'free'
-      ? '每日 00:00 UTC 重置'
-      : (billingPeriod ? `计费周期 ${billingPeriod.start} 至 ${billingPeriod.end}，超出按量付费` : '按月计费，超出按量付费');
-
-    return Response.json({
-      success: true,
-      configured: true,
-      plan: {
-        type: plan.type,
-        typeLabel: plan.type === 'paid' ? '付费计划' : '免费计划',
-        resetType: plan.limits.resetType,
-        fromCache: plan.fromCache,
-        detectionError: plan.error,
-        billingPeriod
-      },
-      kv: kvResult,
-      r2: r2Results,
-      r2Available: r2Buckets.length > 0,
-      r2Source: r2Buckets.length > 0 ? r2Buckets[0].source : null,
-      date: `${dateRange.start} ~ ${dateRange.end}`,
-      resetAt: resetLabel
-    });
-
+    const resetLabel = plan.type === 'free' ? '每日 00:00 UTC 重置' : (billingPeriod ? `计费周期 ${billingPeriod.start} 至 ${billingPeriod.end}，超出按量付费` : '按月计费，超出按量付费');
+    return Response.json({ success: true, configured: true, plan: { type: plan.type, typeLabel: plan.type === 'paid' ? '付费计划' : '免费计划', resetType: plan.limits.resetType, fromCache: plan.fromCache, detectionError: plan.error, billingPeriod }, kv: kvResult, r2: r2Results, r2Available: r2Buckets.length > 0, r2Source: r2Buckets.length > 0 ? r2Buckets[0].source : null, date: `${dateRange.start} ~ ${dateRange.end}`, resetAt: resetLabel });
   } catch (e) {
-    return Response.json({
-      success: false, configured: true,
-      error: e.message || '查询异常',
-      plan: null, kv: null, r2: [], r2Available: false, date: '', resetAt: ''
-    }, { status: 500 });
+    return Response.json({ success: false, configured: true, error: e.message || '查询异常', plan: null, kv: null, r2: [], r2Available: false, date: '', resetAt: '' }, { status: 500 });
   }
 }
