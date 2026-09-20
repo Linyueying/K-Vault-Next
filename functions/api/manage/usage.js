@@ -1,96 +1,76 @@
 /**
- * GET /api/manage/kv-usage
+ * GET /api/manage/usage
  * 查询 KV 和 R2 的存储用量与操作次数，自动识别计划类型。
  *
  * 绑定识别顺序：
- *   1. 从 env 中自动识别 R2Bucket / KVNamespace 绑定
- *   2. 回退到环境变量 R2_BUCKET_NAMES / R2_BUCKET_NAME
+ *   1. 从 env 中自动识别 R2Bucket / KVNamespace 绑定（使用 createMultipartUpload 精确区分）
+ *   2. 若配置了环境变量 R2_BUCKET_NAMES，则优先使用真实桶名
  *   3. 都没有时优雅降级，返回 r2Available: false
  */
 
-/* ============================================================
- * 计划限额配置
- * ============================================================ */
 const PLAN_LIMITS = {
   free: {
-    kv: {
-      storageBytes: 1 * 1024 * 1024 * 1024,
-      reads: 100000, writes: 1000, deletes: 1000, lists: 1000
-    },
-    r2: {
-      storageBytes: 10 * 1024 * 1024 * 1024,
-      classA: 1000000,
-      classB: 10000000
-    },
+    kv: { storageBytes: 1 * 1024 * 1024 * 1024, reads: 100000, writes: 1000, deletes: 1000, lists: 1000 },
+    r2: { storageBytes: 10 * 1024 * 1024 * 1024, classA: 1000000, classB: 10000000 },
     resetType: 'daily'
   },
   paid: {
-    kv: {
-      storageBytes: null,
-      reads: 10000000, writes: 1000000, deletes: 1000000, lists: 1000000
-    },
-    r2: {
-      storageBytes: null,
-      classA: null,
-      classB: null
-    },
+    kv: { storageBytes: null, reads: 10000000, writes: 1000000, deletes: 1000000, lists: 1000000 },
+    r2: { storageBytes: null, classA: null, classB: null },
     resetType: 'monthly'
   }
 };
 
-const CACHE_KEYS = {
-  plan:    'kv-usage:config:plan',
-  billing: 'kv-usage:config:billing_period'
-};
-const CACHE_TTL = {
-  plan:    86400,
-  billing: 32 * 86400
-};
+const CACHE_KEYS = { plan: 'kv-usage:config:plan', billing: 'kv-usage:config:billing_period' };
+const CACHE_TTL = { plan: 86400, billing: 32 * 86400 };
 
-/* ============================================================
- * 缓存工具
- * ============================================================ */
 async function cacheGet(env, key) {
-  try { return await env.KV.get(key, { type: 'json' }); }
-  catch (e) { return null; }
+  try { return await env.KV.get(key, { type: 'json' }); } catch (e) { return null; }
 }
 async function cachePut(env, key, value, expirationTtl) {
-  try { await env.KV.put(key, JSON.stringify(value), { expirationTtl }); }
-  catch (e) { /* 忽略 */ }
+  try { await env.KV.put(key, JSON.stringify(value), { expirationTtl }); } catch (e) {}
 }
 
 /* ============================================================
- * 绑定识别（三级回退）
+ * 核心修复：绑定识别（精确区分 KV 和 R2）
  * ============================================================ */
 function detectBindings(env) {
-  const r2Buckets = [];    // [{ binding, bucketName, source }]
-  const kvNamespaces = []; // [{ binding, namespaceId }]
+  const r2Buckets = [];
+  const kvNamespaces = [];
 
-  /* --- 第 1 级：从 env 对象自动识别绑定 --- */
   for (const [key, value] of Object.entries(env)) {
     if (!value || typeof value !== 'object') continue;
 
-    /* KVNamespace：具有 get/put/list 且有 namespaceId */
-    if (typeof value.get === 'function' && typeof value.put === 'function'
-        && typeof value.list === 'function' && value.namespaceId) {
-      kvNamespaces.push({ binding: key, namespaceId: value.namespaceId });
-      continue;
-    }
+    // 必须有 get/put/list 方法才可能是 KV 或 R2
+    if (typeof value.get !== 'function' || typeof value.put !== 'function' || typeof value.list !== 'function') continue;
 
-    /* R2Bucket：具有 get/put/list 且没有 namespaceId */
-    if (typeof value.get === 'function' && typeof value.put === 'function'
-        && typeof value.list === 'function') {
+    // ★ 核心修复：利用 R2 独有的 createMultipartUpload 方法精确区分
+    // KV 没有这个方法，绝对不会误判！
+    const isR2 = typeof value.createMultipartUpload === 'function';
+    const isKV = !isR2;
+
+    if (isKV) {
+      // 真实环境中 namespaceId 可能不存在，给个默认值
+      kvNamespaces.push({ binding: key, namespaceId: value.namespaceId || 'unknown' });
+    } else if (isR2) {
+      // ★ 注意：R2 的绑定名称（key）通常不等于真实的桶名（bucketName）
+      // 真实的桶名在 Workers 运行时无法通过代码读取，所以默认先用绑定名占位
+      // 后续会通过环境变量 R2_BUCKET_NAMES 进行覆盖修正
       const bucketName = value.bucketName || value.name || key;
       r2Buckets.push({ binding: key, bucketName, source: 'binding' });
     }
   }
 
-  /* --- 第 2 级：环境变量兜底 --- */
-  if (r2Buckets.length === 0) {
-    const namesRaw = env.R2_BUCKET_NAMES || env.R2_BUCKET_NAME || '';
-    const names = String(namesRaw).split(',').map(s => s.trim()).filter(Boolean);
-    names.forEach(name => {
-      r2Buckets.push({ binding: `env:${name}`, bucketName: name, source: 'env' });
+  // ★ 如果环境变量配置了真实桶名（强烈推荐），则强制修正
+  const envR2Names = String(env.R2_BUCKET_NAMES || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (envR2Names.length > 0) {
+    envR2Names.forEach(name => {
+      const existing = r2Buckets.find(b => b.bucketName === name);
+      if (existing) {
+        existing.source = 'env'; // 标记为来自环境变量（真实桶名）
+      } else {
+        r2Buckets.push({ binding: `env:${name}`, bucketName: name, source: 'env' });
+      }
     });
   }
 
@@ -98,18 +78,14 @@ function detectBindings(env) {
 }
 
 /* ============================================================
- * 计划检测
+ * 计划检测（增强健壮性，输出明确的错误原因）
  * ============================================================ */
 async function detectPlan(env) {
   const accountId = env.CF_ACCOUNT_ID;
-  const apiToken  = env.CF_API_TOKEN;
+  const apiToken = env.CF_API_TOKEN;
 
   if (!accountId || !apiToken) {
-    return {
-      type: 'free', limits: PLAN_LIMITS.free,
-      billingPeriod: null, fromCache: false,
-      error: '缺少 CF_ACCOUNT_ID 或 CF_API_TOKEN，已回退到免费计划'
-    };
+    return { type: 'free', limits: PLAN_LIMITS.free, billingPeriod: null, fromCache: false, error: '缺少 CF_ACCOUNT_ID 或 CF_API_TOKEN' };
   }
 
   const cached = await cacheGet(env, CACHE_KEYS.plan);
@@ -118,12 +94,14 @@ async function detectPlan(env) {
   }
 
   try {
-    const resp = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/subscriptions`,
-      { headers: { 'Authorization': `Bearer ${apiToken}` } }
-    );
+    const resp = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/subscriptions`, {
+      headers: { 'Authorization': `Bearer ${apiToken}` }
+    });
     const data = await resp.json();
-    if (!resp.ok || !data.success) throw new Error(data.errors?.[0]?.message || `HTTP ${resp.status}`);
+    if (!resp.ok || !data.success) {
+      let errMsg = data.errors ? data.errors.map(e => e.message).join(', ') : `HTTP ${resp.status}`;
+      throw new Error(errMsg);
+    }
 
     const subs = Array.isArray(data.result) ? data.result : [];
     const paidSub = subs.find(s => s.rate_plan?.id === 'workers_paid' && s.rate_plan?.scope === 'account');
@@ -139,11 +117,8 @@ async function detectPlan(env) {
     return { type: planType, limits: PLAN_LIMITS[planType], billingPeriod, fromCache: false, error: null };
 
   } catch (e) {
-    return {
-      type: 'free', limits: PLAN_LIMITS.free,
-      billingPeriod: null, fromCache: false,
-      error: e.message || '计划检测失败，已回退到免费计划'
-    };
+    console.error("Plan detection failed:", e);
+    return { type: 'free', limits: PLAN_LIMITS.free, billingPeriod: null, fromCache: false, error: e.message || '计划检测失败' };
   }
 }
 
@@ -174,9 +149,6 @@ function getDateRange(plan, billingPeriod) {
   return { start: monthStart, end: today };
 }
 
-/* ============================================================
- * GraphQL 查询函数
- * ============================================================ */
 async function gql(apiToken, query, variables) {
   const resp = await fetch('https://api.cloudflare.com/client/v4/graphql', {
     method: 'POST',
@@ -216,7 +188,6 @@ async function fetchKvOperations(accountId, apiToken, namespaceId, dateRange) {
     }`;
   const data = await gql(apiToken, query, { accountTag: accountId, namespaceId, start: dateRange.start, end: dateRange.end });
   const groups = data?.viewer?.accounts?.[0]?.kvOperationsAdaptiveGroups || [];
-
   const ops = { read: 0, write: 0, delete: 0, list: 0 };
   groups.forEach(g => {
     const raw = String(g.dimensions?.actionType || '').toLowerCase();
@@ -283,60 +254,36 @@ async function fetchR2Operations(accountId, apiToken, bucketName, dateRange) {
   return { classA, classB };
 }
 
-/* ============================================================
- * 主处理函数
- * ============================================================ */
 export async function onRequestGet(context) {
   const { env } = context;
-
   const accountId = env.CF_ACCOUNT_ID;
-  const apiToken  = env.CF_API_TOKEN;
+  const apiToken = env.CF_API_TOKEN;
 
-  /* 绑定识别（三级回退） */
   const { r2Buckets, kvNamespaces } = detectBindings(env);
 
-  /* KV 和 R2 都没有绑定 → 无法工作 */
   if (!kvNamespaces.length && !r2Buckets.length) {
     return Response.json({
-      success: false,
-      configured: false,
+      success: false, configured: false,
       error: '未检测到 KV 或 R2 绑定，请检查 Pages 项目的绑定配置',
-      plan: null,
-      kv: null,
-      r2: [],
-      r2Available: false,
-      date: '',
-      resetAt: ''
+      plan: null, kv: null, r2: [], r2Available: false, date: '', resetAt: ''
     }, { status: 503 });
   }
 
-  /* 缺少 API Token → 无法查询用量，但仍返回绑定信息供前端展示 */
   if (!accountId || !apiToken) {
     return Response.json({
-      success: false,
-      configured: true,
+      success: false, configured: true,
       error: '缺少 CF_ACCOUNT_ID 或 CF_API_TOKEN，无法查询用量数据',
-      plan: null,
-      kv: null,
-      r2: [],
-      r2Available: r2Buckets.length > 0,
+      plan: null, kv: null, r2: [], r2Available: r2Buckets.length > 0,
       r2Bindings: r2Buckets.map(b => ({ binding: b.binding, bucketName: b.bucketName, source: b.source })),
-      date: '',
-      resetAt: ''
+      date: '', resetAt: ''
     }, { status: 503 });
   }
 
   try {
-    /* 1. 计划检测 */
     const plan = await detectPlan(env);
-
-    /* 2. 计费周期 */
     const billingPeriod = plan.type === 'paid' ? await getBillingPeriod(env, plan) : null;
-
-    /* 3. 日期范围 */
     const dateRange = getDateRange(plan, billingPeriod);
 
-    /* 4. KV 用量（取第一个 KV 命名空间） */
     let kvResult = null;
     if (kvNamespaces.length > 0) {
       const kvBinding = kvNamespaces[0];
@@ -366,7 +313,6 @@ export async function onRequestGet(context) {
       }
     }
 
-    /* 5. R2 用量（遍历所有桶，每个独立 try/catch，互不影响） */
     const r2Results = [];
     for (const r2 of r2Buckets) {
       try {
@@ -378,7 +324,7 @@ export async function onRequestGet(context) {
         r2Results.push({
           binding: r2.binding,
           bucketName: r2.bucketName,
-          source: r2.source,        // 'binding' | 'env'
+          source: r2.source,
           storage: {
             usedBytes: r2Storage.payloadSize + r2Storage.metadataSize,
             payloadSize: r2Storage.payloadSize,
@@ -391,34 +337,21 @@ export async function onRequestGet(context) {
               : null
           },
           operations: {
-            classA: {
-              used: r2Ops.classA,
-              limit: r2Limits.classA,
-              remaining: r2Limits.classA ? Math.max(0, r2Limits.classA - r2Ops.classA) : null
-            },
-            classB: {
-              used: r2Ops.classB,
-              limit: r2Limits.classB,
-              remaining: r2Limits.classB ? Math.max(0, r2Limits.classB - r2Ops.classB) : null
-            }
+            classA: { used: r2Ops.classA, limit: r2Limits.classA, remaining: r2Limits.classA ? Math.max(0, r2Limits.classA - r2Ops.classA) : null },
+            classB: { used: r2Ops.classB, limit: r2Limits.classB, remaining: r2Limits.classB ? Math.max(0, r2Limits.classB - r2Ops.classB) : null }
           }
         });
       } catch (e) {
         r2Results.push({
-          binding: r2.binding,
-          bucketName: r2.bucketName,
-          source: r2.source,
+          binding: r2.binding, bucketName: r2.bucketName, source: r2.source,
           error: e.message || 'R2 查询失败'
         });
       }
     }
 
-    /* 6. 返回结果 */
     const resetLabel = plan.type === 'free'
       ? '每日 00:00 UTC 重置'
-      : (billingPeriod
-          ? `计费周期 ${billingPeriod.start} 至 ${billingPeriod.end}，超出按量付费`
-          : '按月计费，超出按量付费');
+      : (billingPeriod ? `计费周期 ${billingPeriod.start} 至 ${billingPeriod.end}，超出按量付费` : '按月计费，超出按量付费');
 
     return Response.json({
       success: true,
@@ -433,7 +366,7 @@ export async function onRequestGet(context) {
       },
       kv: kvResult,
       r2: r2Results,
-      r2Available: r2Buckets.length > 0,         // ★ 前端据此判断是否显示 R2 区块
+      r2Available: r2Buckets.length > 0,
       r2Source: r2Buckets.length > 0 ? r2Buckets[0].source : null,
       date: `${dateRange.start} ~ ${dateRange.end}`,
       resetAt: resetLabel
@@ -441,15 +374,9 @@ export async function onRequestGet(context) {
 
   } catch (e) {
     return Response.json({
-      success: false,
-      configured: true,
+      success: false, configured: true,
       error: e.message || '查询异常',
-      plan: null,
-      kv: null,
-      r2: [],
-      r2Available: false,
-      date: '',
-      resetAt: ''
+      plan: null, kv: null, r2: [], r2Available: false, date: '', resetAt: ''
     }, { status: 500 });
   }
 }
