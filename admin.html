@@ -182,6 +182,109 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .dropdown-item:disabled{opacity:.4;cursor:not-allowed}
 .dropdown-divider{height:1px;background:var(--glass-border-ice);margin:5px 8px}
 
+/* ============ KV 用量面板 ============ */
+.kv-usage-panel{
+  margin-top:12px;padding-top:12px;border-top:1px solid var(--glass-border-ice);
+  animation:dropIn .2s var(--ease-fluid);
+}
+.kv-usage-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:12px;flex-wrap:wrap;gap:8px;
+}
+.kv-usage-title{
+  font-size:.85rem;font-weight:800;display:flex;align-items:center;gap:8px;
+}
+.kv-usage-title i{color:var(--primary)}
+.kv-usage-date{
+  font-size:.7rem;font-weight:600;color:var(--text-muted);
+  background:var(--glass-subtle);padding:2px 8px;border-radius:var(--radius-pill);
+  border:1px solid var(--glass-border-ice);
+  font-family:'JetBrains Mono',monospace;
+}
+.kv-plan-badge{
+  font-size:.68rem;font-weight:800;padding:3px 10px;border-radius:var(--radius-pill);
+  letter-spacing:.03em;text-transform:uppercase;
+}
+.kv-plan-badge.free{
+  background:rgba(148,163,184,.18);color:var(--text-muted);
+  border:1px solid rgba(148,163,184,.35);
+}
+.kv-plan-badge.paid{
+  background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(245,158,11,.12));
+  color:#b45309;border:1px solid rgba(245,158,11,.4);
+}
+html[data-theme="dark"] .kv-plan-badge.paid{color:#fbbf24;border-color:rgba(251,191,36,.35)}
+.kv-usage-actions{display:flex;gap:4px}
+.kv-usage-empty{
+  padding:24px;text-align:center;color:var(--text-muted);
+  font-size:.8rem;display:flex;flex-direction:column;align-items:center;gap:8px;line-height:1.6;
+}
+.kv-usage-empty i{font-size:1.6rem;opacity:.4}
+.kv-usage-warn{
+  margin-bottom:12px;padding:9px 12px;border-radius:var(--radius-md);
+  background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);
+  font-size:.75rem;color:#b45309;display:flex;align-items:flex-start;gap:8px;line-height:1.55;
+}
+html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
+.kv-usage-warn i{flex-shrink:0;margin-top:2px}
+.kv-usage-body{display:flex;flex-direction:column;gap:16px}
+.kv-usage-block{
+  padding:12px 14px;border-radius:var(--radius-md);
+  border:1.5px solid var(--glass-border-ice);background:var(--glass-subtle);
+}
+.kv-usage-label{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:.78rem;font-weight:700;flex-wrap:wrap;gap:6px;
+}
+.kv-usage-label i{color:var(--primary);margin-right:4px}
+.kv-usage-total{font-family:'JetBrains Mono',monospace;font-size:.74rem;color:var(--text-muted)}
+.task-progress-bar{
+  height:4px;border-radius:var(--radius-pill);
+  background:rgba(148,163,184,.2);margin-top:6px;overflow:hidden;
+}
+.task-progress-val{
+  height:100%;border-radius:var(--radius-pill);
+  background:linear-gradient(90deg,var(--primary-light),var(--primary));
+  transition:width .3s ease;
+}
+.task-progress-val.warn{background:linear-gradient(90deg,#f59e0b,#f97316)}
+.task-progress-val.danger{background:linear-gradient(90deg,#ef4444,#b91c1c)}
+.kv-usage-meta{
+  display:flex;justify-content:space-between;margin-top:7px;
+  font-size:.72rem;color:var(--text-muted);flex-wrap:wrap;gap:6px;
+}
+.kv-usage-meta strong{color:var(--text-main);font-family:'JetBrains Mono',monospace}
+
+.kv-ops-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px;margin-top:10px;
+}
+.kv-op-item{
+  padding:9px 11px;border-radius:10px;
+  background:var(--glass-surface);border:1px solid var(--glass-border-ice);
+}
+.kv-op-head{
+  display:flex;align-items:center;gap:6px;
+  font-size:.75rem;font-weight:700;margin-bottom:7px;
+}
+.kv-op-bar{
+  height:5px;border-radius:999px;background:rgba(148,163,184,.2);
+  overflow:hidden;margin-bottom:6px;
+}
+.kv-op-bar-inner{
+  height:100%;border-radius:999px;transition:width .3s ease;
+}
+.kv-op-nums{
+  display:flex;justify-content:space-between;
+  font-size:.68rem;color:var(--text-muted);
+  font-family:'JetBrains Mono',monospace;
+}
+.kv-op-remain{color:#22c55e;font-weight:700}
+.kv-op-remain.low{color:#ef4444}
+.kv-usage-footer{
+  font-size:.7rem;color:var(--text-muted);text-align:center;padding-top:2px;
+}
+
 /* ============ 主布局 ============ */
 .admin-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start}
 
@@ -519,16 +622,6 @@ html[data-theme="dark"] .move-item.active{background:linear-gradient(135deg,rgba
 }
 .download-progress-meta .speed { color: var(--primary); font-weight: 600; }
 
-.task-progress-bar {
-  height: 4px; border-radius: var(--radius-pill);
-  background: rgba(148,163,184,.2); margin-top: 6px; overflow: hidden;
-}
-.task-progress-val {
-  height: 100%; border-radius: var(--radius-pill);
-  background: linear-gradient(90deg, var(--primary-light), var(--primary));
-  transition: width .2s ease;
-}
-
 /* Toast */
 .toast-glass-banner{
   position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:var(--radius-pill);
@@ -565,6 +658,7 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
   .card-thumb{height:110px}
   .row-actions{flex-wrap:wrap;max-width:80px;justify-content:flex-end}
   .lightbox-bar .fname{max-width:60vw}
+  .kv-ops-grid{grid-template-columns:repeat(2,1fr)}
 
   .dropdown-panel {
     position: fixed;
@@ -755,6 +849,10 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
           <i class="fas fa-chevron-down caret"></i>
         </button>
         <div class="dropdown-panel right" v-if="openMenu==='tool'">
+          <button class="dropdown-item" @click="handleTool('kvUsage')">
+            <i class="fas fa-chart-pie"></i><span>KV 用量监控</span>
+            <i class="fas fa-check tick" v-if="kvUsage.visible"></i>
+          </button>
           <button class="dropdown-item" @click="handleTool('status')">
             <i class="fas fa-heart-pulse"></i><span>检查连接状态</span>
           </button>
@@ -773,6 +871,98 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
       <span class="tool-stat">
         总记录 <strong>{{ total }}</strong> · 已加载 <strong>{{ files.length }}</strong> · 显示 <strong>{{ paginationTotal }}</strong>
       </span>
+    </div>
+
+    <!-- ===== KV 用量面板 ===== -->
+    <div class="kv-usage-panel" v-if="kvUsage.visible">
+      <div class="kv-usage-head">
+        <span class="kv-usage-title">
+          <i class="fas fa-chart-pie"></i> KV 用量监控
+          <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.planType">
+            {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
+          </span>
+          <span class="kv-usage-date" v-if="kvUsage.date">{{ kvUsage.date }}</span>
+        </span>
+        <div class="kv-usage-actions">
+          <button class="mini-icon-btn" @click="loadKvUsage" :disabled="kvUsage.loading" title="刷新">
+            <i class="fas fa-rotate" :class="{'fa-spin':kvUsage.loading}"></i>
+          </button>
+          <button class="mini-icon-btn" @click="kvUsage.visible=false" title="关闭">
+            <i class="fas fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 计划检测失败提示 -->
+      <div class="kv-usage-warn" v-if="kvUsage.detectionError">
+        <i class="fas fa-triangle-exclamation"></i>
+        <span>计划检测失败（已回退到免费计划）：{{ kvUsage.detectionError }}。如需准确显示，请为 API Token 添加 <b>Account Settings:Read</b> 权限。</span>
+      </div>
+
+      <!-- 未配置 -->
+      <div v-if="!kvUsage.configured && !kvUsage.loading" class="kv-usage-empty">
+        <i class="fas fa-plug-circle-xmark"></i>
+        <span>{{ kvUsage.error || '未配置 Cloudflare 凭据，请设置 CF_ACCOUNT_ID / CF_API_TOKEN / KV_NAMESPACE_ID 环境变量' }}</span>
+      </div>
+
+      <!-- 加载中 -->
+      <div v-else-if="kvUsage.loading" class="kv-usage-empty">
+        <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
+        <span>正在查询 KV 用量...</span>
+      </div>
+
+      <!-- 数据 -->
+      <div v-else class="kv-usage-body">
+        <!-- 存储用量 -->
+        <div class="kv-usage-block">
+          <div class="kv-usage-label">
+            <span><i class="fas fa-database"></i> 存储用量</span>
+            <span class="kv-usage-total">
+              {{ formatSize(kvUsage.storage.usedBytes) }}<template v-if="kvUsage.storage.totalBytes"> / {{ formatSize(kvUsage.storage.totalBytes) }}</template>
+            </span>
+          </div>
+          <!-- 进度条：付费计划（totalBytes 为 null）不显示 -->
+          <div class="task-progress-bar" style="height:8px;margin-top:8px" v-if="kvUsage.storage.totalBytes">
+            <div class="task-progress-val"
+                 :class="{ warn: (kvUsage.storage.usagePercent || 0) > 70 && (kvUsage.storage.usagePercent || 0) <= 90, danger: (kvUsage.storage.usagePercent || 0) > 90 }"
+                 :style="{ width: Math.min(100, kvUsage.storage.usagePercent || 0).toFixed(1) + '%' }"></div>
+          </div>
+          <div class="kv-usage-meta">
+            <span>键数量 <strong>{{ kvUsage.storage.keyCount }}</strong></span>
+            <span v-if="kvUsage.storage.totalBytes">已用 <strong>{{ (kvUsage.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
+            <span v-else>付费计划 · 存储按量计费（$0.50/GB-月）</span>
+          </div>
+        </div>
+
+        <!-- 操作次数 -->
+        <div class="kv-usage-block">
+          <div class="kv-usage-label">
+            <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
+          </div>
+          <div class="kv-ops-grid">
+            <div class="kv-op-item" v-for="op in kvOpDefs" :key="op.key">
+              <div class="kv-op-head">
+                <i :class="op.icon" :style="{color: op.color}"></i>
+                <span>{{ op.label }}</span>
+              </div>
+              <div class="kv-op-bar">
+                <div class="kv-op-bar-inner"
+                     :style="{ width: opPercent(kvUsage.operations[op.key]) + '%', background: op.color }"></div>
+              </div>
+              <div class="kv-op-nums">
+                <span>{{ (kvUsage.operations[op.key] && kvUsage.operations[op.key].used) || 0 }} / {{ (kvUsage.operations[op.key] && kvUsage.operations[op.key].limit) || 0 }}</span>
+                <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.operations[op.key]) }">
+                  剩余 {{ (kvUsage.operations[op.key] && kvUsage.operations[op.key].remaining) || 0 }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kv-usage-footer">
+          <i class="fas fa-clock"></i> {{ kvUsage.resetAt || '每日 00:00 UTC 重置' }}
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1305,6 +1495,31 @@ new Vue({
       { value:'sizeDesc', label:'按大小倒序', icon:'fas fa-arrow-down-wide-short' }
     ],
 
+    /* ================= KV 用量监控 ================= */
+    kvUsage: {
+      visible: false,
+      loading: false,
+      configured: true,
+      planType: '',            // 'free' | 'paid'
+      detectionError: '',      // 计划检测失败时的错误信息
+      storage: { usedBytes: 0, totalBytes: null, keyCount: 0, usagePercent: null },
+      operations: {
+        read:   { used: 0, limit: 0, remaining: 0 },
+        write:  { used: 0, limit: 0, remaining: 0 },
+        delete: { used: 0, limit: 0, remaining: 0 },
+        list:   { used: 0, limit: 0, remaining: 0 }
+      },
+      date: '',
+      resetAt: '',
+      error: ''
+    },
+    kvOpDefs: [
+      { key:'read',   label:'读取', icon:'fas fa-eye',   color:'#22c55e' },
+      { key:'write',  label:'写入', icon:'fas fa-pen',   color:'#f59e0b' },
+      { key:'delete', label:'删除', icon:'fas fa-trash', color:'#ef4444' },
+      { key:'list',   label:'列表', icon:'fas fa-list',  color:'#8b5cf6' }
+    ],
+
     /* ================= API Token 管理 ================= */
     tokenPanelVisible: false,
     tokenLoading: false,
@@ -1333,22 +1548,22 @@ new Vue({
   computed: {
     /* ---------- 过滤 / 排序 / 分页 ---------- */
     filtered() {
-  const s = this.search.trim().toLowerCase();
-  const curFolder = this.normalizeFolderPath(this.folderPath);
-  return this.files.filter(f => {
-    // 【本地目录过滤】不再请求后端，切目录零消耗
-    const fileFolder = this.normalizeFolderPath(f.metadata?.folderPath || '');
-    if (fileFolder !== curFolder) return false;
+      const s = this.search.trim().toLowerCase();
+      const curFolder = this.normalizeFolderPath(this.folderPath);
+      return this.files.filter(f => {
+        // 【本地目录过滤】不再请求后端，切目录零消耗
+        const fileFolder = this.normalizeFolderPath(f.metadata?.folderPath || '');
+        if (fileFolder !== curFolder) return false;
 
-    const n = String(f.metadata.fileName || f.name || '').toLowerCase();
-    if (s && !n.includes(s) && !String(f.name).toLowerCase().includes(s)) return false;
-    if (this.filter === 'favorites' && !f.metadata.liked) return false;
-    const t = this.type(f.name);
-    if (this.fileType === 'document' ? t !== 'file' : (this.fileType !== 'all' && t !== this.fileType)) return false;
-    if (this.storage !== 'all' && this.storageType(f.name) !== this.storage) return false;
-    return true;
-  });
-},
+        const n = String(f.metadata.fileName || f.name || '').toLowerCase();
+        if (s && !n.includes(s) && !String(f.name).toLowerCase().includes(s)) return false;
+        if (this.filter === 'favorites' && !f.metadata.liked) return false;
+        const t = this.type(f.name);
+        if (this.fileType === 'document' ? t !== 'file' : (this.fileType !== 'all' && t !== this.fileType)) return false;
+        if (this.storage !== 'all' && this.storageType(f.name) !== this.storage) return false;
+        return true;
+      });
+    },
     sorted() {
       const a = this.filtered.slice();
       if (this.sort === 'nameAsc') a.sort((x, y) => String(x.name).localeCompare(String(y.name)));
@@ -1374,26 +1589,26 @@ new Vue({
 
     /* ---------- 目录 ---------- */
     folderTreeNodes() {
-  // 【本地计数】目录里的文件数由本地 files 算出，避免依赖后端 folders 接口的计数
-  const countByFolder = {};
-  this.files.forEach(f => {
-    const fp = this.normalizeFolderPath(f.metadata?.folderPath || '');
-    if (fp) countByFolder[fp] = (countByFolder[fp] || 0) + 1;
-  });
+      // 【本地计数】目录里的文件数由本地 files 算出，避免依赖后端 folders 接口的计数
+      const countByFolder = {};
+      this.files.forEach(f => {
+        const fp = this.normalizeFolderPath(f.metadata?.folderPath || '');
+        if (fp) countByFolder[fp] = (countByFolder[fp] || 0) + 1;
+      });
 
-  const out = [];
-  (this.folders || []).forEach(f => {
-    const p = this.normalizeFolderPath(f.path || f.folderPath || '');
-    if (!p) return;
-    out.push({
-      path: p,
-      name: f.name || p.split('/').pop() || p,
-      depth: f.depth || p.split('/').length,
-      fileCount: countByFolder[p] || 0
-    });
-  });
-  return out.sort((x, y) => x.path.localeCompare(y.path, 'zh-CN'));
-},
+      const out = [];
+      (this.folders || []).forEach(f => {
+        const p = this.normalizeFolderPath(f.path || f.folderPath || '');
+        if (!p) return;
+        out.push({
+          path: p,
+          name: f.name || p.split('/').pop() || p,
+          depth: f.depth || p.split('/').length,
+          fileCount: countByFolder[p] || 0
+        });
+      });
+      return out.sort((x, y) => x.path.localeCompare(y.path, 'zh-CN'));
+    },
     crumbs() {
       const parts = this.normalizeFolderPath(this.folderPath).split('/').filter(Boolean);
       const out = [];
@@ -1560,27 +1775,27 @@ new Vue({
     },
 
     triggerDownload(url, fileName) {
-  if (!url) return;
-  if (this.downloadingUrls[url]) {
-    this.showToast('下载已开始，请查看浏览器下载栏', 'info');
-    return;
-  }
-  this.$set(this.downloadingUrls, url, true);
+      if (!url) return;
+      if (this.downloadingUrls[url]) {
+        this.showToast('下载已开始，请查看浏览器下载栏', 'info');
+        return;
+      }
+      this.$set(this.downloadingUrls, url, true);
 
-  /* 【一次进度】直接交给浏览器原生下载，不再 fetch + blob */
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName || '';
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    if (a.parentNode) a.parentNode.removeChild(a);
-    this.$delete(this.downloadingUrls, url);
-  }, 2000);
+      /* 【一次进度】直接交给浏览器原生下载，不再 fetch + blob */
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName || '';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        this.$delete(this.downloadingUrls, url);
+      }, 2000);
 
-  this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
-},
+      this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
+    },
 
     /* ================= 通用对话框 ================= */
     askConfirm(message, title = '操作确认', danger = false) {
@@ -1629,40 +1844,40 @@ new Vue({
 
     /* ================= 数据加载 ================= */
     async loadList() {
-  // 【省额度】一次性拉全部文件，前端本地过滤（切目录 0 次 KV list）
-  this.loadingMore = true;
-  const p = new URLSearchParams();
-  p.set('_t', Date.now());
-  p.set('limit', '1000');
-  p.set('includeStats', '1');
-  p.set('sort', 'sizeAsc');
-  // 注意：不传 folderPath，后端返回全部目录的文件
-  if (this.storage !== 'all') p.set('storage', this.storage);
+      // 【省额度】一次性拉全部文件，前端本地过滤（切目录 0 次 KV list）
+      this.loadingMore = true;
+      const p = new URLSearchParams();
+      p.set('_t', Date.now());
+      p.set('limit', '1000');
+      p.set('includeStats', '1');
+      p.set('sort', 'sizeAsc');
+      // 注意：不传 folderPath，后端返回全部目录的文件
+      if (this.storage !== 'all') p.set('storage', this.storage);
 
-  try {
-    const r = await fetch('./api/manage/list?' + p, { credentials: 'include' }).then(r => r.json());
-    const arr = (r.keys || []).map(x => ({
-      ...x,
-      selected: false,
-      metadata: Object.assign({ liked:false, fileName:x.name, fileSize:0, TimeStamp:0 }, x.metadata || {})
-    }));
-    this.files = arr;
-    this.nextCursor = null;
-    this.total = arr.length;
-  } catch (e) {
-    this.showToast('加载文件失败', 'error');
-  } finally {
-    this.loadingMore = false;
-  }
-},
+      try {
+        const r = await fetch('./api/manage/list?' + p, { credentials: 'include' }).then(r => r.json());
+        const arr = (r.keys || []).map(x => ({
+          ...x,
+          selected: false,
+          metadata: Object.assign({ liked:false, fileName:x.name, fileSize:0, TimeStamp:0 }, x.metadata || {})
+        }));
+        this.files = arr;
+        this.nextCursor = null;
+        this.total = arr.length;
+      } catch (e) {
+        this.showToast('加载文件失败', 'error');
+      } finally {
+        this.loadingMore = false;
+      }
+    },
 
     async loadFolders() {
-  this.folderLoading = true;
-  try {
-    const p = new URLSearchParams();
-    p.set('_t', Date.now());
-    if (this.storage !== 'all') p.set('storage', this.storage);
-    const r = await fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => r.json());
+      this.folderLoading = true;
+      try {
+        const p = new URLSearchParams();
+        p.set('_t', Date.now());
+        if (this.storage !== 'all') p.set('storage', this.storage);
+        const r = await fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => r.json());
         this.folders = Array.isArray(r.folders) ? r.folders : [];
       } catch (e) {
         this.folders = [];
@@ -1677,11 +1892,72 @@ new Vue({
     loadMore() { this.loadList(true); },
 
     selectFolder(path) {
-  // 【省额度】切目录只改本地状态，Vue 会自动重算 filtered，不打后端
-  this.folderPath = this.normalizeFolderPath(path);
-  this.currentPage = 1;
-  try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
-},
+      // 【省额度】切目录只改本地状态，Vue 会自动重算 filtered，不打后端
+      this.folderPath = this.normalizeFolderPath(path);
+      this.currentPage = 1;
+      try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
+    },
+
+    /* ================= KV 用量监控 ================= */
+    async loadKvUsage() {
+      this.kvUsage.loading = true;
+      this.kvUsage.error = '';
+      try {
+        const r = await fetch('./api/manage/kv-usage?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json());
+        if (!r.success) {
+          this.kvUsage.configured = r.configured === false ? false : true;
+          this.kvUsage.error = r.error || '查询失败';
+          return;
+        }
+        this.kvUsage.configured = true;
+
+        /* 计划信息 */
+        const plan = r.plan || {};
+        this.kvUsage.planType = plan.type || '';
+        this.kvUsage.detectionError = plan.detectionError || '';
+
+        /* 存储用量：付费计划 totalBytes 为 null，usagePercent 为 null */
+        const st = r.storage || {};
+        this.kvUsage.storage = {
+          usedBytes: Number(st.usedBytes || 0),
+          totalBytes: st.totalBytes != null ? Number(st.totalBytes) : null,
+          keyCount: Number(st.keyCount || 0),
+          usagePercent: st.usagePercent != null ? Number(st.usagePercent) : null
+        };
+
+        /* 操作次数 */
+        const ops = r.operations || {};
+        ['read', 'write', 'delete', 'list'].forEach(k => {
+          const o = ops[k] || {};
+          this.kvUsage.operations[k] = {
+            used: Number(o.used || 0),
+            limit: Number(o.limit || 0),
+            remaining: Number(o.remaining || 0)
+          };
+        });
+
+        this.kvUsage.date = r.date || '';
+        this.kvUsage.resetAt = r.resetAt || '';
+      } catch (e) {
+        this.kvUsage.error = '网络异常，无法获取用量数据';
+      } finally {
+        this.kvUsage.loading = false;
+      }
+    },
+
+    toggleKvUsagePanel() {
+      this.kvUsage.visible = !this.kvUsage.visible;
+      if (this.kvUsage.visible) this.loadKvUsage();
+    },
+
+    opPercent(op) {
+      if (!op || !op.limit) return 0;
+      return Math.min(100, (op.used / op.limit) * 100).toFixed(1);
+    },
+    isOpLow(op) {
+      if (!op || !op.limit) return false;
+      return op.remaining < op.limit * 0.2;
+    },
 
     /* ================= 目录操作 ================= */
     async createFolder() {
@@ -2006,7 +2282,9 @@ new Vue({
 
     handleTool(c) {
       this.openMenu = null;
-      if (c === 'status') {
+      if (c === 'kvUsage') {
+        this.toggleKvUsagePanel();
+      } else if (c === 'status') {
         this.checkStatus();
       } else if (c === 'tokens') {
         this.openTokenPanel();
