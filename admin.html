@@ -182,7 +182,7 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .dropdown-item:disabled{opacity:.4;cursor:not-allowed}
 .dropdown-divider{height:1px;background:var(--glass-border-ice);margin:5px 8px}
 
-/* ============ KV 用量面板 ============ */
+/* ============ KV / R2 用量面板 ============ */
 .kv-usage-panel{
   margin-top:12px;padding-top:12px;border-top:1px solid var(--glass-border-ice);
   animation:dropIn .2s var(--ease-fluid);
@@ -850,7 +850,7 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
         </button>
         <div class="dropdown-panel right" v-if="openMenu==='tool'">
           <button class="dropdown-item" @click="handleTool('kvUsage')">
-            <i class="fas fa-chart-pie"></i><span>KV 用量监控</span>
+            <i class="fas fa-chart-pie"></i><span>KV / R2 用量监控</span>
             <i class="fas fa-check tick" v-if="kvUsage.visible"></i>
           </button>
           <button class="dropdown-item" @click="handleTool('status')">
@@ -873,11 +873,11 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
       </span>
     </div>
 
-    <!-- ===== KV 用量面板 ===== -->
+    <!-- ===== KV / R2 用量面板 ===== -->
     <div class="kv-usage-panel" v-if="kvUsage.visible">
       <div class="kv-usage-head">
         <span class="kv-usage-title">
-          <i class="fas fa-chart-pie"></i> KV 用量监控
+          <i class="fas fa-chart-pie"></i> 用量监控
           <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.planType">
             {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
           </span>
@@ -902,61 +902,139 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
       <!-- 未配置 -->
       <div v-if="!kvUsage.configured && !kvUsage.loading" class="kv-usage-empty">
         <i class="fas fa-plug-circle-xmark"></i>
-        <span>{{ kvUsage.error || '未配置 Cloudflare 凭据，请设置 CF_ACCOUNT_ID / CF_API_TOKEN / KV_NAMESPACE_ID 环境变量' }}</span>
+        <span>{{ kvUsage.error || '未检测到 KV 或 R2 绑定，请检查 Pages 项目设置' }}</span>
       </div>
 
       <!-- 加载中 -->
       <div v-else-if="kvUsage.loading" class="kv-usage-empty">
         <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
-        <span>正在查询 KV 用量...</span>
+        <span>正在查询用量...</span>
       </div>
 
       <!-- 数据 -->
       <div v-else class="kv-usage-body">
-        <!-- 存储用量 -->
-        <div class="kv-usage-block">
+
+        <!-- ============ KV 存储用量 ============ -->
+        <div class="kv-usage-block" v-if="kvUsage.kv">
           <div class="kv-usage-label">
-            <span><i class="fas fa-database"></i> 存储用量</span>
+            <span><i class="fas fa-database"></i> KV 存储用量</span>
             <span class="kv-usage-total">
-              {{ formatSize(kvUsage.storage.usedBytes) }}<template v-if="kvUsage.storage.totalBytes"> / {{ formatSize(kvUsage.storage.totalBytes) }}</template>
+              {{ formatSize(kvUsage.kv.storage.usedBytes) }}<template v-if="kvUsage.kv.storage.totalBytes"> / {{ formatSize(kvUsage.kv.storage.totalBytes) }}</template>
             </span>
           </div>
-          <!-- 进度条：付费计划（totalBytes 为 null）不显示 -->
-          <div class="task-progress-bar" style="height:8px;margin-top:8px" v-if="kvUsage.storage.totalBytes">
-            <div class="task-progress-val"
-                 :class="{ warn: (kvUsage.storage.usagePercent || 0) > 70 && (kvUsage.storage.usagePercent || 0) <= 90, danger: (kvUsage.storage.usagePercent || 0) > 90 }"
-                 :style="{ width: Math.min(100, kvUsage.storage.usagePercent || 0).toFixed(1) + '%' }"></div>
+
+          <div v-if="kvUsage.kv.error" class="kv-usage-empty" style="padding:12px">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span style="font-size:.75rem">{{ kvUsage.kv.error }}</span>
           </div>
-          <div class="kv-usage-meta">
-            <span>键数量 <strong>{{ kvUsage.storage.keyCount }}</strong></span>
-            <span v-if="kvUsage.storage.totalBytes">已用 <strong>{{ (kvUsage.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
-            <span v-else>付费计划 · 存储按量计费（$0.50/GB-月）</span>
+
+          <template v-else>
+            <div class="task-progress-bar" style="height:8px;margin-top:8px" v-if="kvUsage.kv.storage.totalBytes">
+              <div class="task-progress-val"
+                   :class="{ warn: (kvUsage.kv.storage.usagePercent || 0) > 70 && (kvUsage.kv.storage.usagePercent || 0) <= 90, danger: (kvUsage.kv.storage.usagePercent || 0) > 90 }"
+                   :style="{ width: Math.min(100, kvUsage.kv.storage.usagePercent || 0).toFixed(1) + '%' }"></div>
+            </div>
+            <div class="kv-usage-meta">
+              <span>键数量 <strong>{{ kvUsage.kv.storage.keyCount }}</strong></span>
+              <span v-if="kvUsage.kv.storage.totalBytes">已用 <strong>{{ (kvUsage.kv.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
+              <span v-else>付费计划 · 存储按量计费</span>
+            </div>
+
+            <!-- KV 操作次数 -->
+            <div class="kv-ops-grid" style="margin-top:12px">
+              <div class="kv-op-item" v-for="op in kvOpDefs" :key="op.key">
+                <div class="kv-op-head">
+                  <i :class="op.icon" :style="{color: op.color}"></i>
+                  <span>{{ op.label }}</span>
+                </div>
+                <div class="kv-op-bar">
+                  <div class="kv-op-bar-inner"
+                       :style="{ width: opPercent(kvUsage.kv.operations[op.key]) + '%', background: op.color }"></div>
+                </div>
+                <div class="kv-op-nums">
+                  <span>{{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].used) || 0 }} / {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].limit) || 0 }}</span>
+                  <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.kv.operations[op.key]) }">
+                    剩余 {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].remaining) || 0 }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="kv-usage-meta" style="margin-top:8px">
+              <span style="font-size:.68rem">今日操作次数 · 每日 00:00 UTC 重置</span>
+            </div>
+          </template>
+        </div>
+
+        <!-- ============ R2 存储用量 ============ -->
+        <!-- 情况 A：未绑定 R2 -->
+        <div class="kv-usage-block" v-if="!kvUsage.r2Available">
+          <div class="kv-usage-label">
+            <span><i class="fas fa-cloud"></i> R2 对象存储</span>
+            <span class="kv-usage-total" style="color:var(--text-muted)">未绑定</span>
+          </div>
+          <div class="kv-usage-empty" style="padding:14px 6px">
+            <i class="fas fa-cloud-slash" style="font-size:1.2rem"></i>
+            <span style="font-size:.75rem;line-height:1.6">
+              未检测到 R2 桶绑定。如需监控 R2 用量，请在 Pages 项目设置中绑定 R2 桶，
+              或通过环境变量 <code style="font-family:'JetBrains Mono',monospace;background:var(--glass-subtle);padding:1px 5px;border-radius:4px">R2_BUCKET_NAMES</code> 指定桶名。
+            </span>
           </div>
         </div>
 
-        <!-- 操作次数 -->
-        <div class="kv-usage-block">
+        <!-- 情况 B：已绑定，遍历渲染 -->
+        <div class="kv-usage-block" v-for="r2 in kvUsage.r2Buckets" :key="r2.binding" v-else>
           <div class="kv-usage-label">
-            <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
+            <span>
+              <i class="fas fa-cloud"></i> R2 · {{ r2.bucketName }}
+              <span v-if="r2.source === 'env'"
+                    style="font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(245,158,11,.15);color:#b45309;margin-left:6px">
+                环境变量
+              </span>
+            </span>
+            <span class="kv-usage-total">
+              {{ formatSize(r2.storage.usedBytes) }}<template v-if="r2.storage.totalBytes"> / {{ formatSize(r2.storage.totalBytes) }}</template>
+            </span>
           </div>
-          <div class="kv-ops-grid">
-            <div class="kv-op-item" v-for="op in kvOpDefs" :key="op.key">
-              <div class="kv-op-head">
-                <i :class="op.icon" :style="{color: op.color}"></i>
-                <span>{{ op.label }}</span>
-              </div>
-              <div class="kv-op-bar">
-                <div class="kv-op-bar-inner"
-                     :style="{ width: opPercent(kvUsage.operations[op.key]) + '%', background: op.color }"></div>
-              </div>
-              <div class="kv-op-nums">
-                <span>{{ (kvUsage.operations[op.key] && kvUsage.operations[op.key].used) || 0 }} / {{ (kvUsage.operations[op.key] && kvUsage.operations[op.key].limit) || 0 }}</span>
-                <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.operations[op.key]) }">
-                  剩余 {{ (kvUsage.operations[op.key] && kvUsage.operations[op.key].remaining) || 0 }}
-                </span>
+
+          <div v-if="r2.error" class="kv-usage-empty" style="padding:12px">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span style="font-size:.75rem">{{ r2.error }}</span>
+          </div>
+
+          <template v-else>
+            <div class="task-progress-bar" style="height:8px;margin-top:8px" v-if="r2.storage.totalBytes">
+              <div class="task-progress-val"
+                   :class="{ warn: (r2.storage.usagePercent || 0) > 70 && (r2.storage.usagePercent || 0) <= 90, danger: (r2.storage.usagePercent || 0) > 90 }"
+                   :style="{ width: Math.min(100, r2.storage.usagePercent || 0).toFixed(1) + '%' }"></div>
+            </div>
+            <div class="kv-usage-meta">
+              <span>对象数 <strong>{{ r2.storage.objectCount }}</strong></span>
+              <span v-if="r2.storage.uploadCount">分片上传 <strong>{{ r2.storage.uploadCount }}</strong></span>
+              <span v-if="r2.storage.totalBytes">已用 <strong>{{ (r2.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
+              <span v-else>付费计划 · 按量计费</span>
+            </div>
+
+            <div class="kv-ops-grid" style="margin-top:10px">
+              <div class="kv-op-item" v-for="op in r2OpDefs" :key="op.key">
+                <div class="kv-op-head">
+                  <i :class="op.icon" :style="{color: op.color}"></i>
+                  <span>{{ op.label }}</span>
+                </div>
+                <div class="kv-op-bar">
+                  <div class="kv-op-bar-inner"
+                       :style="{ width: opPercent(r2.operations[op.key]) + '%', background: op.color }"></div>
+                </div>
+                <div class="kv-op-nums">
+                  <span>{{ (r2.operations[op.key] && r2.operations[op.key].used) || 0 }} / {{ (r2.operations[op.key] && r2.operations[op.key].limit) || 0 }}</span>
+                  <span class="kv-op-remain"
+                        :class="{ low: isOpLow(r2.operations[op.key]) }"
+                        v-if="r2.operations[op.key] && r2.operations[op.key].remaining !== null">
+                    剩余 {{ r2.operations[op.key].remaining }}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          </template>
         </div>
 
         <div class="kv-usage-footer">
@@ -1495,20 +1573,26 @@ new Vue({
       { value:'sizeDesc', label:'按大小倒序', icon:'fas fa-arrow-down-wide-short' }
     ],
 
-    /* ================= KV 用量监控 ================= */
+    /* ================= KV / R2 用量监控 ================= */
     kvUsage: {
       visible: false,
       loading: false,
       configured: true,
-      planType: '',            // 'free' | 'paid'
-      detectionError: '',      // 计划检测失败时的错误信息
-      storage: { usedBytes: 0, totalBytes: null, keyCount: 0, usagePercent: null },
-      operations: {
-        read:   { used: 0, limit: 0, remaining: 0 },
-        write:  { used: 0, limit: 0, remaining: 0 },
-        delete: { used: 0, limit: 0, remaining: 0 },
-        list:   { used: 0, limit: 0, remaining: 0 }
+      planType: '',
+      detectionError: '',
+      kv: {
+        storage: { usedBytes: 0, totalBytes: null, keyCount: 0, usagePercent: null },
+        operations: {
+          read:   { used: 0, limit: 0, remaining: 0 },
+          write:  { used: 0, limit: 0, remaining: 0 },
+          delete: { used: 0, limit: 0, remaining: 0 },
+          list:   { used: 0, limit: 0, remaining: 0 }
+        },
+        error: ''
       },
+      r2Buckets: [],
+      r2Available: true,
+      r2Source: null,
       date: '',
       resetAt: '',
       error: ''
@@ -1518,6 +1602,10 @@ new Vue({
       { key:'write',  label:'写入', icon:'fas fa-pen',   color:'#f59e0b' },
       { key:'delete', label:'删除', icon:'fas fa-trash', color:'#ef4444' },
       { key:'list',   label:'列表', icon:'fas fa-list',  color:'#8b5cf6' }
+    ],
+    r2OpDefs: [
+      { key:'classA', label:'Class A', icon:'fas fa-upload',   color:'#f59e0b' },
+      { key:'classB', label:'Class B', icon:'fas fa-download', color:'#22c55e' }
     ],
 
     /* ================= API Token 管理 ================= */
@@ -1898,12 +1986,13 @@ new Vue({
       try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
     },
 
-    /* ================= KV 用量监控 ================= */
+    /* ================= 用量监控（KV + R2） ================= */
     async loadKvUsage() {
       this.kvUsage.loading = true;
       this.kvUsage.error = '';
       try {
-        const r = await fetch('./api/manage/kv-usage?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json());
+        /* ★ 唯一改动：API 路径从 kv-usage 改为 usage */
+        const r = await fetch('./api/manage/usage?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json());
         if (!r.success) {
           this.kvUsage.configured = r.configured === false ? false : true;
           this.kvUsage.error = r.error || '查询失败';
@@ -1916,25 +2005,57 @@ new Vue({
         this.kvUsage.planType = plan.type || '';
         this.kvUsage.detectionError = plan.detectionError || '';
 
-        /* 存储用量：付费计划 totalBytes 为 null，usagePercent 为 null */
-        const st = r.storage || {};
-        this.kvUsage.storage = {
-          usedBytes: Number(st.usedBytes || 0),
-          totalBytes: st.totalBytes != null ? Number(st.totalBytes) : null,
-          keyCount: Number(st.keyCount || 0),
-          usagePercent: st.usagePercent != null ? Number(st.usagePercent) : null
-        };
-
-        /* 操作次数 */
-        const ops = r.operations || {};
-        ['read', 'write', 'delete', 'list'].forEach(k => {
-          const o = ops[k] || {};
-          this.kvUsage.operations[k] = {
-            used: Number(o.used || 0),
-            limit: Number(o.limit || 0),
-            remaining: Number(o.remaining || 0)
+        /* KV 数据 */
+        if (r.kv) {
+          const st = r.kv.storage || {};
+          const ops = r.kv.operations || {};
+          this.kvUsage.kv = {
+            error: r.kv.error || '',
+            storage: {
+              usedBytes: Number(st.usedBytes || 0),
+              totalBytes: st.totalBytes != null ? Number(st.totalBytes) : null,
+              keyCount: Number(st.keyCount || 0),
+              usagePercent: st.usagePercent != null ? Number(st.usagePercent) : null
+            },
+            operations: {
+              read:   { used: Number(ops.read?.used || 0),   limit: Number(ops.read?.limit || 0),   remaining: Number(ops.read?.remaining || 0) },
+              write:  { used: Number(ops.write?.used || 0),  limit: Number(ops.write?.limit || 0),  remaining: Number(ops.write?.remaining || 0) },
+              delete: { used: Number(ops.delete?.used || 0), limit: Number(ops.delete?.limit || 0), remaining: Number(ops.delete?.remaining || 0) },
+              list:   { used: Number(ops.list?.used || 0),   limit: Number(ops.list?.limit || 0),   remaining: Number(ops.list?.remaining || 0) }
+            }
           };
-        });
+        }
+
+        /* R2 数据 */
+        this.kvUsage.r2Available = r.r2Available !== false;
+        this.kvUsage.r2Source = r.r2Source || null;
+        this.kvUsage.r2Buckets = (r.r2 || []).map(bucket => ({
+          binding: bucket.binding || '',
+          bucketName: bucket.bucketName || '',
+          source: bucket.source || 'binding',
+          error: bucket.error || '',
+          storage: {
+            usedBytes: Number(bucket.storage?.usedBytes || 0),
+            payloadSize: Number(bucket.storage?.payloadSize || 0),
+            metadataSize: Number(bucket.storage?.metadataSize || 0),
+            objectCount: Number(bucket.storage?.objectCount || 0),
+            uploadCount: Number(bucket.storage?.uploadCount || 0),
+            totalBytes: bucket.storage?.totalBytes != null ? Number(bucket.storage.totalBytes) : null,
+            usagePercent: bucket.storage?.usagePercent != null ? Number(bucket.storage.usagePercent) : null
+          },
+          operations: {
+            classA: {
+              used: Number(bucket.operations?.classA?.used || 0),
+              limit: Number(bucket.operations?.classA?.limit || 0),
+              remaining: bucket.operations?.classA?.remaining != null ? Number(bucket.operations.classA.remaining) : null
+            },
+            classB: {
+              used: Number(bucket.operations?.classB?.used || 0),
+              limit: Number(bucket.operations?.classB?.limit || 0),
+              remaining: bucket.operations?.classB?.remaining != null ? Number(bucket.operations.classB.remaining) : null
+            }
+          }
+        }));
 
         this.kvUsage.date = r.date || '';
         this.kvUsage.resetAt = r.resetAt || '';
