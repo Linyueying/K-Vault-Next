@@ -8,19 +8,79 @@
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="shortcut icon" href="/favicon.ico">
   <link rel="stylesheet" href="/theme.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    /* ===== 与 index.html 统一的设计令牌 ===== */
     :root {
-      --bg: #f4f6f8;
+      --primary: #0284c7;
+      --primary-rgb: 2, 132, 199;
+      --primary-light: #38bdf8;
+      --primary-dark: #0369a1;
+      --primary-surface: #e0f2fe;
+
+      --bg-body: #f0f7ff;
+      --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
+                     radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
+                     #f0f7ff;
+
+      --glass-surface: rgba(255, 255, 255, 0.84);
+      --glass-subtle: rgba(255, 255, 255, 0.65);
+      --glass-border: rgba(255, 255, 255, 0.95);
+      --glass-border-ice: rgba(186, 230, 253, 0.75);
+
+      --text-main: #0f172a;
+      --text-sub: #334155;
+      --text-muted: #64748b;
+
+      --radius-sm: 10px;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+      --radius-pill: 9999px;
+      --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
+      --transition: all 0.22s var(--ease-fluid);
+
+      /* 页面原有变量改为引用统一令牌，保持既有引用可用 */
+      --bg: var(--bg-body);
       --panel: #ffffff;
       --text: #17212b;
       --muted: #667085;
       --line: #dde3ea;
-      --brand: #2563eb;
-      --brand-dark: #1d4ed8;
+      --brand: var(--primary);
+      --brand-dark: var(--primary-dark);
       --danger: #b42318;
       --code-bg: #101828;
       --code-text: #e6edf3;
       --shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+    }
+
+    html[data-theme="dark"] {
+      --primary: #38bdf8;
+      --primary-rgb: 56, 189, 248;
+      --primary-light: #7dd3fc;
+      --primary-dark: #0284c7;
+      --primary-surface: rgba(2, 132, 199, 0.18);
+
+      --bg-body: #070d19;
+      --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
+                     radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+                     #070d19;
+
+      --glass-surface: rgba(15, 27, 49, 0.85);
+      --glass-subtle: rgba(15, 27, 49, 0.6);
+      --glass-border: rgba(255, 255, 255, 0.14);
+      --glass-border-ice: rgba(56, 189, 248, 0.25);
+
+      --text-main: #f8fafc;
+      --text-sub: #cbd5e1;
+      --text-muted: #94a3b8;
+
+      --bg: var(--bg-body);
+      --panel: rgba(15, 27, 49, 0.85);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --line: rgba(255, 255, 255, 0.14);
     }
 
     * {
@@ -34,9 +94,11 @@
 
     body {
       margin: 0;
-      background: var(--bg);
+      /* theme.css 对 body 有 background !important，此处需同等级声明覆盖 */
+      background: var(--bg-gradient) !important;
+      background-attachment: fixed;
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", Arial, sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", Arial, sans-serif;
       letter-spacing: 0;
     }
 

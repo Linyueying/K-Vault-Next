@@ -9,15 +9,79 @@
   <link rel="shortcut icon" href="/favicon.ico">
   <link rel="stylesheet" href="/theme.css">
   <script src="/theme.js?v=20260305"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css">
   <style>
+    /* ===== 与 index.html 统一的设计令牌 ===== */
     :root {
-      --primary-color: #8a4bff;
-      --primary-light: #b39ddb;
-      --accent-color: #ffd7e4;
-      --bg-gradient: linear-gradient(135deg, #ffd7e4 0%, #c8f1ff 100%);
-      --card-bg: rgba(255, 255, 255, 0.9);
-      --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      --primary: #0284c7;
+      --primary-rgb: 2, 132, 199;
+      --primary-light: #38bdf8;
+      --primary-dark: #0369a1;
+      --primary-surface: #e0f2fe;
+
+      --bg-body: #f0f7ff;
+      --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
+                     radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
+                     #f0f7ff;
+
+      --glass-surface: rgba(255, 255, 255, 0.84);
+      --glass-elevated: rgba(255, 255, 255, 0.95);
+      --glass-subtle: rgba(255, 255, 255, 0.65);
+      --glass-border: rgba(255, 255, 255, 0.95);
+      --glass-border-ice: rgba(186, 230, 253, 0.75);
+      --glass-specular: rgba(255, 255, 255, 0.95);
+
+      --text-main: #0f172a;
+      --text-sub: #334155;
+      --text-muted: #64748b;
+
+      --shadow-soft: 0 8px 24px -4px rgba(2, 132, 199, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.03);
+      --shadow-elevated: 0 16px 36px -6px rgba(2, 132, 199, 0.16), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+
+      --radius-sm: 10px;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+      --radius-pill: 9999px;
+
+      --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --transition: all 0.22s var(--ease-fluid);
+
+      /* 旧变量名别名，保证既有样式引用继续可用 */
+      --primary-color: var(--primary);
+      --accent-color: var(--primary-surface);
+      --card-bg: var(--glass-surface);
+      --shadow: var(--shadow-soft);
+    }
+
+    html[data-theme="dark"] {
+      --primary: #38bdf8;
+      --primary-rgb: 56, 189, 248;
+      --primary-light: #7dd3fc;
+      --primary-dark: #0284c7;
+      --primary-surface: rgba(2, 132, 199, 0.18);
+
+      --bg-body: #070d19;
+      --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
+                     radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+                     #070d19;
+
+      --glass-surface: rgba(15, 27, 49, 0.85);
+      --glass-elevated: rgba(20, 36, 66, 0.95);
+      --glass-subtle: rgba(15, 27, 49, 0.6);
+      --glass-border: rgba(255, 255, 255, 0.14);
+      --glass-border-ice: rgba(56, 189, 248, 0.25);
+      --glass-specular: rgba(255, 255, 255, 0.2);
+
+      --text-main: #f8fafc;
+      --text-sub: #cbd5e1;
+      --text-muted: #94a3b8;
+
+      --shadow-soft: 0 10px 30px -6px rgba(0, 0, 0, 0.55);
+      --shadow-elevated: 0 18px 45px -6px rgba(0, 0, 0, 0.7);
     }
 
     * {
@@ -27,9 +91,13 @@
     }
 
     body {
-      background: var(--bg-gradient);
+      /* theme.css 对 body 有 background !important，此处需同等级声明覆盖 */
+      background: var(--bg-gradient) !important;
+      background-attachment: fixed;
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
       min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -37,31 +105,8 @@
       position: relative;
     }
 
-    /* 自定义背景图 */
-    body.has-bg-image {
-      background: none;
-    }
-
-    .bg-image-layer {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
-      z-index: -1;
-    }
-
-    .bg-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.3);
-      z-index: -1;
+    html[data-theme="dark"] body {
+      background: var(--bg-gradient) !important;
     }
 
     .login-container {
@@ -71,14 +116,29 @@
     }
 
     .login-card {
-      background: var(--card-bg);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border-radius: 28px;
+      background: var(--glass-surface);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-radius: var(--radius-lg);
       padding: 48px 40px;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1), 0 2px 16px rgba(138, 75, 255, 0.08);
+      box-shadow: var(--shadow-soft), inset 0 1px 1px rgba(255, 255, 255, 0.9);
       text-align: center;
-      border: 1px solid rgba(255, 255, 255, 0.5);
+      border: 1px solid var(--glass-border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 顶部高光条：与 index 的 .liquid-card 保持一致 */
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--glass-specular), transparent);
+      opacity: 0.9;
+      pointer-events: none;
     }
 
     .logo {
@@ -90,13 +150,13 @@
     .title {
       font-size: 1.9em;
       font-weight: 700;
-      color: #333;
+      color: var(--text-main);
       margin-bottom: 10px;
       letter-spacing: -0.5px;
     }
 
     .subtitle {
-      color: #666;
+      color: var(--text-sub);
       margin-bottom: 36px;
       font-size: 0.95em;
       line-height: 1.5;
@@ -110,7 +170,7 @@
     .form-group label {
       display: block;
       font-size: 0.9em;
-      color: #666;
+      color: var(--text-sub);
       margin-bottom: 8px;
       font-weight: 500;
     }
@@ -124,18 +184,19 @@
       left: 16px;
       top: 50%;
       transform: translateY(-50%);
-      color: #999;
+      color: var(--text-muted);
       font-size: 1em;
     }
 
     .form-input {
       width: 100%;
       padding: 14px 16px 14px 44px;
-      border: 2px solid #eee;
-      border-radius: 12px;
+      border: 1.5px solid var(--glass-border-ice);
+      border-radius: var(--radius-md);
       font-size: 1em;
-      transition: all 0.3s;
-      background: white;
+      color: var(--text-main);
+      transition: var(--transition);
+      background: var(--glass-subtle);
     }
 
     .form-input.has-toggle {
@@ -143,13 +204,13 @@
     }
 
     .form-input:focus {
-      border-color: var(--primary-color);
+      border-color: var(--primary);
       outline: none;
-      box-shadow: 0 0 0 3px rgba(138, 75, 255, 0.1);
+      box-shadow: 0 0 0 3px var(--primary-surface);
     }
 
     .form-input::placeholder {
-      color: #bbb;
+      color: var(--text-muted);
     }
 
     .password-toggle {
@@ -165,14 +226,14 @@
       background: none;
       border: none;
       border-radius: 8px;
-      color: #999;
+      color: var(--text-muted);
       cursor: pointer;
       padding: 0;
       z-index: 2;
     }
 
     .password-toggle:hover {
-      color: var(--primary-color);
+      color: var(--primary);
     }
 
     .remember-row {
@@ -188,21 +249,21 @@
       gap: 8px;
       cursor: pointer;
       font-size: 0.9em;
-      color: #666;
+      color: var(--text-sub);
     }
 
     .remember-label input {
       width: 18px;
       height: 18px;
-      accent-color: var(--primary-color);
+      accent-color: var(--primary);
     }
 
     .login-btn {
       width: 100%;
       padding: 16px;
-      background: linear-gradient(135deg, var(--primary-color) 0%, #9b6dff 100%);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
       border: none;
-      border-radius: 14px;
+      border-radius: var(--radius-md);
       color: white;
       font-size: 1.1em;
       font-weight: 600;
@@ -233,7 +294,7 @@
 
     .login-btn:hover {
       transform: translateY(-3px);
-      box-shadow: 0 10px 25px rgba(138, 75, 255, 0.4);
+      box-shadow: 0 10px 25px rgba(2, 132, 199, 0.4);
     }
 
     .login-btn:active {
@@ -260,11 +321,11 @@
     }
 
     .error-message {
-      background: #fff0f0;
-      border: 1px solid #ffcccc;
-      color: #d32f2f;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
       padding: 12px 16px;
-      border-radius: 8px;
+      border-radius: var(--radius-sm);
       margin-bottom: 20px;
       font-size: 0.9em;
       display: none;
@@ -278,12 +339,12 @@
 
     .footer-text {
       margin-top: 24px;
-      color: #999;
+      color: var(--text-muted);
       font-size: 0.85em;
     }
 
     .footer-text a {
-      color: var(--primary-color);
+      color: var(--primary);
       text-decoration: none;
     }
 
@@ -469,10 +530,6 @@
   <link rel="stylesheet" href="/mobile-refactor.css">
 </head>
 <body class="login-page">
-  <!-- 背景图层 (通过JS动态控制) -->
-  <div class="bg-image-layer" id="bgImageLayer" style="display: none;"></div>
-  <div class="bg-overlay" id="bgOverlay" style="display: none;"></div>
-  
   <div class="login-container">
     <div class="login-card">
       <div class="logo">
@@ -526,45 +583,6 @@
   </div>
 
   <script>
-    // 加载自定义背景
-    (function() {
-      if (
-        window.UIDesignManager &&
-        typeof window.UIDesignManager.syncFromServer === 'function'
-      ) {
-        window.UIDesignManager.syncFromServer({
-          silent: true,
-          applyLocalOnFailure: true
-        });
-        return;
-      }
-      const bgMode = localStorage.getItem('loginBackgroundMode') || 'gradient';
-      const bgUrl = localStorage.getItem('loginBackgroundUrl') || '';
-      const bgLayer = document.getElementById('bgImageLayer');
-      const overlay = document.getElementById('bgOverlay');
-
-      if (bgMode === 'image' && bgUrl) {
-        bgLayer.style.backgroundImage = `url(${bgUrl})`;
-        bgLayer.style.display = 'block';
-        overlay.style.display = 'block';
-        document.body.classList.add('has-bg-image');
-      } else if (bgMode === 'bing') {
-        // 使用 Bing 每日壁纸 API
-        fetch('/api/bing/wallpaper/')
-          .then(res => res.json())
-          .then(data => {
-            if (data.status && data.data && data.data.length > 0) {
-              const bingUrl = 'https://cn.bing.com' + data.data[0].url;
-              bgLayer.style.backgroundImage = `url(${bingUrl})`;
-              bgLayer.style.display = 'block';
-              overlay.style.display = 'block';
-              document.body.classList.add('has-bg-image');
-            }
-          })
-          .catch(err => console.log('Bing wallpaper fetch failed:', err));
-      }
-    })();
-
     // 页面加载时检查认证状态
     (async function() {
       try {

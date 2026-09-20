@@ -761,6 +761,28 @@
         border-color: var(--primary);
         box-shadow: 0 4px 12px rgba(2, 132, 199, 0.28);
       }
+      .format-expand-btn {
+        width: 28px;
+        height: 28px;
+        flex: none;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-subtle);
+        color: var(--text-sub);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: var(--transition);
+      }
+      .format-expand-btn:hover {
+        border-color: var(--primary-light);
+        background: var(--glass-surface);
+        color: var(--primary);
+      }
+      .format-expand-btn i {
+        font-size: 0.68rem;
+      }
 
       .result-item-card {
         display: flex;
@@ -778,14 +800,16 @@
         border-color: var(--primary-light);
         transform: translateX(2px);
       }
-      .mono-link-text {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.78rem;
-        color: var(--primary);
-        white-space: nowrap;
+      /* 结果卡片文件名：独占整行空间，长名最多两行 */
+      .result-name-text {
+        font-size: 0.88rem;
+        font-weight: 600;
+        line-height: 1.35;
+        word-break: break-all;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
         overflow: hidden;
-        text-overflow: ellipsis;
-        cursor: pointer;
       }
       .mini-icon-btn {
         width: 32px;
@@ -826,7 +850,33 @@
         font-size: 0.8rem;
         resize: vertical;
         outline: none;
+        margin-top: 8px;
+      }
+
+      .batch-preview-toggle {
+        width: 100%;
         margin-top: 10px;
+        padding: 8px 12px;
+        border-radius: var(--radius-sm);
+        border: 1px dashed var(--glass-border-ice);
+        background: transparent;
+        color: var(--text-sub);
+        font-size: 0.78rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        transition: var(--transition);
+      }
+      .batch-preview-toggle:hover {
+        border-color: var(--primary-light);
+        background: var(--glass-subtle);
+        color: var(--primary);
+      }
+      .batch-preview-toggle i {
+        font-size: 0.7rem;
       }
 
       /* =========================================================
@@ -1828,11 +1878,22 @@
 
           <!-- Format Selector Chips -->
           <div class="format-tabs-row">
-            <button class="format-chip-btn" :class="{ active: linkFormat === 'url' }" @click="linkFormat = 'url'">直链 URL</button>
-            <button class="format-chip-btn" :class="{ active: linkFormat === 'markdown' }" @click="linkFormat = 'markdown'">Markdown</button>
-            <button class="format-chip-btn" :class="{ active: linkFormat === 'html' }" @click="linkFormat = 'html'">HTML</button>
-            <button class="format-chip-btn" :class="{ active: linkFormat === 'bbcode' }" @click="linkFormat = 'bbcode'">BBCode</button>
-            <button class="format-chip-btn" :class="{ active: linkFormat === 'ubb' }" @click="linkFormat = 'ubb'">UBB</button>
+            <button
+              v-for="fmt in visibleLinkFormats"
+              :key="fmt.key"
+              class="format-chip-btn"
+              :class="{ active: linkFormat === fmt.key }"
+              @click="linkFormat = fmt.key"
+            >
+              {{ fmt.label }}
+            </button>
+            <button
+              class="format-expand-btn"
+              @click="showAllFormats = !showAllFormats"
+              :title="showAllFormats ? '收起其他格式' : '展开其他格式'"
+            >
+              <i class="fas" :class="showAllFormats ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+            </button>
           </div>
 
           <div class="result-item-card" v-for="(file, index) in uploadedFiles" :key="index">
@@ -1844,10 +1905,7 @@
               onerror="this.style.display='none'"
             />
             <div style="flex: 1; min-width: 0;">
-              <div class="task-name-text">{{ getDisplayName(file) }}</div>
-              <div class="mono-link-text" @click="copyLink(file)" :title="formatLink(file)">
-                {{ formatLink(file) }}
-              </div>
+              <div class="result-name-text" :title="getDisplayName(file)">{{ getDisplayName(file) }}</div>
             </div>
             <div style="display: flex; gap: 6px;">
               <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
@@ -1864,7 +1922,13 @@
             </div>
           </div>
 
+          <!-- 卡片内已不再重复展示直链，此处为唯一汇总出口，默认展开 -->
+          <button class="batch-preview-toggle" @click="showBatchPreview = !showBatchPreview">
+            <i class="fas" :class="showBatchPreview ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+            <span>批量结果 ({{ batchLinkCount }})</span>
+          </button>
           <textarea
+            v-show="showBatchPreview"
             class="batch-links-box"
             :value="getBatchLinks()"
             readonly
@@ -2457,6 +2521,8 @@
           uploadedFiles: [],
           uploadHistory: [],
           linkFormat: "url",
+          showAllFormats: false,
+          showBatchPreview: true,
           previewData: null,
           toasts: [],
           isAuthenticated: false,
@@ -2528,6 +2594,25 @@
           },
           isAllSelected() {
             return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected);
+          },
+          /* 批量预览框实际会输出的条数（未勾选时默认取全部，与 getBatchLinks 保持一致） */
+          batchLinkCount() {
+            const targets = this.uploadedFiles.filter((f) => f.selected);
+            return (targets.length ? targets : this.uploadedFiles).length;
+          },
+          linkFormats() {
+            return [
+              { key: "url", label: "直链 URL" },
+              { key: "markdown", label: "Markdown" },
+              { key: "html", label: "HTML" },
+              { key: "bbcode", label: "BBCode" },
+              { key: "ubb", label: "UBB" },
+            ];
+          },
+          /* 未展开时只留「直链 URL」与当前已选格式，避免五个 chip 平铺占位 */
+          visibleLinkFormats() {
+            if (this.showAllFormats) return this.linkFormats;
+            return this.linkFormats.filter((f) => f.key === "url" || f.key === this.linkFormat);
           },
           failedCount() {
             return this.uploadingFiles.filter((f) => f.status === "error").length;

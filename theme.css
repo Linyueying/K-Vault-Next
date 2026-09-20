@@ -282,8 +282,14 @@ html[data-theme="dark"] .theme-admin-toggle i {
 
 /* ===== Unified Background + Glass Layer ===== */
 :root {
-  --ui-page-bg: #fafaf8;
-  --ui-page-bg-dark: #101318;
+  /* 与 index.html 的 --bg-gradient 保持一致（浅色） */
+  --ui-page-bg: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
+                radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
+                #f0f7ff;
+  /* 与 index.html 的深色 --bg-gradient 保持一致 */
+  --ui-page-bg-dark: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
+                     radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+                     #070d19;
   --ui-surface-rgb: 255, 255, 255;
   --ui-surface-rgb-dark: 19, 24, 33;
   --ui-border-rgb: 198, 206, 218;
@@ -312,9 +318,8 @@ body {
   min-height: 100dvh;
   position: relative;
   isolation: isolate;
+  /* --ui-page-bg 含渐变，只能用 background 简写；单独写 background-color 会因值无效而变透明 */
   background: var(--ui-page-bg) !important;
-  background-color: var(--ui-page-bg) !important;
-  background-image: none !important;
 }
 
 body::before {
@@ -324,48 +329,6 @@ body::before {
 
 html[data-theme="dark"] body {
   background: var(--ui-page-bg-dark) !important;
-  background-color: var(--ui-page-bg-dark) !important;
-  background-image: none !important;
-}
-
-.ui-bg-image-layer,
-.ui-bg-canvas-layer,
-.ui-bg-noise-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-}
-
-.ui-bg-image-layer {
-  z-index: 0;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: scroll;
-  transform: translateZ(0);
-  backface-visibility: hidden;
-}
-
-.ui-bg-canvas-layer {
-  z-index: 1;
-  width: 100vw;
-  height: 100dvh;
-}
-
-.ui-bg-noise-layer {
-  z-index: 2;
-  opacity: var(--ui-noise-opacity);
-  background-image:
-    radial-gradient(rgba(17, 24, 39, 0.11) 0.4px, transparent 0.5px),
-    radial-gradient(rgba(17, 24, 39, 0.06) 0.5px, transparent 0.6px);
-  background-size: 4px 4px, 6px 6px;
-  background-position: 0 0, 1px 2px;
-  mix-blend-mode: multiply;
-}
-
-html[data-theme="dark"] .ui-bg-noise-layer {
-  mix-blend-mode: screen;
-  opacity: calc(var(--ui-noise-opacity) * 0.75);
 }
 
 body > #app,
