@@ -16,6 +16,7 @@ import {
 import { apiError, apiSuccess } from '../../utils/api-v1.js';
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
 import { MAX_REDIRECTS, sniffImageMime, validateRedirectLocation, validateRemoteUrl } from '../../utils/ssrf-guard.js';
+import { putRecordIndex } from '../../utils/file-record.js';
 
 /**
  * POST /api/v1/import (requirement #6).
@@ -250,6 +251,7 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
         signedLink: shouldUseSignedTelegramLinks(env),
       }, folderPath),
     });
+    await putRecordIndex(env, `${telegramFileId}.${extension}`);
   }
 
   try {
@@ -282,6 +284,7 @@ async function uploadToR2Storage(env, { bytes, mime, fileName, extension, fileSi
         fileName, fileSize, storageType: 'r2', r2Key: objectKey,
       }, folderPath),
     });
+    await putRecordIndex(env, `r2:${objectKey}`);
   }
   return { fileId: objectKey, directId: `r2:${objectKey}` };
 }
@@ -302,6 +305,7 @@ async function uploadToS3Storage(env, { bytes, mime, fileName, extension, fileSi
         fileName, fileSize, storageType: 's3', s3Key: objectKey,
       }, folderPath),
     });
+    await putRecordIndex(env, `s3:${objectKey}`);
   }
   return { fileId: objectKey, directId: `s3:${objectKey}` };
 }
@@ -322,6 +326,7 @@ async function uploadToDiscordStorage(env, { bytes, mime, fileName, extension, f
         discordSourceUrl: result.sourceUrl,
       }, folderPath),
     });
+    await putRecordIndex(env, kvKey);
   }
   return { fileId: `${fileId}.${extension}`, directId: kvKey };
 }
@@ -340,6 +345,7 @@ async function uploadToHuggingFaceStorage(env, { bytes, mime, fileName, extensio
         fileName, fileSize, storageType: 'huggingface', hfPath,
       }, folderPath),
     });
+    await putRecordIndex(env, kvKey);
   }
   return { fileId: `${fileId}.${extension}`, directId: kvKey };
 }
@@ -360,6 +366,7 @@ async function uploadToWebDAVStorage(env, { bytes, mime, fileName, extension, fi
         webdavEtag: result.etag || undefined,
       }, folderPath),
     });
+    await putRecordIndex(env, kvKey);
   }
   return { fileId: publicId, directId: kvKey };
 }
@@ -380,6 +387,7 @@ async function uploadToGitHubStorage(env, { bytes, mime, fileName, extension, fi
         ...(result.metadata || {}),
       }, folderPath),
     });
+    await putRecordIndex(env, kvKey);
   }
   return { fileId: publicId, directId: kvKey };
 }

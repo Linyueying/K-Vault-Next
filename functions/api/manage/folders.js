@@ -1,5 +1,6 @@
 ﻿const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
-const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:'];
+// idxt: 记录索引、dlc: 下载计数、fstat: 文件夹统计 —— 均为内部辅助键，不参与文件/文件夹判定。
+const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'idxt:', 'dlc:', 'fstat:'];
 
 function normalizeFolderPath(value = '') {
   const raw = String(value || '').replace(/\\/g, '/').trim();
@@ -98,6 +99,10 @@ function buildFolderNodes(fileRecords, folderMarkers) {
     });
 }
 
+/**
+ * 列出 KV 中全部 key（全量扫描）。
+ * 仅在 fstat: 索引缺失/失效时作为回落路径使用。
+ */
 async function listAllKeys(env) {
   const all = [];
   let cursor = undefined;
@@ -109,6 +114,129 @@ async function listAllKeys(env) {
     guard += 1;
   } while (cursor && guard < 10000);
   return all;
+}
+
+/**
+ * 从全量 key 中解析出"文件夹统计快照"。
+ *
+ * 快照结构（存入 fstat:__index__ 的 metadata）：
+ *   { version, updatedAt, folders: { "<path>": { count, marker } } }
+ *
+ * 说明：只记录每个 folderPath 的文件数量与是否存在显式 folder: 标记，
+ * 足以驱动 buildFolderNodes 的全部输出字段（path/name/parentPath/depth/fileCount）。
+ */
+function buildFolderSnapshot(allKeys) {
+  const folders = {};
+
+  const touch = (pathValue) => {
+    const normalized = normalizeFolderPath(pathValue);
+    if (!normalized) return null;
+    if (!folders[normalized]) folders[normalized] = { count: 0, marker: false };
+    return folders[normalized];
+  };
+
+  // 自身 + 所有父路径都要入表（父路径 fileCount 为 0，但需作为节点出现）
+  const includeAll = (pathValue) => {
+    const normalized = normalizeFolderPath(pathValue);
+    if (!normalized) return;
+    const parts = normalized.split('/').filter(Boolean);
+    for (let i = 1; i <= parts.length; i += 1) {
+      touch(parts.slice(0, i).join('/'));
+    }
+  };
+
+  for (const item of allKeys) {
+    if (isFolderMarker(item)) {
+      const markerPath = normalizeFolderPath(
+        item.metadata?.folderPath
+        || (String(item.name || '').startsWith('folder:') ? String(item.name).slice('folder:'.length) : '')
+        || ''
+      );
+      if (!markerPath) continue;
+      includeAll(markerPath);
+      const entry = touch(markerPath);
+      if (entry) entry.marker = true;
+      continue;
+    }
+
+    if (!shouldIncludeFileRecord(item)) continue;
+    const folderPath = normalizeFolderPath(item.metadata?.folderPath || '');
+    if (!folderPath) continue;
+    includeAll(folderPath);
+    const entry = touch(folderPath);
+    if (entry) entry.count += 1;
+  }
+
+  return { version: 1, updatedAt: Date.now(), folders };
+}
+
+const FSTAT_KEY = 'fstat:__index__';
+
+/**
+ * 读取文件夹统计快照。
+ * @returns {Promise<{version:number, folders:object}|null>}
+ */
+async function readFolderSnapshot(env) {
+  try {
+    const record = await env.img_url.getWithMetadata(FSTAT_KEY, { type: 'json' });
+    const snapshot = record?.metadata;
+    if (snapshot && snapshot.version === 1 && snapshot.folders && typeof snapshot.folders === 'object') {
+      return snapshot;
+    }
+  } catch (error) {
+    console.warn('Failed to read folder snapshot:', error?.message || error);
+  }
+  return null;
+}
+
+/**
+ * 写入文件夹统计快照。失败不影响主流程（下次仍走全表扫描）。
+ */
+async function writeFolderSnapshot(env, snapshot) {
+  try {
+    await env.img_url.put(FSTAT_KEY, '', { metadata: snapshot });
+  } catch (error) {
+    console.warn('Failed to write folder snapshot:', error?.message || error);
+  }
+}
+
+/**
+ * 失效文件夹快照。任何会改变文件夹结构的写操作后调用，使下次读取重建。
+ */
+async function invalidateFolderSnapshot(env) {
+  try {
+    await env.img_url.delete(FSTAT_KEY);
+  } catch (error) {
+    console.warn('Failed to invalidate folder snapshot:', error?.message || error);
+  }
+}
+
+/**
+ * 把快照还原成 buildFolderNodes 需要的输入形态，保证输出字段完全一致。
+ */
+function snapshotToNodes(snapshot, storageFilter) {
+  // storageFilter 依赖每个文件的 storageType，快照未记录该维度；
+  // 传入过滤条件时退回全量扫描，保证筛选结果正确。
+  if (storageFilter) return null;
+
+  const folders = snapshot.folders || {};
+  const paths = Object.keys(folders).sort((a, b) => {
+    const depthA = a.split('/').length;
+    const depthB = b.split('/').length;
+    if (depthA !== depthB) return depthA - depthB;
+    return a.localeCompare(b, 'en', { sensitivity: 'base' });
+  });
+
+  return paths.map((pathValue) => {
+    const parts = pathValue.split('/');
+    return {
+      path: pathValue,
+      name: parts[parts.length - 1] || pathValue,
+      parentPath: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
+      depth: parts.length,
+      fileCount: folders[pathValue]?.count || 0,
+    };
+  });
 }
 
 function folderStartsWith(pathValue, parentPath) {
@@ -127,6 +255,23 @@ export async function onRequestGet(context) {
     return json({ success: false, error: 'KV binding img_url is not configured.' }, 500);
   }
 
+  const baseResponse = (folders) => {
+    const response = json({ success: true, folders });
+    response.headers.set('Cache-Control', 'no-store, max-age=0');
+    return response;
+  };
+
+  // 快路径：读 fstat: 快照（1 次读），直接给出文件夹树，不再全表扫描。
+  // 带 storage 过滤时快照不含该维度，退回全量扫描以保证筛选正确。
+  if (!storageFilter) {
+    const snapshot = await readFolderSnapshot(env);
+    if (snapshot) {
+      const nodes = snapshotToNodes(snapshot, storageFilter);
+      if (nodes) return baseResponse(nodes);
+    }
+  }
+
+  // 回落：全量扫描，顺带重建快照供后续请求使用
   const allKeys = await listAllKeys(env);
   const fileRecords = allKeys
     .filter(shouldIncludeFileRecord)
@@ -144,12 +289,12 @@ export async function onRequestGet(context) {
     .filter(isFolderMarker)
     .filter((item) => matchStorage(inferStorageType(item.name, item.metadata || {}), storageFilter));
 
-  const response = json({
-  success: true,
-  folders: buildFolderNodes(fileRecords, folderMarkers),
-});
-response.headers.set('Cache-Control', 'no-store, max-age=0');
-return response;
+  // 仅在无过滤时重建快照（否则快照会丢失 storage 维度语义）
+  if (!storageFilter) {
+    await writeFolderSnapshot(env, buildFolderSnapshot(allKeys));
+  }
+
+  return baseResponse(buildFolderNodes(fileRecords, folderMarkers));
 }
 
 export async function onRequestPost(context) {
@@ -171,6 +316,7 @@ export async function onRequestPost(context) {
       TimeStamp: Date.now(),
     },
   });
+  await invalidateFolderSnapshot(env);
 
   return json({ success: true, path });
 }
@@ -246,6 +392,7 @@ export async function onRequestPut(context) {
       TimeStamp: Date.now(),
     },
   });
+  await invalidateFolderSnapshot(env);
 
   return json({
     success: true,
@@ -333,6 +480,7 @@ export async function onRequestDelete(context) {
     await env.img_url.delete(`folder:${path}`);
     deletedMarkers += 1;
   }
+  await invalidateFolderSnapshot(env);
 
   return json({
     success: true,

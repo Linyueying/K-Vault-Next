@@ -4,8 +4,17 @@ import { deleteHuggingFaceFile } from '../../../utils/huggingface.js';
 import { deleteWebDAVFile } from '../../../utils/webdav.js';
 import { deleteGitHubFile } from '../../../utils/github.js';
 import { buildTelegramBotApiUrl } from '../../../utils/telegram.js';
+import {
+  STORAGE_PREFIXES,
+  getRecordWithKey as findRecordWithKey,
+  deleteRecordIndex,
+  deleteDownloadCount,
+} from '../../../utils/file-record.js';
 
-const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
+// 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
+function getRecordWithKey(env, fileId) {
+  return findRecordWithKey(env, fileId);
+}
 
 export async function onRequest(context) {
   const { request, env, params } = context;
@@ -39,8 +48,7 @@ export async function onRequest(context) {
       if (!r2Key) throw new Error('Failed to resolve R2 key.');
 
       await env.R2_BUCKET.delete(r2Key);
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
 
       return jsonResponse({
@@ -60,8 +68,7 @@ export async function onRequest(context) {
       } catch (error) {
         console.error('S3 delete error (best-effort):', error);
       }
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
 
       return jsonResponse({
@@ -86,8 +93,7 @@ export async function onRequest(context) {
         console.error('Discord delete error (best-effort):', error);
       }
 
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
 
       return jsonResponse({
@@ -108,8 +114,7 @@ export async function onRequest(context) {
         console.error('HuggingFace delete error (best-effort):', error);
       }
 
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
 
       return jsonResponse({
@@ -131,8 +136,7 @@ export async function onRequest(context) {
         console.error('WebDAV delete error (best-effort):', error);
       }
 
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
 
       return jsonResponse({
@@ -152,8 +156,7 @@ export async function onRequest(context) {
         console.error('GitHub delete error (best-effort):', error);
       }
 
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
 
       return jsonResponse({
@@ -177,8 +180,7 @@ export async function onRequest(context) {
       telegramDeleteError = error;
       console.error('Telegram deleteMessage threw:', error);
     } finally {
-      await cleanupShareSlugMapping(env, metadata, kvKey);
-      await env.img_url.delete(kvKey);
+        await cleanupRecordArtifacts(env, metadata, kvKey);
       await purgeEdgeCache(request, fileId);
     }
 
@@ -198,20 +200,6 @@ export async function onRequest(context) {
     console.error('Delete error:', error);
     return jsonResponse({ success: false, error: error.message }, 500);
   }
-}
-
-async function getRecordWithKey(env, fileId) {
-  const hasKnownPrefix = STORAGE_PREFIXES.some((prefix) => prefix && fileId.startsWith(prefix));
-  const candidateKeys = hasKnownPrefix ? [fileId] : STORAGE_PREFIXES.map((prefix) => `${prefix}${fileId}`);
-
-  for (const key of candidateKeys) {
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) {
-      return { record, kvKey: key };
-    }
-  }
-
-  return { record: null, kvKey: fileId };
 }
 
 async function deleteTelegramMessage(messageId, env) {
@@ -286,4 +274,18 @@ async function cleanupShareSlugMapping(env, metadata = {}, kvKey = '') {
   } catch (error) {
     console.warn('Failed to cleanup share slug mapping:', error?.message || error);
   }
+}
+
+/**
+ * 删除文件记录时的统一清理：
+ *   1. 文件记录本体（kvKey）
+ *   2. share_slug 反向映射（原有逻辑，顺序与行为保持不变）
+ *   3. idxt: 索引键（新增，避免索引残留导致列表出现"幽灵条目"）
+ *   4. dlc: 下载计数键（新增）
+ */
+async function cleanupRecordArtifacts(env, metadata = {}, kvKey = '') {
+  await cleanupShareSlugMapping(env, metadata, kvKey);
+  await env.img_url.delete(kvKey);
+  await deleteRecordIndex(env, kvKey || metadata?.fileId || '');
+  await deleteDownloadCount(env, kvKey);
 }

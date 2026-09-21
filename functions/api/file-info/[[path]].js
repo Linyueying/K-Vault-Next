@@ -1,4 +1,5 @@
 ﻿import { parseSignedTelegramFileId } from '../../utils/telegram.js';
+import { getRecordWithKey as findRecordWithKey } from '../../utils/file-record.js';
 
 // 获取文件元数据 API（包括原始文件名）
 export async function onRequest(context) {
@@ -58,18 +59,7 @@ export async function onRequest(context) {
       return jsonResponse({ error: 'KV storage not available' }, 500);
     }
 
-    const prefixes = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
-    let record = null;
-    let foundKey = null;
-
-    for (const prefix of prefixes) {
-      const key = `${prefix}${fileId}`;
-      record = await env.img_url.getWithMetadata(key);
-      if (record && record.metadata) {
-        foundKey = key;
-        break;
-      }
-    }
+    const { record, kvKey: foundKey } = await findRecordWithKey(env, fileId);
 
     if (!record || !record.metadata) {
       return jsonResponse(

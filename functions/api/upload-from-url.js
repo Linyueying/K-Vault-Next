@@ -15,6 +15,7 @@ import {
 } from "../utils/telegram.js";
 import { checkAuthentication } from "../utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "../utils/guest.js";
+import { putRecordIndex } from "../utils/file-record.js";
 import { MAX_REDIRECTS, validateRedirectLocation, validateRemoteUrl } from "../utils/ssrf-guard.js";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -480,7 +481,8 @@ async function processTelegramSuccess(responseData, fileName, fileExtension, mim
   const directId = await buildTelegramDirectId(fileId, fileExtension, fileName, mimeType, fileSize, messageId, env);
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
-    await env.img_url.put(`${fileId}.${fileExtension}`, "", {
+    const telegramKvKey = `${fileId}.${fileExtension}`;
+    await env.img_url.put(telegramKvKey, "", {
       metadata: appendCommonMetadata(
         {
           TimeStamp: Date.now(),
@@ -497,6 +499,7 @@ async function processTelegramSuccess(responseData, fileName, fileExtension, mim
         folderPath
       ),
     });
+    await putRecordIndex(env, telegramKvKey);
   }
 
   const directLink = buildTelegramDirectLink(env, directId, fallbackOrigin);
@@ -561,6 +564,7 @@ async function uploadToR2(arrayBuffer, fileName, fileExtension, contentType, fil
           folderPath
         ),
       });
+      await putRecordIndex(env, `r2:${objectKey}`);
     }
 
     return jsonResponse([{
@@ -605,6 +609,7 @@ async function uploadToS3(arrayBuffer, fileName, fileExtension, contentType, fil
           folderPath
         ),
       });
+      await putRecordIndex(env, `s3:${objectKey}`);
     }
 
     return jsonResponse([{
@@ -650,6 +655,7 @@ async function uploadToDiscordStorage(arrayBuffer, fileName, fileExtension, cont
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return jsonResponse([{
@@ -692,6 +698,7 @@ async function uploadToHFStorage(arrayBuffer, fileName, fileExtension, _contentT
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return jsonResponse([{
@@ -732,6 +739,7 @@ async function uploadToWebDAVStorage(arrayBuffer, fileName, fileExtension, conte
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return jsonResponse([{
@@ -778,6 +786,7 @@ async function uploadToGitHubStorage(arrayBuffer, fileName, fileExtension, conte
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return jsonResponse([{

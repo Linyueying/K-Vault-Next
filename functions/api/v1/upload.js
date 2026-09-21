@@ -2,7 +2,10 @@ import { onRequestPost as uploadInternal } from '../../upload.js';
 import { parseSignedTelegramFileId, shouldWriteTelegramMetadata } from '../../utils/telegram.js';
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
 import { apiError, apiSuccess, buildAbsoluteUrl, parsePositiveInt } from '../../utils/api-v1.js';
+import { getRecordWithKey, putRecordIndex } from '../../utils/file-record.js';
 
+// 注意：本文件原有的前缀顺序以 r2: 开头，与其他文件不同。
+// 保留原顺序语义（同名 ID 命中多个前缀时，命中的记录必须与优化前一致）。
 const STORAGE_PREFIXES = ['r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', 'img:', 'vid:', 'aud:', 'doc:', ''];
 const SHARE_SLUG_KEY_PREFIX = 'share_slug:';
 const IDEMPOTENCY_TTL_SECONDS = 24 * 3600;
@@ -94,6 +97,19 @@ async function sha256Hex(input) {
 async function findRecordByFileId(env, fileId) {
   if (!env?.img_url) return null;
 
+  const rawId = String(fileId || '').trim();
+  const signed = await parseSignedTelegramFileId(rawId, env);
+  const hasKnownPrefix = STORAGE_PREFIXES.some((prefix) => prefix && rawId.startsWith(prefix));
+
+  // 快路径：裸 ID（非签名串）先查索引，命中即 1~2 次读直达。
+  // 未命中则回落到下面的客户端候选列表，候选顺序与优化前逐项一致。
+  if (!signed && !hasKnownPrefix) {
+    const located = await getRecordWithKey(env, rawId, { prefixes: STORAGE_PREFIXES });
+    if (located?.record?.metadata) {
+      return { key: located.kvKey, record: located.record };
+    }
+  }
+
   const candidates = [];
   const seen = new Set();
   const pushCandidate = (value) => {
@@ -103,17 +119,14 @@ async function findRecordByFileId(env, fileId) {
     candidates.push(normalized);
   };
 
-  const rawId = String(fileId || '').trim();
   pushCandidate(rawId);
 
-  const signed = await parseSignedTelegramFileId(rawId, env);
   if (signed) {
     const extension = signed.fileExtension || 'bin';
     pushCandidate(`${signed.fileId}.${extension}`);
     pushCandidate(signed.fileId);
   }
 
-  const hasKnownPrefix = STORAGE_PREFIXES.some((prefix) => prefix && rawId.startsWith(prefix));
   if (!hasKnownPrefix && !signed) {
     STORAGE_PREFIXES.forEach((prefix) => pushCandidate(`${prefix}${rawId}`));
   }
@@ -178,6 +191,8 @@ async function applyApiUploadMetadata(env, key, originalMetadata, options = {}) 
   }
 
   await env.img_url.put(key, '', { metadata: nextMetadata });
+  // 登记记录索引，使后续按裸 ID 的查找走快路径
+  await putRecordIndex(env, key, { prefixes: STORAGE_PREFIXES });
 
   if (slug && oldSlug && oldSlug !== slug) {
     await env.img_url.delete(`${SHARE_SLUG_KEY_PREFIX}${oldSlug}`);

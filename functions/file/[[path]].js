@@ -4,13 +4,17 @@ import { getHuggingFaceFile } from '../utils/huggingface.js';
 import { getWebDAVFile } from '../utils/webdav.js';
 import { getGitHubFile } from '../utils/github.js';
 import {
+  getRecordWithKey as findRecordWithKey,
+  readDownloadCount,
+  incrementDownloadCount,
+  putRecordIndex,
+} from '../utils/file-record.js';
+import {
   buildTelegramBotApiUrl,
   buildTelegramFileUrl,
   parseSignedTelegramFileId,
   shouldWriteTelegramMetadata,
 } from '../utils/telegram.js';
-
-const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
 
 const MIME_TYPES = {
   mp4: 'video/mp4',
@@ -257,19 +261,8 @@ function blockRedirect(requestUrl, request) {
 }
 
 async function getRecordWithKey(env, fileId) {
-  if (!env.img_url) return { record: null, kvKey: fileId };
-
-  const hasKnownPrefix = STORAGE_PREFIXES.some((prefix) => prefix && fileId.startsWith(prefix));
-  const candidateKeys = hasKnownPrefix ? [fileId] : STORAGE_PREFIXES.map((prefix) => `${prefix}${fileId}`);
-
-  for (const key of candidateKeys) {
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) {
-      return { record, kvKey: key };
-    }
-  }
-
-  return { record: null, kvKey: fileId };
+  // 统一走 utils/file-record.js：带前缀 ID 行为不变，裸 ID 走索引加速
+  return findRecordWithKey(env, fileId);
 }
 
 function getSharePassword(request) {
@@ -306,7 +299,9 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
   }
 
   const maxDownloads = Number(metadata.shareMaxDownloads || 0);
-  const currentDownloads = Number(metadata.shareDownloadCount || 0);
+  // 计数来源改为「独立计数键 + 元数据内联值」合并读取：
+  // 判断条件、阈值比较与 410 响应语义与优化前完全一致，仅数据来源扩展。
+  const currentDownloads = await readDownloadCount(context.env, kvKey, metadata);
   if (Number.isFinite(maxDownloads) && maxDownloads > 0 && currentDownloads >= maxDownloads) {
     return { response: errorResponse('File download limit reached', 410) };
   }
@@ -337,13 +332,8 @@ function shouldCountAsDownload(method, response) {
 }
 
 async function incrementShareDownloadCount(env, kvKey, metadata = {}) {
-  if (!env?.img_url || !kvKey || !metadata) return;
-  const nextCount = Number(metadata.shareDownloadCount || 0) + 1;
-  const nextMetadata = {
-    ...metadata,
-    shareDownloadCount: nextCount,
-  };
-  await env.img_url.put(kvKey, '', { metadata: nextMetadata });
+  // 只写独立计数键（几字节），不再重写整个 metadata，写入体积大幅下降。
+  await incrementDownloadCount(env, kvKey, metadata);
 }
 
 async function handleTelegramFile(context, fileId, record = null) {
@@ -437,8 +427,11 @@ async function backfillSignedTelegramMetadata(env, signedMeta) {
   const kvKey = `${signedMeta.fileId}.${fileExtension}`;
 
   try {
-    const existing = await env.img_url.getWithMetadata(kvKey);
-    if (existing?.metadata) return;
+    // 先查索引：命中说明该记录已登记，无需再读记录本体即可判定"已存在"。
+    // 索引未命中（老数据）才回落到 getWithMetadata 做精确判断，
+    // "已存在则不覆盖"的语义完全保留。
+    const existing = await getRecordWithKey(env, kvKey);
+    if (existing?.record?.metadata) return;
 
     await env.img_url.put(kvKey, '', {
       metadata: {
@@ -455,6 +448,8 @@ async function backfillSignedTelegramMetadata(env, signedMeta) {
         source: 'signed-backfill',
       },
     });
+    // 回填后登记索引，后续同 ID 请求走快路径
+    await putRecordIndex(env, kvKey);
   } catch (error) {
     console.warn('Signed metadata backfill skipped:', error.message);
   }

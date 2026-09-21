@@ -1,4 +1,4 @@
-﻿const PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
+﻿import { getRecordWithKey as findRecordWithKey } from '../../../utils/file-record.js';
 
 function decodeFileId(raw) {
   try {
@@ -8,18 +8,9 @@ function decodeFileId(raw) {
   }
 }
 
-async function getRecordWithKey(env, fileId) {
-  const hasKnownPrefix = PREFIXES.some((prefix) => prefix && fileId.startsWith(prefix));
-  const candidateKeys = hasKnownPrefix ? [fileId] : PREFIXES.map((prefix) => `${prefix}${fileId}`);
-
-  for (const key of candidateKeys) {
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) {
-      return { record, kvKey: key };
-    }
-  }
-
-  return { record: null, kvKey: fileId };
+// 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
+function getRecordWithKey(env, fileId) {
+  return findRecordWithKey(env, fileId);
 }
 
 function jsonResponse(body, status = 200) {

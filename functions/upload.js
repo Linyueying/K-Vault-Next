@@ -5,6 +5,7 @@ import { uploadToDiscord } from "./utils/discord.js";
 import { hasHuggingFaceConfig, uploadToHuggingFace } from "./utils/huggingface.js";
 import { hasWebDAVConfig, normalizeWebDAVPath, uploadToWebDAV } from "./utils/webdav.js";
 import { hasGitHubConfig, normalizeGitHubStoragePath, uploadToGitHub } from "./utils/github.js";
+import { putRecordIndex } from "./utils/file-record.js";
 import {
   buildTelegramDirectLink,
   buildTelegramBotApiUrl,
@@ -355,7 +356,8 @@ async function uploadToTelegramStorage(
   );
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
-    await env.img_url.put(`${fileId}.${fileExtension}`, "", {
+    const telegramKvKey = `${fileId}.${fileExtension}`;
+    await env.img_url.put(telegramKvKey, "", {
       metadata: appendCommonMetadata(
         {
           TimeStamp: Date.now(),
@@ -372,6 +374,8 @@ async function uploadToTelegramStorage(
         folderPath
       ),
     });
+    // 登记记录索引：裸 ID → 实际 kvKey，后续按 ID 读取可 1 次直达
+    await putRecordIndex(env, telegramKvKey);
   }
 
   const directLink = buildTelegramDirectLink(env, directId, fallbackOrigin);
@@ -497,6 +501,7 @@ async function uploadToR2(file, fileName, fileExtension, env, folderPath = "") {
           folderPath
         ),
       });
+      await putRecordIndex(env, `r2:${objectKey}`);
     }
 
     return new Response(JSON.stringify([{ src: `/file/r2:${objectKey}` }]), {
@@ -540,6 +545,7 @@ async function uploadToS3(file, fileName, fileExtension, env, folderPath = "") {
           folderPath
         ),
       });
+      await putRecordIndex(env, `s3:${objectKey}`);
     }
 
     return new Response(JSON.stringify([{ src: `/file/s3:${objectKey}` }]), {
@@ -584,6 +590,7 @@ async function uploadToDiscordStorage(file, fileName, fileExtension, env, folder
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
@@ -626,6 +633,7 @@ async function uploadToHFStorage(file, fileName, fileExtension, env, folderPath 
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
@@ -665,6 +673,7 @@ async function uploadToWebDAVStorage(file, fileName, fileExtension, env, folderP
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
@@ -710,6 +719,7 @@ async function uploadToGitHubStorage(file, fileName, fileExtension, env, folderP
           folderPath
         ),
       });
+      await putRecordIndex(env, kvKey);
     }
 
     return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {

@@ -1,6 +1,12 @@
-﻿const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
+﻿import {
+  getRecordWithKey as findRecordWithKey,
+  putRecordIndex,
+  STORAGE_PREFIXES as SHARED_STORAGE_PREFIXES,
+} from '../../../utils/file-record.js';
 
-const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'folder:'];
+const STORAGE_PREFIXES = SHARED_STORAGE_PREFIXES;
+
+const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'folder:', 'idxt:', 'dlc:'];
 
 function normalizeFolderPath(value = '') {
   const raw = String(value || '').replace(/\\/g, '/').trim();
@@ -54,16 +60,14 @@ function collectMoveIdentifiers(body = {}) {
 
 async function getRecordWithKey(env, fileId) {
   const normalizedId = normalizeFileIdentifier(fileId);
-  const hasKnownPrefix = STORAGE_PREFIXES.some((prefix) => prefix && normalizedId.startsWith(prefix));
-  const candidateKeys = hasKnownPrefix ? [normalizedId] : STORAGE_PREFIXES.map((prefix) => `${prefix}${normalizedId}`);
 
-  for (const key of candidateKeys) {
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) {
-      return { record, kvKey: key };
-    }
+  // 先走公共的索引加速探测（裸 ID 命中索引时 2 次读直达）
+  const located = await findRecordWithKey(env, normalizedId);
+  if (located?.record?.metadata) {
+    return located;
   }
 
+  // 原有兜底：按 fileName 全量扫描（保留原语义，仅在前述路径未命中时触发）
   let cursor = undefined;
   let matched = null;
   let matchCount = 0;
@@ -87,6 +91,7 @@ async function getRecordWithKey(env, fileId) {
   if (matchCount === 1 && matched?.name) {
     const record = await env.img_url.getWithMetadata(matched.name);
     if (record?.metadata) {
+      await putRecordIndex(env, matched.name);
       return { record, kvKey: matched.name };
     }
   }

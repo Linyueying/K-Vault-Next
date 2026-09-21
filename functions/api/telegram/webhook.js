@@ -6,6 +6,7 @@ import {
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
 } from '../../utils/telegram.js';
+import { putRecordIndex } from '../../utils/file-record.js';
 
 export async function onRequestGet(context) {
   const { request } = context;
@@ -65,7 +66,8 @@ export async function onRequestPost(context) {
     : `${media.fileId}.${media.fileExtension}`;
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
-    await env.img_url.put(`${media.fileId}.${media.fileExtension}`, '', {
+    const telegramKvKey = `${media.fileId}.${media.fileExtension}`;
+    await env.img_url.put(telegramKvKey, '', {
       metadata: {
         TimeStamp: Date.now(),
         ListType: 'None',
@@ -80,6 +82,7 @@ export async function onRequestPost(context) {
         signedLink: useSigned,
       },
     });
+    await putRecordIndex(env, telegramKvKey);
   }
 
   const directLink = buildTelegramDirectLink(env, directId, new URL(request.url).origin);
