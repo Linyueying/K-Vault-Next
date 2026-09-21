@@ -551,6 +551,52 @@ html[data-theme="dark"] .token-badge{color:var(--primary-light)}
 .token-hint{font-size:.71rem;color:var(--text-muted);margin-top:5px;line-height:1.55}
 .token-divider{height:1px;background:var(--glass-border-ice);margin:16px 0}
 
+/* 分享管理 */
+.share-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:9px;margin-bottom:16px}
+.share-stat{
+  border:1.5px solid var(--glass-border-ice);border-radius:var(--radius-md);
+  background:var(--glass-subtle);padding:11px 8px;text-align:center;
+}
+.share-stat-value{font-size:1.15rem;font-weight:800;line-height:1.2;color:var(--primary-dark)}
+.share-stat-value.ok{color:#059669}
+.share-stat-value.warn{color:#b45309}
+.share-stat-label{font-size:.68rem;color:var(--text-muted);margin-top:3px;font-weight:600}
+.share-filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:11px}
+.share-filter-btn{
+  font-family:inherit;font-size:.74rem;font-weight:700;cursor:pointer;
+  padding:5px 11px;border-radius:999px;border:1.5px solid var(--glass-border-ice);
+  background:var(--glass-surface);color:var(--text-sub);transition:var(--transition);
+  display:inline-flex;align-items:center;gap:5px;
+}
+.share-filter-btn:hover{border-color:var(--primary-light);color:var(--primary)}
+.share-filter-btn.active{background:var(--primary);border-color:var(--primary);color:#fff}
+.share-filter-count{
+  font-size:.66rem;font-weight:700;padding:0 5px;border-radius:999px;
+  background:rgba(var(--primary-rgb),.16);color:var(--primary-dark);
+}
+.share-filter-btn.active .share-filter-count{background:rgba(255,255,255,.26);color:#fff}
+.share-search{
+  display:flex;align-items:center;gap:7px;margin-left:auto;
+  border:1.5px solid var(--glass-border-ice);border-radius:999px;
+  padding:5px 12px;background:var(--glass-surface);min-width:180px;
+}
+.share-search i{color:var(--text-muted);font-size:.74rem}
+.share-search input{
+  border:none;background:transparent;outline:none;font-family:inherit;
+  font-size:.76rem;color:var(--text-main);width:100%;min-width:0;
+}
+.share-list{max-height:420px}
+.share-progress{
+  height:4px;border-radius:999px;background:rgba(148,163,184,.22);
+  margin-top:9px;overflow:hidden;
+}
+.share-progress-bar{
+  height:100%;border-radius:999px;background:var(--primary);
+  transition:width .3s var(--ease-fluid);
+}
+.share-progress-bar.near{background:#f59e0b}
+.share-progress-bar.done{background:#ef4444}
+
 /* 移动目录 */
 .move-list{max-height:260px;overflow:auto;margin:8px 0 12px;border:1.5px solid var(--glass-border-ice);border-radius:var(--radius-md);padding:5px;background:var(--glass-subtle)}
 .move-list::-webkit-scrollbar{width:6px}
@@ -861,6 +907,10 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
           </button>
           <button class="dropdown-item" @click="handleTool('tokens')">
             <i class="fas fa-key"></i><span>API Token 管理</span>
+          </button>
+          <button class="dropdown-item" @click="handleTool('shares')">
+            <i class="fas fa-share-nodes"></i><span>分享管理</span>
+            <i class="fas fa-check tick" v-if="sharePanelVisible"></i>
           </button>
           <button class="dropdown-item" @click="handleTool('paste')">
             <i class="fas fa-paste"></i><span>文本粘贴</span>
@@ -1405,6 +1455,128 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
     </div>
   </div>
 
+  <!-- ===== 分享管理 ===== -->
+  <div class="overlay" v-if="sharePanelVisible" @click.self="closeSharePanel">
+    <div class="dialog-panel wide">
+      <div class="dialog-title">
+        <i class="fas fa-share-nodes"></i>
+        <span>分享管理</span>
+      </div>
+      <div class="dialog-message">
+        所有已开启分享的文件。可在此查看<strong>有效期</strong>、<strong>下载次数</strong>与<strong>密码状态</strong>，或取消分享。
+        <br>
+        <span style="font-size:.78rem;color:var(--text-muted)">
+          下载次数仅在访问者点击「下载」时增长 —— 预览不计入。
+        </span>
+      </div>
+
+      <!-- 汇总统计 -->
+      <div class="share-stats" v-if="shareStats">
+        <div class="share-stat">
+          <div class="share-stat-value">{{ shareStats.total }}</div>
+          <div class="share-stat-label">分享总数</div>
+        </div>
+        <div class="share-stat">
+          <div class="share-stat-value ok">{{ shareStats.active }}</div>
+          <div class="share-stat-label">生效中</div>
+        </div>
+        <div class="share-stat">
+          <div class="share-stat-value" :class="{warn: shareStats.expired > 0}">{{ shareStats.expired }}</div>
+          <div class="share-stat-label">已过期</div>
+        </div>
+        <div class="share-stat">
+          <div class="share-stat-value" :class="{warn: shareStats.exhausted > 0}">{{ shareStats.exhausted }}</div>
+          <div class="share-stat-label">次数用尽</div>
+        </div>
+        <div class="share-stat">
+          <div class="share-stat-value">{{ shareStats.passwordProtected }}</div>
+          <div class="share-stat-label">密码保护</div>
+        </div>
+        <div class="share-stat">
+          <div class="share-stat-value">{{ shareStats.totalDownloads }}</div>
+          <div class="share-stat-label">累计下载</div>
+        </div>
+      </div>
+
+      <div class="token-section" style="margin-bottom:0">
+        <div class="token-section-head">
+          <div class="token-section-title">
+            <i class="fas fa-list"></i>
+            <span>分享列表（{{ filteredShares.length }} / {{ shares.length }}）</span>
+          </div>
+          <button class="action-pill-btn" :disabled="sharesLoading" @click="loadShares">
+            <i class="fas" :class="sharesLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
+          </button>
+        </div>
+
+        <!-- 筛选 -->
+        <div class="share-filters">
+          <button v-for="f in shareFilters" :key="f.value"
+                  class="share-filter-btn"
+                  :class="{active: shareFilter === f.value}"
+                  @click="shareFilter = f.value">
+            {{ f.label }}<span class="share-filter-count" v-if="shareFilterCounts[f.value]">{{ shareFilterCounts[f.value] }}</span>
+          </button>
+          <div class="share-search">
+            <i class="fas fa-magnifying-glass"></i>
+            <input type="text" v-model="shareSearch" placeholder="搜索文件名或短链…">
+          </div>
+        </div>
+
+        <div v-if="sharesLoading && !shares.length" class="token-empty">
+          <i class="fas fa-circle-notch fa-spin"></i> 加载中…
+        </div>
+        <div v-else-if="!shares.length" class="token-empty">
+          还没有任何分享。在文件列表中点击「分享」按钮即可创建。
+        </div>
+        <div v-else-if="!filteredShares.length" class="token-empty">
+          当前筛选条件下没有匹配的分享。
+        </div>
+        <div v-else class="token-list share-list">
+          <div class="token-row" v-for="s in filteredShares" :key="s.kvKey"
+               :class="{disabled: !s.active}">
+            <div class="token-row-top">
+              <span class="token-name" :title="s.fileName">{{ s.fileName }}</span>
+              <span class="token-preview">{{ formatShareSize(s.fileSize) }}</span>
+              <span class="token-badge" v-if="s.shareSlug">/s/{{ s.shareSlug }}</span>
+              <span class="token-badge off" v-else>自动短链</span>
+              <span class="token-badge" v-if="s.passwordProtected"><i class="fas fa-lock"></i> 密码</span>
+              <span class="token-badge warn" v-if="s.expired">已过期</span>
+              <span class="token-badge warn" v-else-if="s.exhausted">次数用尽</span>
+              <div class="token-row-actions">
+                <button class="mini-icon-btn" @click="copyShareLink(s)" title="复制分享链接">
+                  <i class="fas fa-link"></i>
+                </button>
+                <button class="mini-icon-btn" @click="openSharePage(s)" title="打开分享页">
+                  <i class="fas fa-arrow-up-right-from-square"></i>
+                </button>
+                <button class="mini-icon-btn danger" @click="revokeShareFromPanel(s)" title="取消分享">
+                  <i class="fas fa-ban"></i>
+                </button>
+              </div>
+            </div>
+            <div class="token-row-meta">
+              <span><i class="fas fa-hourglass-half"></i> {{ formatShareExpiry(s) }}</span>
+              <span><i class="fas fa-download"></i> {{ formatShareQuota(s) }}</span>
+              <span><i class="fas fa-database"></i> {{ s.storageType }}</span>
+              <span v-if="s.createdAt"><i class="fas fa-clock"></i> 上传 {{ formatTokenTime(s.createdAt) }}</span>
+            </div>
+            <!-- 次数进度条：只在有上限时显示 -->
+            <div class="share-progress" v-if="s.shareMaxDownloads">
+              <div class="share-progress-bar"
+                   :class="{done: s.exhausted, near: !s.exhausted && shareQuotaPercent(s) >= 80}"
+                   :style="{width: shareQuotaPercent(s) + '%'}"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-actions" style="margin-top:16px">
+        <button class="action-pill-btn" @click="closeSharePanel">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== 移动文件对话框 ===== -->
   <div class="overlay" v-if="moveVisible" @click.self="moveVisible=false">
     <div class="dialog-panel">
@@ -1630,10 +1802,53 @@ new Vue({
       folderPrefix: '',
       maxFileSizeMb: 0,
       enabled: true
-    }
+    },
+
+    /* ---------- 分享管理 ---------- */
+    sharePanelVisible: false,
+    sharesLoading: false,
+    shares: [],
+    shareStats: null,
+    shareFilter: 'all',
+    shareSearch: '',
+    shareRevokingKey: '',
+    shareFilters: [
+      { value: 'all',       label: '全部' },
+      { value: 'active',    label: '生效中' },
+      { value: 'expired',   label: '已过期' },
+      { value: 'exhausted', label: '次数用尽' },
+      { value: 'password',  label: '密码保护' }
+    ]
   },
 
   computed: {
+    /* ---------- 分享筛选 ---------- */
+    // 全量返回后在前端筛选：与文件列表的做法一致，也便于显示各项计数
+    filteredShares() {
+      const kw = this.shareSearch.trim().toLowerCase();
+      return this.shares.filter(s => {
+        if (this.shareFilter === 'active' && !s.active) return false;
+        if (this.shareFilter === 'expired' && !s.expired) return false;
+        if (this.shareFilter === 'exhausted' && !s.exhausted) return false;
+        if (this.shareFilter === 'password' && !s.passwordProtected) return false;
+        if (!kw) return true;
+        return String(s.fileName || '').toLowerCase().includes(kw)
+          || String(s.shareSlug || '').toLowerCase().includes(kw);
+      });
+    },
+
+    /** 各筛选条件的条目数，用于在按钮上显示角标 */
+    shareFilterCounts() {
+      const counts = { active: 0, expired: 0, exhausted: 0, password: 0 };
+      for (const s of this.shares) {
+        if (s.active) counts.active += 1;
+        if (s.expired) counts.expired += 1;
+        if (s.exhausted) counts.exhausted += 1;
+        if (s.passwordProtected) counts.password += 1;
+      }
+      return counts;
+    },
+
     /* ---------- 过滤 / 排序 / 分页 ---------- */
     filtered() {
       const s = this.search.trim().toLowerCase();
@@ -2409,6 +2624,8 @@ new Vue({
         this.checkStatus();
       } else if (c === 'tokens') {
         this.openTokenPanel();
+      } else if (c === 'shares') {
+        this.openSharePanel();
       } else if (c === 'paste') {
         window.open('./paste.html', '_blank');
       } else if (c === 'export') {
@@ -2434,6 +2651,139 @@ new Vue({
       this.tokenSecret = null;
       this.resetTokenForm();
     },
+
+    /* ================= 分享管理 ================= */
+    openSharePanel() {
+      this.sharePanelVisible = true;
+      this.shareFilter = 'all';
+      this.shareSearch = '';
+      this.loadShares();
+    },
+    closeSharePanel() {
+      this.sharePanelVisible = false;
+    },
+    async loadShares() {
+      this.sharesLoading = true;
+      try {
+        const res = await fetch('./api/manage/shares', {
+          headers: { 'Accept': 'application/json' },
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        if (res.status === 401) {
+          this.showToast('登录已过期，请重新登录', 'error');
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        }
+        this.shares = Array.isArray(data.shares) ? data.shares : [];
+        this.shareStats = data.stats || null;
+      } catch (err) {
+        console.error('加载分享列表失败:', err);
+        this.showToast('加载分享列表失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        this.sharesLoading = false;
+      }
+    },
+
+    /** 分享链接的完整地址（用于复制 / 打开） */
+    shareFullUrl(s) {
+      const path = s.sharePath || ('/s/' + encodeURIComponent(s.kvKey || ''));
+      return this.baseURL + path;
+    },
+    copyShareLink(s) {
+      this.copyText(this.shareFullUrl(s));
+    },
+    openSharePage(s) {
+      window.open(this.shareFullUrl(s), '_blank', 'noopener');
+    },
+
+    /** 从面板里取消分享：二次确认后调 revoke，成功即从列表移除 */
+    async revokeShareFromPanel(s) {
+      const name = s.fileName || s.kvKey;
+      if (!window.confirm(`确定要取消「${name}」的分享吗？\n\n取消后分享链接立即失效，但已用掉的下载次数会被保留（重新开启不会重置配额）。`)) {
+        return;
+      }
+      this.shareRevokingKey = s.kvKey;
+      try {
+        const res = await fetch('./api/manage/share/' + encodeURIComponent(s.kvKey), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ action: 'revoke' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        }
+        this.showToast('已取消分享', 'success');
+        // 本地剔除，避免整表重拉
+        this.shares = this.shares.filter(item => item.kvKey !== s.kvKey);
+        if (this.shareStats) {
+          this.shareStats = {
+            ...this.shareStats,
+            total: Math.max(0, this.shareStats.total - 1),
+            active: Math.max(0, this.shareStats.active - (s.active ? 1 : 0)),
+            expired: Math.max(0, this.shareStats.expired - (s.expired ? 1 : 0)),
+            exhausted: Math.max(0, this.shareStats.exhausted - (s.exhausted ? 1 : 0)),
+            passwordProtected: Math.max(0, this.shareStats.passwordProtected - (s.passwordProtected ? 1 : 0))
+          };
+        }
+      } catch (err) {
+        console.error('取消分享失败:', err);
+        this.showToast('取消分享失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        this.shareRevokingKey = '';
+      }
+    },
+
+    /* ---------- 分享展示格式化 ---------- */
+
+    /** 有效期：显示剩余时长，已过期标红 */
+    formatShareExpiry(s) {
+      if (!s.shareExpiresAt) return '永久有效';
+      const remain = Number(s.shareExpiresAt) - Date.now();
+      if (remain <= 0) return '已过期（' + this.formatTokenTime(s.shareExpiresAt) + '）';
+      return '还剩 ' + this.formatShareDuration(remain) + '（至 ' + this.formatTokenTime(s.shareExpiresAt) + '）';
+    },
+
+    /** 下载次数：`已用 / 上限`，无上限时只显示已用 */
+    formatShareQuota(s) {
+      const used = Number(s.downloadCount) || 0;
+      if (!s.shareMaxDownloads) return '已下载 ' + used + ' 次 · 不限';
+      return '已下载 ' + used + ' / ' + s.shareMaxDownloads + ' 次';
+    },
+
+    /** 次数进度百分比，用于进度条 */
+    shareQuotaPercent(s) {
+      const max = Number(s.shareMaxDownloads) || 0;
+      if (max <= 0) return 0;
+      const used = Number(s.downloadCount) || 0;
+      return Math.min(100, Math.round((used / max) * 100));
+    },
+
+    formatShareDuration(ms) {
+      const seconds = Math.max(0, Math.floor(ms / 1000));
+      if (seconds < 60) return seconds + ' 秒';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + ' 分钟';
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + ' 小时';
+      return Math.floor(hours / 24) + ' 天';
+    },
+
+    formatShareSize(bytes) {
+      const value = Number(bytes) || 0;
+      if (value <= 0) return '—';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0;
+      let size = value;
+      while (size >= 1024 && i < units.length - 1) { size /= 1024; i += 1; }
+      return (i === 0 ? size : size.toFixed(size >= 100 ? 0 : 1)) + ' ' + units[i];
+    },
+
     resetTokenForm() {
       this.tokenEditingId = '';
       this.tokenForm = {
