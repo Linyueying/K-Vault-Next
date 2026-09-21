@@ -815,15 +815,6 @@ function getOwnerId(auth) {
   return value || null;
 }
 
-function getMissingChunks(uploaded, total) {
-  const uploadedSet = new Set(uploaded || []);
-  const missing = [];
-  for (let i = 0; i < total; i++) {
-    if (!uploadedSet.has(i)) missing.push(i);
-  }
-  return missing;
-}
-
 function validateCompletionTarget(storageMode, fileSize) {
   if (storageMode === 'r2' && fileSize > MAX_FILE_SIZE_R2) {
     return {

@@ -82,7 +82,46 @@ if (!fileId) {
 
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
-      return handleSignedTelegramFile(context, signedTelegramMeta);
+      // Signed links must go through the same share controls, block-list and
+      // whitelist rules as the regular path. Previously this branch returned
+      // before any of them ran, so expiry / password / download cap and
+      // block / whitelist were all silently bypassed.
+      const signedUrl = new URL(request.url);
+      const signedRecord = await getRecordWithKey(
+        env,
+        `${signedTelegramMeta.fileId}.${signedTelegramMeta.fileExtension || 'bin'}`
+      );
+      const signedMetadata = signedRecord?.metadata || null;
+
+      let signedShareAccess = null;
+      if (signedMetadata) {
+        signedShareAccess = await verifyShareAccess(context, signedMetadata, signedRecord.kvKey);
+        if (signedShareAccess?.response) {
+          return signedShareAccess.response;
+        }
+        if (shouldBlock(signedMetadata)) {
+          return blockRedirect(signedUrl, request);
+        }
+      }
+
+      // No KV record means the list type is unknown, so whitelist mode has to
+      // deny instead of allowing the file through.
+      if (shouldWhitelistDeny(env, signedMetadata || {})) {
+        return Response.redirect(`${signedUrl.origin}/whitelist-on.html`, 302);
+      }
+
+      const signedResponse = await handleSignedTelegramFile(context, signedTelegramMeta);
+
+      if (signedShareAccess?.trackDownload && shouldCountAsDownload(request.method, signedResponse)) {
+        const updatePromise = incrementShareDownloadCount(env, signedShareAccess.kvKey, signedShareAccess.metadata);
+        if (typeof context.waitUntil === 'function') {
+          context.waitUntil(updatePromise.catch(() => {}));
+        } else {
+          updatePromise.catch(() => {});
+        }
+      }
+
+      return signedResponse;
     }
 
     const recordResult = await getRecordWithKey(env, fileId);

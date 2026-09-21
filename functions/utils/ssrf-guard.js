@@ -2,9 +2,8 @@
  * SSRF guard for remote URL imports (requirement #6).
  *
  * Cloudflare Workers cannot perform custom DNS resolution, so this guard
- * enforces hostname-literal and protocol rules. Docker uses the Node variant
- * (server/lib/utils/ssrf-guard.js) which additionally resolves DNS and checks
- * every resolved IP. Redirects must be re-validated on every hop by callers.
+ * enforces hostname-literal and protocol rules. Redirects must be re-validated
+ * on every hop by callers.
  */
 
 const BLOCKED_HOSTNAMES = new Set([

@@ -15,30 +15,43 @@ const MINIMIZED_USAGE_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 function resolveRequiredScope(request) {
   const pathname = new URL(request.url).pathname.replace(/\/+$/, '');
   const method = String(request.method || 'GET').toUpperCase();
+  const isReadMethod = method === 'GET' || method === 'HEAD';
 
   const base = '/api/v1';
   if (!pathname.startsWith(base)) return '';
   const subPath = pathname.slice(base.length) || '/';
 
   // Public, no bearer required:
-  if (method === 'GET' && subPath === '/capabilities') return '';
+  if (isReadMethod && subPath === '/capabilities') return '';
 
   // Introspection: any valid token, no specific scope ("@me" sentinel).
-  if (method === 'GET' && subPath === '/me') return '@me';
+  if (isReadMethod && subPath === '/me') return '@me';
 
   if (method === 'POST' && subPath === '/upload') return 'upload';
   if (method === 'POST' && subPath === '/import') return 'upload';
-  if (method === 'GET' && subPath === '/files') return 'read';
-  if (method === 'GET' && /^\/file\/[^/]+$/.test(subPath)) return 'read';
-  if (method === 'GET' && /^\/file\/[^/]+\/info$/.test(subPath)) return 'read';
-  if (method === 'DELETE' && /^\/file\/[^/]+$/.test(subPath)) return 'delete';
+  if (isReadMethod && subPath === '/files') return 'read';
+
+  // File routes are [[path]] routes, so the id can span multiple segments.
+  // Match on the prefix rather than a single-segment regex — otherwise
+  // `/api/v1/file/a/b` matched nothing and slipped through unauthenticated.
+  // Any other method still needs a valid token.
+  if (subPath === '/file' || subPath.startsWith('/file/')) {
+    if (isReadMethod) return 'read';
+    if (method === 'DELETE') return 'delete';
+    return '@me';
+  }
 
   if (method === 'POST' && subPath === '/paste') return 'paste';
-  if (method === 'GET' && subPath === '/pastes') return 'read';
-  if (method === 'GET' && /^\/paste\/[^/]+$/.test(subPath)) return 'read';
-  if (method === 'DELETE' && /^\/paste\/[^/]+$/.test(subPath)) return 'delete';
+  if (isReadMethod && subPath === '/pastes') return 'read';
+  if (subPath === '/paste' || subPath.startsWith('/paste/')) {
+    if (isReadMethod) return 'read';
+    if (method === 'DELETE') return 'delete';
+    return '@me';
+  }
 
-  return '';
+  // Unknown routes fail closed: require a valid token rather than letting the
+  // request through with no authentication at all.
+  return '@me';
 }
 
 function clientTag(request) {

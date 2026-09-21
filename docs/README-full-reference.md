@@ -61,7 +61,7 @@ K-Vault 只保留一种正式部署方式：
 
 **Cloudflare Pages 部署**：使用 Cloudflare Pages 静态页面 + Pages Functions，适合免费额度、边缘函数、Cloudflare KV/R2 场景。
 
-> Docker / Nginx 自托管部署已从本仓库移除（`Dockerfile`、`docker-compose.yml`、`docker/`、镜像构建工作流及相关脚本均不再提供）。`server/` 目录作为上游 Node 运行时源码保留，仅供参考与二次开发，**不是受支持的部署目标**：其中依赖 SQLite/Redis 的能力（动态存储配置管理、审计日志查询、签名分享链接）在 Pages 部署下不可用。
+> Docker / Nginx 自托管部署已从本仓库移除（`Dockerfile`、`docker-compose.yml`、`docker/`、镜像构建工作流及相关脚本均不再提供）；上游 Node 运行时源码（`server/`）与相关服务端测试也已一并移除。依赖 SQLite/Redis 的能力（动态存储配置管理、审计日志查询、签名分享链接）在 Pages 部署下不存在。
 
 部署后的主入口：
 
@@ -148,7 +148,7 @@ npm run pages:deploy -- --project-name <你的 Pages 项目名>
 - `scripts/bootstrap-env.js`、`scripts/bootstrap-env.sh`、`scripts/docker-ci-smoke.js`、`scripts/docker-storage-doctor.js`、`scripts/storage-regression.js`
 - `package.json` 中的全部 `docker:*` 脚本
 
-`server/`（Node + Hono 运行时）源码仍然保留，但**不是受支持的部署目标**；根目录 `.env.example` 也只是该运行时的配置模板，Pages 部署不使用它。依赖 SQLite/Redis 的能力（`/api/storage/**` 动态存储配置管理、`/api/admin/audit-logs` 审计日志查询、`POST /api/share/sign` 签名分享链接）在 Pages 部署下不存在。
+`server/`（Node + Hono 运行时）源码与其服务端测试已一并移除。依赖 SQLite/Redis 的能力（`/api/storage/**` 动态存储配置管理、`/api/admin/audit-logs` 审计日志查询、`POST /api/share/sign` 签名分享链接）在 Pages 部署下不存在。
 
 ### WebDAV 回归验证
 
@@ -275,39 +275,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 3. 进入 Pages 项目 → `设置` → `函数` → `KV 命名空间绑定`
 4. 添加绑定：变量名 `img_url`，选择创建的命名空间
 5. 重新部署项目
-
-### 前端 UI 设计配置（跨端同步）
-
-支持在后台统一设置全站 UI 风格（首页、图库、后台、WebDAV、登录页）。
-
-**入口位置：**
-
-1. 打开管理后台：`/admin.html`
-2. 点击工具栏中的 **前端 UI 设计**（滑杆图标）
-3. 在弹窗中调整样式并点击 **保存设置**
-
-**可配置项：**
-
-- 背景图（全站 / 登录页单独）
-- 卡片透明度与模糊强度（毛玻璃效果）
-- 动态背景特效类型与强度（含移动端优化）
-
-**持久化机制：**
-
-- Cloudflare Pages：写入 KV 键 `ui_config`（通过 `img_url` 绑定访问）
-- Node 运行时（`server/`，非部署目标）：写入 `data/ui_config.json`
-- 前端会在接口失败时降级到 `localStorage`（仅本机生效）
-
-**接口说明：**
-
-- `GET /api/ui-config`：读取配置（页面初始化自动调用）
-- `POST /api/ui-config`：保存配置（需管理员登录态）
-
-**快速排查：**
-
-- `GET /api/ui-config` 返回 `source: "default"`：表示服务端尚未保存过配置，或写入失败
-- Cloudflare 场景请确认：Pages 项目已绑定 KV（变量名必须是 `img_url`），且变更后已重新部署
-- 若保存后跨端未生效，先强制刷新页面缓存（`Ctrl+F5` / 无痕窗口），再查看 Functions 日志中的 `/api/ui-config` 请求记录
 
 ### R2 存储（大文件支持，可选）
 
@@ -533,27 +500,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | `CHUNK_BACKEND` | 分片临时存储后端（`auto`/`r2`/`kv`） | `auto` |
 | `disable_telemetry` | 禁用遥测 | - |
 
-### Node 运行时变量（`server/`，非部署目标）
-
-> 以下变量只对仓库内保留的 Node 运行时（`server/`）生效。**本仓库不再提供该运行时的部署路径**，列出仅供参考与二次开发；Pages 部署不使用其中任何一项。
-
-| 变量名 | 说明 | 默认值 |
-| :--- | :--- | :--- |
-| `PORT` | Node 运行时 API 服务端口 | `8787` |
-| `DATA_DIR` | 数据目录 | `./data` |
-| `DB_PATH` | SQLite 数据库路径 | `./data/k-vault.db` |
-| `CHUNK_DIR` | 分片临时目录 | `./data/chunks` |
-| `CONFIG_ENCRYPTION_KEY` | 用于加密存储配置密钥，需显式设置 | 无默认 |
-| `SESSION_SECRET` | 会话/签名密钥，需显式设置 | 无默认 |
-| `UPLOAD_MAX_SIZE` | 最大上传大小（字节） | `104857600` |
-| `UPLOAD_SMALL_FILE_THRESHOLD` | 直传/分片策略阈值（字节） | `20971520` |
-| `CHUNK_SIZE` | 分片大小（字节） | `5242880` |
-| `DEFAULT_STORAGE_TYPE` | 启动时默认存储类型（`telegram`/`r2`/`s3`/`discord`/`huggingface`/`webdav`/`github`） | `telegram` |
-| `SETTINGS_STORE` | 基础设置存储后端（`sqlite` 或 `redis`） | `sqlite` |
-| `SETTINGS_REDIS_URL` | Redis URL（Upstash/Redis/KVrocks，`SETTINGS_STORE=redis` 时必填） | - |
-| `SETTINGS_REDIS_PREFIX` | Redis 键前缀 | `k-vault` |
-| `SETTINGS_REDIS_CONNECT_TIMEOUT_MS` | Redis 连接/心跳超时（毫秒） | `5000` |
-
 ---
 
 ## 页面说明
@@ -688,11 +634,11 @@ curl -X POST "https://your-kvault-domain/api/admin/tokens" \
 
 以下接口都要求先配置 `BASIC_USER` + `BASIC_PASS`（Cookie 会话或 HTTP Basic 均可）：
 
-`/api/admin/**`、`/api/manage/**`、`/api/storage/**`、`/api/settings`、`POST /api/ui-config`、`POST /api/share/sign`
+`/api/admin/**`、`/api/manage/**`、`/api/storage/**`、`/api/settings`、`POST /api/share/sign`
 
 **未配置账密时统一返回 `503 ADMIN_AUTH_NOT_CONFIGURED`，而不是放行。**此前 `/api/manage/**` 在未配置账密时会对公网完全开放（包括删除、重命名、移动、黑白名单等写操作），现已与该策略对齐；Pages 与保留的 Node 运行时两端行为一致。
 
-> 其中 `/api/storage/**` 与 `POST /api/share/sign` 只存在于保留的 Node 运行时（`server/`），Pages 部署下这些路由不存在。
+> `/api/storage/**` 与 `POST /api/share/sign` 不属于 Pages 部署，Pages 下这些路由不存在。
 
 两个例外与说明：
 

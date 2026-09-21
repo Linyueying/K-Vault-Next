@@ -53,14 +53,6 @@ export function parsePositiveInt(rawValue, { defaultValue = 0, min = 1, max = Nu
   return Math.min(Math.max(parsed, min), max);
 }
 
-export function parseBoolean(rawValue, fallback = false) {
-  if (rawValue == null) return fallback;
-  const value = String(rawValue).trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on', 'enabled', 'enable'].includes(value)) return true;
-  if (['0', 'false', 'no', 'off', 'disabled', 'disable'].includes(value)) return false;
-  return fallback;
-}
-
 export function buildAbsoluteUrl(request, path) {
   const origin = new URL(request.url).origin;
   const normalizedPath = String(path || '').startsWith('/') ? String(path) : `/${String(path || '')}`;

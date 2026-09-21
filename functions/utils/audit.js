@@ -53,26 +53,3 @@ export async function writeAuditLog(env, entry = {}) {
   }
 }
 
-export async function listAuditLogs(env, { limit = 100 } = {}) {
-  if (!env?.img_url) return [];
-  const keys = [];
-  let cursor;
-  let guard = 0;
-  do {
-    const page = await env.img_url.list({ prefix: 'audit:', limit: 1000, cursor });
-    keys.push(...(page.keys || []).map((item) => item.name));
-    cursor = page.list_complete ? undefined : page.cursor;
-    guard += 1;
-  } while (cursor && guard < 100);
-
-  const records = await Promise.all(
-    keys.slice(-limit).map(async (key) => {
-      try {
-        return await env.img_url.get(key, { type: 'json' });
-      } catch {
-        return null;
-      }
-    })
-  );
-  return records.filter(Boolean).sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
-}

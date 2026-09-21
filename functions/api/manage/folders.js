@@ -111,19 +111,6 @@ async function listAllKeys(env) {
   return all;
 }
 
-async function findRecordWithKey(env, fileId) {
-  const hasKnownPrefix = STORAGE_PREFIXES.some((prefix) => prefix && fileId.startsWith(prefix));
-  const candidateKeys = hasKnownPrefix ? [fileId] : STORAGE_PREFIXES.map((prefix) => `${prefix}${fileId}`);
-
-  for (const key of candidateKeys) {
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) {
-      return { record, kvKey: key };
-    }
-  }
-  return { record: null, kvKey: fileId };
-}
-
 function folderStartsWith(pathValue, parentPath) {
   const normalizedPath = normalizeFolderPath(pathValue);
   const normalizedParent = normalizeFolderPath(parentPath);

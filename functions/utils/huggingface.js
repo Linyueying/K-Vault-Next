@@ -401,14 +401,6 @@ export async function getHuggingFaceFile(pathInRepo, env, options = {}) {
 }
 
 /**
- * 获取文件的公开下载 URL
- */
-export function getHuggingFacePublicUrl(pathInRepo, env) {
-    const { repo } = getHuggingFaceConfig(env);
-    return repo ? `${HF_BASE_URL}/datasets/${repo}/resolve/main/${pathInRepo}` : '';
-}
-
-/**
  * 从 HuggingFace Dataset 删除文件
  */
 export async function deleteHuggingFaceFile(pathInRepo, env) {

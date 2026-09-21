@@ -29,30 +29,8 @@ async function errorHandling(context) {
     }
   }
 
-  function UnauthorizedException(reason) {
-    return new Response(reason, {
-        status: 401,
-        statusText: 'Unauthorized',
-        headers: {
-          'Content-Type': 'text/plain;charset=UTF-8',
-          'Cache-Control': 'no-store',
-          'Content-Length': reason.length,
-        },
-      });
-  }
-  
-  function BadRequestException(reason) {
-    return new Response(reason, {
-        status: 400,
-        statusText: 'Bad Request',
-        headers: {
-          'Content-Type': 'text/plain;charset=UTF-8',
-          'Cache-Control': 'no-store',
-          'Content-Length': reason.length,
-        },
-      });
-  }
-  
+    
+    
   
   async function authentication(context) {
     // 检查 KV 是否绑定

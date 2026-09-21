@@ -12,18 +12,3 @@ export function redactSecrets(input) {
   return input.replace(TOKEN_PATTERN, REDACTED);
 }
 
-export function redactErrorMessage(error) {
-  if (error == null) return '';
-  const message = typeof error === 'string' ? error : String(error?.message || error);
-  return redactSecrets(message);
-}
-
-export function safeLogError(error, ...rest) {
-  try {
-    console.error(redactErrorMessage(error), ...rest.map((item) => (
-      typeof item === 'string' ? redactSecrets(item) : item
-    )));
-  } catch {
-    // logging must never throw
-  }
-}

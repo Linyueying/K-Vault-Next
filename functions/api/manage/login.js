@@ -3,7 +3,6 @@ import { checkAuthentication } from '../../utils/auth.js';
 /**
  * Login entry helper.
  *
- * Mirrors the Docker runtime (server/app.js GET /api/manage/login):
  *   - already authenticated -> /admin.html
  *   - otherwise             -> /login.html?redirect=%2Fadmin.html
  *

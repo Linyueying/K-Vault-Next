@@ -1,54 +1,34 @@
+<div align="center">
+
+<img src="logo.png" alt="K-Vault Logo" width="140">
+
 # K-Vault-Next · 一云
 
-> 基于 **Cloudflare Pages** 的 Serverless 云盘 / 图床，支持 Telegram、R2、S3、Discord、HuggingFace、WebDAV、GitHub 七种存储后端
+**中文** | [English](README-EN.md)
+
+</div>
+
+> 跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图床，支持 Telegram、R2、S3、Discord、HuggingFace、WebDAV、GitHub 七种存储后端
+
+文件存进你选的存储后端，元数据写进 Cloudflare KV，对外提供直链、预览、目录管理、API Token 和机器可调用接口。
+
+**只有一种部署形态**：Cloudflare Pages（根目录静态页 + `functions/` 下的 Pages Functions）。无构建步骤、无 Docker、无服务器运维，免费额度内零成本。
 
 ---
 
-## 这是什么
+## 它能做什么
 
-K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文件上传到你选择的存储后端，元数据写入 Cloudflare KV，对外提供直链、预览、目录管理、API Token 与机器可调用接口。
-
-**只有一种部署形态**：Cloudflare Pages（静态页 + Pages Functions）。无构建步骤，无 Docker，无服务器运维，免费额度内**零成本**。
-
----
-
-## 核心特性
-
-### 存储与上传
-
-- **七种存储后端**：Telegram、Cloudflare R2、S3 兼容（AWS / MinIO / B2 / 阿里云 OSS 等）、Discord、HuggingFace、WebDAV、GitHub
-- **大文件分片上传**：50MB 分片，R2 单文件上限 **10GB**；非 R2 后端 40MB
-- **智能节点分流**：一键启用 auto 模式，小文件自动走 Telegram，大文件自动走用户首选后端
-- **URL 远程转存**：服务端拉取远程 URL 后转存，内置 SSRF 防护
-- **访客上传**：可选开启，支持单文件大小与每日次数限制
-- **分享设置**：上传时可直接设置有效期、访问密码、下载次数上限、自定义短链
-- **多格式支持**：图片、视频、音频、文档、压缩包等
-
-### 管理后台
-
-- **文件管理**：搜索、排序、按存储后端筛选、分页游标加载
-- **目录树**：新建 / 重命名 / 移动 / 递归删除，文件批量移动
-- **收藏与重命名**：单文件收藏标记、显示名重命名（不改动公开直链）
-- **API Token 管理**：列出 / 新建 / 编辑（权限、策略、有效期、启停）/ 轮换 / 删除
-- **文本粘贴（Pastebin）**：创建 / 列表 / 查看 / 删除，支持语言标记、过期与访问密码
-- **存储状态面板**：各后端连通性、上传上限、访客配置
-
-### API 与自动化
-
-- **API Token 体系**：与网页登录态完全隔离，可吊销 / 轮换；`scopes` 按需授权
-- **Token 策略**：`allowedStorages` 限定后端、`folderPrefix` 限定目录、`maxFileSize` 限定大小
-- **幂等重试**：`Idempotency-Key` 24 小时内去重，网络重试不产生重复文件
-- **内容去重**：≤25MB 重复内容走 SHA-256 索引自动去重
-- **API v1**：文件上传 / 列表 / 下载 / 删除 + 文本 Paste 创建 / 读取 / 删除
-- **CORS 白名单**：通过 `API_CORS_ORIGINS` 控制跨域来源
-- **机器可读文档**：见 [docs/openapi.yaml](docs/openapi.yaml)，接入指南见 [docs/agent-integration.md](docs/agent-integration.md)
-
-### 安全
-
-- **管理接口 fail-closed**：未配置 `BASIC_USER` / `BASIC_PASS` 时，`/api/manage/**`、`/api/admin/**` 直接返回 `503`，而非开放给公网
-- **访客门槛统一**：`POST /api/upload-from-url` 与其它上传路径行为对齐，访客受 `GUEST_UPLOAD=true` 与大小 / 次数限制
-- **`GET /api/status` 分级返回**：访客仅看到后端可用性、上传上限、能力清单；连通性诊断信息仅管理员可见
-- **无遥测**：不内置任何第三方上报，无数据外流
+- **七种存储后端**，同一个上传入口切换，默认 Telegram
+- **三种上传方式**：直传、URL 转存（带 SSRF 防护）、分片上传（R2 原生 multipart 可到 10GB）
+- **智能节点选择**：auto 模式下小文件走默认后端，超过阈值的文件自动切到你指定的后端（默认 R2），阈值与后端可在首页设置
+- **管理后台**：文件搜索 / 排序 / 筛选、目录树、收藏、重命名、批量移动与删除、KV/R2 用量监控、API Token 管理
+- **文本粘贴（Pastebin）**：语言标记、有效期、访问密码
+- **文件预览**：图片、音视频、PDF、Office、Markdown、JSON、CSV、压缩包、邮件、代码文本、3D/CAD 等
+- **短分享链** `/s/:slug`，配合有效期 / 密码 / 下载次数上限
+- **API v1 + API Token**：与网页登录态完全隔离，按 scope 授权，支持幂等重试
+- **访客上传**：可选开启，可限制单文件大小与每日次数
+- **管理面 fail-closed**：没配管理员账密时管理接口直接 503，不对公网开放
+- **无遥测**：不内置任何第三方上报
 
 ---
 
@@ -56,66 +36,236 @@ K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文�
 
 | 页面 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| 首页 / 上传 | `/` | 批量上传、拖拽、粘贴上传；可设置有效期 / 密码 / 下载次数 / 短链 |
-| 管理后台 | `/admin.html` | 文件管理、目录树、收藏、存储状态、API Token 管理 |
-| 文本粘贴 | `/paste.html` | Pastebin：创建 / 列表 / 查看 / 删除 |
-| 图片浏览 | `/gallery.html` | 影像画廊 |
-| WebDAV | `/webdav.html` | WebDAV 上传 / 状态检查 / URL 上传 |
-| 文件预览 | `/preview.html` | 多格式预览，受密码保护的文件弹出密码输入 |
-| 登录 | `/login.html` | 后台登录 |
-
+| 首页 / 上传 | `/` | 拖拽、粘贴、批量上传；URL 转存；分片上传；智能节点选择；上传目录树；上传历史；直链 / Markdown / HTML / BBCode 多种格式 |
+| 管理后台 | `/admin.html` | 文件与目录管理、收藏、用量监控、API Token 管理 |
+| 文本粘贴 | `/paste.html` | 创建 / 列表 / 查看 / 删除 Paste，支持有效期与访问密码 |
+| 图片画廊 | `/gallery.html` | 图片浏览、搜索、批量复制直链 / 下载 / 删除 |
+| 文件预览 | `/preview.html` | 多格式预览，密码保护的文件会弹出密码输入 |
+| WebDAV | `/webdav.html` | WebDAV 上传与 URL 转存 |
+| 登录 | `/login.html` | 后台登录（用户名 + 密码） |
+| 拦截提示 | `/block-img.html`、`/whitelist-on.html` | 内容屏蔽 / 白名单模式下的静态提示页 |
 
 ---
 
-## 快速开始
+## 部署教程
 
-### Cloudflare Pages 部署
+### 0. 准备
 
-1. Fork 本仓库
-2. Cloudflare Dashboard → Workers & Pages → 创建 Pages 项目 → 连接本仓库
-3. **Build command 与 Build output directory 都留空**（无构建步骤）
-4. 绑定 KV：**变量名必须是 `img_url`**
-5. 配置环境变量（至少 `TG_Bot_Token`、`TG_Chat_ID`；公网部署**必须**设 `BASIC_USER` / `BASIC_PASS`）
-6. 部署完成后访问 `/` 上传、`/admin.html` 管理
+- 一个 Cloudflare 账号
+- Fork 本仓库（或用 `npm run pages:deploy` 从本地直接推）
+- 至少一个存储后端的凭据（最简单是 Telegram：一个 Bot Token + 一个 Chat ID）
 
-### R2 生命周期规则（配了 R2 的必须配）
+> **公网部署必须设置 `BASIC_USER` 和 `BASIC_PASS`**。不设的话 `/api/manage/**` 与 `/api/admin/**` 一律返回 `503 ADMIN_AUTH_NOT_CONFIGURED`，后台完全不可用。
 
-在 Cloudflare R2 控制台 → 你的存储桶 → **Settings → Object Lifecycle Rules**，添加两条规则：
+### 1. 创建 Pages 项目
+
+Cloudflare Dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**，选中你的仓库。
+
+| 配置项 | 填什么 |
+| :--- | :--- |
+| Framework preset | `None` |
+| **Build command** | **留空** |
+| **Build output directory** | **留空** |
+
+本项目没有构建步骤，根目录就是静态页 + `functions/`，填了反而会部署失败。
+
+### 2. 绑定 KV（必需）
+
+KV 存放文件元数据、会话、Token、分片任务等。**变量名必须叫 `img_url`**，写成别的名字整个项目跑不起来。
+
+Dashboard → **Workers & Pages → KV** → 创建命名空间 → 回到 Pages 项目 → **Settings → Functions → KV namespace bindings** → Variable name 填 `img_url`，选中刚建的命名空间。
+
+### 3. 绑定 R2（强烈推荐）
+
+R2 是唯一支持大文件原生分片、且不需要 KV 中转分片的后端。**绑定名必须是 `R2_BUCKET`**。
+
+Dashboard → **R2** → 创建存储桶 → 回到 Pages 项目 → **Settings → Functions → R2 bucket bindings** → Variable name 填 `R2_BUCKET`。
+
+不绑的后果：单文件超过 40MB 就传不了，分片暂存退回 KV（单片上限从 50MB 降到 20MB）。
+
+### 4. 配置环境变量
+
+在 **Settings → Environment variables** 里添加，至少要有管理员账密 + 一个存储后端。完整清单见下一章。改完需要**重新部署**才生效。
+
+### 5. R2 生命周期规则（绑了 R2 就必须配）
+
+R2 控制台 → 你的存储桶 → **Settings → Object Lifecycle Rules**，加两条：
 
 | 规则名 | 前缀 | 操作 | 天数 |
 | :--- | :--- | :--- | :--- |
 | `delete-temp-chunks` | `chunk-upload/` | Delete objects | 1 |
-| `abort-incomplete-multipart` | （留空） | Abort incomplete multipart uploads | 1 |
+| `abort-incomplete-multipart` | 留空（作用于全桶） | Abort incomplete multipart uploads | 1 |
 
-**不配会导致大文件上传中断后临时分片永久占用空间。**
+**不配会怎样**：用户传大文件传到一半关掉页面，那些临时分片会永久占着 R2 空间。代码里只有"用户再次发起上传时顺带清理"的惰性逻辑，覆盖不了用户再也不回来的情况。
+
+### 6. 本地开发
+
+```bash
+npm install
+npm start          # wrangler pages dev，已内置 --kv img_url --r2=R2_BUCKET
+```
+
+访问 `http://localhost:8080`。本地默认账密是 `admin` / `123`（写在 `npm start` 里）。
+
+部署到线上：
+
+```bash
+npm run pages:deploy      # 等价于 npx wrangler pages deploy .
+```
+
+需要 `wrangler.jsonc` 时可以用内置脚本生成并校验（纯本地生成，不连 Cloudflare API）：
+
+```bash
+npm run pages:r2:doctor                              # 打印一份 wrangler.jsonc
+node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
+```
+
+### 7. 验证
+
+- 打开 `/` 传个小文件，看能否拿到直链
+- 打开 `/admin.html` 用你设的账密登录
+- 打开 `/api/status` 看各后端状态（未登录时只返回"是否已配置"，不触发连通性探测）
+
+---
+
+## 环境变量
+
+### 管理员鉴权
+
+| 变量 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `BASIC_USER` | 管理员用户名 | 无（**必填**） |
+| `BASIC_PASS` | 管理员密码 | 无（**必填**） |
+
+两者都配好后管理接口才开放，支持 Cookie 会话与 `Authorization: Basic` 两种方式。会话 Cookie 名固定为 `k_vault_session`，不可配置。
+
+### 存储后端（至少配一个）
+
+默认后端是 **Telegram**。`storageMode` 匹配不到任何已配置后端时会回落 Telegram；**变量缺失不会自动降级到其他后端**，而是直接报错。
+
+| 后端 | 必需变量 | 可选变量 | 单文件上限 |
+| :--- | :--- | :--- | :--- |
+| **Telegram** | `TG_Bot_Token`、`TG_Chat_ID` | `CUSTOM_BOT_API_URL`、`TG_UPLOAD_NOTIFY`、`TELEGRAM_METADATA_MODE`、`TELEGRAM_LINK_MODE`、`PUBLIC_BASE_URL` | 20MB |
+| **R2** | `R2_BUCKET`（绑定名，非环境变量） | — | 10GB |
+| **S3 兼容** | `S3_ENDPOINT`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY`、`S3_BUCKET` | `S3_REGION`（默认 `us-east-1`） | 40MB |
+| **Discord** | `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID`，**或** `DISCORD_WEBHOOK_URL` | — | 25MB |
+| **HuggingFace** | `HF_TOKEN`、`HF_REPO` | — | 35MB |
+| **WebDAV** | `WEBDAV_BASE_URL` + （`WEBDAV_USERNAME`/`WEBDAV_PASSWORD`）或 `WEBDAV_BEARER_TOKEN` | `WEBDAV_ROOT_PATH`、`WEBDAV_TOKEN` | 40MB |
+| **GitHub** | `GITHUB_REPO`、`GITHUB_TOKEN` | `GITHUB_MODE`（`releases`/`contents`）、`GITHUB_PREFIX`、`GITHUB_RELEASE_TAG`、`GITHUB_BRANCH`、`GITHUB_API_BASE` | 40MB（contents 模式 20MB） |
+
+配置细节：
+
+- **Telegram 主用变量名是混合大小写的 `TG_Bot_Token` / `TG_Chat_ID`**。大写别名 `TG_BOT_TOKEN` / `TG_CHAT_ID` 只在 API v1 的能力探测与导入接口里额外识别，建议两个都写上。
+- **Discord** 优先用 Bot Token，失败才回退 Webhook。
+- **HuggingFace** 的 `HF_REPO` 是 **dataset** 仓库（`owner/name`），不是 model 仓库。
+- **WebDAV** 中 `WEBDAV_BEARER_TOKEN` 优先于 `WEBDAV_TOKEN`，两者都支持。
+
+### 上传与分享
+
+| 变量 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `CHUNK_BACKEND` | 分片暂存位置：`auto`（有 R2 就用 R2）/ `r2` / `kv` | `auto` |
+| `PUBLIC_BASE_URL` | 生成绝对直链用的站点地址 | 请求 origin |
+| `FILE_URL_SECRET` | 签名直链的 HMAC 密钥 | 依次回落 `TG_FILE_URL_SECRET` → `TG_Bot_Token` → 内置值 |
+| `GUEST_UPLOAD` | 是否允许未登录访客上传（`true` 开启） | 关闭 |
+| `GUEST_MAX_FILE_SIZE` | 访客单文件大小上限（字节） | 5242880（5MB） |
+| `GUEST_DAILY_LIMIT` | 访客每日上传次数（按 IP + 日期计） | 10 |
+| `WhiteList_Mode` | `true` 时只允许白名单内文件对外访问，其余跳 `/whitelist-on.html` | 关闭 |
+| `MINIMIZE_KV_WRITES` | `true` 时 Telegram 走签名直链且不写 KV 元数据（后台列表与删除会受影响） | 关闭 |
+
+### Telegram 专项
+
+| 变量 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `CUSTOM_BOT_API_URL` | 自部署 Bot API 服务器地址，替换官方地址 | `https://api.telegram.org` |
+| `TG_UPLOAD_NOTIFY` | 上传成功后是否发通知消息 | `true`（`TELEGRAM_UPLOAD_NOTIFY` 为别名） |
+| `TELEGRAM_METADATA_MODE` | `off` / `none` / `minimal` 关闭 KV 元数据写入，`on` / `full` 开启 | 开启 |
+| `TELEGRAM_SKIP_METADATA` | 未设 `TELEGRAM_METADATA_MODE` 时的替代开关 | 关闭 |
+| `TELEGRAM_LINK_MODE` | 设为 `signed` 强制签名直链 | 关闭 |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 校验密钥 | 无（**未设置时 webhook 不做任何校验**，`TG_WEBHOOK_SECRET` 为别名） |
+
+### API
+
+| 变量 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `API_CORS_ORIGINS` | API v1 的 CORS 白名单，逗号分隔；`*` 表示任意来源；留空不发 CORS 头 | 空 |
+
+完整清单见 [`.env.example`](.env.example)。注意 Cloudflare Pages **不读** `.env` 文件，那只是变量清单参考，实际值要在 Dashboard 或 `wrangler` 里配。
+
+---
+
+## 上传限制
+
+| 后端 | 单文件上限 | 原因 |
+| :--- | :--- | :--- |
+| R2 | 10GB | R2 原生 multipart 分片 |
+| S3 兼容 | 40MB | 需在 Worker 内存中拼装 |
+| WebDAV | 40MB | 需在 Worker 内存中拼装 |
+| GitHub | 40MB（`contents` 模式 20MB） | 需在 Worker 内存中拼装 |
+| HuggingFace | 35MB | LFS 提交 |
+| Discord | 25MB | Discord 附件限制（服务器加成可提升，这里取保守值） |
+| Telegram | 20MB | Bot API 经 Worker 内存转发 |
+
+分片规则：
+
+- R2 暂存 → **50MB/片**；KV 暂存 → **20MB/片**（KV 单值上限 25MB，留安全余量）
+- 单个任务最多 **256** 片
+- 前后端必须用同一套分片规则，否则 `init` 会报 `CHUNK_COUNT_MISMATCH`
+
+---
+
+## API 概览
+
+### 鉴权
+
+网页后台走 Cookie 会话或 HTTP Basic；API v1 走 `Authorization: Bearer kvault_<tokenId>_<secret>`。
+
+Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还可附加策略：`allowedStorages`、`allowedMimeTypes`、`maxFileSize`、`folderPrefix`、`allowedSourceHosts`、`rateLimit`。
+
+### API v1
+
+| 方法 | 路径 | scope | 说明 |
+| :--- | :--- | :--- | :--- |
+| GET | `/api/v1/capabilities` | 公开 | 已配置的后端与上传上限 |
+| GET | `/api/v1/me` | 任意有效 Token | Token 自省 |
+| POST | `/api/v1/upload` | `upload` | multipart 上传，支持 `Idempotency-Key`（24 小时内去重） |
+| POST | `/api/v1/import` | `upload` | URL 导入（带 SSRF 校验） |
+| GET | `/api/v1/files` | `read` | 分页列表 |
+| GET / DELETE | `/api/v1/file/<path>` | `read` / `delete` | 读取直链流 / 删除 |
+| GET | `/api/v1/file/<path>/info` | `read` | 元数据 |
+| POST | `/api/v1/paste` | `paste` | 创建文本粘贴 |
+| GET | `/api/v1/pastes` | `read` | 粘贴列表 |
+| GET / DELETE | `/api/v1/paste/<id>` | `read` / `delete` | 读取 / 删除（密码经 `?password=` 或 `X-Paste-Password`） |
+
+机器可读定义见 [`docs/openapi.yaml`](docs/openapi.yaml)，接入指南见 [`docs/agent-integration.md`](docs/agent-integration.md)。
+
+### 分享选项
+
+有效期、访问密码、下载次数上限、自定义短链这四个字段由**后端 API** 支持：`POST /upload`、`/api/v1/upload` 和分片上传路径都能接收并生效。首页上传界面目前**没有**暴露这些输入项，文本粘贴页提供有效期与密码。
+
+受保护文件的表现：过期或下载次数用尽返回 `410`，需要密码时返回 `401`，密码错误返回 `403`。
 
 ---
 
 ## 目录结构
 
-```
-├── index.html                  # 首页 / 上传
-├── admin.html                  # 管理后台
-├── paste.html                  # 文本粘贴前端
-├── gallery.html                # 影像画廊
-├── webdav.html / preview.html / login.html
-├── theme.css / theme.js        # 主题与全站 UI 配置
-├── functions/                  # Cloudflare Pages Functions 后端
+```text
+├── index.html admin.html paste.html gallery.html
+├── preview.html webdav.html login.html
+├── block-img.html whitelist-on.html      # 拦截提示页
+├── theme.css theme.js mobile-refactor.css
+├── functions/                            # Cloudflare Pages Functions 后端
 │   ├── api/
-│   │   ├── chunked-upload/     # 分片上传（init / chunk / complete）
-│   │   ├── auth/ manage/ admin/ v1/
-│   │   └── status.js
-│   ├── file/[[path]].js        # 文件直链（支持多层路径）
-│   ├── file-info/[[path]].js   # 文件元信息
-│   ├── utils/
-│   │   ├── chunk-limits.js     # 分片共享常量
-│   │   ├── share-options.js    # 有效期 / 密码 / 下载次数 / 短链
-│   │   └── auth.js 等
-│   └── s/[slug].js             # 短分享链
-├── server/                     # 上游 Node 运行时源码（非部署目标，仅供参考）
-├── test/                       # 测试
-├── docs/                       # OpenAPI、接入指南、完整配置参考
-└── .github/workflows/          # 仅 CI 测试
+│   │   ├── auth/ manage/ admin/ v1/      # 鉴权 / 管理 / Token / API v1
+│   │   ├── chunked-upload/               # 分片上传 init / chunk / complete
+│   │   └── status.js upload-from-url.js telegram/webhook.js
+│   ├── file/[[path]].js                  # 文件直链（多层路径、密码、黑白名单）
+│   ├── file-info/[[path]].js             # 文件元信息
+│   ├── s/[slug].js                       # 短分享链
+│   └── utils/                            # 存储适配器与公共工具
+├── scripts/                              # wrangler 配置生成 / 校验工具
+├── docs/                                 # OpenAPI、接入指南、完整配置参考
+└── .env.example                          # 变量清单（Pages 不读此文件）
 ```
 
 ---
@@ -124,27 +274,25 @@ K-Vault-Next 是一个轻量、免费、可自部署的 Serverless 云盘。文�
 
 | 文档 | 内容 |
 | :--- | :--- |
-| [docs/README-full-reference.md](docs/README-full-reference.md) | **完整配置参考**：全部环境变量、各后端详细配置步骤、API 使用指南、ShareX 配置、使用限制，部分内容可能不适用于Next版 |
-| [docs/oenapi.yaml](docs/openapi.yaml) | API v1 机器可读定义 |
-| [docs/agent-integration.md](docs/agent-integration.md) | Agent / 脚本接入指南 |
-| [docs/cloudflare-pages-r2.md](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
-| [PROJECT_INTRO.md](PROJECT_INTRO.md) | 项目定位与架构说明 |
+| [`docs/README-full-reference.md`](docs/README-full-reference.md) | 全部环境变量、各后端配置步骤、API 用法、使用限制 |
+| [`docs/openapi.yaml`](docs/openapi.yaml) | API v1 机器可读定义 |
+| [`docs/agent-integration.md`](docs/agent-integration.md) | Agent / 脚本接入指南 |
+| [`docs/cloudflare-pages-r2.md`](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
+| [`PROJECT_INTRO.md`](PROJECT_INTRO.md) | 项目定位与架构说明 |
 
 ---
 
 ## 致谢
 
-本项目的后端实现来自 **K-Vault**，感谢原作者与社区：
+后端能力源自 **K-Vault**，感谢原作者与社区：
 
-- [katelya77/K-Vault](https://github.com/katelya77/K-Vault) — 全部后端能力的来源
-- [Telegraph-Image](https://github.com/cf-pages/Telegraph-Image) — 早期 Serverless 图床形态参考
-- [CloudFlare-ImgBed](https://github.com/MarSeventh/CloudFlare-ImgBed) — 同类优秀开源图床项目
+- katelya77/K-Vault — 后端能力的来源
+- Telegraph-Image — 早期 Serverless 图床形态参考
+- CloudFlare-ImgBed — 同类优秀开源图床项目
 - Linux.do 社区用户反馈
 
-本项目在上游基础上主要完成了前端重写、鉴权加固、分片上传升级（50MB / 10GB）、多层路径路由、KV 写入优化等工作。
-
----
+本项目在上游基础上完成了前端重写、鉴权加固、分片上传升级、多层路径路由等工作。
 
 ## 许可证
 
-[CC0 1.0 Universal](LICENSE) — 可自由使用、修改与分发。
+CC0 1.0 Universal — 可自由使用、修改与分发。
