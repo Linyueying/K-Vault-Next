@@ -784,23 +784,231 @@
         font-size: 0.68rem;
       }
 
-      .result-item-card {
+      /* =========================================================
+         ===== 交付结果（Apple 风格：原生 inset 列表 + 分组操作条） =====
+         设计要点：
+         1. 一组连续行合成一张「列表卡」，靠分隔线（而非外框）区分行；
+         2. 每行只有「内容 + 选择」两个视觉元素，操作收进行级动作带；
+         3. 尺寸用 4pt 栅格，阴影只用于分层、不用来装饰；
+         4. 长链接横向裁切为一行，不再竖排撑爆行高。
+         ========================================================= */
+      .apple-result-group {
+        border-radius: 14px;
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        overflow: hidden;
+      }
+      html[data-theme="dark"] .apple-result-group {
+        background: var(--glass-subtle);
+        border-color: var(--glass-border);
+      }
+
+      .apple-result-row {
+        position: relative;
+        padding: 12px 14px;
+        transition: background-color 0.18s var(--ease-fluid);
+      }
+      /* 行分隔线：左侧从文字起始处开始，与 iOS 列表一致 */
+      .apple-result-row + .apple-result-row::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 14px;
+        right: 0;
+        height: 1px;
+        background: var(--text-main);
+        opacity: 0.07;
+        pointer-events: none;
+      }
+      html[data-theme="dark"] .apple-result-row + .apple-result-row::before {
+        opacity: 0.12;
+      }
+      .apple-result-row:hover { background: rgba(var(--primary-rgb), 0.035); }
+      .apple-result-row.is-selected { background: rgba(var(--primary-rgb), 0.05); }
+      html[data-theme="dark"] .apple-result-row.is-selected { background: rgba(var(--primary-rgb), 0.1); }
+
+      /* 行头部：选择控件 + 缩略图 + 文件名 */
+      .apple-result-head {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px 14px;
-        border-radius: var(--radius-md);
-        background: var(--glass-subtle);
-        border: 1px solid var(--glass-border);
-        margin-bottom: 8px;
+      }
+      .apple-result-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .apple-result-file {
+        font-size: 0.9rem;
+        font-weight: 590;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .apple-result-sub {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 3px;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .apple-result-sub i { font-size: 0.66rem; opacity: 0.85; }
+
+      /* 分享短链：单行横向裁切，永不换行撑高行高 */
+      .apple-share-link {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 2px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.68rem;
+        color: var(--primary);
+        cursor: pointer;
+        min-width: 0;
+      }
+      .apple-share-link i { font-size: 0.6rem; flex: none; opacity: 0.8; }
+      .apple-share-link span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .apple-share-link:hover span { text-decoration: underline; }
+
+      /* 行操作带：等宽图标按钮，独立一行，互相有呼吸感 */
+      .apple-result-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        padding-left: 44px;
+      }
+      .apple-result-actions .mini-icon-btn {
+        flex: none;
+      }
+      .apple-action-spacer { flex: 1 1 auto; }
+
+      /* Apple 方形勾选框：1px 描边 + 勾选填充，去掉圆角药丸感 */
+      .apple-check {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 22px;
+        height: 22px;
+        flex: none;
+        margin: 0;
+        border-radius: 50%;
+        border: 1.5px solid rgba(100, 116, 139, 0.42);
+        background: transparent;
+        cursor: pointer;
+        position: relative;
         transition: var(--transition);
       }
-      .result-item-card:hover {
-        background: var(--glass-surface);
-        border-color: var(--primary-light);
-        transform: translateX(2px);
+      .apple-check:hover { border-color: var(--primary); }
+      .apple-check:checked {
+        border-color: var(--primary);
+        background: var(--primary);
+        box-shadow: 0 1px 4px rgba(var(--primary-rgb), 0.35);
       }
-      /* 结果卡片文件名：独占整行空间，长名最多两行 */
+      .apple-check:checked::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 5px;
+        height: 9px;
+        border: solid #ffffff;
+        border-width: 0 2px 2px 0;
+        transform: translate(-50%, -58%) rotate(45deg);
+      }
+      html[data-theme="dark"] .apple-check {
+        border-color: rgba(148, 163, 184, 0.5);
+      }
+
+      /* 结果面板内置分组条（替代标题栏里挤成一排的按钮） */
+      .apple-group-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+        padding: 7px 8px 7px 12px;
+        border-radius: 12px;
+        background: var(--glass-subtle);
+        border: 1px solid var(--glass-border-ice);
+      }
+      html[data-theme="dark"] .apple-group-bar {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .apple-group-count {
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: var(--text-sub);
+        letter-spacing: -0.005em;
+        white-space: nowrap;
+      }
+      .apple-group-btns {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      /* 统一胶囊按钮（标题栏 / 分组条共用），互相覆盖掉行内联样式 */
+      .apple-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 12px;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-sub);
+        font-family: inherit;
+        font-size: 0.78rem;
+        font-weight: 590;
+        letter-spacing: -0.005em;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: var(--transition);
+      }
+      .apple-pill i { font-size: 0.72rem; }
+      .apple-pill:hover {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.4);
+        background: rgba(var(--primary-rgb), 0.06);
+      }
+      .apple-pill:active { transform: scale(0.97); }
+      .apple-pill.primary {
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: #ffffff;
+        box-shadow: 0 3px 10px rgba(var(--primary-rgb), 0.26);
+      }
+      .apple-pill.primary:hover {
+        color: #ffffff;
+        box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.34);
+      }
+      .apple-pill.primary:disabled {
+        box-shadow: none;
+        background: rgba(100, 116, 139, 0.16);
+        color: var(--text-muted);
+        cursor: not-allowed;
+      }
+      .apple-pill:disabled { cursor: not-allowed; opacity: 0.55; }
+      .apple-pill:disabled:hover { transform: none; }
+      .apple-pill.warn { color: #d97706; border-color: rgba(245, 158, 11, 0.4); }
+      .apple-pill.warn:hover { color: #b45309; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.55); }
+      .apple-pill.danger-tint { color: #e11d48; border-color: rgba(244, 63, 94, 0.32); }
+      .apple-pill.danger-tint:hover { color: #be123c; background: rgba(244, 63, 94, 0.08); border-color: rgba(244, 63, 94, 0.5); }
+
       .result-name-text {
         font-size: 0.88rem;
         font-weight: 600;
@@ -812,12 +1020,13 @@
         overflow: hidden;
       }
       .mini-icon-btn {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
+        width: 34px;
+        height: 30px;
+        border-radius: 9px;
         border: 1px solid var(--glass-border);
         background: var(--glass-surface);
         color: var(--text-sub);
+        font-size: 0.8rem;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -1119,29 +1328,42 @@
 
       .batch-links-box {
         width: 100%;
-        min-height: 80px;
-        padding: 10px;
-        border-radius: var(--radius-sm);
-        border: 1.5px solid var(--glass-border-ice);
+        min-height: 92px;
+        margin-top: 8px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--glass-border);
         background: var(--glass-subtle);
         color: var(--text-main);
         font-family: 'JetBrains Mono', monospace;
-        font-size: 0.8rem;
+        font-size: 0.76rem;
+        line-height: 1.7;
+        letter-spacing: -0.01em;
         resize: vertical;
         outline: none;
-        margin-top: 8px;
+        transition: var(--transition);
+      }
+      .batch-links-box:focus {
+        border-color: rgba(var(--primary-rgb), 0.45);
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+      }
+      html[data-theme="dark"] .batch-links-box {
+        background: rgba(255, 255, 255, 0.03);
       }
 
+      /* 折叠开关：去掉虚线圈，做成克制的文字行 */
       .batch-preview-toggle {
         width: 100%;
-        margin-top: 10px;
-        padding: 8px 12px;
-        border-radius: var(--radius-sm);
-        border: 1px dashed var(--glass-border-ice);
-        background: transparent;
+        margin-top: 12px;
+        padding: 9px 12px;
+        border-radius: 11px;
+        border: 1px solid transparent;
+        background: var(--glass-subtle);
         color: var(--text-sub);
+        font-family: inherit;
         font-size: 0.78rem;
-        font-weight: 600;
+        font-weight: 590;
+        letter-spacing: -0.005em;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -1150,12 +1372,12 @@
         transition: var(--transition);
       }
       .batch-preview-toggle:hover {
-        border-color: var(--primary-light);
-        background: var(--glass-subtle);
+        background: rgba(var(--primary-rgb), 0.07);
         color: var(--primary);
       }
       .batch-preview-toggle i {
-        font-size: 0.7rem;
+        font-size: 0.66rem;
+        opacity: 0.85;
       }
 
       /* =========================================================
@@ -1813,6 +2035,21 @@
         .storage-cards-grid { grid-template-columns: 1fr; }
         .bottom-floating-dock { width: calc(100% - 20px); }
         .history-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+
+        /* 交付结果：窄屏收紧内距，操作带不再左侧留白 */
+        .apple-result-row { padding: 11px 12px; }
+        .apple-result-actions { padding-left: 0; margin-top: 9px; }
+        .apple-result-row + .apple-result-row::before { left: 12px; }
+        .apple-result-actions .mini-icon-btn { flex: 1 1 0; }
+        .apple-action-spacer { display: none; }
+        .apple-group-bar {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 8px;
+          padding: 10px 12px;
+        }
+        .apple-group-btns { flex-wrap: wrap; }
+        .apple-pill { flex: 1 1 auto; }
       }
 
       /* =========================================================
@@ -2084,16 +2321,15 @@
               <span>上传队列 ({{ uploadingFiles.length }})</span>
               <span v-if="failedCount > 0" style="color: #ef4444; font-size: 0.82rem;">({{ failedCount }} 失败)</span>
             </span>
-            <div style="display: flex; gap: 6px;">
+            <div class="apple-group-btns">
               <button
                 v-if="failedCount > 0"
-                class="action-pill-btn"
-                style="padding: 5px 11px; font-size: 0.78rem; color: #f59e0b;"
+                class="apple-pill warn"
                 @click="retryAllFailed"
               >
                 <i class="fas fa-rotate-right"></i> 重试失败
               </button>
-              <button class="action-pill-btn" style="padding: 5px 11px; font-size: 0.78rem;" @click="clearUploadQueue">
+              <button class="apple-pill" @click="clearUploadQueue">
                 <i class="fas fa-broom"></i> 清空
               </button>
             </div>
@@ -2139,27 +2375,11 @@
               <i class="fas fa-circle-check" style="color: #10b981;"></i>
               <span>交付结果 ({{ uploadedFiles.length }})</span>
             </span>
-            <div style="display: flex; gap: 6px;">
-              <button class="action-pill-btn" style="padding: 5px 11px; font-size: 0.78rem;" @click="selectAll">
+            <div class="apple-group-btns">
+              <button class="apple-pill" @click="selectAll">
                 {{ isAllSelected ? '取消全选' : '全选' }}
               </button>
-              <button
-                class="btn-pill-action"
-                style="padding: 5px 13px; font-size: 0.78rem;"
-                @click="copySelectedLinks"
-                :disabled="selectedCount === 0"
-              >
-                复制选中 ({{ selectedCount }})
-              </button>
-              <button
-                class="action-pill-btn"
-                style="padding: 5px 13px; font-size: 0.78rem;"
-                @click="copySelectedShareLinks"
-                title="复制结果中的分享短链"
-              >
-                <i class="fas fa-share-nodes"></i> 分享链
-              </button>
-              <button class="action-pill-btn" style="padding: 5px 10px; font-size: 0.78rem;" @click="clearResults">
+              <button class="apple-pill danger-tint" @click="clearResults">
                 清空
               </button>
             </div>
@@ -2185,55 +2405,90 @@
             </button>
           </div>
 
-          <div class="result-item-card" v-for="(file, index) in uploadedFiles" :key="index">
-            <input type="checkbox" v-model="file.selected" style="accent-color: var(--primary); cursor: pointer;" />
-            <img
-              :src="getCleanFileUrl(file)"
-              class="task-thumb-img"
-              @click="previewImage(file)"
-              onerror="this.style.display='none'"
-            />
-            <div style="flex: 1; min-width: 0;">
-              <div class="result-name-text" :title="getDisplayName(file)">{{ getDisplayName(file) }}</div>
-              <div
-                class="share-link-line"
-                v-if="hasShare(file)"
-                @click="copyShareLink(file)"
-                :title="'点击复制：' + shareUrlOf(file)"
-              >
-                <i class="fas fa-link"></i>
-                <span>{{ shareUrlOf(file) }}</span>
+          <!-- 连续行合成一张列表卡：靠分隔线区分，不靠外框 -->
+          <div class="apple-result-group">
+            <div
+              class="apple-result-row"
+              :class="{ 'is-selected': file.selected }"
+              v-for="(file, index) in uploadedFiles"
+              :key="index"
+            >
+              <!-- 第一行：选择 + 缩略图 + 文件名/短链 -->
+              <div class="apple-result-head">
+                <input type="checkbox" class="apple-check" v-model="file.selected" :title="file.selected ? '取消选择' : '选择此文件'" />
+                <img
+                  :src="getCleanFileUrl(file)"
+                  class="task-thumb-img"
+                  @click="previewImage(file)"
+                  onerror="this.style.display='none'"
+                />
+                <div class="apple-result-info">
+                  <div class="apple-result-file" :title="getDisplayName(file)">{{ getDisplayName(file) }}</div>
+                  <div
+                    class="apple-share-link"
+                    v-if="hasShare(file)"
+                    @click="copyShareLink(file)"
+                    :title="'点击复制：' + shareUrlOf(file)"
+                  >
+                    <i class="fas fa-link"></i>
+                    <span>{{ shareUrlOf(file) }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 第二行：动作带等宽铺开，互相有呼吸感 -->
+              <div class="apple-result-actions">
+                <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
+                <!-- 条目级分享：点击弹窗配置，而不是直接复制 -->
+                <button
+                  class="mini-icon-btn"
+                  :class="{ 'share-active': hasShare(file) }"
+                  @click="openShareDialog(file)"
+                  :title="hasShare(file) ? '管理分享设置' : '分享这个文件'"
+                >
+                  <i class="fas fa-share-nodes"></i>
+                </button>
+                <button
+                  class="mini-icon-btn"
+                  v-if="hasShare(file)"
+                  @click="copyShareLink(file)"
+                  title="复制分享短链"
+                >
+                  <i class="fas fa-link"></i>
+                </button>
+                <button
+                  class="mini-icon-btn"
+                  :disabled="isDownloading(file)"
+                  @click="downloadFile(file)"
+                  title="下载"
+                >
+                  <i :class="isDownloading(file) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                </button>
+                <button class="mini-icon-btn" @click="openPreview(file)" title="媒体预览"><i class="fas fa-eye"></i></button>
+                <span class="apple-action-spacer"></span>
+                <button class="mini-icon-btn danger" @click="removeFromResults(index)" title="移除"><i class="fas fa-xmark"></i></button>
               </div>
             </div>
-            <div style="display: flex; gap: 6px;">
-              <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
-              <!-- 条目级分享：点击弹窗配置，而不是直接复制 -->
+          </div>
+
+          <!-- 批量出口：分组条承载「复制选中 / 分享链」，不与标题栏抢位 -->
+          <div class="apple-group-bar">
+            <span class="apple-group-count">已选 {{ selectedCount }} / {{ uploadedFiles.length }} 项</span>
+            <div class="apple-group-btns">
               <button
-                class="mini-icon-btn"
-                :class="{ 'share-active': hasShare(file) }"
-                @click="openShareDialog(file)"
-                :title="hasShare(file) ? '管理分享设置' : '分享这个文件'"
+                class="apple-pill primary"
+                @click="copySelectedLinks"
+                :disabled="selectedCount === 0"
               >
-                <i class="fas fa-share-nodes"></i>
+                <i class="fas fa-clipboard"></i> 复制选中
               </button>
               <button
-                class="mini-icon-btn"
-                v-if="hasShare(file)"
-                @click="copyShareLink(file)"
-                title="复制分享短链"
+                class="apple-pill"
+                @click="copySelectedShareLinks"
+                title="复制结果中的分享短链"
               >
-                <i class="fas fa-link"></i>
+                <i class="fas fa-share-nodes"></i> 分享链
               </button>
-              <button
-                class="mini-icon-btn"
-                :disabled="isDownloading(file)"
-                @click="downloadFile(file)"
-                title="下载"
-              >
-                <i :class="isDownloading(file) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
-              </button>
-              <button class="mini-icon-btn" @click="openPreview(file)" title="媒体预览"><i class="fas fa-eye"></i></button>
-              <button class="mini-icon-btn danger" @click="removeFromResults(index)" title="移除"><i class="fas fa-xmark"></i></button>
             </div>
           </div>
 
