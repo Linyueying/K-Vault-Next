@@ -10,6 +10,7 @@ import {
   deleteRecordIndex,
   deleteDownloadCount,
 } from '../../../utils/file-record.js';
+import { cleanupShareSlugMapping } from '../../../utils/share-options.js';
 
 // 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
 function getRecordWithKey(env, fileId) {
@@ -254,32 +255,10 @@ function jsonResponse(body, status = 200) {
   });
 }
 
-function sanitizeSlug(rawValue = '') {
-  const value = String(rawValue || '').trim().toLowerCase();
-  if (!/^[a-z0-9_-]{1,64}$/.test(value)) return '';
-  return value;
-}
-
-async function cleanupShareSlugMapping(env, metadata = {}, kvKey = '') {
-  if (!env?.img_url || !kvKey) return;
-  const slug = sanitizeSlug(metadata?.shareSlug || '');
-  if (!slug) return;
-
-  try {
-    const mapKey = `share_slug:${slug}`;
-    const mapped = await env.img_url.get(mapKey);
-    if (!mapped || String(mapped) === String(kvKey)) {
-      await env.img_url.delete(mapKey);
-    }
-  } catch (error) {
-    console.warn('Failed to cleanup share slug mapping:', error?.message || error);
-  }
-}
-
 /**
  * 删除文件记录时的统一清理：
  *   1. 文件记录本体（kvKey）
- *   2. share_slug 反向映射（原有逻辑，顺序与行为保持不变）
+ *   2. share_slug 反向映射（复用 utils/share-options.js，判归属后才删）
  *   3. idxt: 索引键（新增，避免索引残留导致列表出现"幽灵条目"）
  *   4. dlc: 下载计数键（新增）
  */

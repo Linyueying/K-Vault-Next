@@ -1,80 +1,10 @@
-﻿// idxt: 为记录索引键、dlc: 为下载计数键 —— 均属内部辅助数据，不得出现在文件列表中。
-const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'idxt:', 'dlc:'];
-
-const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'ico', 'svg', 'heic', 'heif', 'avif']);
-const VIDEO_EXTS = new Set(['mp4', 'webm', 'ogg', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'm4v', '3gp', 'ts']);
-const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'ape', 'opus']);
-
-function normalizeFolderPath(value = '') {
-  const raw = String(value || '').replace(/\\/g, '/').trim();
-  const output = [];
-  for (const part of raw.split('/')) {
-    const piece = part.trim();
-    if (!piece || piece === '.') continue;
-    if (piece === '..') {
-      output.pop();
-      continue;
-    }
-    output.push(piece);
-  }
-  return output.join('/');
-}
-
-function inferStorageType(name, metadata = {}) {
-  const explicit = metadata.storageType || metadata.storage;
-  if (explicit) return String(explicit).toLowerCase();
-
-  const keyName = String(name || '');
-  if (keyName.startsWith('r2:')) return 'r2';
-  if (keyName.startsWith('s3:')) return 's3';
-  if (keyName.startsWith('discord:')) return 'discord';
-  if (keyName.startsWith('hf:')) return 'huggingface';
-  if (keyName.startsWith('webdav:')) return 'webdav';
-  if (keyName.startsWith('github:')) return 'github';
-  return 'telegram';
-}
-
-function inferFileType(name, metadata = {}) {
-  const sourceName = metadata.fileName || name || '';
-  const segments = String(sourceName).split('.');
-  const ext = segments.length > 1 ? segments.pop().toLowerCase() : '';
-  if (IMAGE_EXTS.has(ext)) return 'image';
-  if (VIDEO_EXTS.has(ext)) return 'video';
-  if (AUDIO_EXTS.has(ext)) return 'audio';
-  return 'document';
-}
-
-function isFolderMarker(key) {
-  if (!key?.name) return false;
-  if (String(key.name).startsWith('folder:')) return true;
-  return key.metadata?.folderMarker === true;
-}
-
-function shouldIncludeKey(key) {
-  if (!key?.name) return false;
-  if (INVALID_PREFIXES.some((item) => key.name.startsWith(item))) return false;
-  if (isFolderMarker(key)) return false;
-
-  const metadata = key.metadata || {};
-  return Boolean(metadata.fileName) && metadata.TimeStamp !== undefined && metadata.TimeStamp !== null;
-}
-
-function normalizeKey(key) {
-  const metadata = key.metadata || {};
-  const storageType = inferStorageType(key.name, metadata);
-  const fileType = inferFileType(key.name, metadata);
-  const folderPath = normalizeFolderPath(metadata.folderPath || metadata.path || '');
-
-  return {
-    ...key,
-    metadata: {
-      ...metadata,
-      storageType,
-      fileType,
-      folderPath,
-    },
-  };
-}
+﻿import {
+  normalizeFolderPath,
+  isFolderMarker,
+  shouldIncludeKey,
+  normalizeKey,
+  listAllKeys,
+} from '../../utils/file-list.js';
 
 function matchStorage(storageType, storageFilter) {
   if (!storageFilter) return true;
@@ -190,21 +120,6 @@ function buildFolderNodes(files, folderMarkers = []) {
       fileCount: fileCountByFolder.get(pathValue) || 0,
     };
   });
-}
-
-async function listAllKeys(env, prefix = '') {
-  const allKeys = [];
-  let cursor = undefined;
-  let guard = 0;
-
-  do {
-    const page = await env.img_url.list({ limit: 1000, cursor, prefix: prefix || undefined });
-    allKeys.push(...(page.keys || []));
-    cursor = page.list_complete ? undefined : page.cursor;
-    guard += 1;
-  } while (cursor && guard < 10000);
-
-  return allKeys;
 }
 
 export async function onRequest(context) {

@@ -16,7 +16,7 @@
  */
 
 import { parsePositiveInt } from './api-v1.js';
-import { putRecordIndex } from './file-record.js';
+import { putRecordIndex, readDownloadCount } from './file-record.js';
 
 export const SHARE_SLUG_KEY_PREFIX = 'share_slug:';
 
@@ -279,5 +279,283 @@ export function attachShareSummary(payload, summary) {
   const target = Array.isArray(payload) ? payload[0] : payload;
   if (!target || typeof target !== 'object') return payload;
   return Object.assign(target, summary);
+}
+
+/** Metadata keys owned by the share feature; cleared together on revoke. */
+const SHARE_METADATA_FIELDS = [
+  'shareSlug',
+  'shareExpiresAt',
+  'shareMaxDownloads',
+  'shareDownloadCount',
+  'sharePasswordSalt',
+  'sharePasswordHash',
+];
+
+/**
+ * Delete the `share_slug:<slug>` mapping, but only when it still points at the
+ * file being cleaned up.
+ *
+ * Without the ownership check a rename would delete the *new* file's mapping
+ * while leaving the old one dangling. `functions/api/manage/delete/[id].js`
+ * carried its own copy of this logic; both now share this implementation so
+ * the two call sites cannot drift apart.
+ *
+ * @param env - Pages environment (needs the `img_url` KV binding).
+ * @param metadata - Metadata of the record whose mapping should go away.
+ * @param kvKey - KV key that the mapping is expected to point at.
+ */
+export async function cleanupShareSlugMapping(env, metadata = {}, kvKey = '') {
+  if (!env?.img_url || !kvKey) return;
+  const slug = sanitizeShareSlug(metadata?.shareSlug || '');
+  if (!slug) return;
+
+  try {
+    const mapKey = `${SHARE_SLUG_KEY_PREFIX}${slug}`;
+    const mapped = await env.img_url.get(mapKey);
+    if (!mapped || String(mapped) === String(kvKey)) {
+      await env.img_url.delete(mapKey);
+    }
+  } catch (error) {
+    console.warn('Failed to cleanup share slug mapping:', error?.message || error);
+  }
+}
+
+/**
+ * Strip every share field from a record and drop its short-link mapping.
+ *
+ * Deliberately keeps the download counter (`dlc:<kvKey>`) and the inline
+ * `shareDownloadCount`: re-enabling a share must *not* hand out a fresh quota,
+ * otherwise "revoke then re-share" becomes a way to bypass `maxDownloads`.
+ *
+ * @param env - Pages environment (needs the `img_url` KV binding).
+ * @param key - KV key of the record to un-share.
+ * @param metadata - Current metadata of that record.
+ * @returns The metadata that was written back (share fields removed).
+ */
+export async function clearShareOptions(env, key, metadata = {}) {
+  const nextMetadata = { ...(metadata || {}) };
+
+  await cleanupShareSlugMapping(env, nextMetadata, key);
+
+  for (const field of SHARE_METADATA_FIELDS) {
+    delete nextMetadata[field];
+  }
+
+  // `shareDownloadCount` is intentionally re-attached so the exhausted quota
+  // survives the revoke. A fresh share of the same file keeps counting up.
+  const preservedCount = Number(metadata?.shareDownloadCount);
+  if (Number.isFinite(preservedCount) && preservedCount > 0) {
+    nextMetadata.shareDownloadCount = preservedCount;
+  }
+
+  if (env?.img_url) {
+    await env.img_url.put(key, '', { metadata: nextMetadata });
+  }
+
+  return nextMetadata;
+}
+
+/**
+ * Verify a candidate password against the stored hash.
+ *
+ * @param metadata - KV metadata carrying `sharePasswordHash` / `sharePasswordSalt`.
+ * @param password - Password supplied by the visitor.
+ * @returns `'ok'` when accepted, `'missing'` when no password was supplied,
+ *   `'invalid'` when it does not match. Callers map these onto 200/401/403.
+ */
+export async function verifySharePassword(metadata = {}, password = '') {
+  if (!metadata?.sharePasswordHash) return 'ok';
+  const candidate = String(password || '');
+  if (!candidate) return 'missing';
+
+  const expected = await sha256Hex(`${String(metadata.sharePasswordSalt || '')}:${candidate}`);
+  return timingSafeEqual(String(metadata.sharePasswordHash || ''), expected) ? 'ok' : 'invalid';
+}
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+/**
+ * Whether a record currently carries any share configuration at all.
+ * Used by the admin list and the browser UI to decide whether an entry is
+ * "shared" — a bare `shareSlug` left over from a revoke does not count.
+ * @param metadata - KV metadata of the record.
+ */
+export function hasActiveShare(metadata = {}) {
+  if (!metadata) return false;
+  return Boolean(
+    sanitizeShareSlug(metadata.shareSlug || '')
+    || Number(metadata.shareExpiresAt) > 0
+    || Number(metadata.shareMaxDownloads) > 0
+    || metadata.sharePasswordHash
+  );
+}
+
+/**
+ * Create a random password hash pair for the share password.
+ * Exposed so the management endpoint can patch a password in place without
+ * going through the whole {@link applyShareOptions} pipeline.
+ * @param password - Plaintext password.
+ * @returns `{ sharePasswordSalt, sharePasswordHash }`.
+ */
+export async function buildPasswordFields(password) {
+  const salt = randomSalt();
+  return {
+    sharePasswordSalt: salt,
+    sharePasswordHash: await sha256Hex(`${salt}:${password}`),
+  };
+}
+
+/**
+ * Apply a partial patch to a record's share configuration.
+ *
+ * This is the write path behind `POST /api/manage/share/:id`, where the UI
+ * needs field-level granularity: "change the expiry but leave the password
+ * alone". {@link applyShareOptions} cannot express that — it is a create-time
+ * function that only ever adds fields.
+ *
+ * Unspecified patch keys (`undefined`) leave the current value untouched. An
+ * explicit value of `0` / `''` / `null` **clears** the field, which is how the
+ * UI removes a download cap, a password or a custom slug.
+ *
+ * @param env - Pages environment (needs the `img_url` KV binding).
+ * @param key - KV key of the record.
+ * @param metadata - Current metadata.
+ * @param patch - Partial share config.
+ * @param patch.expiresIn - Seconds from now; `0`/`null` clears the expiry.
+ * @param patch.maxDownloads - `0`/`null` clears the cap.
+ * @param patch.password - `''`/`null` clears; any other string sets it.
+ * @param patch.slug - `''`/`null` clears the custom slug; any other string sets it.
+ * @returns The metadata that was written.
+ * @throws When the requested slug is already owned by a different file.
+ */
+export async function patchShareOptions(env, key, metadata = {}, patch = {}) {
+  const nextMetadata = { ...(metadata || {}) };
+  const oldSlug = sanitizeShareSlug(nextMetadata.shareSlug || '');
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'expiresIn')) {
+    const expiresIn = Number(patch.expiresIn) || 0;
+    if (expiresIn > 0) {
+      nextMetadata.shareExpiresAt = Date.now() + expiresIn * 1000;
+    } else {
+      delete nextMetadata.shareExpiresAt;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'maxDownloads')) {
+    const maxDownloads = Number(patch.maxDownloads) || 0;
+    if (maxDownloads > 0) {
+      nextMetadata.shareMaxDownloads = maxDownloads;
+      if (!Number.isFinite(Number(nextMetadata.shareDownloadCount))) {
+        nextMetadata.shareDownloadCount = 0;
+      }
+    } else {
+      delete nextMetadata.shareMaxDownloads;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'password')) {
+    const password = String(patch.password || '');
+    if (password) {
+      Object.assign(nextMetadata, await buildPasswordFields(password));
+    } else {
+      delete nextMetadata.sharePasswordSalt;
+      delete nextMetadata.sharePasswordHash;
+    }
+  }
+
+  let newSlug = oldSlug;
+  if (Object.prototype.hasOwnProperty.call(patch, 'slug')) {
+    const requested = sanitizeShareSlug(patch.slug || '');
+    if (requested) {
+      const owner = await findShareSlugOwner(env, requested);
+      if (owner && owner !== String(key)) {
+        throw new Error('自定义短链标识已被占用。');
+      }
+    }
+    newSlug = requested;
+    if (newSlug) {
+      nextMetadata.shareSlug = newSlug;
+    } else {
+      delete nextMetadata.shareSlug;
+    }
+  }
+
+  await env.img_url.put(key, '', { metadata: nextMetadata });
+  await putRecordIndex(env, key);
+
+  // 旧 slug 的映射在「改名」与「清除 slug」两种情况下都要回收。
+  if (oldSlug && oldSlug !== newSlug) {
+    try {
+      const mapKey = `${SHARE_SLUG_KEY_PREFIX}${oldSlug}`;
+      const mapped = await env.img_url.get(mapKey);
+      if (!mapped || String(mapped) === String(key)) {
+        await env.img_url.delete(mapKey);
+      }
+    } catch {
+      /* 残留映射无害：它仍指向本文件 */
+    }
+  }
+
+  if (newSlug) {
+    await env.img_url.put(`${SHARE_SLUG_KEY_PREFIX}${newSlug}`, key, {
+      metadata: { fileId: key, updatedAt: Date.now() },
+    });
+  }
+
+  return nextMetadata;
+}
+
+/**
+ * Build the admin-facing record for one shared file.
+ *
+ * The download count comes from `dlc:<kvKey>` (falling back to the inline
+ * `shareDownloadCount`), so the number shown in the dashboard matches exactly
+ * what `functions/file/[[path]].js` enforces.
+ *
+ * @param env - Pages environment, needed to read the counter key.
+ * @param metadata - Normalized metadata of the record.
+ * @param kvKey - KV key of the record.
+ * @returns A flat object safe to serialize to the admin UI.
+ */
+export async function buildShareRecord(env, metadata = {}, kvKey = '') {
+  const slug = sanitizeShareSlug(metadata.shareSlug || '');
+  const shareTarget = slug || String(kvKey || '');
+  const maxDownloads = Number(metadata.shareMaxDownloads) || 0;
+
+  // Only files with a cap need the counter read — an uncapped share has no
+  // number worth displaying, and skipping the read keeps the KV budget flat.
+  const downloadCount = maxDownloads > 0
+    ? await readDownloadCount(env, kvKey, metadata)
+    : Number(metadata.shareDownloadCount) || 0;
+
+  const expiresAt = Number(metadata.shareExpiresAt) || 0;
+  const expired = expiresAt > 0 && Date.now() > expiresAt;
+  const exhausted = maxDownloads > 0 && downloadCount >= maxDownloads;
+
+  return {
+    kvKey: String(kvKey || ''),
+    id: String(kvKey || '').replace(/^[a-z]+:/, ''),
+    fileName: metadata.fileName || String(kvKey || ''),
+    fileSize: Number(metadata.fileSize) || 0,
+    fileType: metadata.fileType || 'document',
+    storageType: metadata.storageType || metadata.storage || 'telegram',
+    shareSlug: slug,
+    sharePath: shareTarget ? `/s/${encodeURIComponent(shareTarget)}` : '',
+    shareExpiresAt: expiresAt || null,
+    shareMaxDownloads: maxDownloads || null,
+    downloadCount,
+    passwordProtected: Boolean(metadata.sharePasswordHash),
+    createdAt: Number(metadata.TimeStamp) || null,
+    active: !expired && !exhausted,
+    expired,
+    exhausted,
+  };
 }
 
