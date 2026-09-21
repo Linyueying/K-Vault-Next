@@ -64,7 +64,19 @@ const MIME_TYPES = {
   gz: 'application/gzip',
 };
 
+/**
+ * 对外入口。
+ *
+ * 这里只做一件额外的事：把「显式下载」请求的响应后处理一遍
+ * （详见 `applyDownloadDisposition`）。放在最外层统一处理，而不是改 7 个
+ * 存储分支 —— 分支各自实现一遍 attachment 头，早晚会漏掉一两个。
+ */
 export async function onRequest(context) {
+  const response = await handleRequest(context);
+  return applyDownloadDisposition(context, response);
+}
+
+async function handleRequest(context) {
   const { request, env, params } = context;
 
   if (request.method === 'OPTIONS') {
@@ -116,7 +128,7 @@ if (!fileId) {
 
       const signedResponse = await handleSignedTelegramFile(context, signedTelegramMeta);
 
-      if (signedShareAccess?.trackDownload && shouldCountAsDownload(request.method, signedResponse)) {
+      if (signedShareAccess?.trackDownload && shouldCountAsDownload(request, signedResponse)) {
         const updatePromise = incrementShareDownloadCount(env, signedShareAccess.kvKey, signedShareAccess.metadata);
         if (typeof context.waitUntil === 'function') {
           context.waitUntil(updatePromise.catch(() => {}));
@@ -163,7 +175,7 @@ if (!fileId) {
       response = await handleTelegramFile(context, fileId, record);
     }
 
-    if (shareAccess?.trackDownload && shouldCountAsDownload(request.method, response)) {
+    if (shareAccess?.trackDownload && shouldCountAsDownload(request, response)) {
       const updatePromise = incrementShareDownloadCount(env, shareAccess.kvKey, shareAccess.metadata);
       if (typeof context.waitUntil === 'function') {
         context.waitUntil(updatePromise.catch(() => {}));
@@ -325,10 +337,118 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
   };
 }
 
-function shouldCountAsDownload(method, response) {
-  if (String(method || '').toUpperCase() !== 'GET') return false;
+/**
+ * 是否应计入一次分享下载。
+ *
+ * ## 语义变更
+ *
+ * 改造前：GET 且响应 200/206 就计数。问题在于分享页要提供「预览」——
+ * 视频拖动进度条会发出一串 Range 请求，每个都是 206，于是一次预览就把
+ * 下载配额吃光；图片预览、PDF 翻页同理。
+ *
+ * 改造后：**只有显式带 `dl=1` 的请求才计数**。分享页的下载按钮会带这个
+ * 参数，预览用的 iframe 不会。
+ *
+ * `dl=1` 的 Range 请求（大文件续传）仍算一次下载 —— 用户点的是下载。
+ *
+ * @param request - 原始请求。
+ * @param response - 已生成的响应。
+ * @returns 是否计数。
+ */
+function shouldCountAsDownload(request, response) {
+  if (String(request?.method || '').toUpperCase() !== 'GET') return false;
   if (!response) return false;
+  if (!isExplicitDownload(request)) return false;
   return response.status === 200 || response.status === 206;
+}
+
+/** 请求是否显式要求下载（`?dl=1`）。 */
+function isExplicitDownload(request) {
+  try {
+    return new URL(request.url).searchParams.get('dl') === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 显式下载时把 `Content-Disposition` 从 `inline` 改成 `attachment`。
+ *
+ * `addResponseHeaders()` 里恒定写 `inline`（那是 7 个存储分支共用的），
+ * 分享页的下载按钮需要浏览器直接保存文件而不是内联打开，因此在最外层
+ * 统一改写响应头，避免动 7 处调用点。
+ *
+ * 两个必须小心的点：
+ *   1. **只在 `!response.bodyUsed` 时重建响应**。body 已被消费时再构造
+ *      `new Response(oldResponse.body)` 会抛错。
+ *   2. **跳过重定向响应**。302 的 `Content-Disposition` 没有意义，
+ *      而且 `Response.redirect()` 的响应是 immutable 的，改头会抛
+ *      `TypeError: immutable`。
+ *
+ * @param context - Pages 请求上下文。
+ * @param response - 内层处理函数返回的响应。
+ * @returns 改写后的响应（无需改写时原样返回）。
+ */
+function applyDownloadDisposition(context, response) {
+  try {
+    if (!response || !isExplicitDownload(context?.request)) return response;
+
+    // 重定向 / 无内容 / 错误响应无需（也不能）改写
+    if (response.status < 200 || response.status >= 300) return response;
+    if (response.status === 204 || response.status === 304) return response;
+    // 空 body（如 204/HEAD）无需改写
+    if (!response.body || response.bodyUsed) return response;
+
+    const headers = new Headers(response.headers);
+    const fileName = extractFileNameFromDisposition(headers.get('Content-Disposition'));
+    if (fileName) {
+      const encoded = encodeURIComponent(fileName);
+      // 同时给 `filename` 与 `filename*`：前者兼容老浏览器，后者保证
+      // 中文文件名在各浏览器下不乱码。与 addResponseHeaders 的写法一致。
+      headers.set('Content-Disposition', `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`);
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (error) {
+    // 头改写属于锦上添花：失败时退回原响应，不要让下载整个挂掉
+    console.warn('Failed to apply download disposition:', error?.message || error);
+    return response;
+  }
+}
+
+/**
+ * 从已有的 `Content-Disposition` 里抠出文件名。
+ * 优先读 RFC 5987 的 `filename*`（UTF-8 编码），退回 `filename`。
+ * @param header - 原响应头值。
+ * @returns 解码后的文件名，取不到时为空串。
+ */
+function extractFileNameFromDisposition(header) {
+  const value = String(header || '');
+  if (!value) return '';
+
+  const starMatch = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (starMatch) {
+    try {
+      return decodeURIComponent(starMatch[1].trim());
+    } catch {
+      /* 落到下面的 filename */
+    }
+  }
+
+  const plainMatch = value.match(/filename="([^"]*)"/i) || value.match(/filename=([^;]+)/i);
+  if (plainMatch) {
+    const raw = plainMatch[1].trim();
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return '';
 }
 
 async function incrementShareDownloadCount(env, kvKey, metadata = {}) {

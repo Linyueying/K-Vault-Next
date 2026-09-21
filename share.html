@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0284c7">
+<!-- 分享页属于私有内容，禁止被搜索引擎收录 -->
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>文件分享 · K-Vault</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<style>
+  :root {
+    --primary: #0284c7;
+    --primary-rgb: 2, 132, 199;
+    --primary-light: #38bdf8;
+    --primary-dark: #0369a1;
+
+    --bg-body: #f0f7ff;
+    --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
+                   radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
+                   #f0f7ff;
+
+    --surface-1: rgba(255, 255, 255, 0.86);
+    --surface-2: rgba(255, 255, 255, 0.95);
+    --glass-border: rgba(255, 255, 255, 0.95);
+    --glass-border-ice: rgba(186, 230, 253, 0.75);
+
+    --text-main: #0f172a;
+    --text-sub: #334155;
+    --text-muted: #64748b;
+
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 22px;
+    --radius-pill: 9999px;
+
+    --success: #059669;
+    --warn: #d97706;
+    --danger: #dc2626;
+
+    --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
+    --shadow-lift: 0 18px 46px rgba(15, 23, 42, 0.14);
+    --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
+    --transition: all 0.22s var(--ease-fluid);
+  }
+
+  html[data-theme="dark"] {
+    --bg-body: #0b1120;
+    --bg-gradient: radial-gradient(at 8% 8%, #0f2942 0px, transparent 45%),
+                   radial-gradient(at 92% 92%, #10243c 0px, transparent 48%),
+                   #0b1120;
+    --surface-1: rgba(23, 32, 51, 0.86);
+    --surface-2: rgba(30, 41, 59, 0.95);
+    --glass-border: rgba(51, 65, 85, 0.9);
+    --glass-border-ice: rgba(30, 58, 95, 0.85);
+    --text-main: #e2e8f0;
+    --text-sub: #cbd5e1;
+    --text-muted: #94a3b8;
+    --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.4);
+    --shadow-lift: 0 18px 46px rgba(0, 0, 0, 0.55);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text-main);
+    background: var(--bg-gradient);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
+  /* 顶部极简栏：只有品牌名 + 主题切换，不提供任何后台入口 */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    gap: 12px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+  }
+  .brand-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.8rem;
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.35);
+  }
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border-ice);
+    background: var(--surface-1);
+    color: var(--text-sub);
+    cursor: pointer;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+  }
+  .icon-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-soft); }
+
+  main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px 20px 40px;
+  }
+
+  .stage { width: 100%; max-width: 720px; }
+  .stage.center { display: flex; align-items: center; justify-content: center; }
+
+  /* ===== 加载态 ===== */
+  .spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(var(--primary-rgb), 0.18);
+    border-top-color: var(--primary);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    margin-top: 14px;
+    font-size: 0.84rem;
+    color: var(--text-muted);
+  }
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 20px;
+  }
+
+  /* ===== 卡片 ===== */
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    overflow: hidden;
+  }
+
+  /* ===== 失效 / 未找到态 ===== */
+  .state-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    max-width: 400px;
+    padding: 34px 26px;
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-soft);
+  }
+  .state-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    background: rgba(var(--primary-rgb), 0.12);
+    color: var(--primary);
+  }
+  .state-box.warn .state-icon { background: rgba(217, 119, 6, 0.14); color: var(--warn); }
+  .state-box.danger .state-icon { background: rgba(220, 38, 38, 0.12); color: var(--danger); }
+  .state-title { font-size: 1.02rem; font-weight: 700; }
+  .state-desc {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  /* ===== 密码门 ===== */
+  .password-gate {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    max-width: 380px;
+    padding: 28px 24px;
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-soft);
+  }
+  .password-gate-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    color: var(--primary);
+    background: rgba(var(--primary-rgb), 0.12);
+  }
+  .password-gate-title { font-size: 1rem; font-weight: 700; }
+  .password-gate-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .password-gate-form { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
+  .password-gate-form input {
+    flex: 1;
+    min-width: 0;
+    font-family: inherit;
+    font-size: 0.86rem;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border-ice);
+    background: var(--surface-2);
+    color: inherit;
+    outline: none;
+    transition: var(--transition);
+  }
+  .password-gate-form input:focus { border-color: var(--primary); }
+  .password-gate-form button {
+    font-family: inherit;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: #fff;
+    background: var(--primary);
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition);
+  }
+  .password-gate-form button:hover:not(:disabled) { background: var(--primary-dark); }
+  .password-gate-form button:disabled { opacity: 0.6; cursor: progress; }
+  .password-gate-error { font-size: 0.78rem; color: var(--danger); }
+
+  /* ===== 文件信息区 ===== */
+  .file-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 22px 22px 18px;
+  }
+  .file-thumb {
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    background: rgba(var(--primary-rgb), 0.12);
+  }
+  .file-meta { min-width: 0; flex: 1; }
+  .file-name {
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.35;
+    word-break: break-all;
+  }
+  .file-sub {
+    margin-top: 4px;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+
+  /* ===== 状态徽章（有效期 / 次数） ===== */
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 22px 18px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 5px 11px;
+    border-radius: var(--radius-pill);
+    background: rgba(var(--primary-rgb), 0.1);
+    color: var(--primary-dark);
+  }
+  html[data-theme="dark"] .badge { color: var(--primary-light); }
+  .badge.warn { background: rgba(217, 119, 6, 0.13); color: var(--warn); }
+  .badge.muted { background: rgba(100, 116, 139, 0.12); color: var(--text-muted); }
+
+  /* ===== 操作区 ===== */
+  .actions {
+    display: flex;
+    gap: 10px;
+    padding: 0 22px 22px;
+  }
+  .btn {
+    flex: 1;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    text-decoration: none;
+    transition: var(--transition);
+  }
+  .btn-primary {
+    color: #fff;
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    box-shadow: 0 8px 20px rgba(var(--primary-rgb), 0.28);
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(var(--primary-rgb), 0.36); }
+  .btn-ghost {
+    color: var(--text-sub);
+    background: var(--surface-2);
+    border-color: var(--glass-border-ice);
+  }
+  .btn-ghost:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  /* ===== 预览区 ===== */
+  .preview-block { border-top: 1px solid var(--glass-border-ice); }
+  .preview-frame {
+    width: 100%;
+    height: 68vh;
+    min-height: 380px;
+    border: 0;
+    display: block;
+    background: var(--surface-2);
+  }
+  .preview-hint {
+    padding: 40px 22px;
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+
+  /* ===== Toast ===== */
+  .toasts {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 60;
+    pointer-events: none;
+  }
+  .toast {
+    padding: 10px 18px;
+    border-radius: var(--radius-pill);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(15, 23, 42, 0.9);
+    box-shadow: var(--shadow-lift);
+    animation: toastIn 0.24s var(--ease-fluid);
+  }
+  .toast.success { background: rgba(5, 150, 105, 0.94); }
+  .toast.error { background: rgba(220, 38, 38, 0.94); }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 560px) {
+    .actions { flex-direction: column; }
+    .file-head { padding: 18px 18px 14px; }
+    .badges { padding: 0 18px 14px; }
+    .actions { padding: 0 18px 18px; }
+    .preview-frame { height: 60vh; min-height: 300px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">K</span>
+      <span>文件分享</span>
+    </div>
+    <button class="icon-btn" type="button" @click="toggleTheme" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'">
+      <span v-text="theme === 'dark' ? '☀' : '☾'"></span>
+    </button>
+  </header>
+
+  <main>
+    <!-- 加载中 -->
+    <div v-if="state === 'loading'" class="loading">
+      <div class="spinner"></div>
+      <p class="loading-text">正在加载分享内容…</p>
+    </div>
+
+    <!-- 需要密码 -->
+    <div v-else-if="state === 'password'" class="stage center">
+      <div class="password-gate">
+        <div class="password-gate-icon">🔒</div>
+        <div class="password-gate-title">该分享需要访问密码</div>
+        <div class="password-gate-desc">请输入分享者提供的密码以查看和下载文件。</div>
+        <form class="password-gate-form" @submit.prevent="submitPassword">
+          <input
+            type="password"
+            v-model="passwordInput"
+            placeholder="请输入访问密码"
+            autocomplete="off"
+            :disabled="verifying"
+            ref="passwordField"
+          >
+          <button type="submit" :disabled="verifying || !passwordInput">
+            <span v-text="verifying ? '验证中…' : '确认'"></span>
+          </button>
+        </form>
+        <div class="password-gate-error" v-if="passwordError" v-text="passwordError"></div>
+      </div>
+    </div>
+
+    <!-- 失效 / 未找到 -->
+    <div v-else-if="state === 'error'" class="stage center">
+      <div class="state-box" :class="errorTone">
+        <div class="state-icon" v-text="errorIcon"></div>
+        <div class="state-title" v-text="errorTitle"></div>
+        <div class="state-desc" v-text="errorMessage"></div>
+      </div>
+    </div>
+
+    <!-- 正常 -->
+    <div v-else-if="state === 'ready'" class="stage">
+      <div class="card">
+        <div class="file-head">
+          <div class="file-thumb" v-text="fileIcon"></div>
+          <div class="file-meta">
+            <div class="file-name" v-text="info.fileName"></div>
+            <div class="file-sub">
+              <span v-text="formatSize(info.fileSize)"></span>
+              <span v-if="info.uploadTime" v-text="'上传于 ' + formatDate(info.uploadTime)"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="badges">
+          <span v-if="info.passwordProtected" class="badge">🔒 密码保护</span>
+          <span class="badge" :class="expiryBadge.tone" v-if="expiryBadge.text" v-text="expiryBadge.text"></span>
+          <span class="badge" :class="quotaBadge.tone" v-if="quotaBadge.text" v-text="quotaBadge.text"></span>
+          <span v-if="!info.passwordProtected && !expiryBadge.text && !quotaBadge.text" class="badge muted">
+            公开分享
+          </span>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-ghost" type="button" @click="togglePreview" :disabled="previewLoading">
+            <span v-text="previewLoading ? '加载中…' : (showPreview ? '收起预览' : '👁 预览')"></span>
+          </button>
+          <a
+            class="btn btn-primary"
+            :href="downloadUrl"
+            :download="info.fileName"
+            @click="onDownloadClick"
+          >⬇ 下载</a>
+        </div>
+
+        <div class="preview-block" v-if="showPreview">
+          <iframe
+            v-if="previewSrc"
+            class="preview-frame"
+            :src="previewSrc"
+            allow="fullscreen; autoplay; clipboard-write"
+            referrerpolicy="same-origin"
+          ></iframe>
+          <div v-else class="preview-hint">
+            <div class="spinner" style="margin: 0 auto 12px;"></div>
+            正在准备预览…
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toasts">
+      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type" v-text="t.text"></div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var THEME_KEY = 'k-vault-share-theme';
+
+  new Vue({
+    el: '#app',
+    data: function () {
+      return {
+        // loading | password | error | ready
+        state: 'loading',
+
+        // 分享标识：来自 /s/:slug 的 302 跳转
+        shareId: '',
+
+        // 文件信息（来自 /api/share-info）
+        info: {
+          fileName: '',
+          fileSize: 0,
+          fileType: 'document',
+          fileUrl: '',
+          filePasswordRequired: false,
+          expiresAt: null,
+          maxDownloads: null,
+          downloadCount: 0,
+          remainingDownloads: null,
+          passwordProtected: false,
+          uploadTime: null
+        },
+
+        // 密码只存内存：刷新页面需重新输入，也不写进 localStorage / URL
+        passwordInput: '',
+        passwordValue: '',
+        passwordError: '',
+        verifying: false,
+
+        // 失效态文案
+        errorTitle: '',
+        errorMessage: '',
+        errorIcon: '⚠',
+        errorTone: 'danger',
+
+        // 预览
+        showPreview: false,
+        previewLoading: false,
+        previewSrc: '',
+
+        theme: 'light',
+        toasts: [],
+        toastSeed: 0,
+        // 有效期倒计时的触发源
+        now: Date.now(),
+        tickTimer: null
+      };
+    },
+
+    computed: {
+      fileIcon: function () {
+        var map = { image: '🖼', video: '🎬', audio: '🎵', document: '📄' };
+        return map[this.info.fileType] || '📄';
+      },
+
+      /**
+       * 下载地址：在 fileUrl 上追加 dl=1。
+       *
+       * file 路由只有在看到 dl=1 时才把 Content-Disposition 切成 attachment
+       * 并计入下载次数 —— 预览（iframe 里的普通 GET）不会计数。
+       *
+       * fileUrl 是服务端给的 `/file/<kvKey>`，本身不带查询串，但仍按
+       * 「可能已有 query」处理，避免将来拼接出 `?a=1?dl=1`。
+       */
+      downloadUrl: function () {
+        if (!this.info.fileUrl) return '#';
+        var sep = this.info.fileUrl.indexOf('?') === -1 ? '?' : '&';
+        var url = this.info.fileUrl + sep + 'dl=1';
+        // 文件本身有密码时，文件流请求也必须带上，否则 file 路由会 401
+        if (this.info.passwordProtected && this.passwordValue) {
+          url += '&password=' + encodeURIComponent(this.passwordValue);
+        }
+        return url;
+      },
+
+      /** 有效期徽章：把绝对时间换算成剩余时长 */
+      expiryBadge: function () {
+        if (!this.info.expiresAt) return { text: '', tone: '' };
+        var remain = this.info.expiresAt - this.now;
+        if (remain <= 0) return { text: '已过期', tone: 'warn' };
+        return { text: '有效期还剩 ' + this.formatDuration(remain), tone: '' };
+      },
+
+      /** 次数徽章：剩余 / 总量 */
+      quotaBadge: function () {
+        if (this.info.maxDownloads === null || this.info.maxDownloads === undefined) {
+          return { text: '', tone: '' };
+        }
+        var remain = this.remaining;
+        if (remain <= 0) return { text: '下载次数已用尽', tone: 'warn' };
+        var tone = remain <= 1 ? 'warn' : '';
+        return {
+          text: '剩余下载 ' + remain + ' / ' + this.info.maxDownloads + ' 次',
+          tone: tone
+        };
+      },
+
+      remaining: function () {
+        if (this.info.remainingDownloads !== null && this.info.remainingDownloads !== undefined) {
+          return this.info.remainingDownloads;
+        }
+        if (!this.info.maxDownloads) return 0;
+        return Math.max(0, this.info.maxDownloads - this.info.downloadCount);
+      }
+    },
+
+    mounted: function () {
+      this.initTheme();
+      this.shareId = this.readShareId();
+      if (!this.shareId) {
+        this.showError('链接不完整', '这个分享链接缺少必要参数，请向分享者索取完整链接。', '🔗', 'danger');
+        return;
+      }
+      this.loadInfo();
+      // 有效期徽章需要走字；每分钟刷新一次足够（不是秒级倒计时场景）
+      this.tickTimer = setInterval(function () { this.now = Date.now(); }.bind(this), 30000);
+    },
+
+    beforeDestroy: function () {
+      if (this.tickTimer) clearInterval(this.tickTimer);
+    },
+
+    methods: {
+      // ---------- 主题 ----------
+      initTheme: function () {
+        var saved = '';
+        try { saved = localStorage.getItem(THEME_KEY) || ''; } catch (e) {}
+        if (saved !== 'dark' && saved !== 'light') {
+          saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark' : 'light';
+        }
+        this.theme = saved;
+        this.applyTheme();
+      },
+      toggleTheme: function () {
+        this.theme = this.theme === 'dark' ? 'light' : 'dark';
+        this.applyTheme();
+        try { localStorage.setItem(THEME_KEY, this.theme); } catch (e) {}
+      },
+      applyTheme: function () {
+        document.documentElement.setAttribute('data-theme', this.theme);
+      },
+
+      // ---------- URL 参数 ----------
+      /**
+       * 读取分享标识。
+       * 兼容 `?s=`（新短链跳转）与 `?id=` / `?slug=`（手工拼的链接）。
+       */
+      readShareId: function () {
+        var params = new URLSearchParams(window.location.search);
+        return String(params.get('s') || params.get('slug') || params.get('id') || '').trim();
+      },
+
+      // ---------- 拉取信息 ----------
+      loadInfo: function (options) {
+        var opts = options || {};
+        var self = this;
+        var url = '/api/share-info?s=' + encodeURIComponent(this.shareId);
+        if (this.passwordValue) {
+          url += '&password=' + encodeURIComponent(this.passwordValue);
+        }
+
+        if (!opts.silent) this.state = 'loading';
+        this.verifying = true;
+
+        fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (body) {
+              return { status: res.status, body: body };
+            });
+          })
+          .then(function (result) {
+            self.verifying = false;
+            self.handleInfoResult(result.status, result.body, opts);
+          })
+          .catch(function (err) {
+            self.verifying = false;
+            self.showError(
+              '加载失败',
+              '无法连接到服务器，请检查网络后重试。',
+              '⚠', 'danger'
+            );
+            console.error('share-info request failed:', err);
+          });
+      },
+
+      handleInfoResult: function (status, body, opts) {
+        var data = body || {};
+
+        if (status === 200) {
+          this.info = {
+            fileName: data.fileName || '未命名文件',
+            fileSize: Number(data.fileSize) || 0,
+            fileType: data.fileType || 'document',
+            fileUrl: data.fileUrl || '',
+            filePasswordRequired: Boolean(data.filePasswordRequired),
+            expiresAt: data.expiresAt || null,
+            maxDownloads: data.maxDownloads === undefined ? null : data.maxDownloads,
+            downloadCount: Number(data.downloadCount) || 0,
+            remainingDownloads: data.remainingDownloads === undefined ? null : data.remainingDownloads,
+            passwordProtected: Boolean(data.passwordProtected),
+            uploadTime: data.uploadTime || null
+          };
+          this.passwordError = '';
+          this.state = 'ready';
+          this.now = Date.now();
+
+          // 静默刷新（下载后更新剩余次数）时不动 previewSrc，避免正在预览的
+          // iframe 被重建、用户刚拖动到的视频进度被重置。
+          return;
+        }
+
+        // 401：需要密码
+        if (status === 401) {
+          if (opts && opts.fromPasswordSubmit) {
+            this.passwordError = '访问密码不正确。';
+          }
+          this.state = 'password';
+          this.$nextTick(function () {
+            if (this.$refs.passwordField) this.$refs.passwordField.focus();
+          }.bind(this));
+          return;
+        }
+
+        if (status === 403) {
+          if (opts && opts.fromPasswordSubmit) {
+            this.passwordError = '访问密码不正确。';
+            this.state = 'password';
+          } else {
+            this.passwordValue = '';
+            this.showError('密码错误', '访问密码不正确，请重新打开分享链接。', '🔒', 'danger');
+          }
+          return;
+        }
+
+        if (status === 410) {
+          if (data.error === 'SHARE_LIMIT_REACHED') {
+            this.showError(
+              '下载次数已用尽',
+              '这份分享的下载次数已经用完，如需继续获取请联系分享者重新分享。',
+              '📉', 'warn'
+            );
+          } else {
+            this.showError(
+              '分享已过期',
+              '这份分享的有效期已经结束，请联系分享者重新分享。',
+              '⏳', 'warn'
+            );
+          }
+          return;
+        }
+
+        if (status === 404) {
+          this.showError(
+            '链接已失效',
+            '这个分享链接不存在，或分享已被取消。请确认链接是否完整、是否正确。',
+            '🔍', 'danger'
+          );
+          return;
+        }
+
+        this.showError(
+          '暂时无法访问',
+          (data && data.message) ? String(data.message) : '服务器返回了意外状态，请稍后重试。',
+          '⚠', 'danger'
+        );
+      },
+
+      submitPassword: function () {
+        if (!this.passwordInput || this.verifying) return;
+        this.passwordValue = this.passwordInput;
+        this.passwordError = '';
+        this.loadInfo({ fromPasswordSubmit: true });
+      },
+
+      showError: function (title, message, icon, tone) {
+        this.errorTitle = title;
+        this.errorMessage = message;
+        this.errorIcon = icon || '⚠';
+        this.errorTone = tone || 'danger';
+        this.state = 'error';
+      },
+
+      // ---------- 预览 ----------
+      togglePreview: function () {
+        if (this.showPreview) {
+          this.showPreview = false;
+          return;
+        }
+        this.showPreview = true;
+        // 懒加载：只在用户真的点预览时才请求文件，避免无谓的流量
+        if (this.previewSrc) return;
+
+        this.previewLoading = true;
+        var self = this;
+        var url = this.info.fileUrl;
+        if (this.info.passwordProtected && this.passwordValue) {
+          url += (url.indexOf('?') === -1 ? '?' : '&') + 'password=' + encodeURIComponent(this.passwordValue);
+        }
+        // 复用 preview.html 的渲染能力，用 embed 模式去掉它自己的顶栏与信息面板
+        var previewUrl = '/preview.html?url=' + encodeURIComponent(url)
+          + '&title=' + encodeURIComponent(this.info.fileName)
+          + '&name=' + encodeURIComponent(this.info.fileName)
+          + '&size=' + encodeURIComponent(String(this.info.fileSize || 0))
+          + '&embed=1';
+
+        // 给 iframe 一点加载时间再撤掉 loading 文案，否则会闪一下
+        setTimeout(function () {
+          self.previewSrc = previewUrl;
+          self.previewLoading = false;
+        }, 60);
+      },
+
+      // ---------- 下载 ----------
+      /**
+       * 下载走的是一条普通的 `<a download>` 导航，浏览器会带上 dl=1 请求文件流，
+       * file 路由据此切 attachment 并 +1 计数。
+       *
+       * 这里只做一件事：稍后静默刷新一次剩余次数。
+       * 不能立刻刷新 —— 请求可能还没到服务端，读到的会是旧计数。
+       */
+      onDownloadClick: function () {
+        if (this.info.maxDownloads === null || this.info.maxDownloads === undefined) return;
+        if (this.remaining <= 0) return;
+        var self = this;
+        this.toast('已开始下载', 'success');
+        setTimeout(function () {
+          self.loadInfo({ silent: true });
+        }, 1200);
+        // 兜底再查一次：大文件下载耗时更久，计数写入也可能稍慢
+        setTimeout(function () {
+          self.loadInfo({ silent: true });
+        }, 4000);
+      },
+
+      // ---------- 工具 ----------
+      formatSize: function (bytes) {
+        var value = Number(bytes) || 0;
+        if (value <= 0) return '未知大小';
+        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        var i = 0;
+        var size = value;
+        while (size >= 1024 && i < units.length - 1) { size /= 1024; i += 1; }
+        return (i === 0 ? size : size.toFixed(size >= 100 ? 0 : 1)) + ' ' + units[i];
+      },
+
+      formatDuration: function (ms) {
+        var seconds = Math.max(0, Math.floor(ms / 1000));
+        if (seconds < 60) return seconds + ' 秒';
+        var minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return minutes + ' 分钟';
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + ' 小时';
+        var days = Math.floor(hours / 24);
+        return days + ' 天';
+      },
+
+      formatDate: function (timestamp) {
+        var value = Number(timestamp) || 0;
+        if (!value) return '';
+        var date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+        return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+          + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+      },
+
+      toast: function (text, type) {
+        var id = ++this.toastSeed;
+        this.toasts.push({ id: id, text: text, type: type || '' });
+        var self = this;
+        setTimeout(function () {
+          self.toasts = self.toasts.filter(function (t) { return t.id !== id; });
+        }, 2600);
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
