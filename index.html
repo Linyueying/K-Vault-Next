@@ -928,6 +928,195 @@
         border-color: rgba(245, 158, 11, 0.35);
       }
 
+      /* ===== 条目级分享弹窗 ===== */
+      .share-dialog {
+        width: min(480px, 92vw);
+        max-height: 88vh;
+        overflow: auto;
+        padding: 20px;
+        border-radius: var(--radius-lg);
+        background: var(--glass-surface);
+        border: 1.5px solid var(--glass-border);
+        box-shadow: var(--shadow-elevated);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .share-dialog-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .share-dialog-title {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 0.98rem;
+        font-weight: 800;
+      }
+      .share-dialog-title i { color: var(--primary); }
+      .share-dialog-file {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-sub);
+        padding: 8px 11px;
+        border-radius: var(--radius-sm);
+        background: var(--glass-subtle);
+        border: 1px solid var(--glass-border-ice);
+        word-break: break-all;
+      }
+      .share-dialog-body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .share-field-note {
+        font-weight: 500;
+        font-size: 0.66rem;
+        color: var(--primary);
+        margin-left: 4px;
+      }
+      .share-field-hint {
+        font-size: 0.68rem;
+        color: var(--text-muted);
+        margin-top: 4px;
+      }
+      /* 「保留当前密码 / 短链」勾选项 */
+      .share-keep-toggle {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 7px;
+        font-size: 0.68rem;
+        color: var(--text-muted);
+        cursor: pointer;
+        line-height: 1.4;
+        user-select: none;
+      }
+      .share-keep-toggle input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+        flex: none;
+        accent-color: var(--primary);
+        cursor: pointer;
+      }
+      .share-input:disabled,
+      .share-select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .share-dialog-hint {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+        padding: 8px 11px;
+        border-radius: var(--radius-sm);
+        border: 1px dashed var(--glass-border-ice);
+        background: var(--glass-subtle);
+        display: flex;
+        gap: 7px;
+      }
+      .share-dialog-hint i { color: var(--primary); margin-top: 2px; flex: none; }
+      .share-dialog-error {
+        display: flex;
+        gap: 7px;
+        align-items: flex-start;
+        font-size: 0.76rem;
+        color: #ef4444;
+        line-height: 1.5;
+        padding: 8px 11px;
+        border-radius: var(--radius-sm);
+        background: rgba(239, 68, 68, 0.09);
+        border: 1px solid rgba(239, 68, 68, 0.25);
+      }
+      .share-dialog-error i { margin-top: 2px; flex: none; }
+      .share-dialog-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .share-dialog-actions .action-pill-btn.danger {
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.32);
+      }
+      .share-dialog-actions .action-pill-btn.danger:hover:not(:disabled) {
+        background: #ef4444;
+        border-color: #ef4444;
+        color: #fff;
+      }
+
+      /* 分享成功后的链接卡片 */
+      .share-result {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 13px;
+        border-radius: var(--radius-md);
+        background: rgba(var(--primary-rgb), 0.07);
+        border: 1px solid rgba(var(--primary-rgb), 0.22);
+      }
+      .share-result-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: var(--primary);
+      }
+      .share-result-url {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 10px;
+        border-radius: var(--radius-sm);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+      }
+      .share-result-url code {
+        flex: 1;
+        min-width: 0;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.74rem;
+        color: var(--text-main);
+        word-break: break-all;
+      }
+      .share-result-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .share-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 9px;
+        border-radius: var(--radius-pill);
+        font-size: 0.68rem;
+        font-weight: 700;
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        color: var(--text-sub);
+      }
+      .share-tag.muted { color: var(--text-muted); }
+      .share-result-hint {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+
+      /* 条目按钮的「已分享」高亮 */
+      .mini-icon-btn.share-active,
+      .history-mini-btn.share-active {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.42);
+        background: rgba(var(--primary-rgb), 0.1);
+      }
+
       .batch-links-box {
         width: 100%;
         min-height: 80px;
@@ -1868,75 +2057,7 @@
           </button>
         </div>
 
-        <!-- ===== 分享设置（有效期 / 访问密码 / 下载上限 / 自定义短链）===== -->
-        <section class="liquid-card panel-section" v-if="!isGuest">
-          <div class="panel-header" style="margin-bottom: 0;">
-            <span class="panel-title">
-              <i class="fas fa-share-nodes" :style="shareEnabled ? 'color: var(--primary);' : ''"></i>
-              <span>分享设置</span>
-              <span v-if="shareEnabled" class="share-badge">已启用</span>
-            </span>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              <button class="action-pill-btn" style="padding: 5px 11px; font-size: 0.78rem;" @click="showSharePanel = !showSharePanel">
-                <i class="fas" :class="showSharePanel ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
-                <span>{{ showSharePanel ? '收起' : '展开' }}</span>
-              </button>
-              <label class="action-pill-btn" style="padding: 5px 11px; font-size: 0.78rem; cursor: pointer;">
-                <input type="checkbox" v-model="shareEnabled" style="accent-color: var(--primary); cursor: pointer; margin-right: 4px;" />
-                <span>{{ shareEnabled ? '开启' : '关闭' }}</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="share-panel-body" v-show="showSharePanel">
-            <div class="share-field-row">
-              <div class="share-field">
-                <label>有效期</label>
-                <select class="share-select" v-model.number="shareExpiresIn">
-                  <option :value="0">永久有效</option>
-                  <option :value="3600">1 小时</option>
-                  <option :value="86400">1 天</option>
-                  <option :value="604800">7 天</option>
-                  <option :value="2592000">30 天</option>
-                  <option :value="31536000">365 天</option>
-                </select>
-              </div>
-              <div class="share-field">
-                <label>下载次数上限</label>
-                <input class="share-input" type="number" min="0" v-model="shareMaxDownloads" placeholder="留空表示不限" />
-              </div>
-            </div>
-
-            <div class="share-field">
-              <label>访问密码</label>
-              <div class="share-input-wrap">
-                <input
-                  class="share-input"
-                  :type="shareShowPassword ? 'text' : 'password'"
-                  v-model="sharePassword"
-                  autocomplete="new-password"
-                  placeholder="留空表示不加密"
-                />
-                <button class="mini-icon-btn" type="button" @click="shareShowPassword = !shareShowPassword" :title="shareShowPassword ? '隐藏' : '显示'">
-                  <i :class="shareShowPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                </button>
-              </div>
-            </div>
-
-            <div class="share-field">
-              <label>自定义短链</label>
-              <div class="share-input-wrap">
-                <span class="share-slug-prefix">/s/</span>
-                <input class="share-input" type="text" v-model="shareSlug" placeholder="留空则自动生成" maxlength="64" />
-              </div>
-            </div>
-
-            <div class="share-summary">
-              <i class="fas fa-circle-info"></i>
-              {{ shareSummaryText }}
-            </div>
-          </div>
-        </section>
+        <!-- 分享设置已移至「条目级分享按钮 + 弹窗」：见文件卡片上的分享图标 -->
 
         <!-- URL Transfer Pill -->
         <div class="url-pill-bar" v-if="showUrlInput">
@@ -2086,13 +2207,22 @@
             </div>
             <div style="display: flex; gap: 6px;">
               <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
+              <!-- 条目级分享：点击弹窗配置，而不是直接复制 -->
+              <button
+                class="mini-icon-btn"
+                :class="{ 'share-active': hasShare(file) }"
+                @click="openShareDialog(file)"
+                :title="hasShare(file) ? '管理分享设置' : '分享这个文件'"
+              >
+                <i class="fas fa-share-nodes"></i>
+              </button>
               <button
                 class="mini-icon-btn"
                 v-if="hasShare(file)"
                 @click="copyShareLink(file)"
                 title="复制分享短链"
               >
-                <i class="fas fa-share-nodes"></i>
+                <i class="fas fa-link"></i>
               </button>
               <button
                 class="mini-icon-btn"
@@ -2469,11 +2599,19 @@
                       <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button
                         class="history-mini-btn"
+                        :class="{ 'share-active': hasShare(item) }"
+                        @click.stop="openShareDialog(item)"
+                        :title="hasShare(item) ? '管理分享设置' : '分享这个文件'"
+                      >
+                        <i class="fas fa-share-nodes"></i>
+                      </button>
+                      <button
+                        class="history-mini-btn"
                         v-if="hasShare(item)"
                         @click.stop="copyShareLink(item)"
                         title="复制分享短链"
                       >
-                        <i class="fas fa-share-nodes"></i>
+                        <i class="fas fa-link"></i>
                       </button>
                       <button
                         class="history-mini-btn"
@@ -2521,11 +2659,19 @@
                       <button class="mini-icon-btn" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button
                         class="mini-icon-btn"
+                        :class="{ 'share-active': hasShare(item) }"
+                        @click="openShareDialog(item)"
+                        :title="hasShare(item) ? '管理分享设置' : '分享这个文件'"
+                      >
+                        <i class="fas fa-share-nodes"></i>
+                      </button>
+                      <button
+                        class="mini-icon-btn"
                         v-if="hasShare(item)"
                         @click="copyShareLink(item)"
                         title="复制分享短链"
                       >
-                        <i class="fas fa-share-nodes"></i>
+                        <i class="fas fa-link"></i>
                       </button>
                       <button class="mini-icon-btn" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
                       <button
@@ -2590,6 +2736,163 @@
               <span>{{ isDownloading(previewData) ? '拉取中...' : '下载' }}</span>
             </button>
             <button class="action-pill-btn" @click="closePreview"><i class="fas fa-xmark"></i> 关闭</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 条目级分享弹窗 ===== -->
+      <div class="drawer-backdrop" v-if="shareDialogVisible" @click.self="closeShareDialog" style="align-items: center;">
+        <div class="share-dialog" @click.stop>
+          <div class="share-dialog-head">
+            <div class="share-dialog-title">
+              <i class="fas fa-share-nodes"></i>
+              <span>{{ shareDialogMode === 'manage' ? '管理分享' : '分享文件' }}</span>
+            </div>
+            <button class="mini-icon-btn" @click="closeShareDialog" title="关闭"><i class="fas fa-xmark"></i></button>
+          </div>
+
+          <div class="share-dialog-file" :title="shareDialogItem ? getDisplayName(shareDialogItem) : ''">
+            {{ shareDialogItem ? getDisplayName(shareDialogItem) : '' }}
+          </div>
+
+          <!-- 成功后的链接展示 -->
+          <div class="share-result" v-if="shareDialogResult">
+            <div class="share-result-head">
+              <i class="fas fa-circle-check"></i>
+              <span>{{ shareDialogMode === 'manage' ? '分享设置已生效' : '分享链接已生成' }}</span>
+            </div>
+            <div class="share-result-url">
+              <code>{{ shareDialogResult.url }}</code>
+              <button class="mini-icon-btn" @click="copyShareDialogUrl" title="复制链接"><i class="fas fa-copy"></i></button>
+            </div>
+            <div class="share-result-tags">
+              <span class="share-tag" v-if="shareDialogResult.passwordProtected"><i class="fas fa-lock"></i> 密码保护</span>
+              <span class="share-tag" v-if="shareDialogResult.maxDownloads">限 {{ shareDialogResult.maxDownloads }} 次下载</span>
+              <span class="share-tag" v-if="shareDialogResult.expiresAt">
+                有效期至 {{ new Date(shareDialogResult.expiresAt).toLocaleString('zh-CN') }}
+              </span>
+              <span class="share-tag muted" v-if="!shareDialogResult.passwordProtected && !shareDialogResult.maxDownloads && !shareDialogResult.expiresAt">
+                公开 · 永久 · 不限次数
+              </span>
+            </div>
+            <div class="share-result-hint">
+              访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。
+            </div>
+          </div>
+
+          <!-- 配置表单 -->
+          <div class="share-dialog-body" v-else>
+            <div class="share-field-row">
+              <div class="share-field">
+                <label>有效期</label>
+                <select class="share-select" v-model.number="shareDialogForm.expiresIn">
+                  <option :value="0">{{ shareDialogMode === 'manage' ? '保持不变' : '永久有效' }}</option>
+                  <option :value="3600">1 小时</option>
+                  <option :value="86400">1 天</option>
+                  <option :value="604800">7 天</option>
+                  <option :value="2592000">30 天</option>
+                  <option :value="31536000">365 天</option>
+                </select>
+              </div>
+              <div class="share-field">
+                <label>下载次数上限</label>
+                <input
+                  class="share-input"
+                  type="number"
+                  min="0"
+                  v-model="shareDialogForm.maxDownloads"
+                  :placeholder="shareDialogMode === 'manage' ? '保持不变' : '留空表示不限'"
+                />
+              </div>
+            </div>
+
+            <div class="share-field">
+              <label>
+                访问密码
+                <span class="share-field-note" v-if="shareDialogMode === 'manage' && shareDialogItem && shareDialogItem.shareProtected && shareDialogForm.keepPassword">
+                  当前已设置，留空则不修改
+                </span>
+              </label>
+              <div class="share-input-wrap">
+                <input
+                  class="share-input"
+                  :type="shareDialogShowPassword ? 'text' : 'password'"
+                  v-model="shareDialogForm.password"
+                  autocomplete="new-password"
+                  :disabled="shareDialogMode === 'manage' && !shareDialogForm.keepPassword"
+                  :placeholder="sharePasswordPlaceholder"
+                />
+                <button class="mini-icon-btn" type="button" @click="shareDialogShowPassword = !shareDialogShowPassword" :title="shareDialogShowPassword ? '隐藏' : '显示'">
+                  <i :class="shareDialogShowPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                </button>
+              </div>
+              <label
+                class="share-keep-toggle"
+                v-if="shareDialogMode === 'manage' && shareDialogItem && shareDialogItem.shareProtected"
+              >
+                <input type="checkbox" v-model="shareDialogForm.keepPassword" />
+                保留当前密码（不勾选则改为下方新密码，留空即清除密码）
+              </label>
+            </div>
+
+            <div class="share-field">
+              <label>自定义短链</label>
+              <div class="share-input-wrap">
+                <span class="share-slug-prefix">/s/</span>
+                <input
+                  class="share-input"
+                  type="text"
+                  v-model="shareDialogForm.slug"
+                  :disabled="shareDialogMode === 'manage' && !shareDialogForm.keepSlug"
+                  :placeholder="shareSlugPlaceholder"
+                  maxlength="64"
+                  @input="shareDialogForm.slug = shareDialogForm.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '')"
+                />
+              </div>
+              <label
+                class="share-keep-toggle"
+                v-if="shareDialogMode === 'manage' && shareDialogItem && shareDialogItem.shareSlug"
+              >
+                <input type="checkbox" v-model="shareDialogForm.keepSlug" />
+                保留当前短链（不勾选则改为下方新短链，留空即取消自定义）
+              </label>
+              <div class="share-field-hint">只能包含小写字母、数字、下划线与短横线。</div>
+            </div>
+
+            <div class="share-dialog-hint">
+              <i class="fas fa-circle-info"></i>
+              {{ shareDialogExpiryHint }}
+            </div>
+
+            <div class="share-dialog-error" v-if="shareDialogError">
+              <i class="fas fa-triangle-exclamation"></i>
+              <span>{{ shareDialogError }}</span>
+            </div>
+          </div>
+
+          <div class="share-dialog-actions">
+            <button
+              class="action-pill-btn danger"
+              v-if="shareDialogMode === 'manage'"
+              :disabled="shareDialogRevoking || shareDialogBusy"
+              @click="revokeShare"
+            >
+              <i :class="shareDialogRevoking ? 'fas fa-circle-notch fa-spin' : 'fas fa-ban'"></i>
+              <span>{{ shareDialogRevoking ? '处理中…' : '取消分享' }}</span>
+            </button>
+            <span style="flex: 1;"></span>
+            <button class="action-pill-btn" :disabled="shareDialogBusy" @click="closeShareDialog">
+              <span>{{ shareDialogResult ? '完成' : '取消' }}</span>
+            </button>
+            <button
+              class="btn-pill-action"
+              v-if="!shareDialogResult"
+              :disabled="shareDialogBusy"
+              @click="submitShareDialog"
+            >
+              <i :class="shareDialogBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-share-nodes'"></i>
+              <span>{{ shareDialogBusy ? '提交中…' : (shareDialogMode === 'manage' ? '保存修改' : '生成分享链接') }}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -2728,14 +3031,39 @@
           showAllFormats: false,
           showBatchPreview: true,
 
-          /* ===== 分享设置（有效期 / 访问密码 / 下载次数上限 / 自定义短链）===== */
-          showSharePanel: false,
+          /* ===== 条目级分享弹窗 =====
+             shareEnabled 保留但恒为 false：它是「上传时是否注入分享参数」的内部
+             开关，buildShareOptions() 在它关闭时直接返回 null。分享改由条目按钮
+             在文件上传完成后单独配置，因此这条上传路径不再需要改动。
+             其余 share* 字段仅供 buildShareOptions() 读取，默认空值。 */
           shareEnabled: false,
+          showSharePanel: false,
           shareExpiresIn: 0,
           sharePassword: "",
           shareShowPassword: false,
           shareMaxDownloads: "",
           shareSlug: "",
+
+          /* 分享弹窗状态 */
+          shareDialogVisible: false,
+          shareDialogItem: null,
+          shareDialogMode: "create",     // create | manage
+          shareDialogBusy: false,
+          shareDialogError: "",
+          shareDialogResult: null,       // 成功后展示的链接信息
+          shareDialogRevoking: false,
+          shareDialogForm: {
+            expiresIn: 0,
+            maxDownloads: "",
+            password: "",
+            slug: "",
+            // manage 模式下的两个开关：关闭即明确要求「清除该项」，
+            // 对应的密码框 / 短链框会被禁用，提交时发空值触发后端清除分支。
+            keepPassword: true,          // 开启 = 保留当前密码（留空即不改）
+            keepSlug: true               // 开启 = 保留当前短链（留空即不改）
+          },
+          shareDialogShowPassword: false,
+
           previewData: null,
           toasts: [],
           isAuthenticated: false,
@@ -2826,25 +3154,6 @@
           visibleLinkFormats() {
             if (this.showAllFormats) return this.linkFormats;
             return this.linkFormats.filter((f) => f.key === "url" || f.key === this.linkFormat);
-          },
-          /* 分享设置的一行摘要，让用户不必逐项回看就知道会生成什么样的链接 */
-          shareSummaryText() {
-            if (!this.shareEnabled) {
-              return "分享设置已关闭，上传后仅生成普通直链。";
-            }
-            const parts = [];
-            if (Number(this.shareExpiresIn) > 0) {
-              parts.push(this.formatShareDuration(Number(this.shareExpiresIn)));
-            } else {
-              parts.push("永久有效");
-            }
-            if (String(this.shareMaxDownloads).trim() && Number(this.shareMaxDownloads) > 0) {
-              parts.push(`限 ${Number(this.shareMaxDownloads)} 次下载`);
-            }
-            if (this.sharePassword) parts.push("需要访问密码");
-            const slug = this.normalizedShareSlug;
-            parts.push(slug ? `短链 /s/${slug}` : "短链自动生成");
-            return `上传后将生成：${parts.join(" · ")}。`;
           },
           /* 与后端 sanitizeShareSlug 同口径 */
           normalizedShareSlug() {
@@ -3015,6 +3324,32 @@
           },
           historySelectedCount() {
             return this.historySorted.filter((it) => it.selected).length;
+          },
+
+          /* ---------- 分享弹窗：随状态联动的文案 ---------- */
+
+          /** 弹窗里展示「有效期」的友好文案 */
+          shareDialogExpiryHint() {
+            const expiresIn = Number(this.shareDialogForm.expiresIn) || 0;
+            if (this.shareDialogMode === "manage" && expiresIn === 0) {
+              return "保持不变。选择具体时长才会覆盖当前设置。";
+            }
+            if (expiresIn === 0) return "永久有效。";
+            return `从此刻起 ${this.formatShareDuration(expiresIn).replace("有效期 ", "")}内可访问。`;
+          },
+
+          /** 密码框占位文案：区分「不修改 / 不加密 / 清除」三种语义 */
+          sharePasswordPlaceholder() {
+            if (this.shareDialogMode !== "manage") return "留空表示不加密";
+            if (!this.shareDialogForm.keepPassword) return "留空即清除密码";
+            return "留空则不修改";
+          },
+
+          /** 短链框占位文案 */
+          shareSlugPlaceholder() {
+            if (this.shareDialogMode !== "manage") return "留空则自动生成";
+            if (!this.shareDialogForm.keepSlug) return "留空即取消自定义短链";
+            return "留空则不修改";
           },
         },
         methods: {
@@ -3926,10 +4261,21 @@
             this.$set(target, "shareExpiresAt", payload.shareExpiresAt || 0);
             this.$set(target, "shareMaxDownloads", payload.shareMaxDownloads || 0);
             this.$set(target, "shareProtected", Boolean(payload.sharePasswordProtected));
+            this.$set(target, "shareDownloadCount", Number(payload.shareDownloadCount) || 0);
             return target;
           },
           hasShare(item) {
-            return Boolean(item && item.sharePath);
+            /* 语义收紧：只有当文件真的带着分享设置时才算「已分享」。
+              改造前只要 sharePath 非空就为真，而 buildShareSummary 在没有
+               任何配置时也可能给出路径，会让徽标恒亮、按钮状态错乱。
+               现在要求「有效期 / 次数上限 / 密码 / 自定义短链」四者有其一。 */
+            if (!item) return false;
+            return Boolean(
+              Number(item.shareExpiresAt) > 0
+              || Number(item.shareMaxDownloads) > 0
+              || item.shareProtected
+              || item.shareSlug
+            );
           },
           shareUrlOf(item) {
             if (!item || !item.sharePath) return "";
@@ -3982,6 +4328,231 @@
               bits.push(item.shareExpiresAt > Date.now() ? "限时" : "已过期");
             }
             return bits.length ? bits.join(" · ") : "分享中";
+          },
+
+          /* ================= 条目级分享弹窗 ================= */
+
+          /**
+           * 打开分享弹窗。
+           * 已分享的条目进入 manage 态（可改配置 / 取消），否则 create 态。
+           */
+          openShareDialog(item) {
+            if (!item) return;
+            if (!item.url && !item.path && !item.name) {
+              this.showToast("无法识别该文件，请刷新后重试", "error");
+              return;
+            }
+            const mode = this.hasShare(item) ? "manage" : "create";
+            this.shareDialogItem = item;
+            this.shareDialogMode = mode;
+            this.shareDialogError = "";
+            this.shareDialogResult = null;
+            this.shareDialogBusy = false;
+            this.shareDialogRevoking = false;
+            this.shareDialogShowPassword = false;
+
+            /* manage 态回填「当前配置」；密码与短链不回填明文/原值 ——
+               后端只告知是否设过密码，回填成占位更不容易误改。 */
+            this.shareDialogForm = {
+              expiresIn: 0,           /* 0 = 不修改（manage）/ 永久（create） */
+              maxDownloads: Number(item.shareMaxDownloads) || "",
+              password: "",
+              slug: mode === "manage" ? "" : String(item.shareSlug || ""),
+              /* 两个「保留」开关默认开：manage 态下不动就是不动，
+                 想清除得手动取消勾选，避免空值被误当成「清空配置」。 */
+              keepPassword: true,
+              keepSlug: true,
+            };
+            this.shareDialogVisible = true;
+          },
+
+          closeShareDialog() {
+            this.shareDialogVisible = false;
+            this.shareDialogItem = null;
+            this.shareDialogResult = null;
+            this.shareDialogError = "";
+            this.shareDialogBusy = false;
+            this.shareDialogRevoking = false;
+          },
+
+          /**
+           * 从条目上推导出文件标识（供写接口定位记录）。
+           *
+           * 条目本身只存 `url` / `path`（形如 `/file/img:xxx` 或完整 URL），
+           * 所以这里剥掉 origin 与 `/file/` 前缀，解码后即为后端可识别的 ID。
+           * 后端 `findRecordWithKey` 同时接受带前缀的 kvKey 与裸 ID。
+           */
+          shareDialogTargetId() {
+            const item = this.shareDialogItem;
+            if (!item) return "";
+            if (item.rawId) return item.rawId;
+
+            let raw = String(item.url || item.path || item.name || "").trim();
+            if (!raw) return "";
+            // 完整 URL → 只留 pathname
+            if (/^https?:\/\//i.test(raw)) {
+              try { raw = new URL(raw).pathname; } catch (e) { /* 保持原值 */ }
+            }
+            raw = raw.replace(/^\/file\//, "").replace(/^\/+/, "");
+            // `url` 可能带查询串（例如已附加过 password），必须去掉
+            raw = raw.split("?")[0].split("#")[0];
+            try { return decodeURIComponent(raw); } catch (e) { return raw; }
+          },
+
+          /**
+           * 提交分享配置。
+           * create 与 manage 共用一条写接口，靠 action 区分；
+           * manage 态未改动的字段传 -1（保持不变）哨兵值。
+           */
+          async submitShareDialog() {
+            const item = this.shareDialogItem;
+            const targetId = this.shareDialogTargetId();
+            if (!item || !targetId) {
+              this.shareDialogError = "无法识别该文件，请刷新后重试。";
+              return;
+            }
+
+            const form = this.shareDialogForm;
+            const isManage = this.shareDialogMode === "manage";
+
+            /* ---- 前端预校验（与后端同口径，避免白跑一趟）---- */
+            const slugRaw = String(form.slug || "").trim();
+            const slug = slugRaw
+              .toLowerCase()
+              .replace(/[^a-z0-9_-]/g, "")
+              .slice(0, 64);
+            if (slugRaw && !slug) {
+              this.shareDialogError = "短链只能包含字母、数字、下划线或短横线。";
+              return;
+            }
+
+            const password = String(form.password || "");
+            if (password.length > 200) {
+              this.shareDialogError = "访问密码过长（最多 200 个字符）。";
+              return;
+            }
+
+            const maxRaw = String(form.maxDownloads).trim();
+            const maxDownloads = maxRaw === "" ? 0 : Number(maxRaw);
+            if (maxRaw !== "" && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) {
+              this.shareDialogError = "下载次数上限必须是非负整数（0 表示不限）。";
+              return;
+            }
+
+            /* ---- 组装请求体 ---- */
+            const body = {
+              action: isManage ? "update" : "create",
+            };
+
+            if (isManage) {
+              /* -1 哨兵：保持不变。只有用户真的动过的字段才发出去。
+                 「保留」开关关掉时，空值 = 清除该项，必须照发（不能折成 -1）。 */
+              body.expiresIn = Number(form.expiresIn) > 0 ? Number(form.expiresIn) : -1;
+              body.maxDownloads = maxRaw === "" ? -1 : maxDownloads;
+              body.password = password === "" && form.keepPassword ? -1 : password;
+              body.slug = slugRaw === "" && form.keepSlug ? -1 : slug;
+            } else {
+              body.expiresIn = Number(form.expiresIn) || 0;
+              body.maxDownloads = maxDownloads;
+              body.password = password;
+              body.slug = slug;
+            }
+
+            this.shareDialogBusy = true;
+            this.shareDialogError = "";
+
+            try {
+              const res = await fetch(
+                `${this.baseURL}/api/manage/share/${encodeURIComponent(targetId)}`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "same-origin",
+                  body: JSON.stringify(body),
+                }
+              );
+              const data = await res.json().catch(() => ({}));
+
+              if (!res.ok || data.success === false) {
+                const messages = Array.isArray(data.messages) ? data.messages : [];
+                this.shareDialogError =
+                  messages[0] || data.message || data.error || `请求失败（HTTP ${res.status}）`;
+                return;
+              }
+
+              /* 落回条目：让卡片徽标、批量复制立刻反映新状态 */
+              this.applyShareResult(item, data);
+
+              this.shareDialogResult = {
+                path: data.sharePath || "",
+                url: data.sharePath ? `${this.baseURL}${data.sharePath}` : "",
+                slug: data.shareSlug || "",
+                expiresAt: data.shareExpiresAt || 0,
+                maxDownloads: data.shareMaxDownloads || 0,
+                passwordProtected: Boolean(data.sharePasswordProtected),
+                active: Boolean(data.active),
+              };
+              this.shareDialogMode = "manage";
+              this.persistHistory();
+              this.showToast(isManage ? "分享设置已更新" : "分享已创建", "success");
+            } catch (err) {
+              console.error("分享配置失败:", err);
+              this.shareDialogError = "网络错误，请稍后重试。";
+            } finally {
+              this.shareDialogBusy = false;
+            }
+          },
+
+          /** 取消分享（revoke）。计数会被保留，因此文案里明确说明。 */
+          async revokeShare() {
+            const item = this.shareDialogItem;
+            const targetId = this.shareDialogTargetId();
+            if (!item || !targetId) return;
+
+            this.shareDialogRevoking = true;
+            this.shareDialogError = "";
+            try {
+              const res = await fetch(
+                `${this.baseURL}/api/manage/share/${encodeURIComponent(targetId)}`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "same-origin",
+                  body: JSON.stringify({ action: "revoke" }),
+                }
+              );
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok || data.success === false) {
+                this.shareDialogError = data.message || data.error || `请求失败（HTTP ${res.status}）`;
+                return;
+              }
+
+              /* 清空条目上的分享字段，而不是只改 sharePath ——
+                 hasShare() 现在会检查这些字段，漏清一个徽标就灭不掉。 */
+              this.$set(item, "shareSlug", "");
+              this.$set(item, "sharePath", "");
+              this.$set(item, "shareExpiresAt", 0);
+              this.$set(item, "shareMaxDownloads", 0);
+              this.$set(item, "shareProtected", false);
+              if (data.shareDownloadCount !== undefined) {
+                this.$set(item, "shareDownloadCount", Number(data.shareDownloadCount) || 0);
+              }
+              this.persistHistory();
+              this.showToast("已取消分享", "success");
+              this.closeShareDialog();
+            } catch (err) {
+              console.error("取消分享失败:", err);
+              this.shareDialogError = "网络错误，请稍后重试。";
+            } finally {
+              this.shareDialogRevoking = false;
+            }
+          },
+
+          copyShareDialogUrl() {
+            const url = this.shareDialogResult && this.shareDialogResult.url;
+            if (!url) return;
+            this.copyToClipboard(url);
+            this.showToast("已复制分享链接", "success");
           },
 
           formatLink(file) {
@@ -4115,6 +4686,7 @@ _doNativeDownload(url, fileName) {
                 shareExpiresAt: Number(it.shareExpiresAt) || 0,
                 shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
                 shareProtected: Boolean(it.shareProtected),
+                shareDownloadCount: Number(it.shareDownloadCount) || 0,
               }));
               localStorage.setItem("uploadHistory", JSON.stringify(serialized));
             } catch (e) {
@@ -4149,6 +4721,7 @@ _doNativeDownload(url, fileName) {
                 shareExpiresAt: Number(it.shareExpiresAt) || 0,
                 shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
                 shareProtected: Boolean(it.shareProtected),
+                shareDownloadCount: Number(it.shareDownloadCount) || 0,
               }));
             } catch (e) {
               this.uploadHistory = [];
@@ -4173,6 +4746,7 @@ _doNativeDownload(url, fileName) {
               shareExpiresAt: Number(file.shareExpiresAt) || 0,
               shareMaxDownloads: Number(file.shareMaxDownloads) || 0,
               shareProtected: Boolean(file.shareProtected),
+              shareDownloadCount: Number(file.shareDownloadCount) || 0,
             };
             const dupIdx = this.uploadHistory.findIndex(
               (it) => this.getCleanFileUrl(it) === url

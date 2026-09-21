@@ -45,6 +45,11 @@ import {
  * 与 `hasActiveShare()` 的关键区别：**已过期不算未开通**。
  * 过期链接必须能走到 410 分支，而不是被当成 404 抹掉。
  *
+ * 注意这里**不能**把 `shareDownloadCount` 算作分享字段：
+ * `clearShareOptions()` 取消分享时会刻意保留计数（防止「取消再分享」绕过
+ * 次数上限），因此「只剩计数」恰恰是**已取消**的典型形态。把它当作开通
+ * 证据会让取消后的链接继续返回 200，等于分享没被真正关掉。
+ *
  * @param metadata - KV 元数据。
  */
 function hasAnyShareField(metadata = {}) {
@@ -54,8 +59,6 @@ function hasAnyShareField(metadata = {}) {
     || Number(metadata.shareExpiresAt) > 0
     || Number(metadata.shareMaxDownloads) > 0
     || metadata.sharePasswordHash
-    // 已耗尽但配过上限的情况也走上面那条；这里额外兜住「只剩计数」的残留
-    || Number(metadata.shareDownloadCount) > 0
   );
 }
 

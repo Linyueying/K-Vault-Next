@@ -327,6 +327,12 @@ export async function cleanupShareSlugMapping(env, metadata = {}, kvKey = '') {
  * `shareDownloadCount`: re-enabling a share must *not* hand out a fresh quota,
  * otherwise "revoke then re-share" becomes a way to bypass `maxDownloads`.
  *
+ * 注意计数实际有**两个**落脚点：新的 `dlc:<kvKey>` 独立键，以及历史遗留的
+ * 内联 `shareDownloadCount`。只读内联值会漏掉真正在累加的那个数（线上计数
+ * 走的是 `incrementDownloadCount` → `dlc:`），于是「下载 N 次后取消分享」
+ * 会把 N 抹成 0，正好绕过次数上限。这里用 `readDownloadCount` 合并两处，
+ * 保证取消前后配额连续。
+ *
  * @param env - Pages environment (needs the `img_url` KV binding).
  * @param key - KV key of the record to un-share.
  * @param metadata - Current metadata of that record.
@@ -337,13 +343,15 @@ export async function clearShareOptions(env, key, metadata = {}) {
 
   await cleanupShareSlugMapping(env, nextMetadata, key);
 
+  // 必须在剥离字段**之前**取值：`readDownloadCount` 需要读内联值做回落。
+  const preservedCount = await readDownloadCount(env, key, metadata);
+
   for (const field of SHARE_METADATA_FIELDS) {
     delete nextMetadata[field];
   }
 
-  // `shareDownloadCount` is intentionally re-attached so the exhausted quota
-  // survives the revoke. A fresh share of the same file keeps counting up.
-  const preservedCount = Number(metadata?.shareDownloadCount);
+  // 把合并后的计数固化回内联字段，这样重建分享时 `readDownloadCount`
+  // 即便读不到 `dlc:`（例如被 TTL 清掉）也能拿到真实已用量。
   if (Number.isFinite(preservedCount) && preservedCount > 0) {
     nextMetadata.shareDownloadCount = preservedCount;
   }

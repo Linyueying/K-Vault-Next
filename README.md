@@ -36,8 +36,9 @@
 
 | 页面 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| 首页 / 上传 | `/` | 拖拽、粘贴、批量上传；URL 转存；分片上传；智能节点选择；上传目录树；上传历史；直链 / Markdown / HTML / BBCode 多种格式 |
-| 管理后台 | `/admin.html` | 文件与目录管理、收藏、用量监控、API Token 管理 |
+| 首页 / 上传 | `/` | 拖拽、粘贴、批量上传；URL 转存；分片上传；智能节点选择；上传目录树；上传历史；直链 / Markdown / HTML / BBCode 多种格式；按条目配置分享 |
+| 管理后台 | `/admin.html` | 文件与目录管理、收藏、用量监控、API Token 管理、**分享管理**（有效期 / 次数 / 取消） |
+| 分享页 | `/share.html` | `/s/:slug` 短链的落地页，提供预览与下载；密码保护、失效原因提示 |
 | 文本粘贴 | `/paste.html` | 创建 / 列表 / 查看 / 删除 Paste，支持有效期与访问密码 |
 | 图片画廊 | `/gallery.html` | 图片浏览、搜索、批量复制直链 / 下载 / 删除 |
 | 文件预览 | `/preview.html` | 多格式预览，密码保护的文件会弹出密码输入 |
@@ -241,21 +242,24 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 
 ### 分享选项
 
-有效期、访问密码、下载次数上限、自定义短链这四个字段在**前后端均可设置**：
+有效期、访问密码、下载次数上限、自定义短链这四个字段在**前后端均可设置**。
 
 **前端入口**
 
 | 位置 | 可设置项 |
 | --- | --- |
-| 首页「分享设置」面板 | 四项全支持，启用后自动注入所有上传路径 |
+| 首页结果卡片 / 历史卡片 → **分享按钮** | 四项全支持。点开弹窗配置，提交后直接给出 `/s/:slug` 链接 |
 | 首页「URL 转存」 | 复用同一份分享设置 |
 | 文本粘贴页 `/paste.html` | 有效期与密码 |
-| 结果卡片 / 历史卡片 | 一键复制 `/s/:slug` 分享短链 |
+
+> 分享是**按条目配置**的：每条文件/历史记录各有一个分享按钮，已分享的条目再点进去就是「管理」态，
+> 可以改配置或取消分享，而不是在首页设一个全局开关。
 
 **后端接口**
 
 | 接口 | 传入方式 |
 | --- | --- |
+| `POST /api/manage/share/:id` | 推荐。JSON `action`（`create` / `update` / `revoke`）+ 四个字段；`update` 时传 `-1` 表示该字段保持不变，传 `0` / `""` 表示清除 |
 | `POST /upload` | FormData 扁平字段 `expires_in` / `max_downloads` / `slug` / `password` |
 | `POST /api/chunked-upload/init` | JSON `shareOptions` 对象（在 init 阶段即完成校验与短链占用预检） |
 | `POST /api/upload-from-url` | JSON `shareOptions` 对象，或扁平字段 |
@@ -265,7 +269,27 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 `shareExpiresAt` / `shareMaxDownloads` / `sharePasswordProtected`），
 因此刷新页面或从本地历史恢复后，短链依然可以取回并复制。
 
+**访问链路**
+
+```
+/s/:slug  ──302──▶  /share.html?s=:slug  ──▶  GET /api/share-info?s=:slug
+                                                    │
+                                    200 ─────────────┴──────── 401 需密码 / 403 密码错
+                                                                410 已过期或次数用尽 / 404 无此分享
+```
+
+- `/s/:slug` **只做跳转**，不再直接吐出文件流。
+- 分享页 `/share.html` 提供**预览与下载**两个入口；只有点「下载」（即带 `dl=1` 请求）才计入下载次数，
+  预览不计次。
+- `admin.html` → 工具菜单 → **分享管理**：汇总所有已分享条目，可见有效期、剩余时长、
+  已用/总次数、密码状态，并支持按状态筛选、搜索、复制链接与取消分享。
+
+> ⚠️ **行为变更（breaking change）**：早期版本的 `/s/:slug` 会 `302` 到 `/file/:id` 而**直接下载文件**。
+> 现在它跳转到分享页。旧链接**无需迁移**即可自动获得新的分享页体验；副作用是直接访问短链的
+> 爬虫 / 脚本 / IM 预览会拿到 HTML 而非文件本体，需要在请求里显式带 `dl=1` 才能取到文件。
+
 受保护文件的表现：过期或下载次数用尽返回 `410`，需要密码时返回 `401`，密码错误返回 `403`。
+分享页对过期与用尽都会给出明确的失效原因，而不是笼统的「链接无效」。
 
 ---
 
@@ -273,18 +297,19 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 
 ```text
 ├── index.html admin.html paste.html gallery.html
-├── preview.html webdav.html login.html
+├── preview.html webdav.html login.html share.html
 ├── block-img.html whitelist-on.html      # 拦截提示页
 ├── theme.css theme.js mobile-refactor.css
 ├── functions/                            # Cloudflare Pages Functions 后端
 │   ├── api/
 │   │   ├── auth/ manage/ admin/ v1/      # 鉴权 / 管理 / Token / API v1
 │   │   ├── chunked-upload/               # 分片上传 init / chunk / complete
+│   │   ├── share-info.js                 # 分享页只读信息（公开）
 │   │   └── status.js upload-from-url.js telegram/webhook.js
 │   ├── file/[[path]].js                  # 文件直链（多层路径、密码、黑白名单）
 │   ├── file-info/[[path]].js             # 文件元信息
-│   ├── s/[slug].js                       # 短分享链
-│   └── utils/                            # 存储适配器与公共工具
+│   ├── s/[slug].js                       # 短分享链 → 302 到 /share.html
+│   └── utils/                            # 存储适配器与公共工具（含 share-options.js）
 ├── scripts/                              # wrangler 配置生成 / 校验工具
 ├── docs/                                 # OpenAPI、接入指南、完整配置参考
 └── .env.example                          # 变量清单（Pages 不读此文件）
