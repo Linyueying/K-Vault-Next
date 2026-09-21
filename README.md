@@ -2,7 +2,7 @@
 
 <img src="logo.png" alt="K-Vault Logo" width="140">
 
-# K-Vault-Next · 一云
+# K-Vault-Next
 
 **中文** | [English](README-EN.md)
 
