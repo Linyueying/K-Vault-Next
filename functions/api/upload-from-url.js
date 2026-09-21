@@ -15,6 +15,7 @@ import {
 } from "../utils/telegram.js";
 import { checkAuthentication } from "../utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "../utils/guest.js";
+import { MAX_REDIRECTS, validateRedirectLocation, validateRemoteUrl } from "../utils/ssrf-guard.js";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const FETCH_TIMEOUT = 30000;
@@ -143,50 +144,76 @@ async function runUploadFromUrl(context) {
 }
 
 async function fetchRemote(url) {
+  let currentUrl;
+  try {
+    currentUrl = new URL(String(url || "").trim());
+  } catch {
+    return { ok: false, status: 400, error: "URL 格式无效" };
+  }
+
+  // 入口 SSRF 校验：拦截私有网段 / 回环 / 元数据地址 / 非常规端口
+  const initialCheck = validateRemoteUrl(currentUrl.href);
+  if (!initialCheck.ok) {
+    return { ok: false, status: 400, error: `SSRF 防护：${initialCheck.message}` };
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 K-Vault URL Uploader",
-        Accept: "image/*,video/*,audio/*,application/*,*/*",
-      },
-    });
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      let response;
+      try {
+        // 手动处理重定向，确保每一跳都经过 SSRF 校验
+        response = await fetch(currentUrl.href, {
+          redirect: "manual",
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 K-Vault URL Uploader",
+            Accept: "image/*,video/*,audio/*,application/*,*/*",
+          },
+        });
+      } catch (error) {
+        if (error.name === "AbortError") {
+          return { ok: false, status: 408, error: "远程 URL 请求超时" };
+        }
+        return { ok: false, status: 502, error: `无法获取远程 URL：${error.message}` };
+      }
 
-    if (!response.ok) {
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("Location");
+        if (!location) {
+          return { ok: false, status: 502, error: "远程 URL 重定向缺少 Location 头" };
+        }
+        const redirectCheck = validateRedirectLocation(location, currentUrl);
+        if (!redirectCheck.ok) {
+          return { ok: false, status: 400, error: `SSRF 防护：${redirectCheck.message}` };
+        }
+        currentUrl = redirectCheck.url;
+        continue;
+      }
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          status: 502,
+          error: `远程 URL 响应异常：${response.status} ${response.statusText}`,
+        };
+      }
+
+      const contentType = response.headers.get("content-type") || "application/octet-stream";
+      const contentDisposition = response.headers.get("content-disposition") || "";
+      const arrayBuffer = await response.arrayBuffer();
+
       return {
-        ok: false,
-        status: 502,
-        error: `远程 URL 响应异常：${response.status} ${response.statusText}`,
+        ok: true,
+        contentType,
+        contentDisposition,
+        arrayBuffer,
       };
     }
 
-    const contentType = response.headers.get("content-type") || "application/octet-stream";
-    const contentDisposition = response.headers.get("content-disposition") || "";
-    const arrayBuffer = await response.arrayBuffer();
-
-    return {
-      ok: true,
-      contentType,
-      contentDisposition,
-      arrayBuffer,
-    };
-  } catch (error) {
-    if (error.name === "AbortError") {
-      return {
-        ok: false,
-        status: 408,
-        error: "远程 URL 请求超时",
-      };
-    }
-
-    return {
-      ok: false,
-      status: 502,
-      error: `无法获取远程 URL：${error.message}`,
-    };
+    return { ok: false, status: 400, error: `重定向次数过多（最多 ${MAX_REDIRECTS} 次）` };
   } finally {
     clearTimeout(timeout);
   }
