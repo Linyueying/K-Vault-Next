@@ -113,9 +113,13 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .icon-round:hover{color:var(--primary);transform:rotate(14deg)}
 .icon-round.danger:hover{color:#ef4444;transform:rotate(-14deg)}
 
-/* ============ 工具栏 ============ */
+/* =========================================================
+   ============ 工具栏（Apple HIG 重排） ============
+   层级：搜索（首要）→ 筛选抽屉 + 工具条（常驻）→ 统计（次要）
+   原则：常用动作常驻可见一点直达；参数类筛选取值收进抽屉不占位。
+   ========================================================= */
 .toolbar-card{
-  padding:14px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:12px;
+  padding:14px 16px;margin-bottom:16px;display:flex;flex-direction:column;gap:10px;
   overflow:visible !important;
   position:relative;
   z-index:10;
@@ -145,6 +149,135 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .toolbar-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .tool-stat{margin-left:auto;font-size:.76rem;font-weight:600;color:var(--text-muted);white-space:nowrap}
 .tool-stat strong{color:var(--primary);font-family:'JetBrains Mono',monospace}
+
+/* ---------- 筛选入口：带生效数量徽标 ---------- */
+.filter-trigger{position:relative}
+.filter-trigger .badge-count{
+  min-width:17px;height:17px;padding:0 5px;border-radius:var(--radius-pill);
+  background:var(--primary);color:#fff;font-size:.62rem;font-weight:800;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;
+}
+
+/* ---------- 常驻工具条：常用工具一点直达 ---------- */
+.tool-hub{
+  display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;
+  margin-top:2px;padding:12px 12px 12px 14px;border-radius:var(--radius-md);
+  background:rgba(var(--primary-rgb),.04);
+  border:1px solid var(--glass-border-ice);
+}
+html[data-theme="dark"] .tool-hub{background:rgba(255,255,255,.03)}
+.tool-hub-label{
+  display:flex;align-items:center;gap:7px;flex:none;
+  font-size:.72rem;font-weight:800;letter-spacing:.04em;
+  color:var(--text-sub);padding-right:4px;
+}
+.tool-hub-label i{font-size:.8rem;color:var(--primary)}
+.tool-hub-items{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1}
+
+/* 工具卡片：图标在上、文字在下，比筛选按钮更有分量 */
+.tool-chip{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:8px 14px 8px 11px;border-radius:var(--radius-md);
+  border:1px solid var(--glass-border);background:var(--glass-surface);
+  color:var(--text-sub);font-family:inherit;font-size:.8rem;font-weight:600;
+  cursor:pointer;white-space:nowrap;transition:var(--transition);
+  box-shadow:0 1px 2px rgba(15,23,42,.04);
+}
+html[data-theme="dark"] .tool-chip{background:rgba(255,255,255,.04)}
+.tool-chip .chip-icon{
+  width:26px;height:26px;border-radius:8px;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:rgba(var(--primary-rgb),.1);color:var(--primary);font-size:.76rem;
+  transition:var(--transition);
+}
+.tool-chip:hover{
+  border-color:rgba(var(--primary-rgb),.42);color:var(--primary);
+  box-shadow:0 4px 14px -3px rgba(var(--primary-rgb),.22);
+  transform:translateY(-1px);
+}
+.tool-chip:hover .chip-icon{background:var(--primary);color:#fff}
+.tool-chip:active{transform:scale(.98)}
+/* 已激活的工具（面板展开中）：明确的高亮态 */
+.tool-chip.on{
+  border-color:rgba(var(--primary-rgb),.5);color:var(--primary);
+  background:rgba(var(--primary-rgb),.07);
+}
+.tool-chip.on .chip-icon{background:var(--primary);color:#fff}
+/* 主推工具（导出链接）用实心强调 */
+.tool-chip.accent{
+  border-color:transparent;
+  background:linear-gradient(135deg,var(--primary),var(--primary-dark));
+  color:#fff;box-shadow:0 4px 14px -3px rgba(var(--primary-rgb),.38);
+}
+.tool-chip.accent .chip-icon{background:rgba(255,255,255,.2);color:#fff}
+.tool-chip.accent:hover{color:#fff;box-shadow:0 7px 20px -4px rgba(var(--primary-rgb),.5)}
+.tool-chip.accent:hover .chip-icon{background:rgba(255,255,255,.32);color:#fff}
+
+/* ---------- 生效条件 chips：可一键清除 ---------- */
+.active-filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.active-filters .af-label{font-size:.72rem;font-weight:700;color:var(--text-muted)}
+.filter-pill{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:4px 10px;border-radius:var(--radius-pill);
+  border:1px solid rgba(var(--primary-rgb),.32);background:rgba(var(--primary-rgb),.08);
+  color:var(--primary);font-family:inherit;font-size:.74rem;font-weight:700;
+  cursor:pointer;transition:var(--transition);
+}
+.filter-pill i{font-size:.62rem;opacity:.75}
+.filter-pill:hover{background:rgba(var(--primary-rgb),.16);border-color:rgba(var(--primary-rgb),.5)}
+.filter-pill:hover i{opacity:1}
+.filter-pill.clear-all{border-color:transparent;background:transparent;color:var(--text-muted);padding:4px 6px}
+.filter-pill.clear-all:hover{color:#e11d48;background:rgba(244,63,94,.08)}
+
+/* ---------- 筛选抽屉（Apple 表单一组）：铺满整行，控件大而好点 ---------- */
+.filter-sheet{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;
+  margin-top:2px;padding:14px;border-radius:var(--radius-md);
+  background:rgba(var(--primary-rgb),.045);border:1px solid var(--glass-border-ice);
+  animation:dropIn .2s var(--ease-fluid);
+}
+html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
+.filter-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.filter-field>label{
+  font-size:.72rem;font-weight:800;color:var(--text-muted);
+  letter-spacing:.02em;padding-left:2px;
+}
+.filter-select{
+  display:flex;align-items:center;gap:9px;
+  padding:9px 12px;border-radius:11px;
+  border:1px solid var(--glass-border);background:var(--glass-surface);
+  color:var(--text-main);font-family:inherit;font-size:.83rem;font-weight:600;
+  cursor:pointer;transition:var(--transition);text-align:left;min-width:0;
+}
+.filter-select:hover{border-color:rgba(var(--primary-rgb),.42)}
+.filter-select>i:first-child{color:var(--primary);font-size:.78rem;flex:none;width:15px;text-align:center}
+.filter-select>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.filter-select .caret{font-size:.55rem;opacity:.55;flex:none}
+.filter-select.on{border-color:rgba(var(--primary-rgb),.5);background:rgba(var(--primary-rgb),.07);color:var(--primary)}
+
+/* 「仅收藏」用开关行，语义比按钮更清楚 */
+.filter-switch-row{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 12px;border-radius:11px;
+  border:1px solid var(--glass-border);background:var(--glass-surface);
+}
+.filter-switch-row .switch-text{display:flex;align-items:center;gap:9px;font-size:.83rem;font-weight:600;min-width:0}
+.filter-switch-row .switch-text i{color:var(--primary);font-size:.78rem}
+.apple-switch{position:relative;width:44px;height:26px;flex:none;cursor:pointer;display:inline-block}
+.apple-switch input{position:absolute;opacity:0;width:0;height:0}
+.apple-switch .track{
+  position:absolute;inset:0;border-radius:var(--radius-pill);
+  background:rgba(100,116,139,.3);transition:var(--transition);
+}
+html[data-theme="dark"] .apple-switch .track{background:rgba(148,163,184,.28)}
+.apple-switch .thumb{
+  position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);
+  transition:transform .22s var(--ease-fluid);
+}
+.apple-switch input:checked + .track{background:var(--primary)}
+.apple-switch input:checked + .track + .thumb{transform:translateX(18px)}
 
 /* 下拉菜单 */
 .dropdown-wrap{position:relative}
@@ -706,6 +839,14 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
   .lightbox-bar .fname{max-width:60vw}
   .kv-ops-grid{grid-template-columns:repeat(2,1fr)}
 
+  /* 工具条：窄屏两列等宽，图标卡片仍然一眼可辨 */
+  .tool-hub{flex-direction:column;align-items:stretch;gap:10px}
+  .tool-hub-label{padding-left:2px}
+  .tool-hub-items{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .tool-chip{padding:9px 11px;font-size:.76rem;gap:8px}
+  .tool-chip .chip-icon{width:24px;height:24px;font-size:.72rem}
+  .filter-sheet{grid-template-columns:1fr;padding:12px;gap:11px}
+
   .dropdown-panel {
     position: fixed;
     left: 15px !important;
@@ -786,6 +927,7 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
 
   <!-- ===== 工具栏 ===== -->
   <section class="liquid-card toolbar-card">
+    <!-- 第一层：搜索（首要动作）+ 视图切换 -->
     <div class="toolbar-top">
       <div class="search-box">
         <i class="fas fa-magnifying-glass"></i>
@@ -798,129 +940,181 @@ html[data-theme="dark"] .toast-glass-banner.success{color:var(--primary-light)}
       </div>
     </div>
 
+    <!-- 第二层：筛选抽屉入口 + 常驻工具条 -->
     <div class="toolbar-tools">
-      <!-- 类型 -->
-      <div class="dropdown-wrap">
-        <button class="tool-btn" :class="{active: fileType!=='all'}" @click.stop="toggleMenu('type')">
-          <i :class="typeIcon"></i>
-          <span>{{ typeLabel }}</span>
-          <i class="fas fa-chevron-down caret"></i>
-        </button>
-        <div class="dropdown-panel" v-if="openMenu==='type'">
-          <button class="dropdown-item" v-for="o in typeOptions" :key="o.value"
-                  :class="{active: fileType===o.value}" @click="setType(o.value)">
-            <i :class="o.icon"></i>
-            <span>{{ o.label }}</span>
-            <i class="fas fa-check tick" v-if="fileType===o.value"></i>
-          </button>
-        </div>
-      </div>
-
-      <!-- 存储 -->
-      <div class="dropdown-wrap">
-        <button class="tool-btn" :class="{active: storage!=='all'}" @click.stop="toggleMenu('storage')">
-          <i :class="storageIcon"></i>
-          <span>{{ storageLabelOf(storage) }}</span>
-          <i class="fas fa-chevron-down caret"></i>
-        </button>
-        <div class="dropdown-panel" v-if="openMenu==='storage'">
-          <button class="dropdown-item" v-for="o in storageOptions" :key="o.value"
-                  :class="{active: storage===o.value}" @click="setStorage(o.value)">
-            <i :class="o.icon"></i>
-            <span>{{ o.label }}</span>
-            <i class="fas fa-check tick" v-if="storage===o.value"></i>
-          </button>
-        </div>
-      </div>
-
-      <!-- 排序 -->
-      <div class="dropdown-wrap">
-        <button class="tool-btn" @click.stop="toggleMenu('sort')">
-          <i :class="sortIcon"></i>
-          <span>{{ sortLabel }}</span>
-          <i class="fas fa-chevron-down caret"></i>
-        </button>
-        <div class="dropdown-panel" v-if="openMenu==='sort'">
-          <button class="dropdown-item" v-for="o in sortOptions" :key="o.value"
-                  :class="{active: sort===o.value}" @click="setSort(o.value)">
-            <i :class="o.icon"></i>
-            <span>{{ o.label }}</span>
-            <i class="fas fa-check tick" v-if="sort===o.value"></i>
-          </button>
-        </div>
-      </div>
-
-      <!-- 收藏 -->
-      <button class="tool-btn" :class="{active: filter==='favorites'}" @click="setFilter(filter==='favorites'?'all':'favorites')">
-        <i :class="filter==='favorites' ? 'fas fa-bookmark' : 'far fa-bookmark'"></i>
-        <span>{{ filter==='favorites' ? '仅收藏' : '全部' }}</span>
+      <!-- 筛选：把参数类取值收进抽屉，已生效项用徽标提示 -->
+      <button class="tool-btn filter-trigger" :class="{active: filterSheetOpen}"
+              @click.stop="filterSheetOpen = !filterSheetOpen">
+        <i class="fas fa-sliders"></i>
+        <span>筛选</span>
+        <span class="badge-count" v-if="activeFilterCount">{{ activeFilterCount }}</span>
+        <i class="fas fa-chevron-down caret" :style="{transform: filterSheetOpen ? 'rotate(180deg)' : 'none'}"></i>
       </button>
-
-      <!-- 批量 -->
-      <div class="dropdown-wrap">
-        <button class="tool-btn" @click.stop="toggleMenu('batch')">
-          <i class="fas fa-tasks"></i>
-          <span>批量</span>
-          <span v-if="selectedFiles.length" class="tick" style="color:var(--primary);font-size:.68rem;">{{ selectedFiles.length }}</span>
-          <i class="fas fa-chevron-down caret"></i>
-        </button>
-        <div class="dropdown-panel" v-if="openMenu==='batch'">
-          <button class="dropdown-item" @click="handleBatch('selectAll')">
-            <i class="fas fa-check-double"></i><span>{{ isAllSelected ? '取消全选当前页' : '全选当前页' }}</span>
-          </button>
-          <button class="dropdown-item" @click="handleBatch('selectAllLoaded')">
-            <i class="fas fa-layer-group"></i><span>全选已加载 ({{ files.length }})</span>
-          </button>
-          <div class="dropdown-divider"></div>
-          <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('copy')">
-            <i class="fas fa-copy"></i><span>批量复制链接</span>
-          </button>
-          <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('move')">
-            <i class="fas fa-folder-tree"></i><span>移动到目录</span>
-          </button>
-          <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('download')">
-            <i class="fas fa-download"></i><span>批量下载</span>
-          </button>
-          <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('delete')" style="color:#ef4444">
-            <i class="fas fa-trash" style="color:#ef4444"></i><span>批量删除</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- 工具 -->
-      <div class="dropdown-wrap">
-        <button class="tool-btn" @click.stop="toggleMenu('tool')">
-          <i class="fas fa-toolbox"></i>
-          <span>工具</span>
-          <i class="fas fa-chevron-down caret"></i>
-        </button>
-        <div class="dropdown-panel right" v-if="openMenu==='tool'">
-          <button class="dropdown-item" @click="handleTool('kvUsage')">
-            <i class="fas fa-chart-pie"></i><span>KV / R2 用量监控</span>
-            <i class="fas fa-check tick" v-if="kvUsage.visible"></i>
-          </button>
-          <button class="dropdown-item" @click="handleTool('status')">
-            <i class="fas fa-heart-pulse"></i><span>检查连接状态</span>
-          </button>
-          <button class="dropdown-item" @click="handleTool('export')">
-            <i class="fas fa-file-export"></i><span>导出全部链接</span>
-          </button>
-          <button class="dropdown-item" @click="handleTool('tokens')">
-            <i class="fas fa-key"></i><span>API Token 管理</span>
-          </button>
-          <button class="dropdown-item" @click="handleTool('shares')">
-            <i class="fas fa-share-nodes"></i><span>分享管理</span>
-            <i class="fas fa-check tick" v-if="sharePanelVisible"></i>
-          </button>
-          <button class="dropdown-item" @click="handleTool('paste')">
-            <i class="fas fa-paste"></i><span>文本粘贴</span>
-          </button>
-        </div>
-      </div>
 
       <span class="tool-stat">
         总记录 <strong>{{ total }}</strong> · 已加载 <strong>{{ files.length }}</strong> · 显示 <strong>{{ paginationTotal }}</strong>
       </span>
+    </div>
+
+    <!-- 筛选抽屉：铺满整行，控件大而好点 -->
+    <div class="filter-sheet" v-if="filterSheetOpen">
+      <!-- 类型 -->
+      <div class="filter-field">
+        <label>文件类型</label>
+        <div class="dropdown-wrap">
+          <button class="filter-select" :class="{on: fileType!=='all'}" @click.stop="toggleMenu('type')">
+            <i :class="typeIcon"></i>
+            <span>{{ typeLabel }}</span>
+            <i class="fas fa-chevron-down caret"></i>
+          </button>
+          <div class="dropdown-panel" v-if="openMenu==='type'">
+            <button class="dropdown-item" v-for="o in typeOptions" :key="o.value"
+                    :class="{active: fileType===o.value}" @click="setType(o.value)">
+              <i :class="o.icon"></i>
+              <span>{{ o.label }}</span>
+              <i class="fas fa-check tick" v-if="fileType===o.value"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 存储 -->
+      <div class="filter-field">
+        <label>存储节点</label>
+        <div class="dropdown-wrap">
+          <button class="filter-select" :class="{on: storage!=='all'}" @click.stop="toggleMenu('storage')">
+            <i :class="storageIcon"></i>
+            <span>{{ storageLabelOf(storage) }}</span>
+            <i class="fas fa-chevron-down caret"></i>
+          </button>
+          <div class="dropdown-panel" v-if="openMenu==='storage'">
+            <button class="dropdown-item" v-for="o in storageOptions" :key="o.value"
+                    :class="{active: storage===o.value}" @click="setStorage(o.value)">
+              <i :class="o.icon"></i>
+              <span>{{ o.label }}</span>
+              <i class="fas fa-check tick" v-if="storage===o.value"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 排序 -->
+      <div class="filter-field">
+        <label>排序方式</label>
+        <div class="dropdown-wrap">
+          <button class="filter-select" @click.stop="toggleMenu('sort')">
+            <i :class="sortIcon"></i>
+            <span>{{ sortLabel }}</span>
+            <i class="fas fa-chevron-down caret"></i>
+          </button>
+          <div class="dropdown-panel" v-if="openMenu==='sort'">
+            <button class="dropdown-item" v-for="o in sortOptions" :key="o.value"
+                    :class="{active: sort===o.value}" @click="setSort(o.value)">
+              <i :class="o.icon"></i>
+              <span>{{ o.label }}</span>
+              <i class="fas fa-check tick" v-if="sort===o.value"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 收藏：用开关，语义比按钮清楚 -->
+      <div class="filter-field">
+        <label>范围</label>
+        <div class="filter-switch-row">
+          <span class="switch-text">
+            <i :class="filter==='favorites' ? 'fas fa-bookmark' : 'far fa-bookmark'"></i>
+            <span>仅看收藏</span>
+          </span>
+          <label class="apple-switch">
+            <input type="checkbox" :checked="filter==='favorites'"
+                   @change="setFilter(filter==='favorites'?'all':'favorites')">
+            <span class="track"></span><span class="thumb"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 生效条件回显：一键清除单项，改完即刻可读 -->
+    <div class="active-filters" v-if="activeFilterCount || search">
+      <span class="af-label">已启用</span>
+      <button class="filter-pill" v-if="search" @click="search='';currentPage=1">
+        <i class="fas fa-magnifying-glass"></i>{{ search }}<i class="fas fa-xmark"></i>
+      </button>
+      <button class="filter-pill" v-if="fileType!=='all'" @click="setType('all')">
+        <i :class="typeIcon"></i>{{ typeLabel }}<i class="fas fa-xmark"></i>
+      </button>
+      <button class="filter-pill" v-if="storage!=='all'" @click="setStorage('all')">
+        <i :class="storageIcon"></i>{{ storageLabelOf(storage) }}<i class="fas fa-xmark"></i>
+      </button>
+      <button class="filter-pill" v-if="filter==='favorites'" @click="setFilter('all')">
+        <i class="fas fa-bookmark"></i>仅收藏<i class="fas fa-xmark"></i>
+      </button>
+      <button class="filter-pill clear-all" v-if="activeFilterCount > 1" @click="clearAllFilters">
+        全部清除
+      </button>
+    </div>
+
+    <!-- ===== 工具箱：常用功能常驻可见，一点直达 ===== -->
+    <div class="tool-hub">
+      <span class="tool-hub-label"><i class="fas fa-toolbox"></i>工具箱</span>
+      <div class="tool-hub-items">
+        <button class="tool-chip" :class="{on: kvUsage.visible}" @click="handleTool('kvUsage')" title="KV / R2 用量监控">
+          <span class="chip-icon"><i class="fas fa-chart-pie"></i></span>
+          <span>用量监控</span>
+        </button>
+        <button class="tool-chip" @click="handleTool('status')" title="检查全部连接状态">
+          <span class="chip-icon"><i class="fas fa-heart-pulse"></i></span>
+          <span>连接状态</span>
+        </button>
+        <button class="tool-chip" :class="{on: sharePanelVisible}" @click="handleTool('shares')" title="管理已创建的分享">
+          <span class="chip-icon"><i class="fas fa-share-nodes"></i></span>
+          <span>分享管理</span>
+        </button>
+        <button class="tool-chip" @click="handleTool('tokens')" title="API Token 管理">
+          <span class="chip-icon"><i class="fas fa-key"></i></span>
+          <span>Token</span>
+        </button>
+        <button class="tool-chip" @click="handleTool('paste')" title="打开文本粘贴工具">
+          <span class="chip-icon"><i class="fas fa-paste"></i></span>
+          <span>文本粘贴</span>
+        </button>
+        <button class="tool-chip accent" @click="handleTool('export')" title="导出已加载的全部链接">
+          <span class="chip-icon"><i class="fas fa-file-export"></i></span>
+          <span>导出链接</span>
+        </button>
+
+        <!-- 批量：与选中数强相关，留在工具条上并实时反映选中量 -->
+        <div class="dropdown-wrap">
+          <button class="tool-chip" :class="{on: openMenu==='batch' || selectedFiles.length}"
+                  @click.stop="toggleMenu('batch')" title="批量操作">
+            <span class="chip-icon"><i class="fas fa-tasks"></i></span>
+            <span>{{ selectedFiles.length ? `批量 · ${selectedFiles.length}` : '批量操作' }}</span>
+            <i class="fas fa-chevron-down caret"></i>
+          </button>
+          <div class="dropdown-panel right" v-if="openMenu==='batch'">
+            <button class="dropdown-item" @click="handleBatch('selectAll')">
+              <i class="fas fa-check-double"></i><span>{{ isAllSelected ? '取消全选当前页' : '全选当前页' }}</span>
+            </button>
+            <button class="dropdown-item" @click="handleBatch('selectAllLoaded')">
+              <i class="fas fa-layer-group"></i><span>全选已加载 ({{ files.length }})</span>
+            </button>
+            <div class="dropdown-divider"></div>
+            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('copy')">
+              <i class="fas fa-copy"></i><span>批量复制链接</span>
+            </button>
+            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('move')">
+              <i class="fas fa-folder-tree"></i><span>移动到目录</span>
+            </button>
+            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('download')">
+              <i class="fas fa-download"></i><span>批量下载</span>
+            </button>
+            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('delete')" style="color:#ef4444">
+              <i class="fas fa-trash" style="color:#ef4444"></i><span>批量删除</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ===== KV / R2 用量面板 ===== -->
@@ -1691,6 +1885,8 @@ new Vue({
     status: { telegram:{}, kv:{}, r2:{}, s3:{}, discord:{}, huggingface:{}, github:{} },
 
     openMenu: null,
+    /* 筛选抽屉开合状态；筛选条件本身收在抽屉里，不占常驻空间 */
+    filterSheetOpen: false,
     toasts: [],
 
     /* ===== 下载队列追踪 ===== */
@@ -1890,6 +2086,18 @@ new Vue({
     selectedFiles() { return this.files.filter(f => f.selected); },
     isAllSelected() { return this.pageData.length > 0 && this.pageData.every(f => f.selected); },
 
+    /**
+     * 生效中的筛选条件数量，用于「筛选」按钮上的徽标。
+     * 排序不算筛选（不影响结果集大小），但「仅收藏」算。
+     */
+    activeFilterCount() {
+      let n = 0;
+      if (this.fileType !== 'all') n += 1;
+      if (this.storage !== 'all') n += 1;
+      if (this.filter === 'favorites') n += 1;
+      return n;
+    },
+
     /* ---------- 目录 ---------- */
     folderTreeNodes() {
       // 【本地计数】目录里的文件数由本地 files 算出，避免依赖后端 folders 接口的计数
@@ -2055,6 +2263,15 @@ new Vue({
     },
     setFilter(v) {
       this.filter = v;
+      this.currentPage = 1;
+      this.openMenu = null;
+    },
+    /** 一键清空所有筛选条件（搜索词也一并清掉，符合「全部清除」的预期） */
+    clearAllFilters() {
+      this.fileType = 'all';
+      this.storage = 'all';
+      this.filter = 'all';
+      this.search = '';
       this.currentPage = 1;
       this.openMenu = null;
     },

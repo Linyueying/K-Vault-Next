@@ -415,87 +415,50 @@
         cursor: not-allowed;
       }
 
-      .folder-pill-bar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 5px 6px 5px 14px;
-        margin-bottom: 14px;
-        border-radius: var(--radius-pill);
-        background: var(--glass-subtle);
-        border: 1.5px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-soft);
-      }
-      .folder-pill-bar input {
-        flex: 1;
-        min-width: 0;
-        border: none;
-        background: transparent;
-        color: var(--text-main);
-        font-size: 0.88rem;
-        outline: none;
-        font-family: inherit;
-      }
-      .folder-pill-bar input::placeholder {
-        color: var(--text-muted);
-      }
-      .folder-pill-btn {
-        flex-shrink: 0;
-        padding: 7px 14px;
-        border-radius: var(--radius-pill);
-        border: 1px solid var(--glass-border);
-        background: var(--glass-surface);
-        color: var(--text-sub);
-        font-size: 0.82rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: var(--transition);
-        white-space: nowrap;
-      }
-      .folder-pill-btn:hover {
-        border-color: var(--primary-light);
-        color: var(--primary);
-      }
-      .folder-pill-btn.primary {
-        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-        color: #ffffff;
-        border-color: var(--primary);
-        box-shadow: 0 3px 10px rgba(2, 132, 199, 0.28);
-      }
-      .folder-pill-btn.primary:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 5px 14px rgba(2, 132, 199, 0.38);
-      }
+      /* 目录管理的两段式结构：上方「当前上传目录」只读卡片 +
+         下方「新建目录」按需展开，二者视觉与语义彻底区分，
+         由 .folder-current-card / .folder-new-card / .folder-btn 承载。 */
 
-      /* ===== 目录树相关样式 ===== */
-      .folder-current-bar {
+      /* =========================================================
+         ===== 目录管理（Apple 风格） =====
+         结构：当前目录（大卡片，唯一职责）→ 新建目录（按需展开）→ 目录树
+         废弃「两个同款输入框上下叠放」的表达，根除混淆。
+         ========================================================= */
+      /* 当前目录卡：整块可点，面包屑为主角，刷新为辅 */
+      .folder-current-card {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 12px;
-        padding: 7px 8px 7px 12px;
-        border-radius: var(--radius-md);
-        background: var(--primary-surface);
-        border: 1px solid var(--glass-border-ice);
+        gap: 10px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.1), rgba(var(--primary-rgb), 0.03));
+        border: 1px solid rgba(var(--primary-rgb), 0.22);
       }
+      html[data-theme="dark"] .folder-current-card {
+        background: linear-gradient(135deg, rgba(var(--primary-rgb), 0.16), rgba(var(--primary-rgb), 0.05));
+        border-color: rgba(var(--primary-rgb), 0.3);
+      }
+      .folder-current-main { flex: 1; min-width: 0; }
+      .folder-current-label {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 0.68rem; font-weight: 800; letter-spacing: 0.05em;
+        color: var(--primary-dark); opacity: 0.85; margin-bottom: 5px;
+      }
+      html[data-theme="dark"] .folder-current-label { color: var(--primary-light); }
+      .folder-current-label i { font-size: 0.68rem; }
       .folder-breadcrumb {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        align-items: center;
-        gap: 2px;
-        overflow-x: auto;
-        scrollbar-width: none;
-        font-size: 0.82rem;
-        font-weight: 600;
-        white-space: nowrap;
+        display: flex; align-items: center; gap: 2px;
+        overflow-x: auto; scrollbar-width: none;
+        font-size: 0.88rem; font-weight: 650; white-space: nowrap;
+        letter-spacing: -0.01em;
       }
       .folder-breadcrumb::-webkit-scrollbar { display: none; }
       .folder-crumb {
         cursor: pointer;
         color: var(--primary-dark);
-        padding: 3px 7px;
-        border-radius: 7px;
+        padding: 3px 8px;
+        border-radius: 8px;
         transition: var(--transition);
         flex-shrink: 0;
         display: inline-flex;
@@ -503,36 +466,139 @@
         gap: 5px;
       }
       html[data-theme="dark"] .folder-crumb { color: var(--primary-light); }
-      .folder-crumb:hover { background: rgba(2, 132, 199, 0.14); }
+      .folder-crumb:hover { background: rgba(var(--primary-rgb), 0.16); }
+      /* 末级当前段：不可点，加粗显示「你在这里」 */
+      .folder-crumb.current {
+        color: var(--primary-dark);
+        font-weight: 800;
+        background: transparent;
+        cursor: default;
+      }
+      html[data-theme="dark"] .folder-crumb.current { color: var(--primary-light); }
+      .folder-crumb.current:hover { background: transparent; }
       .folder-crumb-sep {
         font-size: 0.55rem;
         color: var(--text-muted);
         flex-shrink: 0;
-        opacity: 0.7;
+        opacity: 0.6;
       }
+
+      /* 新建目录：默认只是一行按钮，点击才展开输入行 */
+      .folder-new-trigger {
+        display: flex; align-items: center; justify-content: center; gap: 7px;
+        width: 100%; padding: 10px 14px; margin-bottom: 10px;
+        border-radius: 12px;
+        border: 1px dashed rgba(var(--primary-rgb), 0.4);
+        background: transparent;
+        color: var(--primary); font-family: inherit;
+        font-size: 0.82rem; font-weight: 650;
+        cursor: pointer; transition: var(--transition);
+      }
+      .folder-new-trigger:hover {
+        background: rgba(var(--primary-rgb), 0.07);
+        border-color: var(--primary);
+      }
+      .folder-new-card {
+        margin-bottom: 10px; padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(var(--primary-rgb), 0.05);
+        border: 1px solid rgba(var(--primary-rgb), 0.24);
+        animation: fadeIn 0.2s ease;
+      }
+      html[data-theme="dark"] .folder-new-card { background: rgba(var(--primary-rgb), 0.09); }
+      .folder-new-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 8px; margin-bottom: 9px;
+      }
+      .folder-new-title {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 0.74rem; font-weight: 800;
+        color: var(--primary-dark);
+      }
+      html[data-theme="dark"] .folder-new-title { color: var(--primary-light); }
+      .folder-new-title i { font-size: 0.72rem; }
+      /* 标准输入框（替代原来的胶囊行）：更像表单，不与路径框混淆 */
+      .folder-new-input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 11px;
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-main);
+        font-family: inherit;
+        font-size: 0.84rem;
+        outline: none;
+        transition: var(--transition);
+      }
+      .folder-new-input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+      }
+      .folder-new-input::placeholder { color: var(--text-muted); }
+      .folder-new-hint {
+        margin-top: 6px; font-size: 0.68rem; color: var(--text-muted);
+        line-height: 1.5;
+      }
+      .folder-new-actions {
+        display: flex; align-items: center; gap: 8px; margin-top: 10px;
+      }
+      .folder-new-actions .grow { flex: 1; }
+
+      /* 统一按钮：目录区所有按钮同一尺寸体系（36px 高，好点） */
+      .folder-btn {
+        height: 36px; padding: 0 16px;
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-sub);
+        font-family: inherit; font-size: 0.82rem; font-weight: 600;
+        cursor: pointer; white-space: nowrap; transition: var(--transition);
+      }
+      .folder-btn i { font-size: 0.76rem; }
+      .folder-btn:hover {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.42);
+        background: rgba(var(--primary-rgb), 0.06);
+      }
+      .folder-btn:active { transform: scale(0.97); }
+      .folder-btn.primary {
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: #fff;
+        box-shadow: 0 3px 10px rgba(var(--primary-rgb), 0.28);
+      }
+      .folder-btn.primary:hover { color: #fff; box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36); }
+      .folder-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
       .folder-section-label {
         display: flex;
         align-items: center;
         gap: 7px;
-        font-size: 0.76rem;
-        font-weight: 700;
+        font-size: 0.72rem;
+        font-weight: 800;
         color: var(--text-muted);
-        letter-spacing: 0.03em;
-        margin: 14px 0 7px;
+        letter-spacing: 0.05em;
+        margin: 16px 0 8px;
       }
       .folder-section-label i { color: var(--primary); font-size: 0.72rem; }
+      .folder-section-label .count {
+        margin-left: auto; font-weight: 650; letter-spacing: 0;
+        color: var(--text-sub); opacity: 0.85;
+      }
 
       .folder-tree-panel {
-        border: 1.5px solid var(--glass-border-ice);
-        border-radius: var(--radius-md);
-        background: var(--glass-subtle);
+        border: 1px solid var(--glass-border);
+        border-radius: 14px;
+        background: var(--glass-surface);
         padding: 6px;
-        max-height: 320px;
+        max-height: 340px;
         overflow-y: auto;
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
       }
+      html[data-theme="dark"] .folder-tree-panel { background: var(--glass-subtle); }
       .folder-tree-panel::-webkit-scrollbar { width: 6px; }
       .folder-tree-panel::-webkit-scrollbar-thumb {
         background: rgba(148, 163, 184, 0.35);
@@ -543,8 +609,8 @@
         display: flex;
         align-items: center;
         gap: 7px;
-        padding: 7px 10px;
-        border-radius: 9px;
+        padding: 8px 10px;
+        border-radius: 10px;
         cursor: pointer;
         font-size: 0.85rem;
         font-weight: 500;
@@ -620,17 +686,17 @@
         .folder-tree-actions { opacity: 1; }
       }
       .folder-tree-action-btn {
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        border: 1px solid var(--glass-border-ice);
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        border: 1px solid var(--glass-border);
         background: var(--glass-surface);
-        color: var(--text-muted);
+        color: var(--text-sub);
         display: inline-flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        font-size: 0.6rem;
+        font-size: 0.72rem;
         transition: var(--transition);
       }
       .folder-tree-action-btn:hover {
@@ -704,6 +770,13 @@
       .task-info-block {
         flex: 1;
         min-width: 0;
+      }
+      /* 每条任务的动作区：暂停 / 续传 / 从头重传，竖排等大，点按区域够大 */
+      .task-item-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
       }
       .task-name-text {
         font-size: 0.88rem;
@@ -1383,59 +1456,68 @@
       /* =========================================================
          ===== 本地历史面板 =====
          ========================================================= */
+      /* =========================================================
+         ===== 本地历史（Apple 风格重整） =====
+         层级收敛：统计（一行）→ 搜索+筛选（一行）→ 列表
+         原来 6 层堆叠（统计/搜索/排序/视图/类型/批量）压到 2 层，
+         批量操作收进弹层，仅在选中时才浮现「已选 N 项」操作条。
+         ========================================================= */
       .history-stats-bar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 10px;
+        gap: 6px;
         flex-wrap: wrap;
-        padding: 10px 14px;
-        margin-bottom: 12px;
-        border-radius: var(--radius-md);
-        background: var(--primary-surface);
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        border-radius: 12px;
+        background: rgba(var(--primary-rgb), 0.06);
         border: 1px solid var(--glass-border-ice);
-        font-size: 0.78rem;
+        font-size: 0.74rem;
         font-weight: 600;
         color: var(--text-sub);
       }
+      html[data-theme="dark"] .history-stats-bar { background: rgba(var(--primary-rgb), 0.1); }
       .history-stat-item {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
+        gap: 5px;
+        padding-right: 10px;
+        margin-right: 4px;
+        border-right: 1px solid var(--glass-border-ice);
       }
+      .history-stat-item:last-child { border-right: none; padding-right: 0; margin-right: 0; }
       .history-stat-item i {
         color: var(--primary);
-        font-size: 0.75rem;
+        font-size: 0.72rem;
       }
       .history-stat-item strong {
-        color: var(--primary-dark);
+        color: var(--text-main);
         font-family: 'JetBrains Mono', monospace;
-        font-size: 0.84rem;
+        font-size: 0.78rem;
       }
-      html[data-theme="dark"] .history-stat-item strong { color: var(--primary-light); }
 
+      /* 搜索行：搜索占主导，筛选按钮收束排序 + 视图 */
       .history-toolbar {
         display: flex;
         align-items: center;
         gap: 8px;
         margin-bottom: 10px;
-        flex-wrap: wrap;
       }
       .history-search-box {
         flex: 1;
-        min-width: 140px;
+        min-width: 0;
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 7px 12px;
+        padding: 9px 14px;
         border-radius: var(--radius-pill);
         background: var(--glass-subtle);
-        border: 1.5px solid var(--glass-border-ice);
+        border: 1px solid var(--glass-border-ice);
         transition: var(--transition);
       }
       .history-search-box:focus-within {
         border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
       }
       .history-search-box > i {
         color: var(--text-muted);
@@ -1462,68 +1544,173 @@
       }
       .history-search-clear:hover { color: #ef4444; }
 
-      .history-sort-select {
-        padding: 7px 12px;
+      /* 排序/视图收进「选项」按钮的弹层，各占一行更清楚 */
+      .history-options-btn {
+        display: inline-flex; align-items: center; gap: 7px; flex: none;
+        height: 38px; padding: 0 14px;
         border-radius: var(--radius-pill);
-        border: 1.5px solid var(--glass-border-ice);
+        border: 1px solid var(--glass-border-ice);
         background: var(--glass-subtle);
         color: var(--text-sub);
-        font-size: 0.78rem;
+        font-family: inherit; font-size: 0.8rem; font-weight: 650;
+        cursor: pointer; transition: var(--transition); white-space: nowrap;
+      }
+      .history-options-btn:hover { border-color: var(--primary-light); color: var(--primary); }
+      .history-options-btn.on {
+        border-color: rgba(var(--primary-rgb), 0.45);
+        background: rgba(var(--primary-rgb), 0.08);
+        color: var(--primary);
+      }
+      .history-options-btn i.caret { font-size: 0.55rem; opacity: 0.6; }
+      .history-options-panel {
+        margin-bottom: 10px; padding: 12px;
+        border-radius: 14px;
+        background: rgba(var(--primary-rgb), 0.05);
+        border: 1px solid var(--glass-border-ice);
+        display: flex; flex-direction: column; gap: 12px;
+        animation: fadeIn 0.2s ease;
+      }
+      html[data-theme="dark"] .history-options-panel { background: rgba(255, 255, 255, 0.035); }
+
+      /* 类型标签：横向滚动，不再换行撑高 */
+      .history-type-tabs {
+        display: flex; gap: 6px; overflow-x: auto;
+        scrollbar-width: none; padding-bottom: 2px;
+      }
+      .history-type-tabs::-webkit-scrollbar { display: none; }
+      .history-type-tab {
+        flex: none; padding: 6px 13px;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-sub);
+        font-family: inherit; font-size: 0.78rem; font-weight: 600;
+        cursor: pointer; white-space: nowrap; transition: var(--transition);
+      }
+      .history-type-tab:hover { border-color: rgba(var(--primary-rgb), 0.4); color: var(--primary); }
+      .history-type-tab.active {
+        background: var(--primary); color: #fff; border-color: var(--primary);
+        box-shadow: 0 3px 10px rgba(var(--primary-rgb), 0.26);
+      }
+
+      /* 选中操作条：仅在真的有选中时出现，主动作 + 次动作分层 */
+      .history-selection-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 10px 12px; margin-bottom: 10px;
+        border-radius: 14px;
+        background: var(--glass-surface);
+        border: 1px solid rgba(var(--primary-rgb), 0.28);
+        box-shadow: 0 2px 10px -3px rgba(var(--primary-rgb), 0.2);
+        animation: fadeIn 0.18s ease;
+      }
+      html[data-theme="dark"] .history-selection-bar { background: var(--glass-subtle); }
+      .history-selection-info {
+        display: flex; align-items: center; gap: 7px;
+        font-size: 0.8rem; font-weight: 700; color: var(--primary);
+        flex: none;
+      }
+      .history-selection-info .count-badge {
+        min-width: 20px; height: 20px; padding: 0 6px;
+        border-radius: var(--radius-pill); background: var(--primary); color: #fff;
+        font-size: 0.68rem; font-family: 'JetBrains Mono', monospace;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .history-selection-bar .spacer { flex: 1; }
+
+      /* 统一的次级区域入口：把「导出/清理/清空」这类低频动作收成一行按钮 */
+      .history-maint-row {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .history-maint-row .spacer { flex: 1; }
+
+      /* 通用次级按钮：36px 高，够手指点 */
+      .hist-btn {
+        height: 36px; padding: 0 13px;
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-sub);
+        font-family: inherit; font-size: 0.78rem; font-weight: 600;
+        cursor: pointer; white-space: nowrap; transition: var(--transition);
+      }
+      .hist-btn i { font-size: 0.72rem; }
+      .hist-btn:hover {
+        color: var(--primary); border-color: rgba(var(--primary-rgb), 0.42);
+        background: rgba(var(--primary-rgb), 0.06);
+      }
+      .hist-btn:active { transform: scale(0.97); }
+      .hist-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+      .hist-btn.primary {
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: #fff; box-shadow: 0 3px 10px rgba(var(--primary-rgb), 0.26);
+      }
+      .hist-btn.primary:hover { color: #fff; }
+      .hist-btn.danger { color: #e11d48; border-color: rgba(244, 63, 94, 0.3); }
+      .hist-btn.danger:hover {
+        color: #be123c; background: rgba(244, 63, 94, 0.08);
+        border-color: rgba(244, 63, 94, 0.5);
+      }
+      .hist-btn.icon-only { width: 36px; padding: 0; }
+
+      /* 弹层里的选项行：左标签 + 右下拉，避免与搜索框挤在一行 */
+      .history-opt-row {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 10px;
+      }
+      .history-opt-row > label {
+        font-size: 0.74rem; font-weight: 800; color: var(--text-muted);
+        letter-spacing: 0.02em; flex: none;
+      }
+      .history-sort-select {
+        flex: 1; min-width: 0; max-width: 190px;
+        padding: 8px 12px;
+        border-radius: 11px;
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-main);
+        font-size: 0.8rem;
         font-weight: 600;
         font-family: inherit;
         cursor: pointer;
         outline: none;
         transition: var(--transition);
       }
-      .history-sort-select:hover { border-color: var(--primary-light); }
+      .history-sort-select:hover { border-color: rgba(var(--primary-rgb), 0.42); }
+      .history-sort-select:focus { border-color: var(--primary); }
 
+      /* 视图切换：分段控件，触达高度放大到 32px */
       .history-view-toggle {
         display: inline-flex;
         padding: 3px;
-        gap: 2px;
+        gap: 3px;
         border-radius: var(--radius-pill);
-        border: 1.5px solid var(--glass-border-ice);
-        background: var(--glass-subtle);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
         flex-shrink: 0;
       }
       .history-view-toggle button {
-        width: 28px;
-        height: 24px;
+        width: 40px;
+        height: 32px;
         border: none;
         background: transparent;
         color: var(--text-muted);
         border-radius: var(--radius-pill);
         cursor: pointer;
-        font-size: 0.7rem;
+        font-size: 0.76rem;
         transition: var(--transition);
         display: inline-flex;
         align-items: center;
         justify-content: center;
       }
+      .history-view-toggle button:hover { color: var(--primary); }
       .history-view-toggle button.active {
         background: var(--primary);
         color: #fff;
-        box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
+        box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
       }
-
-      .history-batch-bar {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
-        padding: 8px 10px;
-        margin-bottom: 8px;
-        border-radius: var(--radius-md);
-        background: var(--glass-subtle);
-        border: 1px solid var(--glass-border);
-        font-size: 0.76rem;
-      }
-      .history-batch-bar .batch-info {
-        font-weight: 700;
-        color: var(--text-muted);
-        margin-right: auto;
-      }
-      .history-batch-bar .batch-info.has-selection { color: var(--primary); }
 
       .history-group { margin-bottom: 4px; }
       .history-group-label {
@@ -1612,40 +1799,74 @@
         border-top: 1px solid var(--glass-border);
         text-align: center;
       }
+      /* 网格卡片操作：不再把 3 个按钮叠在缩略图上遮住内容。
+         缩略图右上角只留「分享」；下载/移除收进卡片底部一行。 */
       .history-grid-actions {
         position: absolute;
-        top: 4px;
-        right: 4px;
+        top: 5px;
+        right: 5px;
         display: flex;
-        gap: 3px;
-        opacity: 0;
-        transition: opacity 0.18s ease;
+        gap: 4px;
         z-index: 2;
       }
-      .history-grid-card:hover .history-grid-actions,
-      .history-grid-card.is-selected .history-grid-actions { opacity: 1; }
-      @media (max-width: 680px) { .history-grid-actions { opacity: 1; } }
+      /* 顶部只保留分享按钮，且弱化存在感 */
+      .history-grid-actions .history-mini-btn.secondary { display: none; }
 
-      .history-mini-btn {
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.45);
-        background: rgba(15, 23, 42, 0.55);
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-        color: #fff;
+      /* 卡片底部操作行：常驻、等宽、易点 */
+      .history-card-foot {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 5px 5px;
+      }
+      .history-card-foot .hist-icon-btn {
+        flex: 1 1 0;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-sub);
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.58rem;
+        font-size: 0.7rem;
         cursor: pointer;
         transition: var(--transition);
+      }
+      .history-card-foot .hist-icon-btn:hover {
+        color: var(--primary);
+        border-color: rgba(var(--primary-rgb), 0.42);
+        background: rgba(var(--primary-rgb), 0.07);
+      }
+      .history-card-foot .hist-icon-btn.danger:hover {
+        color: #e11d48;
+        border-color: rgba(244, 63, 94, 0.45);
+        background: rgba(244, 63, 94, 0.08);
+      }
+
+      /* 缩略图上的分享按钮：浅色玻璃胶囊，克制不抢镜 */
+      .history-mini-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 9px;
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        backdrop-filter: blur(10px) saturate(1.4);
+        -webkit-backdrop-filter: blur(10px) saturate(1.4);
+        color: var(--text-sub);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.72rem;
+        cursor: pointer;
+        transition: var(--transition);
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
       }
       .history-mini-btn:hover:not(:disabled) {
         background: var(--primary);
         border-color: var(--primary);
-        transform: scale(1.08);
+        color: #fff;
+        transform: scale(1.06);
       }
       .history-mini-btn:disabled {
         opacity: 0.5;
@@ -2050,6 +2271,24 @@
         }
         .apple-group-btns { flex-wrap: wrap; }
         .apple-pill { flex: 1 1 auto; }
+
+        /* 目录管理：窄屏按钮撑满，好点 */
+        .folder-current-card { padding: 11px 12px; gap: 8px; }
+        .folder-new-actions .folder-btn { flex: 1 1 0; }
+
+        /* 本地历史：选中操作条与维护行改为可换行，按钮等宽 */
+        .history-toolbar { flex-wrap: nowrap; }
+        .history-options-btn { padding: 0 12px; }
+        /* 选中操作条保持单行：计数靠左、动作靠右，不再折行撑高 */
+        .history-selection-bar { flex-wrap: nowrap; gap: 6px; }
+        .history-selection-bar .hist-btn { flex: none; padding: 0 11px; font-size: 0.75rem; }
+        .history-selection-bar .spacer { display: block; }
+        .history-maint-row { gap: 8px; }
+        .history-maint-row .hist-btn { flex: 1 1 auto; }
+        .history-maint-row .spacer { display: none; }
+        .history-opt-row { flex-direction: column; align-items: stretch; gap: 7px; }
+        .history-sort-select { max-width: none; }
+        .history-view-toggle { align-self: flex-start; }
       }
 
       /* =========================================================
@@ -2239,8 +2478,9 @@
         <section
           class="liquid-card upload-hero-zone"
           @click="triggerUpload"
+          @dragenter.prevent="onDragEnter"
           @dragover.prevent="onDragOver"
-          @dragleave="onDragLeave"
+          @dragleave.prevent="onDragLeave"
           @drop.prevent="onDrop"
           :class="{ dragover: isDragging }"
         >
@@ -2272,6 +2512,16 @@
             multiple
             @change="handleFileSelect"
           />
+          <!-- 选文件夹必须用独立的 input：webkitdirectory 与多选文件互斥 -->
+          <input
+            type="file"
+            style="display: none;"
+            ref="dirInput"
+            multiple
+            webkitdirectory
+            directory
+            @change="handleDirSelect"
+          />
         </section>
 
         <!-- Quick Action Bar -->
@@ -2279,6 +2529,10 @@
           <button class="action-pill-btn" @click="triggerUpload">
             <i class="fas fa-folder-open"></i>
             <span>选择文件</span>
+          </button>
+          <button class="action-pill-btn" @click="triggerDirUpload">
+            <i class="fas fa-folder-tree"></i>
+            <span>选择文件夹</span>
           </button>
           <a href="./gallery.html" class="action-pill-btn">
             <i class="fas fa-images"></i>
@@ -2323,11 +2577,28 @@
             </span>
             <div class="apple-group-btns">
               <button
+                v-if="activeUploadCount > 0"
+                class="apple-pill"
+                @click="pauseAllUploads"
+                title="暂停全部进行中的任务"
+              >
+                <i class="fas fa-pause"></i> 暂停
+              </button>
+              <button
+                v-if="pausedCount > 0"
+                class="apple-pill primary"
+                @click="resumeAllUploads"
+                title="继续全部已暂停的任务"
+              >
+                <i class="fas fa-play"></i> 继续
+              </button>
+              <button
                 v-if="failedCount > 0"
                 class="apple-pill warn"
                 @click="retryAllFailed"
+                title="从断点继续，不重新传已完成的分片"
               >
-                <i class="fas fa-rotate-right"></i> 重试失败
+                <i class="fas fa-rotate-right"></i> 续传失败
               </button>
               <button class="apple-pill" @click="clearUploadQueue">
                 <i class="fas fa-broom"></i> 清空
@@ -2357,14 +2628,41 @@
                 <div class="task-progress-val" :style="{ width: (file.progress || 0) + '%' }"></div>
               </div>
             </div>
-            <button
-              v-if="file.status === 'error'"
-              class="mini-icon-btn"
-              @click="retryUpload(file)"
-              title="重试"
-            >
-              <i class="fas fa-rotate-right"></i>
-            </button>
+            <!-- 每条任务的动作：进行中可暂停，失败可续传或从头重传 -->
+            <div class="task-item-actions">
+              <button
+                v-if="file.status === 'uploading' || file.status === 'processing'"
+                class="mini-icon-btn"
+                @click="pauseUpload(file)"
+                title="暂停"
+              >
+                <i class="fas fa-pause"></i>
+              </button>
+              <template v-if="file.status === 'paused'">
+                <button class="mini-icon-btn" @click="resumeUpload(file)" title="继续上传">
+                  <i class="fas fa-play"></i>
+                </button>
+                <button class="mini-icon-btn" @click="retryUpload(file, true)" title="从头重传">
+                  <i class="fas fa-rotate-left"></i>
+                </button>
+              </template>
+              <template v-if="file.status === 'error'">
+                <button
+                  class="mini-icon-btn"
+                  @click="retryUpload(file)"
+                  title="从断点续传"
+                >
+                  <i class="fas fa-rotate-right"></i>
+                </button>
+                <button
+                  class="mini-icon-btn"
+                  @click="retryUpload(file, true)"
+                  title="放弃已传分片，从头重传"
+                >
+                  <i class="fas fa-rotate-left"></i>
+                </button>
+              </template>
+            </div>
           </div>
         </section>
 
@@ -2660,52 +2958,78 @@
 
           <!-- Drawer Tab 2: Target Upload Folder -->
           <div v-if="activeDrawerTab === 'folder'">
-            <div class="folder-current-bar">
-              <div class="folder-breadcrumb">
-                <span class="folder-crumb" @click="selectUploadFolder('')">
-                  <i class="fas fa-house" style="font-size: 0.7rem;"></i>
-                  <span>根目录</span>
-                </span>
-                <template v-for="(seg, i) in folderPathSegments">
-                  <i class="fas fa-chevron-right folder-crumb-sep" :key="'sep-' + i"></i>
-                  <span class="folder-crumb" :key="'seg-' + i" @click="selectUploadFolder(folderPathUpTo(i))">{{ seg }}</span>
-                </template>
+            <!-- 当前目录：唯一的「这是一个位置」表达，面包屑为绝对主角 -->
+            <div class="folder-current-card">
+              <div class="folder-current-main">
+                <div class="folder-current-label">
+                  <i class="fas fa-location-dot"></i>
+                  <span>当前上传目录</span>
+                </div>
+                <div class="folder-breadcrumb">
+                  <span class="folder-crumb" @click="selectUploadFolder('')">
+                    <i class="fas fa-house" style="font-size: 0.72rem;"></i>
+                    <span>根目录</span>
+                  </span>
+                  <template v-for="(seg, i) in folderPathSegments">
+                    <i class="fas fa-chevron-right folder-crumb-sep" :key="'sep-' + i"></i>
+                    <span
+                      class="folder-crumb"
+                      :class="{ current: i === folderPathSegments.length - 1 }"
+                      :key="'seg-' + i"
+                      @click="i !== folderPathSegments.length - 1 && selectUploadFolder(folderPathUpTo(i))"
+                    >{{ seg }}</span>
+                  </template>
+                </div>
               </div>
               <button class="mini-icon-btn" @click="fetchUploadFolders(true)" title="从云端同步目录（新增/删除后请点此）">
                 <i class="fas fa-rotate" :class="{ 'fa-spin': uploadFoldersLoading }"></i>
               </button>
             </div>
 
-            <div class="folder-pill-bar">
-              <i class="fas fa-folder-open" style="color: var(--primary); font-size: 0.9rem;"></i>
-              <input
-                type="text"
-                v-model="folderPath"
-                placeholder="留空即为根目录，例如：日常/2026"
-                @input="handleFolderPathInput"
-                @blur="handleFolderPathBlur"
-              />
-              <button class="folder-pill-btn" @click="clearFolderPath">设为根目录</button>
-              <button class="folder-pill-btn primary" @click="openUploadFolderCreator" :disabled="isGuest">新建</button>
-            </div>
+            <!-- 新建目录：默认只是一个按钮，点击才展开表单，避免与上面的路径表达打架 -->
+            <button
+              class="folder-new-trigger"
+              v-if="!showUploadFolderCreator"
+              @click="openUploadFolderCreator"
+              :disabled="isGuest"
+            >
+              <i class="fas fa-folder-plus"></i>
+              <span>新建目录</span>
+            </button>
 
-            <div class="folder-pill-bar" v-if="showUploadFolderCreator">
-              <i class="fas fa-folder-plus" style="color: var(--primary); font-size: 0.9rem;"></i>
+            <div class="folder-new-card" v-else>
+              <div class="folder-new-head">
+                <span class="folder-new-title">
+                  <i class="fas fa-folder-plus"></i>
+                  <span>新建目录</span>
+                </span>
+                <button class="mini-icon-btn" @click="cancelUploadFolderCreator" title="取消"><i class="fas fa-xmark"></i></button>
+              </div>
               <input
                 ref="newFolderInput"
                 type="text"
+                class="folder-new-input"
                 v-model="newUploadFolderPath"
-                placeholder="输入新目录路径..."
+                placeholder="输入目录名，支持 a/b 多级"
                 @keyup.enter="createUploadFolder"
               />
-              <button class="folder-pill-btn primary" @click="createUploadFolder" :disabled="uploadFolderCreating">创建</button>
-              <button class="folder-pill-btn" @click="cancelUploadFolderCreator">取消</button>
+              <div class="folder-new-hint">
+                将创建在「{{ folderPath || '根目录' }}」下；用 / 分隔可一次创建多级。
+              </div>
+              <div class="folder-new-actions">
+                <span class="grow"></span>
+                <button class="folder-btn" @click="cancelUploadFolderCreator">取消</button>
+                <button class="folder-btn primary" @click="createUploadFolder" :disabled="uploadFolderCreating">
+                  <i :class="uploadFolderCreating ? 'fas fa-spinner fa-spin' : 'fas fa-check'"></i>
+                  {{ uploadFolderCreating ? '创建中' : '创建' }}
+                </button>
+              </div>
             </div>
 
             <div class="folder-section-label">
               <i class="fas fa-sitemap"></i>
               <span>云端目录结构</span>
-              <span style="margin-left: auto; font-weight: 600; opacity: 0.85;">{{ uploadFolderOptions.length }} 个目录</span>
+              <span class="count">{{ uploadFolderOptions.length }} 个目录</span>
             </div>
 
             <div class="folder-tree-panel">
@@ -2746,46 +3070,68 @@
 
           <!-- Drawer Tab 3: Local History Vault -->
           <div v-if="activeDrawerTab === 'history'">
+            <!-- 第 1 层：统计（一行读完，不再三块平铺） -->
             <div class="history-stats-bar">
               <span class="history-stat-item">
                 <i class="fas fa-clock-rotate-left"></i>
-                <span>共 <strong>{{ historyStats.count }}</strong> 条</span>
+                <span><strong>{{ historyStats.count }}</strong> 条</span>
               </span>
               <span class="history-stat-item">
                 <i class="fas fa-database"></i>
-                <span>累计 <strong>{{ formatSize(historyStats.totalSize) }}</strong></span>
+                <span><strong>{{ formatSize(historyStats.totalSize) }}</strong></span>
               </span>
               <span class="history-stat-item">
                 <i class="fas fa-filter"></i>
-                <span>当前显示 <strong>{{ historySorted.length }}</strong> 条</span>
+                <span>显示 <strong>{{ historySorted.length }}</strong></span>
               </span>
             </div>
 
+            <!-- 第 2 层：搜索 + 选项（排序/视图/类型全部收进弹层） -->
             <div class="history-toolbar">
               <div class="history-search-box">
                 <i class="fas fa-magnifying-glass"></i>
                 <input type="text" v-model="historySearch" placeholder="搜索文件名或链接..." />
                 <i class="fas fa-circle-xmark history-search-clear" v-if="historySearch" @click="historySearch = ''"></i>
               </div>
-              <select class="history-sort-select" v-model="historySort">
-                <option value="time-desc">最新优先</option>
-                <option value="time-asc">最早优先</option>
-                <option value="name-asc">名称 A → Z</option>
-                <option value="size-desc">体积由大到小</option>
-              </select>
-              <div class="history-view-toggle">
-                <button :class="{ active: historyView === 'grid' }" @click="historyView = 'grid'" title="网格视图">
-                  <i class="fas fa-grip"></i>
-                </button>
-                <button :class="{ active: historyView === 'list' }" @click="historyView = 'list'" title="列表视图">
-                  <i class="fas fa-list"></i>
-                </button>
+              <button
+                class="history-options-btn"
+                :class="{ on: historyOptionsOpen }"
+                @click="historyOptionsOpen = !historyOptionsOpen"
+              >
+                <i class="fas fa-sliders"></i>
+                <span>筛选</span>
+                <span class="badge-count" v-if="historyTypeFilter !== 'all'">1</span>
+                <i class="fas fa-chevron-down caret" :style="{ transform: historyOptionsOpen ? 'rotate(180deg)' : 'none' }"></i>
+              </button>
+            </div>
+
+            <div class="history-options-panel" v-if="historyOptionsOpen">
+              <div class="history-opt-row">
+                <label>排序</label>
+                <select class="history-sort-select" v-model="historySort">
+                  <option value="time-desc">最新优先</option>
+                  <option value="time-asc">最早优先</option>
+                  <option value="name-asc">名称 A → Z</option>
+                  <option value="size-desc">体积由大到小</option>
+                </select>
+              </div>
+              <div class="history-opt-row">
+                <label>视图</label>
+                <div class="history-view-toggle">
+                  <button :class="{ active: historyView === 'grid' }" @click="historyView = 'grid'" title="网格视图">
+                    <i class="fas fa-grip"></i>
+                  </button>
+                  <button :class="{ active: historyView === 'list' }" @click="historyView = 'list'" title="列表视图">
+                    <i class="fas fa-list"></i>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div class="format-tabs-row">
+            <!-- 类型筛选：横向可滑，不换行 -->
+            <div class="history-type-tabs" style="margin-bottom: 10px;">
               <button
-                class="format-chip-btn"
+                class="history-type-tab"
                 v-for="tab in historyTypeTabs"
                 :key="tab.value"
                 :class="{ active: historyTypeFilter === tab.value }"
@@ -2795,31 +3141,45 @@
               </button>
             </div>
 
-            <div class="history-batch-bar">
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 700;">
-                <input type="checkbox" :checked="historyAllSelected" @change="toggleHistorySelectAll" style="accent-color: var(--primary); cursor: pointer;" />
-                <span>全选</span>
-              </label>
-              <span class="batch-info" :class="{ 'has-selection': historySelectedCount > 0 }">
-                {{ historySelectedCount > 0 ? `已选 ${historySelectedCount} 项` : '未选择' }}
+            <!-- 选中操作条：只在真的有选中时出现，动作按「主/次」分层 -->
+            <div class="history-selection-bar" v-if="historySelectedCount > 0">
+              <span class="history-selection-info">
+                <i class="fas fa-check-circle"></i>
+                <span class="count-badge">{{ historySelectedCount }}</span>
+                <span>已选</span>
               </span>
-              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem;" @click="copyHistorySelected" :disabled="!historySelectedCount">
-                <i class="fas fa-copy"></i> 复制链接
+              <span class="spacer"></span>
+              <button class="hist-btn" @click="copyHistorySelected">
+                <i class="fas fa-copy"></i> 复制
               </button>
-              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem;" @click="addHistorySelectedToResults" :disabled="!historySelectedCount">
+              <button class="hist-btn" @click="addHistorySelectedToResults">
                 <i class="fas fa-plus"></i> 加入结果
               </button>
-              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem; color: #ef4444;" @click="deleteHistorySelected" :disabled="!historySelectedCount">
+              <button class="hist-btn danger" @click="deleteHistorySelected">
                 <i class="fas fa-trash"></i> 删除
               </button>
-              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem;" @click="exportHistory" :disabled="!historySorted.length">
+            </div>
+
+            <!-- 维护行：全选 + 低频动作，平时安静待命 -->
+            <div class="history-maint-row" v-if="historySorted.length">
+              <button class="hist-btn" @click="toggleHistorySelectAll">
+                <i :class="historyAllSelected ? 'fas fa-check-double' : 'fas fa-check'"></i>
+                {{ historyAllSelected ? '取消全选' : '全选' }}
+              </button>
+              <button class="hist-btn" @click="exportHistory">
                 <i class="fas fa-file-export"></i> 导出
               </button>
-              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem;" @click="cleanupExpiredHistory" :disabled="!uploadHistory.length || historyCleanupRunning">
+              <button
+                class="hist-btn"
+                @click="cleanupExpiredHistory"
+                :disabled="!uploadHistory.length || historyCleanupRunning"
+                title="检测并清理已失效的链接"
+              >
                 <i :class="historyCleanupRunning ? 'fas fa-spinner fa-spin' : 'fas fa-magnifying-glass-chart'"></i>
                 {{ historyCleanupRunning ? `检查 ${historyCleanupProgress.checked}/${historyCleanupProgress.total}` : '清理失效' }}
               </button>
-              <button class="action-pill-btn" style="padding: 4px 10px; font-size: 0.74rem; color: #ef4444;" @click="clearHistory" :disabled="!uploadHistory.length">
+              <span class="spacer"></span>
+              <button class="hist-btn danger" @click="clearHistory" :disabled="!uploadHistory.length">
                 <i class="fas fa-broom"></i> 清空
               </button>
             </div>
@@ -2850,8 +3210,8 @@
                       <i v-else :class="getFileIcon(getDisplayName(item))"></i>
                     </div>
                     <div class="history-grid-name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
+                    <!-- 缩略图右上角：只留「分享」一个主动作 -->
                     <div class="history-grid-actions">
-                      <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button
                         class="history-mini-btn"
                         :class="{ 'share-active': hasShare(item) }"
@@ -2860,8 +3220,14 @@
                       >
                         <i class="fas fa-share-nodes"></i>
                       </button>
+                    </div>
+                    <!-- 卡片底部：等宽常驻操作行，点按区域更大更顺手 -->
+                    <div class="history-card-foot">
+                      <button class="hist-icon-btn" @click.stop="historyCopyLink(item)" title="复制直链">
+                        <i class="fas fa-copy"></i>
+                      </button>
                       <button
-                        class="history-mini-btn"
+                        class="hist-icon-btn"
                         v-if="hasShare(item)"
                         @click.stop="copyShareLink(item)"
                         title="复制分享短链"
@@ -2869,14 +3235,16 @@
                         <i class="fas fa-link"></i>
                       </button>
                       <button
-                        class="history-mini-btn"
+                        class="hist-icon-btn"
                         :disabled="isDownloading(item)"
                         @click.stop="historyDownload(item)"
                         title="下载"
                       >
                         <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
                       </button>
-                      <button class="history-mini-btn danger" @click.stop="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
+                      <button class="hist-icon-btn danger" @click.stop="historyDelete(item)" title="删除">
+                        <i class="fas fa-xmark"></i>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -3276,6 +3644,9 @@
           lastMoreTab: "history",
           baseURL: document.location.origin,
           isDragging: false,
+          /* dragenter/dragleave 会在子元素之间反复冒泡，光靠布尔值会导致高亮闪烁，
+             改用进出计数：归零才算真正离开投放区。 */
+          dragDepth: 0,
           showUrlInput: false,
           urlToUpload: "",
           urlUploading: false,
@@ -3374,6 +3745,8 @@
           historySort: "time-desc",
           historyView: "grid",
           historyTypeFilter: "all",
+          /* 排序/视图收进弹层，默认收起，让首屏只留搜索 */
+          historyOptionsOpen: false,
           historyMaxItems: 500,
           historyTypeTabs: [
             { value: "all", label: "全部" },
@@ -3420,6 +3793,16 @@
           },
           failedCount() {
             return this.uploadingFiles.filter((f) => f.status === "error").length;
+          },
+          /** 正在传的任务数（用于显示「暂停」） */
+          activeUploadCount() {
+            return this.uploadingFiles.filter(
+              (f) => f.status === "uploading" || f.status === "processing"
+            ).length;
+          },
+          /** 已暂停的任务数（用于显示「继续」） */
+          pausedCount() {
+            return this.uploadingFiles.filter((f) => f.status === "paused").length;
           },
           isMoreTabActive() {
             return ["history", "menu"].includes(this.activeDrawerTab);
@@ -3617,12 +4000,21 @@
             return (bps / 1024).toFixed(0) + " KB/s";
           },
 
-          /* 原生 XHR 封装：支持真实字节上传事件监听 */
-          xhrUpload(url, formData, onProgress) {
-            return new Promise((resolve, reject) => {
+          /* 原生 XHR 封装：支持真实字节上传事件监听。
+             补上两件断点续传必需的能力：
+               1. timeout —— 之前 ontimeout 挂了却从未赋值 xhr.timeout，等于永不触发，
+                  网络卡死时任务会永久挂起、阻塞整个队列。
+               2. abort —— 供「暂停」中断在途请求。返回的 Promise 上挂 _xhr 引用。 */
+          xhrUpload(url, formData, onProgress, timeoutMs) {
+            /* xhr 引用先存到外层变量：Promise 的 executor 是同步执行的，
+               在里面访问 const p 会撞上暂时性死区(TDZ)。 */
+            let xhrRef = null;
+            const p = new Promise((resolve, reject) => {
               const xhr = new XMLHttpRequest();
+              xhrRef = xhr;
               xhr.open("POST", url);
               xhr.withCredentials = true;
+              if (timeoutMs && timeoutMs > 0) xhr.timeout = timeoutMs;
 
               if (xhr.upload && onProgress) {
                 xhr.upload.onprogress = (e) => {
@@ -3648,8 +4040,107 @@
 
               xhr.onerror = () => reject(new Error("网络连接失败，上传中断"));
               xhr.ontimeout = () => reject(new Error("网络请求超时"));
+              xhr.onabort = () => reject(new Error("__ABORTED__"));
               xhr.send(formData);
             });
+            p._xhr = xhrRef;
+            return p;
+          },
+
+          /** 按数据量估算超时：给足 30s 起步 + 每 MB 2s，避免大分片被误判超时 */
+          estimateTimeout(bytes) {
+            const mb = (Number(bytes) || 0) / (1024 * 1024);
+            return Math.max(30000, Math.round(30000 + mb * 2000));
+          },
+
+          /* ============================================================
+           * 断点续传
+           * ------------------------------------------------------------
+           * 设计前提：后端不改动。init 请求额外携带 fileId + resume，
+           * 后端「认识」就返回已完成的分片列表，前端跳过它们；
+           * 后端「不认识」就忽略这两个字段，行为完全退化成原来的全量上传。
+           * 因此这套逻辑可以在后端支持之前先行部署，日后自动升级。
+           * ============================================================ */
+
+          /**
+           * 稳定指纹：同一个文件在任何时刻都应算出同一个 id。
+           * 全量 hash 对 GB 级文件太慢，这里只采样头尾各 1MB + 元数据，
+           * 既快又能区分绝大多数不同文件。
+           */
+          async computeFileId(file) {
+            if (!file) return "";
+            const SAMPLE = 1024 * 1024;
+            try {
+              const meta = `${file.name}|${file.size}|${file.lastModified || 0}`;
+              const head = await file.slice(0, Math.min(SAMPLE, file.size)).arrayBuffer();
+              const tailStart = Math.max(0, file.size - SAMPLE);
+              const tail = await file.slice(tailStart, file.size).arrayBuffer();
+
+              const merged = new Uint8Array(head.byteLength + tail.byteLength);
+              merged.set(new Uint8Array(head), 0);
+              merged.set(new Uint8Array(tail), head.byteLength);
+
+              const digest = await crypto.subtle.digest("SHA-256", merged);
+              const hex = Array.from(new Uint8Array(digest))
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join("");
+              return `${hex.slice(0, 32)}-${file.size}`;
+            } catch (_) {
+              /* crypto.subtle 需要安全上下文（https 或 localhost）；
+                 拿不到就退化成元数据指纹，续传能力减弱但不影响主流程。 */
+              return `m-${file.name}-${file.size}-${file.lastModified || 0}`;
+            }
+          },
+
+          /** 续传快照的 localStorage key */
+          resumeKey(fileId) {
+            return `chunkResume:${fileId}`;
+          },
+          readResumeState(fileId) {
+            if (!fileId) return null;
+            try {
+              const raw = localStorage.getItem(this.resumeKey(fileId));
+              if (!raw) return null;
+              const s = JSON.parse(raw);
+              /* 7 天过期：后端侧的 uploadId 不会无限期保留 */
+              if (!s || !s.uploadId || !s.ts || Date.now() - s.ts > 7 * 864e5) {
+                localStorage.removeItem(this.resumeKey(fileId));
+                return null;
+              }
+              return s;
+            } catch (_) {
+              return null;
+            }
+          },
+          writeResumeState(fileId, state) {
+            if (!fileId) return;
+            try {
+              localStorage.setItem(
+                this.resumeKey(fileId),
+                JSON.stringify(Object.assign({ ts: Date.now() }, state))
+              );
+            } catch (e) {
+              /* 配额满了：清掉最老的一半快照再试一次（沿用本文件既有惯例） */
+              try {
+                const keys = Object.keys(localStorage).filter((k) => k.startsWith("chunkResume:"));
+                keys
+                  .sort((a, b) => {
+                    const ta = JSON.parse(localStorage.getItem(a) || "{}").ts || 0;
+                    const tb = JSON.parse(localStorage.getItem(b) || "{}").ts || 0;
+                    return ta - tb;
+                  })
+                  .slice(0, Math.ceil(keys.length / 2))
+                  .forEach((k) => localStorage.removeItem(k));
+                localStorage.setItem(
+                  this.resumeKey(fileId),
+                  JSON.stringify(Object.assign({ ts: Date.now() }, state))
+                );
+              } catch (_) {}
+            }
+          },
+          clearResumeState(fileId) {
+            if (!fileId) return;
+            try { localStorage.removeItem(this.resumeKey(fileId)); } catch (_) {}
           },
 
           /* 安全解码可能被 URL 编码的文件名 */
@@ -4046,12 +4537,175 @@
             this.processFiles(files);
             e.target.value = "";
           },
-          onDragOver() { this.isDragging = true; },
-          onDragLeave() { this.isDragging = false; },
-          onDrop(e) {
+          triggerDirUpload() {
+            this.$refs.dirInput.click();
+          },
+          handleDirSelect(e) {
+            /* webkitdirectory 选中的 File 自带 webkitRelativePath，直接复用即可 */
+            const files = Array.from(e.target.files || []).filter((f) => !this.isIgnorableFile(f.name));
+            if (files.length) {
+              this.processFiles(files);
+              this.showToast(`已从文件夹读取 ${files.length} 个文件`, "success");
+            }
+            e.target.value = "";
+          },
+          /* ============================================================
+           * 拖放：支持直接拖入整个文件夹
+           * ------------------------------------------------------------
+           * 浏览器在拖入目录时，dataTransfer.files 只会给出一个「空目录条目」
+           * （size=0、type=""），读不到里面的任何文件。必须用
+           * DataTransferItem.webkitGetAsEntry() 拿到 FileSystemDirectoryEntry
+           * 再递归 readEntries() 才能取到真实文件。
+           * ============================================================ */
+
+          onDragOver(e) { if (e) e.preventDefault(); this.isDragging = true; },
+          onDragEnter(e) {
+            if (e) e.preventDefault();
+            this.dragDepth++;
+            this.isDragging = true;
+          },
+          onDragLeave(e) {
+            if (e) e.preventDefault();
+            this.dragDepth = Math.max(0, this.dragDepth - 1);
+            if (this.dragDepth === 0) this.isDragging = false;
+          },
+          async onDrop(e) {
+            if (!e) return;
+            e.preventDefault();
+            this.dragDepth = 0;
             this.isDragging = false;
-            const files = Array.from(e.dataTransfer.files || []);
+            const files = await this.collectFilesFromDataTransfer(e.dataTransfer);
             this.processFiles(files);
+          },
+
+          /**
+           * 从 DataTransfer 里收集全部文件，遇目录则递归展开。
+           * 无 webkitGetAsEntry 支持时降级为 dataTransfer.files。
+           */
+          async collectFilesFromDataTransfer(dataTransfer) {
+            if (!dataTransfer) return [];
+
+            const items = Array.from(dataTransfer.items || []);
+            const entryCapable = items.some((it) => it && typeof it.webkitGetAsEntry === "function");
+
+            /* 只拖了普通文件（或浏览器不支持 Entry API）→ 走原来的快路径 */
+            if (!entryCapable) return Array.from(dataTransfer.files || []);
+
+            const entries = [];
+            for (const it of items) {
+              if (it.kind !== "file") continue;
+              try {
+                const en = it.webkitGetAsEntry();
+                if (en) entries.push(en);
+              } catch (_) {}
+            }
+            if (!entries.length) return Array.from(dataTransfer.files || []);
+
+            /* 目录里可能有很多文件，读之前先给个提示 */
+            const hasDir = entries.some((en) => en.isDirectory);
+            if (hasDir) this.showToast("正在读取文件夹...", "info");
+
+            const out = [];
+            const stats = { count: 0, truncated: false };
+            try {
+              await Promise.all(entries.map((en) => this.walkEntry(en, out, "", stats, 0)));
+            } catch (err) {
+              console.warn("[drop] 遍历目录失败:", err);
+            }
+
+            if (!out.length) {
+              this.showToast("没有从该文件夹读到可用文件", "error");
+              return [];
+            }
+            if (stats.truncated) {
+              this.showToast(`文件夹文件过多，已只取前 ${stats.count} 个`, "error");
+            } else if (hasDir) {
+              this.showToast(`已从文件夹读取 ${stats.count} 个文件`, "success");
+            }
+            return out;
+          },
+
+          /**
+           * 递归遍历一个 FileSystemEntry。
+           * readEntries() 每次最多返回 100 项，必须循环调用直到返回空数组才算读完——
+           * 只读一次会漏掉后面的文件，这是最容易踩的坑。
+           */
+          walkEntry(entry, out, prefix, stats, depth) {
+            const MAX_FILES = 5000;
+            const MAX_DEPTH = 20;
+
+            if (stats.count >= MAX_FILES) {
+              stats.truncated = true;
+              return Promise.resolve();
+            }
+            if (depth > MAX_DEPTH) return Promise.resolve();
+
+            if (entry.isFile) {
+              return new Promise((resolve) => {
+                entry.file(
+                  (file) => {
+                    if (this.isIgnorableFile(file.name)) return resolve();
+                    try {
+                      /* 保留相对路径：拖文件夹时可用它还原目录结构 */
+                      Object.defineProperty(file, "_relativePath", {
+                        value: prefix + file.name,
+                        configurable: true,
+                      });
+                    } catch (_) {}
+                    out.push(file);
+                    stats.count++;
+                    resolve();
+                  },
+                  () => resolve() /* 单个文件读取失败不拖累整批 */
+                );
+              });
+            }
+
+            if (!entry.isDirectory) return Promise.resolve();
+
+            const reader = entry.createReader();
+            const readAll = () =>
+              new Promise((resolve, reject) => {
+                const all = [];
+                const pump = () => {
+                  reader.readEntries(
+                    (batch) => {
+                      if (!batch.length) return resolve(all);
+                      all.push(...batch);
+                      pump(); /* 继续读，直到拿不到新的一批 */
+                    },
+                    (err) => reject(err)
+                  );
+                };
+                pump();
+              });
+
+            return readAll()
+              .then((children) =>
+                Promise.all(
+                  children.map((child) =>
+                    this.walkEntry(child, out, `${prefix}${entry.name}/`, stats, depth + 1)
+                  )
+                )
+              )
+              .catch(() => Promise.resolve());
+          },
+
+          /** 系统垃圾文件，拖文件夹时一并过滤掉 */
+          isIgnorableFile(name) {
+            const n = String(name || "");
+            if (n.startsWith(".") && (n === ".DS_Store" || n === ".localized")) return true;
+            if (n.toLowerCase() === "thumbs.db" || n.toLowerCase() === "desktop.ini") return true;
+            return false;
+          },
+
+          /** window 级兜底：阻止拖到投放区外时浏览器把整个页面替换掉 */
+          preventWindowFileNav(e) {
+            if (!e) return;
+            e.preventDefault();
+            try {
+              e.dataTransfer.dropEffect = "copy";
+            } catch (_) {}
           },
 
           async uploadFromUrl() {
@@ -4212,35 +4866,81 @@
                 preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
                 progress: 0,
                 error: null,
+                /* 断点续传相关：uploadId 与已完成分片在重试时保留 */
+                uploadId: null,
+                chunkDone: [],
+                fileId: null,
+                paused: false,
               };
               this.uploadingFiles.push(item);
             }
             this.startUpload();
           },
 
+          /* 并发调度 + 重入锁。
+             原来是 for...of await 串行，一个文件卡住会永久阻塞后面全部任务；
+             且没有重入保护，多处同时调用会重复取走同一批 waiting。 */
+          uploadSchedulerRunning: false,
+          uploadConcurrency: 3,
+
           async startUpload() {
-            const waiting = this.uploadingFiles.filter((f) => f.status === "waiting");
-            for (const item of waiting) {
-              const mode = item.targetMode || this.storageMode;
-              try {
-                item.status = "uploading";
-                const limit = this.getUploadLimit(mode);
-                const threshold = this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
-                if (item.file.size > threshold && limit.supportsChunkUpload) {
-                  await this.chunkedUpload(item);
-                } else {
-                  await this.directUpload(item);
-                }
-              } catch (err) {
-                item.status = "error";
-                item.statusText = "上传失败";
-                item.speed = "";
-                item.error = err.message;
-              }
+            if (this.uploadSchedulerRunning) return;
+            this.uploadSchedulerRunning = true;
+            try {
+              await this.runUploadPool();
+            } finally {
+              this.uploadSchedulerRunning = false;
             }
             setTimeout(() => {
               this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
             }, 2500);
+          },
+
+          async runUploadPool() {
+            const pickNext = () =>
+              this.uploadingFiles.find((f) => f.status === "waiting" && !f.paused);
+
+            const workers = [];
+            for (let i = 0; i < this.uploadConcurrency; i++) {
+              workers.push(
+                (async () => {
+                  for (;;) {
+                    const item = pickNext();
+                    if (!item) return;
+                    item.status = "uploading";
+                    try {
+                      await this.uploadOne(item);
+                    } catch (err) {
+                      const msg = String((err && err.message) || "上传失败");
+                      /* 用户主动暂停不算失败 */
+                      if (msg === "__ABORTED__") {
+                        this.$set(item, "status", "paused");
+                        this.$set(item, "statusText", "已暂停");
+                        this.$set(item, "speed", "");
+                      } else {
+                        this.$set(item, "status", "error");
+                        this.$set(item, "statusText", "上传失败");
+                        this.$set(item, "speed", "");
+                        this.$set(item, "error", msg);
+                      }
+                    }
+                  }
+                })()
+              );
+            }
+            await Promise.all(workers);
+          },
+
+          async uploadOne(item) {
+            const mode = item.targetMode || this.storageMode;
+            const limit = this.getUploadLimit(mode);
+            const threshold =
+              this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
+            if (item.file.size > threshold && limit.supportsChunkUpload) {
+              await this.chunkedUpload(item);
+            } else {
+              await this.directUpload(item);
+            }
           },
 
           async directUpload(item) {
@@ -4302,15 +5002,100 @@
             this.addToHistory(uploadedObj, mode);
           },
 
+          /**
+           * 从 init 响应里嗅探「已上传分片」字段。
+           * 后端实现不同叫法也不同，这里兼容常见的几种；
+           * 一个都不认识就返回空数组 —— 此时等价于全量上传，不会出错。
+           */
+          extractDoneChunks(initData) {
+            if (!initData || typeof initData !== "object") return [];
+            const raw =
+              initData.uploadedChunks ?? initData.uploadedParts ?? initData.completedChunks ??
+              initData.doneChunks ?? initData.existingChunks ?? initData.uploaded ??
+              (initData.resume && initData.resume.uploadedChunks);
+            if (!Array.isArray(raw)) return [];
+
+            const out = [];
+            for (const v of raw) {
+              /* 兼容两种形态：[0,1,2] 或 [{index:0},{chunkIndex:1},{partNumber:2}] */
+              let idx = null;
+              if (Number.isInteger(v)) idx = v;
+              else if (v && typeof v === "object") {
+                idx = v.index ?? v.chunkIndex ?? v.partNumber ?? v.i;
+                if (idx !== null && idx !== undefined && Number.isInteger(idx) && idx > 0) {
+                  idx = idx - 1; // partNumber 从 1 开始，本地索引从 0 开始
+                }
+              }
+              if (Number.isInteger(idx) && idx >= 0) out.push(idx);
+            }
+            return out;
+          },
+
+          /** 单个分片的上传 + 指数退避重试（3 次） */
+          async uploadChunkWithRetry(item, formData, index, ctx) {
+            const MAX = 3;
+            let lastErr = null;
+            for (let attempt = 1; attempt <= MAX; attempt++) {
+              if (item.paused) throw new Error("__ABORTED__");
+              try {
+                const pr = this.xhrUpload(
+                  `${this.baseURL}/api/chunked-upload/chunk`,
+                  formData,
+                  (loadedChunk) => {
+                    const currentTotal = ctx.uploadedBase + loadedChunk;
+                    const now = Date.now();
+                    const diff = (now - ctx.lastTime) / 1000;
+                    if (diff >= 0.4) {
+                      const speedBps = (currentTotal - ctx.lastLoaded) / diff;
+                      this.$set(item, "speed", this.formatSpeed(speedBps));
+                      ctx.lastTime = now;
+                      ctx.lastLoaded = currentTotal;
+                    }
+                    this.$set(item, "uploadedBytes", currentTotal);
+                    /* 封顶 99：合并阶段只占最后 1%，原来封顶 95 会让最后一段显得卡住 */
+                    const percent = Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99));
+                    this.$set(item, "progress", percent);
+                  },
+                  this.estimateTimeout(formData.get("chunk")?.size || 0)
+                );
+                if (ctx.onXhr) ctx.onXhr(pr._xhr);
+                return await pr;
+              } catch (err) {
+                lastErr = err;
+                const msg = String((err && err.message) || "");
+                if (msg === "__ABORTED__") throw err;
+                const wait = 800 * Math.pow(2, attempt - 1);
+                if (attempt < MAX) {
+                  this.$set(item, "statusText", `分片 ${index + 1} 重试 (${attempt}/${MAX - 1})...`);
+                  await new Promise((r) => setTimeout(r, wait));
+                }
+              }
+            }
+            throw lastErr || new Error(`分片 ${index + 1} 上传失败`);
+          },
+
           async chunkedUpload(item) {
             const file = item.file;
             const mode = item.targetMode || this.storageMode;
             const chunkSize = this.resolveChunkSizeForMode(mode);
             const totalChunks = Math.ceil(file.size / chunkSize);
 
-            this.$set(item, "statusText", "初始化任务...");
-            this.$set(item, "progress", 0);
-            this.$set(item, "uploadedBytes", 0);
+            /* 首次进入时算指纹；重试时 item.fileId 已经在，不重复计算 */
+            if (!item.fileId) {
+              this.$set(item, "statusText", "计算文件指纹...");
+              item.fileId = await this.computeFileId(file);
+            }
+
+            /* 已有 uploadId 说明是续传，不重置进度；否则从头开始 */
+            const isResume = !!item.uploadId;
+            if (!isResume) {
+              this.$set(item, "progress", 0);
+              this.$set(item, "uploadedBytes", 0);
+            } else {
+              this.$set(item, "statusText", "恢复上传...");
+            }
+
+            this.$set(item, "statusText", isResume ? "恢复上传..." : "初始化任务...");
 
             const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
@@ -4323,21 +5108,60 @@
                 storageMode: mode,
                 folderPath: this.folderPath,
                 shareOptions: this.buildShareOptions(),
+                /* ↓↓ 断点续传字段。后端不认识会自动忽略，行为退化成全量上传，不会出错。 */
+                fileId: item.fileId,
+                resume: true,
+                uploadId: item.uploadId || undefined,
               }),
               credentials: "include",
             });
             const initData = await initRes.json();
             if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
-            const uploadId = initData.uploadId;
+            const uploadId = initData.uploadId || item.uploadId;
 
+            /* 后端若返回已完成分片（字段名各家不同，这里做兼容嗅探），
+               就合并进本地的已完成集合，上传时直接跳过。 */
+            const serverDone = this.extractDoneChunks(initData);
+            const doneSet = new Set(Array.isArray(item.chunkDone) ? item.chunkDone : []);
+            serverDone.forEach((idx) => doneSet.add(idx));
+
+            /* 已完成分片的字节量：进度条从这里继续，而不是从 0 */
             let uploadedBase = 0;
-            let lastTime = Date.now();
-            let lastLoaded = 0;
+            for (const idx of doneSet) {
+              const s = idx * chunkSize;
+              uploadedBase += Math.min(chunkSize, file.size - s);
+            }
             const collectedParts = [];
+            if (Array.isArray(item.parts)) collectedParts.push(...item.parts);
+
+            item.uploadId = uploadId;
+            item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
+
+            if (doneSet.size) {
+              this.$set(item, "uploadedBytes", uploadedBase);
+              this.$set(item, "progress", Math.min(99, Math.round((uploadedBase / file.size) * 99)));
+              this.$set(item, "statusText", `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`);
+            }
+
+            let lastTime = Date.now();
+            let lastLoaded = uploadedBase;
 
             this.$set(item, "statusText", "上传中");
+            this.writeResumeState(item.fileId, {
+              uploadId,
+              doneIndices: item.chunkDone,
+              parts: collectedParts,
+              fileName: file.name,
+              size: file.size,
+              mode,
+            });
 
             for (let i = 0; i < totalChunks; i++) {
+              /* 已完成的分片直接跳过 —— 这就是「续」 */
+              if (doneSet.has(i)) continue;
+
+              if (item.paused) throw new Error("__ABORTED__");
+
               const start = i * chunkSize;
               const end = Math.min(start + chunkSize, file.size);
               const chunk = file.slice(start, end);
@@ -4348,19 +5172,13 @@
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
 
-              const chunkResp = await this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, fd, (loadedChunk) => {
-                const currentTotal = uploadedBase + loadedChunk;
-                const now = Date.now();
-                const diff = (now - lastTime) / 1000;
-                if (diff >= 0.4) {
-                  const speedBps = (currentTotal - lastLoaded) / diff;
-                  this.$set(item, "speed", this.formatSpeed(speedBps));
-                  lastTime = now;
-                  lastLoaded = currentTotal;
-                }
-                this.$set(item, "uploadedBytes", currentTotal);
-                const percent = Math.min(95, Math.round((currentTotal / file.size) * 95));
-                this.$set(item, "progress", percent);
+              /* 分片级重试：单个分片网络抖动不该让整个大文件前功尽弃 */
+              const chunkResp = await this.uploadChunkWithRetry(item, fd, i, {
+                uploadedBase,
+                lastTime,
+                lastLoaded,
+                fileSize: file.size,
+                onXhr: (xhr) => { item._xhrRef = xhr; },
               });
 
               if (
@@ -4374,8 +5192,21 @@
                 });
               }
 
+              /* 只有成功后才累加——原来无条件累加，分片重试一次进度就会虚高错乱 */
               uploadedBase += chunkBytes;
               this.$set(item, "uploadedBytes", uploadedBase);
+
+              doneSet.add(i);
+              item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
+              item.parts = collectedParts.slice();
+              this.writeResumeState(item.fileId, {
+                uploadId,
+                doneIndices: item.chunkDone,
+                parts: collectedParts,
+                fileName: file.name,
+                size: file.size,
+                mode,
+              });
             }
 
             this.$set(item, "status", "processing");
@@ -4415,6 +5246,12 @@
               throw new Error(completeData?.error || "合并分片失败");
             }
 
+            /* 传完了，快照就没用了，清掉避免 localStorage 堆积 */
+            this.clearResumeState(item.fileId);
+            item.uploadId = null;
+            item.chunkDone = [];
+            item.parts = null;
+
             this.$set(item, "status", "success");
             this.$set(item, "statusText", "已完成");
             this.$set(item, "progress", 100);
@@ -4432,27 +5269,57 @@
             this.addToHistory(uploadedObj, mode);
           },
 
-          retryUpload(file) {
+          /* 默认「继续」：保留 uploadId 与已完成分片，从断点接着传。
+             原来的实现会把 uploadedBytes 清零，等于每次失败都从头再来。 */
+          retryUpload(file, fromScratch = false) {
             file.targetMode = this.resolveStorageForFile(file.size);
             file.status = "waiting";
-            file.statusText = "等待中";
+            file.statusText = fromScratch ? "重新上传" : "等待续传";
             file.speed = "";
-            file.progress = 0;
-            file.uploadedBytes = 0;
             file.error = null;
+            file.paused = false;
+
+            if (fromScratch) {
+              file.uploadId = null;
+              file.chunkDone = [];
+              file.parts = null;
+              file.progress = 0;
+              file.uploadedBytes = 0;
+              this.clearResumeState(file.fileId);
+            } else if (file.chunkDone && file.chunkDone.length) {
+              /* 保留 uploadedBytes / progress，让 UI 显示的续传起点是真实的 */
+              file.statusText = `续传（已完成 ${file.chunkDone.length} 个分片）`;
+            }
             this.startUpload();
           },
           retryAllFailed() {
-            this.uploadingFiles.filter((f) => f.status === "error").forEach((f) => {
-              f.targetMode = this.resolveStorageForFile(f.size);
-              f.status = "waiting";
-              f.statusText = "等待中";
-              f.speed = "";
-              f.progress = 0;
-              f.uploadedBytes = 0;
-              f.error = null;
-            });
+            this.uploadingFiles
+              .filter((f) => f.status === "error")
+              .forEach((f) => this.retryUpload(f, false));
+          },
+
+          /** 暂停单个任务：中断在途的 XHR，保留已完成分片 */
+          pauseUpload(file) {
+            this.$set(file, "paused", true);
+            this.$set(file, "status", "paused");
+            this.$set(file, "statusText", "已暂停");
+            this.$set(file, "speed", "");
+            try { file._xhrRef && file._xhrRef.abort(); } catch (_) {}
+          },
+          resumeUpload(file) {
+            this.$set(file, "paused", false);
+            file.status = "waiting";
+            file.statusText = "等待续传";
+            file.error = null;
             this.startUpload();
+          },
+          pauseAllUploads() {
+            this.uploadingFiles
+              .filter((f) => f.status === "uploading" || f.status === "processing")
+              .forEach((f) => this.pauseUpload(f));
+          },
+          resumeAllUploads() {
+            this.uploadingFiles.filter((f) => f.status === "paused").forEach((f) => this.resumeUpload(f));
           },
           clearUploadQueue() { this.uploadingFiles = []; },
 
@@ -4501,18 +5368,54 @@
           },
 
           /**
+           * 规范成可用的分享路径。
+           * 后端在「未自定义短链」时可能只回 enable 标记而不回 sharePath，
+           * 因此这里做一次兜底推断：路径 → 短链 → 目录+文件名，逐级降级。
+           * 优先级：显式短链 > 条目自带短链 > 后端回传路径 > 目录+文件名兜底。
+           * 短链排在 sharePath 之前，是因为后端可能回传一条「通用路径」，
+           * 而用户自定义短链才是他期望看到的结果，不能被覆盖掉。
+           */
+          resolveSharePath(item, explicitSlug) {
+            if (!item) return "";
+
+            const slug = String(explicitSlug || item.shareSlug || "").trim();
+            if (slug) return `/s/${slug}`;
+
+            const direct = String(item.sharePath || "").trim();
+            if (direct) return direct;
+
+            /* 最后兜底：用「文件夹 + 文件名」拼一条稳定路径。
+               这条路径是公开可分享的（原目录本就是公开访问的），
+               不依赖后端是否支持自动短链。 */
+            const fileName = String(item.fileName || item.name || "").trim();
+            if (!fileName) return "";
+            const folder = String(item.folderPath || this.folderPath || "").replace(/^\/+|\/+$/g, "");
+            return `/share/${folder ? `${folder}/` : ""}${encodeURIComponent(fileName)}`;
+          },
+          /**
            * 把后端回传的分享摘要合并进结果/历史条目。
            * 后端不上报（老部署）时静默跳过，不影响主流程。
            */
-          applyShareResult(target, payload) {
+          applyShareResult(target, payload, submittedSlug) {
             if (!target || !payload) return target;
-            const slug = payload.shareSlug || "";
-            const path = payload.sharePath || (slug ? `/s/${slug}` : "");
-            if (!path && !payload.shareExpiresAt && !payload.shareMaxDownloads && !payload.sharePasswordProtected) {
+            /* 短链取值：后端回传 > 本次提交的自定义短链 > 目标已有短链。
+               把「用户刚填的短链」纳入优先级，才能在提交后立即得到正确的分享地址。 */
+            const slug =
+              String(payload.shareSlug || "").trim()
+              || String(submittedSlug || "").trim()
+              || String(target.shareSlug || "").trim();
+            const incoming = payload.sharePath || (slug ? `/s/${slug}` : "");
+            /* 后端只回「无短链的通用路径」时，不覆盖自定义短链 */
+            const hasCustomSlug = Boolean(submittedSlug || target.shareSlug);
+            const nextPath = (hasCustomSlug && !payload.shareSlug) ? "" : incoming;
+            const finalPath = nextPath || this.resolveSharePath(
+              Object.assign({}, target, { shareSlug: slug })
+            );
+            if (!finalPath && !payload.shareExpiresAt && !payload.shareMaxDownloads && !payload.sharePasswordProtected) {
               return target;
             }
             this.$set(target, "shareSlug", slug);
-            this.$set(target, "sharePath", path);
+            this.$set(target, "sharePath", finalPath);
             this.$set(target, "shareExpiresAt", payload.shareExpiresAt || 0);
             this.$set(target, "shareMaxDownloads", payload.shareMaxDownloads || 0);
             this.$set(target, "shareProtected", Boolean(payload.sharePasswordProtected));
@@ -4520,22 +5423,26 @@
             return target;
           },
           hasShare(item) {
-            /* 语义收紧：只有当文件真的带着分享设置时才算「已分享」。
-              改造前只要 sharePath 非空就为真，而 buildShareSummary 在没有
-               任何配置时也可能给出路径，会让徽标恒亮、按钮状态错乱。
-               现在要求「有效期 / 次数上限 / 密码 / 自定义短链」四者有其一。 */
+            /* 「已分享」= 能拿出一个可访问的分享链接。
+               注意不能只看 shareSlug：未填自定义短链的分享同样有链接，
+               若以 slug 为准会导致徽标不亮、批量复制漏条。
+               兜底路径（/share/...）不算分享凭证，只有后端回传的
+               sharePath 或显式分享开关才算数，否则会把「没分享过的文件」误判为已分享。 */
             if (!item) return false;
+            if (item.shareEnabled === false) return false;
             return Boolean(
-              Number(item.shareExpiresAt) > 0
+              String(item.shareSlug || "").trim()
+              || String(item.sharePath || "").trim()
+              || Number(item.shareExpiresAt) > 0
               || Number(item.shareMaxDownloads) > 0
               || item.shareProtected
-              || item.shareSlug
             );
           },
           shareUrlOf(item) {
-            if (!item || !item.sharePath) return "";
-            const raw = item.sharePath;
-            if (raw.startsWith("http")) return raw;
+            if (!item || !this.hasShare(item)) return "";
+            const raw = this.resolveSharePath(item);
+            if (!raw) return "";
+            if (/^https?:\/\//i.test(raw)) return raw;
             return `${this.baseURL}${raw}`;
           },
           copyShareLink(item) {
@@ -4735,18 +5642,27 @@
                 return;
               }
 
-              /* 落回条目：让卡片徽标、批量复制立刻反映新状态 */
-              this.applyShareResult(item, data);
+              /* 落回条目：让卡片徽标、批量复制立刻反映新状态。
+                 传入本次提交的短链，避免后端不回 slug 时丢失自定义值。 */
+              this.applyShareResult(item, data, isManage ? "" : slug);
+
+              /* 链接取值统一走 resolveSharePath（自适应短链 > 后端路径 > 兜底），
+                 否则未自定义短链时弹窗会渲染成一个空链接框、复制按钮静默失效。 */
+              const resolvedPath = this.resolveSharePath(item, data.shareSlug);
 
               this.shareDialogResult = {
-                path: data.sharePath || "",
-                url: data.sharePath ? `${this.baseURL}${data.sharePath}` : "",
-                slug: data.shareSlug || "",
+                path: resolvedPath,
+                url: resolvedPath
+                  ? (/^https?:\/\//i.test(resolvedPath) ? resolvedPath : `${this.baseURL}${resolvedPath}`)
+                  : "",
+                slug: data.shareSlug || item.shareSlug || "",
                 expiresAt: data.shareExpiresAt || 0,
                 maxDownloads: data.shareMaxDownloads || 0,
                 passwordProtected: Boolean(data.sharePasswordProtected),
                 active: Boolean(data.active),
               };
+              /* 双保险：确认 path 已写回条目，卡片上的分享行与徽标才能同步亮起 */
+              if (resolvedPath) this.$set(item, "sharePath", resolvedPath);
               this.shareDialogMode = "manage";
               this.persistHistory();
               this.showToast(isManage ? "分享设置已更新" : "分享已创建", "success");
@@ -5363,9 +6279,20 @@ _doNativeDownload(url, fileName) {
             }
           };
           document.addEventListener("paste", this.globalPasteHandler);
+
+          /* 拖放兜底：浏览器默认行为是用被拖的文件「打开」当前页面，
+             一旦用户没对准投放区，整个页面会被替换、上传队列全部丢失。
+             这里在 window 层吃掉默认行为，让页面任何位置都不会被导航走。 */
+          this.globalDragGuard = this.preventWindowFileNav;
+          window.addEventListener("dragover", this.globalDragGuard);
+          window.addEventListener("drop", this.globalDragGuard);
         },
         beforeDestroy() {
           if (this.globalPasteHandler) document.removeEventListener("paste", this.globalPasteHandler);
+          if (this.globalDragGuard) {
+            window.removeEventListener("dragover", this.globalDragGuard);
+            window.removeEventListener("drop", this.globalDragGuard);
+          }
         },
       });
     </script>
