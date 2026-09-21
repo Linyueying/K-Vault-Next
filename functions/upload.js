@@ -18,6 +18,8 @@ import {
 } from "./utils/telegram.js";
 import {
   applyShareOptions,
+  attachShareSummary,
+  buildShareSummary,
   extractUploadKey,
   findShareSlugOwner,
   hasShareOptions,
@@ -203,15 +205,19 @@ function errorResponse(message, status = 500) {
  *
  * The per-backend uploader owns the KV record, so this step only merges the
  * share fields into it; `functions/file/[id].js` enforces them on every read.
- * It deliberately does not rewrite the uploader's response body — the browser
- * UI already knows the slug it submitted and derives `/s/<slug>` itself.
+ *
+ * It additionally appends a canonical share summary (`sharePath` & friends) to
+ * the response body. The `src`/`fileName`/`size` fields stay untouched, so
+ * existing clients are unaffected, while the browser UI can now recover the
+ * short link from the response instead of relying on its own memory — which is
+ * what made the link disappear after a refresh or a history restore.
  *
  * @param env - Cloudflare Pages environment (needs the `img_url` KV binding).
  * @param response - Successful uploader response (`[{ "src": "/file/<key>" }]`).
  * @param options - Parsed share options.
- * @returns The original response, or an explicit error when the settings could
- *   not be attached — failing loudly beats handing back a link the user
- *   believes is protected when it is not.
+ * @returns The original response (with the summary merged in), or an explicit
+ *   error when the settings could not be attached — failing loudly beats
+ *   handing back a link the user believes is protected when it is not.
  */
 async function attachShareOptions(env, response, options) {
   if (!env?.img_url) {
@@ -238,13 +244,25 @@ async function attachShareOptions(env, response, options) {
     );
   }
 
+  let metadata;
   try {
-    await applyShareOptions(env, key, record.metadata, options);
+    metadata = await applyShareOptions(env, key, record.metadata, options);
   } catch (error) {
     return errorResponse(error?.message || "写入分享设置失败。", 409);
   }
 
-  return response;
+  const summary = buildShareSummary(metadata, key);
+  if (!summary) return response;
+
+  attachShareSummary(payload, summary);
+
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(payload), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function validateDirectUpload(storageMode, fileSize) {

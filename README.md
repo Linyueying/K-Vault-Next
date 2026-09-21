@@ -241,7 +241,29 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 
 ### 分享选项
 
-有效期、访问密码、下载次数上限、自定义短链这四个字段由**后端 API** 支持：`POST /upload`、`/api/v1/upload` 和分片上传路径都能接收并生效。首页上传界面目前**没有**暴露这些输入项，文本粘贴页提供有效期与密码。
+有效期、访问密码、下载次数上限、自定义短链这四个字段在**前后端均可设置**：
+
+**前端入口**
+
+| 位置 | 可设置项 |
+| --- | --- |
+| 首页「分享设置」面板 | 四项全支持，启用后自动注入所有上传路径 |
+| 首页「URL 转存」 | 复用同一份分享设置 |
+| 文本粘贴页 `/paste.html` | 有效期与密码 |
+| 结果卡片 / 历史卡片 | 一键复制 `/s/:slug` 分享短链 |
+
+**后端接口**
+
+| 接口 | 传入方式 |
+| --- | --- |
+| `POST /upload` | FormData 扁平字段 `expires_in` / `max_downloads` / `slug` / `password` |
+| `POST /api/chunked-upload/init` | JSON `shareOptions` 对象（在 init 阶段即完成校验与短链占用预检） |
+| `POST /api/upload-from-url` | JSON `shareOptions` 对象，或扁平字段 |
+| `POST /api/v1/upload` | 扁平字段，响应返回 `links.share` |
+
+上传成功后，后端会在响应体中回传分享摘要（`shareSlug` / `sharePath` /
+`shareExpiresAt` / `shareMaxDownloads` / `sharePasswordProtected`），
+因此刷新页面或从本地历史恢复后，短链依然可以取回并复制。
 
 受保护文件的表现：过期或下载次数用尽返回 `410`，需要密码时返回 `401`，密码错误返回 `403`。
 

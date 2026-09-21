@@ -97,7 +97,7 @@ import {
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
 } from '../../utils/telegram.js';
-import { applyShareOptions, hasShareOptions } from '../../utils/share-options.js';
+import { applyShareOptions, buildShareSummary, hasShareOptions } from '../../utils/share-options.js';
 import {
   MAX_IN_MEMORY_ASSEMBLY,
   MAX_FILE_SIZE_R2,
@@ -142,6 +142,7 @@ export async function onRequestPost(context) {
   let fileExtension = '';
   let nonR2ChunkBackend = null;
   let nonR2CleanupNeeded = false;
+  let storedMetadata = null;        // 落库后的元数据，用于构造分享摘要
 
   try {
     // ============================================
@@ -666,7 +667,7 @@ export async function onRequestPost(context) {
       };
 
       try {
-        await writeFileMetadata(
+        storedMetadata = await writeFileMetadata(
           env,
           metadataKey,
           fileMetadata,
@@ -746,6 +747,10 @@ export async function onRequestPost(context) {
       src: `/file/${responseFileKey}`,
       fileName: taskData.fileName,
       fileSize: taskData.fileSize,
+      // 分享摘要：前端据此展示/复制 `/s/<slug>`，刷新或从历史恢复后
+      // 依然拿得到短链。未设置分享时 buildShareSummary 返回 null，
+      // 这里展开后等同于不含任何字段，老客户端不受影响。
+      ...(buildShareSummary(storedMetadata, metadataKey) || {}),
     });
   } catch (error) {
     // ============================================
@@ -935,8 +940,8 @@ async function writeFileMetadata(env, metadataKey, fileMetadata, shareOptions) {
   if (hasShareOptions(shareOptions)) {
     // ⚠️ shareOptions 分支的 metadata 大小校验由
     //    utils/share-options.js 负责。
-    await applyShareOptions(env, metadataKey, fileMetadata, shareOptions);
-    return;
+    // 返回落库后的 metadata，供调用方构造回传给前端的分享摘要。
+    return await applyShareOptions(env, metadataKey, fileMetadata, shareOptions);
   }
 
   const value = JSON.stringify(fileMetadata);
@@ -946,6 +951,8 @@ async function writeFileMetadata(env, metadataKey, fileMetadata, shareOptions) {
   await env.img_url.put(metadataKey, value, {
     metadata: minimalMetadata,
   });
+
+  return fileMetadata;
 }
 
 /**

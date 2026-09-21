@@ -838,6 +838,96 @@
         border-color: #ef4444;
       }
 
+      /* ===== 分享设置面板 ===== */
+      .share-panel-body {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .share-field-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .share-field {
+        flex: 1;
+        min-width: 130px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .share-field > label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: var(--text-sub);
+      }
+      .share-input,
+      .share-select {
+        width: 100%;
+        padding: 7px 10px;
+        border-radius: var(--radius-sm);
+        border: 1.5px solid var(--glass-border-ice);
+        background: var(--glass-subtle);
+        color: var(--text-main);
+        font-size: 0.8rem;
+        outline: none;
+        transition: var(--transition);
+      }
+      .share-input:focus,
+      .share-select:focus {
+        border-color: var(--primary);
+      }
+      .share-input-wrap {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .share-slug-prefix {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.76rem;
+        color: var(--text-muted);
+        flex: none;
+      }
+      .share-summary {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        padding: 7px 10px;
+        border-radius: var(--radius-sm);
+        border: 1px dashed var(--glass-border-ice);
+        background: var(--glass-subtle);
+      }
+      /* 结果 / 历史卡片中的分享短链 */
+      .share-link-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 3px;
+        font-size: 0.7rem;
+        color: var(--primary);
+        font-family: 'JetBrains Mono', monospace;
+        cursor: pointer;
+        word-break: break-all;
+      }
+      .share-link-line:hover { text-decoration: underline; }
+      .share-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 1px 6px;
+        border-radius: var(--radius-pill);
+        font-size: 0.64rem;
+        font-weight: 700;
+        border: 1px solid var(--glass-border-ice);
+        background: var(--glass-subtle);
+        color: var(--text-sub);
+      }
+      .share-badge.warn {
+        color: #f59e0b;
+        border-color: rgba(245, 158, 11, 0.35);
+      }
+
       .batch-links-box {
         width: 100%;
         min-height: 80px;
@@ -1778,6 +1868,76 @@
           </button>
         </div>
 
+        <!-- ===== 分享设置（有效期 / 访问密码 / 下载上限 / 自定义短链）===== -->
+        <section class="liquid-card panel-section" v-if="!isGuest">
+          <div class="panel-header" style="margin-bottom: 0;">
+            <span class="panel-title">
+              <i class="fas fa-share-nodes" :style="shareEnabled ? 'color: var(--primary);' : ''"></i>
+              <span>分享设置</span>
+              <span v-if="shareEnabled" class="share-badge">已启用</span>
+            </span>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button class="action-pill-btn" style="padding: 5px 11px; font-size: 0.78rem;" @click="showSharePanel = !showSharePanel">
+                <i class="fas" :class="showSharePanel ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                <span>{{ showSharePanel ? '收起' : '展开' }}</span>
+              </button>
+              <label class="action-pill-btn" style="padding: 5px 11px; font-size: 0.78rem; cursor: pointer;">
+                <input type="checkbox" v-model="shareEnabled" style="accent-color: var(--primary); cursor: pointer; margin-right: 4px;" />
+                <span>{{ shareEnabled ? '开启' : '关闭' }}</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="share-panel-body" v-show="showSharePanel">
+            <div class="share-field-row">
+              <div class="share-field">
+                <label>有效期</label>
+                <select class="share-select" v-model.number="shareExpiresIn">
+                  <option :value="0">永久有效</option>
+                  <option :value="3600">1 小时</option>
+                  <option :value="86400">1 天</option>
+                  <option :value="604800">7 天</option>
+                  <option :value="2592000">30 天</option>
+                  <option :value="31536000">365 天</option>
+                </select>
+              </div>
+              <div class="share-field">
+                <label>下载次数上限</label>
+                <input class="share-input" type="number" min="0" v-model="shareMaxDownloads" placeholder="留空表示不限" />
+              </div>
+            </div>
+
+            <div class="share-field">
+              <label>访问密码</label>
+              <div class="share-input-wrap">
+                <input
+                  class="share-input"
+                  :type="shareShowPassword ? 'text' : 'password'"
+                  v-model="sharePassword"
+                  autocomplete="new-password"
+                  placeholder="留空表示不加密"
+                />
+                <button class="mini-icon-btn" type="button" @click="shareShowPassword = !shareShowPassword" :title="shareShowPassword ? '隐藏' : '显示'">
+                  <i :class="shareShowPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="share-field">
+              <label>自定义短链</label>
+              <div class="share-input-wrap">
+                <span class="share-slug-prefix">/s/</span>
+                <input class="share-input" type="text" v-model="shareSlug" placeholder="留空则自动生成" maxlength="64" />
+              </div>
+            </div>
+
+            <div class="share-summary">
+              <i class="fas fa-circle-info"></i>
+              {{ shareSummaryText }}
+            </div>
+          </div>
+        </section>
+
         <!-- URL Transfer Pill -->
         <div class="url-pill-bar" v-if="showUrlInput">
           <i class="fas fa-link url-pill-icon"></i>
@@ -1870,6 +2030,14 @@
               >
                 复制选中 ({{ selectedCount }})
               </button>
+              <button
+                class="action-pill-btn"
+                style="padding: 5px 13px; font-size: 0.78rem;"
+                @click="copySelectedShareLinks"
+                title="复制结果中的分享短链"
+              >
+                <i class="fas fa-share-nodes"></i> 分享链
+              </button>
               <button class="action-pill-btn" style="padding: 5px 10px; font-size: 0.78rem;" @click="clearResults">
                 清空
               </button>
@@ -1906,9 +2074,26 @@
             />
             <div style="flex: 1; min-width: 0;">
               <div class="result-name-text" :title="getDisplayName(file)">{{ getDisplayName(file) }}</div>
+              <div
+                class="share-link-line"
+                v-if="hasShare(file)"
+                @click="copyShareLink(file)"
+                :title="'点击复制：' + shareUrlOf(file)"
+              >
+                <i class="fas fa-link"></i>
+                <span>{{ shareUrlOf(file) }}</span>
+              </div>
             </div>
             <div style="display: flex; gap: 6px;">
               <button class="mini-icon-btn" @click="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
+              <button
+                class="mini-icon-btn"
+                v-if="hasShare(file)"
+                @click="copyShareLink(file)"
+                title="复制分享短链"
+              >
+                <i class="fas fa-share-nodes"></i>
+              </button>
               <button
                 class="mini-icon-btn"
                 :disabled="isDownloading(file)"
@@ -2284,6 +2469,14 @@
                       <button class="history-mini-btn" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
                       <button
                         class="history-mini-btn"
+                        v-if="hasShare(item)"
+                        @click.stop="copyShareLink(item)"
+                        title="复制分享短链"
+                      >
+                        <i class="fas fa-share-nodes"></i>
+                      </button>
+                      <button
+                        class="history-mini-btn"
                         :disabled="isDownloading(item)"
                         @click.stop="historyDownload(item)"
                         title="下载"
@@ -2319,10 +2512,21 @@
                         <span>{{ formatHistoryTime(item.uploadTime) }}</span>
                         <span v-if="item.storageMode">{{ storageLabel(item.storageMode) }}</span>
                         <span v-if="item.folderPath">/{{ item.folderPath }}</span>
+                        <span class="share-badge" v-if="hasShare(item)">
+                          <i class="fas fa-share-nodes"></i>{{ shareBadgeText(item) }}
+                        </span>
                       </div>
                     </div>
                     <div class="history-row-actions">
                       <button class="mini-icon-btn" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
+                      <button
+                        class="mini-icon-btn"
+                        v-if="hasShare(item)"
+                        @click="copyShareLink(item)"
+                        title="复制分享短链"
+                      >
+                        <i class="fas fa-share-nodes"></i>
+                      </button>
                       <button class="mini-icon-btn" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
                       <button
                         class="mini-icon-btn"
@@ -2523,6 +2727,15 @@
           linkFormat: "url",
           showAllFormats: false,
           showBatchPreview: true,
+
+          /* ===== 分享设置（有效期 / 访问密码 / 下载次数上限 / 自定义短链）===== */
+          showSharePanel: false,
+          shareEnabled: false,
+          shareExpiresIn: 0,
+          sharePassword: "",
+          shareShowPassword: false,
+          shareMaxDownloads: "",
+          shareSlug: "",
           previewData: null,
           toasts: [],
           isAuthenticated: false,
@@ -2613,6 +2826,33 @@
           visibleLinkFormats() {
             if (this.showAllFormats) return this.linkFormats;
             return this.linkFormats.filter((f) => f.key === "url" || f.key === this.linkFormat);
+          },
+          /* 分享设置的一行摘要，让用户不必逐项回看就知道会生成什么样的链接 */
+          shareSummaryText() {
+            if (!this.shareEnabled) {
+              return "分享设置已关闭，上传后仅生成普通直链。";
+            }
+            const parts = [];
+            if (Number(this.shareExpiresIn) > 0) {
+              parts.push(this.formatShareDuration(Number(this.shareExpiresIn)));
+            } else {
+              parts.push("永久有效");
+            }
+            if (String(this.shareMaxDownloads).trim() && Number(this.shareMaxDownloads) > 0) {
+              parts.push(`限 ${Number(this.shareMaxDownloads)} 次下载`);
+            }
+            if (this.sharePassword) parts.push("需要访问密码");
+            const slug = this.normalizedShareSlug;
+            parts.push(slug ? `短链 /s/${slug}` : "短链自动生成");
+            return `上传后将生成：${parts.join(" · ")}。`;
+          },
+          /* 与后端 sanitizeShareSlug 同口径 */
+          normalizedShareSlug() {
+            return String(this.shareSlug || "")
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9_-]/g, "")
+              .slice(0, 64);
           },
           failedCount() {
             return this.uploadingFiles.filter((f) => f.status === "error").length;
@@ -3250,6 +3490,7 @@
                   storageMode: targetMode,
                   folderPath: this.folderPath,
                   fileName: extractedName,
+                  shareOptions: this.buildShareOptions(),
                 }),
                 credentials: "include",
               });
@@ -3274,6 +3515,7 @@
                   size: Number(item.size) || 0,
                   selected: false,
                 };
+                this.applyShareResult(fileObj, item);
                 this.uploadedFiles.unshift(fileObj);
                 this.addToHistory(fileObj, targetMode);
 
@@ -3413,11 +3655,21 @@
 
           async directUpload(item) {
             const mode = item.targetMode || this.storageMode;
+            const shareOptions = this.buildShareOptions();
 
             const formData = new FormData();
             formData.append("file", item.file);
             formData.append("storageMode", mode);
             formData.append("folderPath", this.folderPath);
+
+            /* 分享字段按扁平形式提交，与 /upload 的 parseShareOptions(formData) 对齐 */
+            if (shareOptions) {
+              Object.entries(shareOptions).forEach(([key, value]) => {
+                if (value !== undefined && value !== null && value !== "") {
+                  formData.append(key, String(value));
+                }
+              });
+            }
 
             let lastTime = Date.now();
             let lastLoaded = 0;
@@ -3455,6 +3707,7 @@
               size: item.size,
               selected: false,
             };
+            this.applyShareResult(uploadedObj, data[0]);
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj, mode);
           },
@@ -3479,6 +3732,7 @@
                 totalChunks: totalChunks,
                 storageMode: mode,
                 folderPath: this.folderPath,
+                shareOptions: this.buildShareOptions(),
               }),
               credentials: "include",
             });
@@ -3583,6 +3837,7 @@
               size: item.size,
               selected: false,
             };
+            this.applyShareResult(uploadedObj, completeData);
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj, mode);
           },
@@ -3610,6 +3865,125 @@
             this.startUpload();
           },
           clearUploadQueue() { this.uploadingFiles = []; },
+
+          /* ============================================================
+           * 分享直链
+           * ============================================================ */
+
+          /**
+           * 汇总当前分享设置，产出后端认识的扁平字段。
+           * 未启用或全为空时返回 null，调用方据此跳过注入。
+           * 这里做一次轻量前端校验（与后端 validateShareOptions 同口径），
+           * 让用户立刻看到错误，而不是传完整个文件才失败。
+           */
+          buildShareOptions() {
+            if (!this.shareEnabled) return null;
+
+            const rawSlug = String(this.shareSlug || "").trim();
+            const slug = this.normalizedShareSlug;
+            if (rawSlug && !slug) {
+              this.showToast("短链只能包含字母、数字、下划线或短横线。", "error");
+              return null;
+            }
+
+            const password = String(this.sharePassword || "");
+            if (password.length > 200) {
+              this.showToast("访问密码过长（最多 200 个字符）。", "error");
+              return null;
+            }
+
+            const expiresIn = Number(this.shareExpiresIn) || 0;
+            const maxRaw = String(this.shareMaxDownloads).trim();
+            const maxDownloads = maxRaw ? Number(maxRaw) : 0;
+            if (maxRaw && (!Number.isInteger(maxDownloads) || maxDownloads <= 0)) {
+              this.showToast("下载次数上限必须为正整数。", "error");
+              return null;
+            }
+
+            if (!expiresIn && !maxDownloads && !slug && !password) return null;
+
+            return {
+              expires_in: expiresIn || undefined,
+              max_downloads: maxDownloads || undefined,
+              slug: slug || undefined,
+              password: password || undefined,
+            };
+          },
+
+          /**
+           * 把后端回传的分享摘要合并进结果/历史条目。
+           * 后端不上报（老部署）时静默跳过，不影响主流程。
+           */
+          applyShareResult(target, payload) {
+            if (!target || !payload) return target;
+            const slug = payload.shareSlug || "";
+            const path = payload.sharePath || (slug ? `/s/${slug}` : "");
+            if (!path && !payload.shareExpiresAt && !payload.shareMaxDownloads && !payload.sharePasswordProtected) {
+              return target;
+            }
+            this.$set(target, "shareSlug", slug);
+            this.$set(target, "sharePath", path);
+            this.$set(target, "shareExpiresAt", payload.shareExpiresAt || 0);
+            this.$set(target, "shareMaxDownloads", payload.shareMaxDownloads || 0);
+            this.$set(target, "shareProtected", Boolean(payload.sharePasswordProtected));
+            return target;
+          },
+          hasShare(item) {
+            return Boolean(item && item.sharePath);
+          },
+          shareUrlOf(item) {
+            if (!item || !item.sharePath) return "";
+            const raw = item.sharePath;
+            if (raw.startsWith("http")) return raw;
+            return `${this.baseURL}${raw}`;
+          },
+          copyShareLink(item) {
+            const url = this.shareUrlOf(item);
+            if (!url) {
+              this.showToast("该文件没有分享短链", "error");
+              return;
+            }
+            this.copyToClipboard(url);
+            this.showToast("已复制分享短链", "success");
+          },
+          getBatchShareLinks() {
+            const targets = this.uploadedFiles.filter((f) => f.selected);
+            const list = (targets.length ? targets : this.uploadedFiles).filter((f) => this.hasShare(f));
+            return list.map((f) => this.shareUrlOf(f)).join("\n");
+          },
+          copySelectedShareLinks() {
+            const text = this.getBatchShareLinks();
+            if (!text) {
+              this.showToast("选中的文件都没有分享短链", "error");
+              return;
+            }
+            this.copyToClipboard(text);
+            this.showToast(`已复制 ${text.split("\n").length} 条分享短链`, "success");
+          },
+          formatShareDuration(seconds) {
+            const map = {
+              3600: "1 小时",
+              86400: "1 天",
+              604800: "7 天",
+              2592000: "30 天",
+              31536000: "365 天",
+            };
+            if (map[seconds]) return `有效期 ${map[seconds]}`;
+            const days = Math.round(seconds / 86400);
+            return days >= 1 ? `有效期 ${days} 天` : "有效期 1 小时内";
+          },
+          /** 历史卡片上的分享状态标记 */
+          shareBadgeText(item) {
+            if (!item || !this.hasShare(item)) return "";
+            const bits = [];
+            if (item.shareProtected) bits.push("加密");
+            if (Number(item.shareMaxDownloads) > 0) bits.push(`${item.shareMaxDownloads} 次`);
+            if (Number(item.shareExpiresAt) > 0) {
+              bits.push(item.shareExpiresAt > Date.now() ? "限时" : "已过期");
+            }
+            return bits.length ? bits.join(" · ") : "分享中";
+          },
+
           formatLink(file) {
             const url = this.getCleanFileUrl(file);
             const name = this.getDisplayName(file);
@@ -3735,6 +4109,12 @@ _doNativeDownload(url, fileName) {
                 storageMode: it.storageMode,
                 folderPath: it.folderPath,
                 uploadTime: it.uploadTime,
+                /* 分享信息一并落盘，刷新页面后短链仍然可复制 */
+                shareSlug: it.shareSlug || "",
+                sharePath: it.sharePath || "",
+                shareExpiresAt: Number(it.shareExpiresAt) || 0,
+                shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
+                shareProtected: Boolean(it.shareProtected),
               }));
               localStorage.setItem("uploadHistory", JSON.stringify(serialized));
             } catch (e) {
@@ -3763,6 +4143,12 @@ _doNativeDownload(url, fileName) {
                 folderPath: it.folderPath || "",
                 uploadTime: Number(it.uploadTime || it.time) || 0,
                 selected: false,
+                /* 老数据没有这些字段，取空值即可，不报错 */
+                shareSlug: it.shareSlug || "",
+                sharePath: it.sharePath || "",
+                shareExpiresAt: Number(it.shareExpiresAt) || 0,
+                shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
+                shareProtected: Boolean(it.shareProtected),
               }));
             } catch (e) {
               this.uploadHistory = [];
@@ -3781,6 +4167,12 @@ _doNativeDownload(url, fileName) {
               folderPath: this.folderPath || "",
               uploadTime: Date.now(),
               selected: false,
+              /* 分享信息随历史落盘，刷新后短链依然可复制 */
+              shareSlug: file.shareSlug || "",
+              sharePath: file.sharePath || "",
+              shareExpiresAt: Number(file.shareExpiresAt) || 0,
+              shareMaxDownloads: Number(file.shareMaxDownloads) || 0,
+              shareProtected: Boolean(file.shareProtected),
             };
             const dupIdx = this.uploadHistory.findIndex(
               (it) => this.getCleanFileUrl(it) === url
@@ -3925,6 +4317,11 @@ _doNativeDownload(url, fileName) {
                 url: it.url,
                 size: it.size,
                 selected: false,
+                shareSlug: it.shareSlug || "",
+                sharePath: it.sharePath || "",
+                shareExpiresAt: Number(it.shareExpiresAt) || 0,
+                shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
+                shareProtected: Boolean(it.shareProtected),
               });
               added++;
             });

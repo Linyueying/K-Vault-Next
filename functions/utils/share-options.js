@@ -16,6 +16,7 @@
  */
 
 import { parsePositiveInt } from './api-v1.js';
+import { putRecordIndex } from './file-record.js';
 
 export const SHARE_SLUG_KEY_PREFIX = 'share_slug:';
 
@@ -187,6 +188,12 @@ export async function applyShareOptions(env, key, originalMetadata, options) {
 
   await env.img_url.put(key, '', { metadata: nextMetadata });
 
+  // 登记记录索引，使后续按裸 ID 的查找走快路径。与
+  // `functions/api/v1/upload.js` 的 applyApiUploadMetadata() 保持完全一致
+  // —— 此前这里漏了这一步，导致经分享路径写入的文件在按裸 ID 访问时
+  // 退化成"逐前缀串行探测"，虽然结果正确但多花 5~10 次 KV 读。
+  await putRecordIndex(env, key);
+
   if (options.slug && oldSlug && oldSlug !== options.slug) {
     try {
       await env.img_url.delete(`${SHARE_SLUG_KEY_PREFIX}${oldSlug}`);
@@ -220,3 +227,57 @@ export function extractUploadKey(payload) {
     return stripped;
   }
 }
+
+/**
+ * Build the share fields that upload responses hand back to the browser.
+ *
+ * Why this exists: the browser UI used to be the only place that knew which
+ * slug it had asked for, so a page refresh — or a history entry restored from
+ * localStorage — permanently lost the short link. Returning the canonical
+ * summary from the server makes `/s/<slug>` recoverable from the response
+ * alone, for every upload path.
+ *
+ * @param metadata - The KV metadata actually stored for the file.
+ * @param key - KV key of the file, used as the fallback short-link id.
+ * @returns `null` when the file carries no share behaviour at all, otherwise
+ *   an object whose fields mirror what `functions/file/[[path]].js` enforces.
+ *   Every field is optional for callers, so older clients keep working.
+ */
+export function buildShareSummary(metadata, key) {
+  if (!metadata) return null;
+
+  const slug = sanitizeShareSlug(metadata.shareSlug || '');
+  const expiresAt = Number(metadata.shareExpiresAt) || 0;
+  const maxDownloads = Number(metadata.shareMaxDownloads) || 0;
+  const hasPassword = Boolean(metadata.sharePasswordHash);
+
+  if (!slug && !expiresAt && !maxDownloads && !hasPassword) return null;
+
+  // `/s/:id` intentionally also accepts a bare file id, so a file without a
+  // custom slug still has a working short link.
+  const shareTarget = slug || String(key || '');
+  if (!shareTarget) return null;
+
+  return {
+    shareSlug: slug || '',
+    sharePath: `/s/${encodeURIComponent(shareTarget)}`,
+    shareExpiresAt: expiresAt || null,
+    shareMaxDownloads: maxDownloads || null,
+    sharePasswordProtected: hasPassword,
+  };
+}
+
+/**
+ * Merge the share summary into an upload response payload in place.
+ * The original fields (`src`, `fileName`, `size`, ...) are never touched.
+ * @param payload - Parsed upload response body (array or object).
+ * @param summary - Result of {@link buildShareSummary}.
+ * @returns The same payload shape, with the share fields added.
+ */
+export function attachShareSummary(payload, summary) {
+  if (!summary) return payload;
+  const target = Array.isArray(payload) ? payload[0] : payload;
+  if (!target || typeof target !== 'object') return payload;
+  return Object.assign(target, summary);
+}
+

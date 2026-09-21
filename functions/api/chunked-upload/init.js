@@ -71,6 +71,13 @@
  * ================================================================
  */
 import { checkAuthentication } from '../../utils/auth.js';
+import { shouldWriteTelegramMetadata } from '../../utils/telegram.js';
+import {
+  findShareSlugOwner,
+  hasShareOptions,
+  parseShareOptions,
+  validateShareOptions,
+} from '../../utils/share-options.js';
 import {
   resolveChunkSizeForBackend,
   MAX_IN_MEMORY_ASSEMBLY,
@@ -216,6 +223,52 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
+    // 5.5 分享选项前置校验
+    //
+    // 此前 init 只是把 body.shareOptions 原样塞进任务 KV，全部校验都拖到
+    // complete 阶段。后果是：非法短链 / 超长密码 / 已被占用的 slug 必须等
+    // 用户传完全部数据、合并完成后才失败并回滚 —— 白白消耗一整轮上传流量。
+    //
+    // 这里在创建任何后端资源之前就把错误挡掉，与 `POST /upload`
+    // （functions/upload.js）以及 /api/v1/upload 的口径完全对齐。
+    // ============================================
+    const parsedShareOptions = parseShareOptions(shareOptions || null);
+
+    if (hasShareOptions(parsedShareOptions)) {
+      const shareOptionError = validateShareOptions(parsedShareOptions);
+      if (shareOptionError) {
+        return jsonResponse({ error: shareOptionError }, 400);
+      }
+
+      if (
+        parsedShareOptions.slug &&
+        (await findShareSlugOwner(env, parsedShareOptions.slug))
+      ) {
+        return jsonResponse(
+          { error: '自定义短链标识已被占用。', code: 'SLUG_CONFLICT' },
+          409
+        );
+      }
+
+      // Telegram 可以配置为跳过 KV 元数据写入（TELEGRAM_METADATA_MODE=off /
+      // TELEGRAM_SKIP_METADATA=1），而分享字段正存放在那条记录里。与其让用户
+      // 拿到一个"看起来受保护、实际毫无防护"的链接，不如现在就说清楚。
+      if (
+        normalizedStorage === 'telegram' &&
+        !shouldWriteTelegramMetadata(env)
+      ) {
+        return jsonResponse(
+          {
+            error:
+              '当前 Telegram 元数据写入已关闭（TELEGRAM_METADATA_MODE=off 或 TELEGRAM_SKIP_METADATA=1），无法设置有效期 / 密码 / 下载次数 / 短链。请改用其他存储后端，或恢复元数据写入。',
+            code: 'SHARE_UNSUPPORTED_STORAGE',
+          },
+          409
+        );
+      }
+    }
+
+    // ============================================
     // 6. 【P0 修复】先确定分片暂存后端，再据此推导 chunkSize
     //    与 totalChunks 校验
     //
@@ -344,7 +397,11 @@ export async function onRequestPost(context) {
       uploadedChunks: [],
       chunkSizes: {},
       r2Multipart,
-      shareOptions: shareOptions || null,
+      // 写规范化后的结果而非原始 body：complete 阶段拿到的必然是干净数据，
+      // 不必重复做一次 parse/validate。
+      shareOptions: hasShareOptions(parsedShareOptions)
+        ? parsedShareOptions
+        : null,
       createdAt: Date.now(),
       status: 'pending',
     };

@@ -16,6 +16,16 @@ import {
 import { checkAuthentication } from "../utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "../utils/guest.js";
 import { putRecordIndex } from "../utils/file-record.js";
+import {
+  applyShareOptions,
+  attachShareSummary,
+  buildShareSummary,
+  extractUploadKey,
+  findShareSlugOwner,
+  hasShareOptions,
+  parseShareOptions,
+  validateShareOptions,
+} from "../utils/share-options.js";
 import { MAX_REDIRECTS, validateRedirectLocation, validateRemoteUrl } from "../utils/ssrf-guard.js";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
@@ -35,59 +45,195 @@ export async function onRequestPost(context) {
     }
   }
 
-  const response = await runUploadFromUrl(context);
+  // runUploadFromUrl 已经消费了 request body，因此它把解析结果一并回传，
+  // 避免这里再 clone().json() 触发 "Body has already been consumed"。
+  const { response: uploadResponse, body: parsedBody } = await runUploadFromUrl(context);
 
-  if (!isAdmin && response && response.status >= 200 && response.status < 300) {
+  let response = uploadResponse;
+
+  if (response && response.ok) {
+    response = await attachShareOptionsToResponse(response, context, isAdmin, parsedBody);
+  }  if (!isAdmin && response && response.status >= 200 && response.status < 300) {
     await incrementGuestCount(request, env);
   }
 
   return response;
 }
 
+/**
+ * Apply the requested share settings to a file that was just mirrored.
+ *
+ * `runUploadFromUrl` already resolved the KV key for every backend, so this
+ * only needs to merge the share fields into that record and hand the browser a
+ * canonical share summary — the same contract `/upload` and the chunked path
+ * now follow, so all three upload routes behave identically.
+ *
+ * @param response - Successful mirror response (`[{ "src": "/file/<key>" }]`).
+ * @param context - Pages context (needs `env.img_url`).
+ * @param isAdmin - Guests may neither squat a slug nor publish a protected link.
+ */
+async function attachShareOptionsToResponse(response, context, isAdmin, body) {
+  const { env } = context;
+
+  const shareOptions = readShareOptionsFromRequest(body);
+  if (!shareOptions) return response;
+
+  if (!isAdmin) {
+    return jsonResponse(
+      { error: "仅有管理员可以设置有效期 / 密码 / 下载次数 / 短链。" },
+      403
+    );
+  }
+
+  if (!env?.img_url) {
+    return jsonResponse(
+      { error: "当前部署缺少 KV 绑定，无法设置有效期 / 密码 / 短链。" },
+      500
+    );
+  }
+
+  const shareOptionError = validateShareOptions(shareOptions);
+  if (shareOptionError) {
+    return jsonResponse({ error: shareOptionError }, 400);
+  }
+
+  if (shareOptions.slug && (await findShareSlugOwner(env, shareOptions.slug))) {
+    return jsonResponse({ error: "自定义短链标识已被占用。", code: "SLUG_CONFLICT" }, 409);
+  }
+
+  let payload = null;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = null;
+  }
+
+  const key = extractUploadKey(payload);
+  if (!key) {
+    return jsonResponse({ error: "无法定位刚转存的文件，分享设置未生效。" }, 502);
+  }
+
+  const record = await env.img_url.getWithMetadata(key);
+  if (!record?.metadata) {
+    return jsonResponse(
+      { error: "该存储未写入元数据（可能启用了低 KV 写入模式），无法设置有效期 / 密码 / 短链。" },
+      409
+    );
+  }
+
+  let metadata;
+  try {
+    metadata = await applyShareOptions(env, key, record.metadata, shareOptions);
+  } catch (error) {
+    return jsonResponse({ error: error?.message || "写入分享设置失败。" }, 409);
+  }
+
+  const summary = buildShareSummary(metadata, key);
+  if (!summary) return response;
+
+  attachShareSummary(payload, summary);
+  return new Response(JSON.stringify(payload), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  });
+}
+
+/**
+ * Read share options from the request body.
+ *
+ * Accepts both shapes on purpose: a nested `shareOptions` object (what the
+ * current web UI sends, matching the chunked-upload route) and the flat
+ * `expires_in` / `max_downloads` / `slug` / `password` fields (what
+ * `/api/v1/upload` and `POST /upload` accept), so existing API clients can use
+ * this route without changes.
+ *
+ * @returns Parsed options, or `null` when nothing was requested.
+ */
+function readShareOptionsFromRequest(body) {
+  const nested = body?.shareOptions;
+  const source =
+    nested && typeof nested === "object"
+      ? nested
+      : {
+          expires_in: body?.expires_in ?? body?.expiresIn,
+          max_downloads: body?.max_downloads ?? body?.maxDownloads,
+          slug: body?.slug ?? body?.shareSlug,
+          password: body?.password,
+        };
+
+  const options = parseShareOptions(source);
+  return hasShareOptions(options) ? options : null;
+}
+
+/**
+ * Run the actual mirror.
+ *
+ * Returns both the HTTP response and the parsed request body: the body can only
+ * be read once, and the caller needs it afterwards to apply share options.
+ *
+ * @returns `{ response, body }`. `body` is `null` when the JSON was invalid —
+ *   in which case `response` already carries the error.
+ */
 async function runUploadFromUrl(context) {
   const { request, env } = context;
 
   try {
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return { response: jsonResponse({ error: "Invalid JSON body" }, 400), body: null };
+    }
+
     const url = String(body?.url || "").trim();
     const storageMode = String(body?.storageMode || "telegram").toLowerCase();
     const folderPath = normalizeFolderPath(body?.folderPath || body?.folder || "");
     const customFileName = String(body?.fileName || body?.name || "").trim();
 
     if (!url) {
-      return jsonResponse({ error: "请输入 URL" }, 400);
+      return { response: jsonResponse({ error: "请输入 URL" }, 400), body };
     }
 
     let parsedUrl;
     try {
       parsedUrl = new URL(url);
       if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-        return jsonResponse({ error: "仅支持 HTTP/HTTPS URL" }, 400);
+        return { response: jsonResponse({ error: "仅支持 HTTP/HTTPS URL" }, 400), body };
       }
     } catch {
-      return jsonResponse({ error: "URL 格式无效" }, 400);
+      return { response: jsonResponse({ error: "URL 格式无效" }, 400), body };
     }
 
     const fetched = await fetchRemote(url);
     if (!fetched.ok) {
-      return jsonResponse({ error: fetched.error }, fetched.status || 502);
+      return {
+        response: jsonResponse({ error: fetched.error }, fetched.status || 502),
+        body,
+      };
     }
 
     const arrayBuffer = fetched.arrayBuffer;
     const fileSize = arrayBuffer.byteLength;
     if (!fileSize) {
-      return jsonResponse({ error: "Remote file is empty" }, 400);
+      return { response: jsonResponse({ error: "Remote file is empty" }, 400), body };
     }
     if (fileSize > MAX_FILE_SIZE) {
-      return jsonResponse(
-        { error: `文件过大（${formatSize(fileSize)}），最大允许 ${formatSize(MAX_FILE_SIZE)}。` },
-        413
-      );
+      return {
+        response: jsonResponse(
+          { error: `文件过大（${formatSize(fileSize)}），最大允许 ${formatSize(MAX_FILE_SIZE)}。` },
+          413
+        ),
+        body,
+      };
     }
 
     const storageValidation = validateStorageSize(storageMode, fileSize);
     if (!storageValidation.ok) {
-      return jsonResponse({ error: storageValidation.message }, storageValidation.status);
+      return {
+        response: jsonResponse({ error: storageValidation.message }, storageValidation.status),
+        body,
+      };
     }
 
     const contentType = fetched.contentType || "application/octet-stream";
@@ -97,50 +243,80 @@ async function runUploadFromUrl(context) {
 
     if (storageMode === "r2") {
       if (!env.R2_BUCKET) {
-        return jsonResponse({ error: "R2 未配置" }, 400);
+        return { response: jsonResponse({ error: "R2 未配置" }, 400), body };
       }
-      return await uploadToR2(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath);
+      return {
+        response: await uploadToR2(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath),
+        body,
+      };
     }
 
     if (storageMode === "s3") {
       if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID) {
-        return jsonResponse({ error: "S3 未配置" }, 400);
+        return { response: jsonResponse({ error: "S3 未配置" }, 400), body };
       }
-      return await uploadToS3(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath);
+      return {
+        response: await uploadToS3(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath),
+        body,
+      };
     }
 
     if (storageMode === "discord") {
       if (!env.DISCORD_WEBHOOK_URL && !env.DISCORD_BOT_TOKEN) {
-        return jsonResponse({ error: "Discord 未配置" }, 400);
+        return { response: jsonResponse({ error: "Discord 未配置" }, 400), body };
       }
-      return await uploadToDiscordStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath);
+      return {
+        response: await uploadToDiscordStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath),
+        body,
+      };
     }
 
     if (storageMode === "huggingface") {
       if (!hasHuggingFaceConfig(env)) {
-        return jsonResponse({ error: "HuggingFace 未配置" }, 400);
+        return { response: jsonResponse({ error: "HuggingFace 未配置" }, 400), body };
       }
-      return await uploadToHFStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath);
+      return {
+        response: await uploadToHFStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath),
+        body,
+      };
     }
 
     if (storageMode === "webdav") {
       if (!hasWebDAVConfig(env)) {
-        return jsonResponse({ error: "WebDAV 未配置" }, 400);
+        return { response: jsonResponse({ error: "WebDAV 未配置" }, 400), body };
       }
-      return await uploadToWebDAVStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath);
+      return {
+        response: await uploadToWebDAVStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath),
+        body,
+      };
     }
 
     if (storageMode === "github") {
       if (!hasGitHubConfig(env)) {
-        return jsonResponse({ error: "GitHub 未配置" }, 400);
+        return { response: jsonResponse({ error: "GitHub 未配置" }, 400), body };
       }
-      return await uploadToGitHubStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath);
+      return {
+        response: await uploadToGitHubStorage(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, folderPath),
+        body,
+      };
     }
 
-    return await uploadToTelegram(arrayBuffer, fileName, fileExtension, contentType, fileSize, env, new URL(request.url).origin, folderPath);
+    return {
+      response: await uploadToTelegram(
+        arrayBuffer,
+        fileName,
+        fileExtension,
+        contentType,
+        fileSize,
+        env,
+        new URL(request.url).origin,
+        folderPath
+      ),
+      body,
+    };
   } catch (error) {
     console.error("URL upload error:", error);
-    return jsonResponse({ error: `服务器错误：${error.message}` }, 500);
+    return { response: jsonResponse({ error: `服务器错误：${error.message}` }, 500), body: null };
   }
 }
 
