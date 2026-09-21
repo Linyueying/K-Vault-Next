@@ -2,11 +2,14 @@
 
 <img src="logo.png" alt="K-Vault Logo" width="140">
 
-# K-Vault-Next
+# K-Vault-Next 
+## 预览版
 
 **中文** | [English](README-EN.md)
 
 </div>
+
+>**该项目还在开发阶段，可能有无法预知的Bug，请做好数据备份**
 
 > 跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图床，支持 Telegram、R2、S3、Discord、HuggingFace、WebDAV、GitHub 七种存储后端
 
