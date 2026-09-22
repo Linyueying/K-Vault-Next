@@ -5031,6 +5031,54 @@
             return out;
           },
 
+          /**
+           * 从 init 响应里嗅探「服务端持久化的 part 清单」。
+           *
+           * R2 原生 multipart 合并必须提交 {partNumber, etag}，
+           * 以前这份数据只存在前端内存 + localStorage，换设备就丢失，
+           * 结果就是"分片明明都在 R2 里，却凑不出 parts 只能重传"。
+           * 现在 chunk.js 会把 etag 落到 KV，init 命中续传时带回这里。
+           */
+          extractDoneParts(initData) {
+            if (!initData || typeof initData !== "object") return [];
+            const raw = initData.parts ?? initData.uploadedParts ?? initData.serverParts;
+            if (!Array.isArray(raw)) return [];
+
+            const out = [];
+            for (const p of raw) {
+              if (!Number.isInteger(p?.partNumber) || typeof p?.etag !== "string") continue;
+              if (!p.etag) continue;
+              out.push({ partNumber: p.partNumber, etag: p.etag });
+            }
+            return out;
+          },
+
+          /**
+           * 把服务端 part 清单并入本地集合，按 partNumber 去重。
+           * 服务端来源优先：它是 R2 真实返回值的落库记录，比本地快照可信。
+           */
+          mergePartsInto(target, serverParts) {
+            if (!Array.isArray(target)) return target;
+            const seen = new Set();
+            const merged = [];
+
+            const take = (list) => {
+              for (const p of Array.isArray(list) ? list : []) {
+                if (!Number.isInteger(p?.partNumber) || !p?.etag) continue;
+                if (seen.has(p.partNumber)) continue;
+                seen.add(p.partNumber);
+                merged.push({ partNumber: p.partNumber, etag: p.etag });
+              }
+            };
+
+            take(serverParts);
+            take(target);
+
+            target.length = 0;
+            merged.sort((a, b) => a.partNumber - b.partNumber).forEach((p) => target.push(p));
+            return target;
+          },
+
           /** 单个分片的上传 + 指数退避重试（3 次） */
           async uploadChunkWithRetry(item, formData, index, ctx) {
             const MAX = 3;
@@ -5119,11 +5167,34 @@
             if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
             const uploadId = initData.uploadId || item.uploadId;
 
+            /* 服务端命中续传（后端返回 resumed:true）时，以服务端为准。
+               本地 localStorage 快照只作为"同设备秒恢复"的加速手段，
+               不再是无可争议的事实来源 —— 否则换设备永远续不上。 */
+            const serverResumed = initData && initData.resumed === true;
+
+            /* 任务被重新创建（首次上传 / 旧任务过期 / 参数不匹配）时，
+               本地快照指向的是另一个 uploadId 下的分片，必须整体作废。
+               否则会拿着新 uploadId 去"跳过"一批根本不存在的分片，
+               complete 阶段必然报 CHUNK_MISSING。 */
+            const isFreshTask = !item.uploadId || uploadId !== item.uploadId;
+            if (isFreshTask && (item.chunkDone?.length || item.parts?.length)) {
+              this.clearResumeState(item.fileId);
+            }
+
             /* 后端若返回已完成分片（字段名各家不同，这里做兼容嗅探），
                就合并进本地的已完成集合，上传时直接跳过。 */
             const serverDone = this.extractDoneChunks(initData);
-            const doneSet = new Set(Array.isArray(item.chunkDone) ? item.chunkDone : []);
-            serverDone.forEach((idx) => doneSet.add(idx));
+            const doneSet = new Set();
+
+            if (isFreshTask) {
+              /* 新任务：本地快照已作废，只认服务端（通常为空数组） */
+              serverDone.forEach((idx) => doneSet.add(idx));
+            } else {
+              (Array.isArray(item.chunkDone) ? item.chunkDone : []).forEach((idx) =>
+                doneSet.add(idx)
+              );
+              serverDone.forEach((idx) => doneSet.add(idx));
+            }
 
             /* 已完成分片的字节量：进度条从这里继续，而不是从 0 */
             let uploadedBase = 0;
@@ -5132,7 +5203,11 @@
               uploadedBase += Math.min(chunkSize, file.size - s);
             }
             const collectedParts = [];
-            if (Array.isArray(item.parts)) collectedParts.push(...item.parts);
+            if (!isFreshTask && Array.isArray(item.parts)) {
+              collectedParts.push(...item.parts);
+            }
+            /* 服务端持久化的 etag 是权威来源，用它覆盖本地可能过期的记录 */
+            this.mergePartsInto(collectedParts, this.extractDoneParts(initData));
 
             item.uploadId = uploadId;
             item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
@@ -5140,7 +5215,13 @@
             if (doneSet.size) {
               this.$set(item, "uploadedBytes", uploadedBase);
               this.$set(item, "progress", Math.min(99, Math.round((uploadedBase / file.size) * 99)));
-              this.$set(item, "statusText", `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`);
+              this.$set(
+                item,
+                "statusText",
+                serverResumed
+                  ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片`
+                  : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`
+              );
             }
 
             let lastTime = Date.now();

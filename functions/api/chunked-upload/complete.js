@@ -99,6 +99,11 @@ import {
 } from '../../utils/telegram.js';
 import { applyShareOptions, buildShareSummary, hasShareOptions } from '../../utils/share-options.js';
 import {
+  listUploadedParts,
+  deletePartStates,
+  deleteResumeMap,
+} from '../../utils/chunk-state.js';
+import {
   MAX_IN_MEMORY_ASSEMBLY,
   MAX_FILE_SIZE_R2,
 } from '../../utils/chunk-limits.js';
@@ -241,12 +246,30 @@ export async function onRequestPost(context) {
       }
 
       // ---- 校验 parts ----
-      const rawParts =
+      // ============================================================
+      // 服务端级续传兜底：前端 parts 不全时，用服务端持久化的 etag 补全
+      //
+      // 场景：用户在 A 设备传到一半，换到 B 设备续传。B 没有 localStorage
+      // 快照，body.parts 是空的；但 etag 已经由 chunk.js 落在 KV 里了。
+      // 没有这段兜底，跨设备续传会卡在"分片都在 R2，却凑不出 parts"上，
+      // 只能全量重传。
+      // ============================================================
+      let rawParts =
         Array.isArray(body?.parts) && body.parts.length
           ? body.parts
           : Array.isArray(taskData.uploadedParts)
             ? taskData.uploadedParts
             : [];
+
+      if (rawParts.length < totalChunks) {
+        const serverParts = await listUploadedParts(env, uploadId);
+        if (serverParts.length) {
+          rawParts = mergeParts(serverParts, rawParts);
+          console.log(
+            `Complete: merged ${serverParts.length} server-side part(s) for uploadId=${uploadId}`
+          );
+        }
+      }
 
       const parts = rawParts
         .filter(
@@ -732,6 +755,21 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
+    // 9.5 清理服务端续传状态（part-state / resume-map）
+    //
+    // 两者都是临时索引。合并成功后必须删除：
+    //   - part-state 留着会占 KV，且下次同 uploadId 复用时会读到脏 etag
+    //   - resume-map 留着会让下一次上传同一文件先命中一个已完成的 uploadId，
+    //     tryResumeTask 虽然会返回 null（任务已删），但白跑一次 KV 读
+    // ============================================
+    await deletePartStates(env, uploadId, totalChunks).catch((e) =>
+      console.error('deletePartStates failed:', e)
+    );
+    await deleteResumeMap(env, ownerId, taskData?.fileId).catch((e) =>
+      console.error('deleteResumeMap failed:', e)
+    );
+
+    // ============================================
     // 10. 清理主任务跟踪记录 + 待处理 multipart 记录
     // ============================================
     await env.img_url.delete(`upload:${uploadId}`).catch(() => {});
@@ -868,6 +906,35 @@ function resolveChunkBackend(taskData, env) {
   if (taskData?.chunkBackend === 'r2' && env.R2_BUCKET) return 'r2';
   if (taskData?.chunkBackend === 'kv') return 'kv';
   return env.R2_BUCKET ? 'r2' : 'kv';
+}
+
+/**
+ * 合并两份 part 清单，按 partNumber 去重。
+ *
+ * 服务端持久化的 etag 优先 —— 它是 R2 真实返回值的落库记录，
+ * 比前端传来的更可信（前端可能带着过期快照）。
+ *
+ * @param {Array<{partNumber:number, etag:string}>} authoritative 优先采信
+ * @param {Array<{partNumber:number, etag:string}>} supplement 仅补充缺失项
+ */
+function mergeParts(authoritative, supplement) {
+  const merged = [];
+  const seen = new Set();
+
+  const take = (list) => {
+    for (const item of Array.isArray(list) ? list : []) {
+      if (!item || !Number.isInteger(item?.partNumber)) continue;
+      if (typeof item.etag !== 'string' || !item.etag) continue;
+      if (seen.has(item.partNumber)) continue;
+      seen.add(item.partNumber);
+      merged.push({ partNumber: item.partNumber, etag: item.etag });
+    }
+  };
+
+  take(authoritative);
+  take(supplement);
+
+  return merged.sort((a, b) => a.partNumber - b.partNumber);
 }
 
 function getChunkObjectKey(uploadId, chunkIndex) {

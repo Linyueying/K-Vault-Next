@@ -88,6 +88,11 @@ import {
   HUGGINGFACE_UPLOAD_LIMIT,
   GITHUB_UPLOAD_LIMIT,
 } from '../../utils/chunk-limits.js';
+import {
+  listUploadedChunkIndices,
+  listUploadedParts,
+  resumeMapKey,
+} from '../../utils/chunk-state.js';
 
 // ============================================
 // 配额与清理参数
@@ -164,7 +169,16 @@ export async function onRequestPost(context) {
       totalChunks,
       storageMode,
       shareOptions,
+      // ↓↓ 服务端级断点续传字段：
+      //    fileId   —— 前端算出的稳定文件指纹（头尾采样 SHA-256），
+      //                 用于在服务端定位"同一个文件的上一次任务"
+      //    uploadId —— 前端已知的任务 ID（同一次会话内重试时直接带上）
+      fileId,
+      uploadId: requestedUploadId,
     } = body || {};
+
+    const normalizedFileId = normalizeFileId(fileId);
+    const normalizedResumeId = normalizeUploadId(requestedUploadId);
 
     const folderPath = normalizeFolderPath(body?.folderPath || body?.folder || '');
 
@@ -291,11 +305,34 @@ export async function onRequestPost(context) {
             `totalChunks 与 fileSize 不一致：声明 ${normalizedTotalChunks}，` +
             `期望 ${expectedTotalChunks}（fileSize=${normalizedFileSize}, ` +
             `chunkSize=${chunkSize}, chunkBackend=${chunkBackend}）`,
-          code: 'CHUNK_COUNT_MISMATCH',
-        },
-        400
-      );
-    }
+        code: 'CHUNK_COUNT_MISMATCH',
+      },
+      400
+    );
+  }
+
+    // ============================================
+    // 6.5 【服务端级断点续传】尝试复用未过期的上传任务
+    //
+    // 放在配额检查之前是有意为之：
+    //   - 续传不应消耗每日配额，否则用户重试几次就把 100 次/天耗光
+    //   - 续传不应占用并发名额，任务本来就还活着
+    //   - 续传不创建新的 multipart，避免同一文件出现多条 R2 未完成上传
+    //
+    // 命中时直接返回服务端权威进度（uploadedChunks / parts），
+    // 前端据此跳过已上传分片 —— 换设备、换浏览器、清缓存都能续。
+    // ============================================
+    const resumedResponse = await tryResumeTask(env, ownerId, {
+      fileId: normalizedFileId,
+      uploadId: normalizedResumeId,
+      fileName,
+      fileSize: normalizedFileSize,
+      totalChunks: normalizedTotalChunks,
+      chunkSize,
+      storageMode: normalizedStorage,
+      folderPath,
+    });
+    if (resumedResponse) return resumedResponse;
 
     // ============================================
     // 7. 惰性清理 + 单用户配额检查
@@ -394,6 +431,8 @@ export async function onRequestPost(context) {
       storageMode: normalizedStorage,
       folderPath,
       chunkBackend,
+      // 文件指纹：服务端续传靠它把"下一次上传"映射到"上一次任务"
+      fileId: normalizedFileId || undefined,
       uploadedChunks: [],
       chunkSizes: {},
       r2Multipart,
@@ -453,6 +492,11 @@ export async function onRequestPost(context) {
       console.error('recordUserInit failed:', err);
     });
 
+    // 登记 fileId → uploadId，供后续（可能来自另一台设备）的续传定位
+    await writeResumeMap(env, ownerId, normalizedFileId, uploadId).catch(
+      (err) => console.error('writeResumeMap failed:', err)
+    );
+
     return jsonResponse({
       success: true,
       uploadId,
@@ -460,6 +504,9 @@ export async function onRequestPost(context) {
       totalChunks: normalizedTotalChunks,
       chunkBackend,
       r2Multipart: !!r2Multipart,
+      resumed: false,
+      uploadedChunks: [],
+      parts: [],
     });
   } catch (error) {
     console.error('Init upload error:', error);
@@ -515,6 +562,10 @@ export async function onRequestGet(context) {
     }
 
     const uploadedChunks = await listUploadedChunks(env, uploadId, taskData);
+    const parts =
+      taskData.storageMode === 'r2' && taskData.r2Multipart?.uploadId
+        ? await listUploadedParts(env, uploadId)
+        : [];
 
     const safeTask = {
       uploadId: taskData.uploadId,
@@ -527,6 +578,10 @@ export async function onRequestGet(context) {
       folderPath: taskData.folderPath,
       chunkBackend: taskData.chunkBackend,
       uploadedChunks,
+      // R2 原生 multipart 的 etag 清单：前端拿到就能直接 complete，
+      // 不必为了凑齐 parts 重传已经进 R2 的分片。
+      parts,
+      uploadedParts: parts,
       chunkSizes: {},
       createdAt: taskData.createdAt,
       status: taskData.status,
@@ -550,6 +605,160 @@ function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+// ============================================
+// 服务端级断点续传
+// ============================================
+
+/**
+ * 文件指纹格式校验。
+ *
+ * fileId 会拼进 KV key（`resume-map:<ownerId>:<fileId>`），
+ * 因此必须限制字符集，避免构造出越界的 key（例如带上 ':' 去命中别人的映射）。
+ * 前端 computeFileId 产出的是 32 位 hex + `-` + size，稳定落在这个范围内。
+ */
+function normalizeFileId(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9_-]{8,128}$/.test(trimmed) ? trimmed : null;
+}
+
+function normalizeUploadId(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^[a-f0-9]{16,64}$/i.test(trimmed) ? trimmed : null;
+}
+
+async function writeResumeMap(env, ownerId, fileId, uploadId) {
+  if (!env?.img_url || !ownerId || !fileId || !uploadId) return;
+  await env.img_url.put(resumeMapKey(ownerId, fileId), uploadId, {
+    expirationTtl: TASK_TTL_SECONDS,
+  });
+}
+
+/**
+ * 尝试复用一个尚未过期的上传任务。
+ *
+ * @returns {Response|null} 命中续传时返回响应，否则返回 null 让主流程新建任务。
+ *
+ * 判定顺序：
+ *   1. 定位候选 uploadId（前端显式传入优先，其次 fileId 映射）
+ *   2. 归属校验 —— 绝不允许 A 用户续传 B 用户的任务
+ *   3. 参数一致性校验 —— 文件大小/名称/存储/分片数/目录任一不同就放弃复用。
+ *      这一步是正确性的底线：旧分片是按旧参数切的，拼进新文件必然损坏。
+ *   4. 查询服务端真实进度并返回
+ */
+async function tryResumeTask(env, ownerId, req) {
+  if (!env?.img_url) return null;
+
+  let candidateId = req.uploadId;
+
+  if (!candidateId && req.fileId) {
+    try {
+      const mapped = await env.img_url.get(resumeMapKey(ownerId, req.fileId));
+      candidateId = normalizeUploadId(mapped);
+    } catch (err) {
+      console.error('read resume-map failed:', err);
+    }
+  }
+
+  if (!candidateId) return null;
+
+  let taskData;
+  try {
+    taskData = await env.img_url.get(`upload:${candidateId}`, { type: 'json' });
+  } catch (err) {
+    console.error('read upload task for resume failed:', err);
+    return null;
+  }
+
+  if (!taskData || taskData.status === 'completed') {
+    // 映射指向的任务已不存在/已完成：顺手清掉，避免下次再查一次空
+    if (req.fileId) {
+      await env.img_url.delete(resumeMapKey(ownerId, req.fileId)).catch(() => {});
+    }
+    return null;
+  }
+
+  // ---- 归属校验 ----
+  if (!taskData.ownerId || taskData.ownerId !== ownerId) {
+    return null;
+  }
+
+  // ---- 参数一致性校验 ----
+  if (Number(taskData.fileSize) !== req.fileSize) return null;
+  if (taskData.fileName !== req.fileName) return null;
+  if (taskData.storageMode !== req.storageMode) return null;
+  if (Number(taskData.totalChunks) !== req.totalChunks) return null;
+  if (Number(taskData.chunkSize || 0) !== req.chunkSize) return null;
+  if ((taskData.folderPath || '') !== (req.folderPath || '')) return null;
+
+  // 已过期任务不该被续上（KV TTL 理论上已经删掉，这里是双保险）
+  if (
+    Number.isFinite(taskData.createdAt) &&
+    Date.now() - taskData.createdAt > STALE_MULTIPART_MS
+  ) {
+    return null;
+  }
+
+  // ---- 补齐 fileId 并刷新 TTL ----
+  //
+  // 续传会拉长任务生命周期：不重置 TTL 的话，任务 KV 会在 90 分钟后过期，
+  // 而分片数据可能还在，导致"分片存在但任务没了"的孤儿状态。
+  //
+  // ⚠️ 只有确实带了 fileId 才写这一行。直接赋 undefined 会让
+  //    JSON.stringify 把该字段整个丢掉，等于把已登记的指纹从任务里抹除，
+  //    下一次按 fileId 续传就再也命中不了。
+  if (req.fileId && taskData.fileId !== req.fileId) {
+    taskData.fileId = req.fileId;
+  }
+  await env.img_url
+    .put(`upload:${candidateId}`, JSON.stringify(taskData), {
+      expirationTtl: TASK_TTL_SECONDS,
+    })
+    .catch((err) => console.error('refresh task TTL failed:', err));
+  if (req.fileId) {
+    await writeResumeMap(env, ownerId, req.fileId, candidateId).catch(
+      (err) => console.error('refresh resume-map failed:', err)
+    );
+  }
+
+  // ---- 查询服务端真实进度 ----
+  const uploadedChunks = await listUploadedChunkIndices(
+    env,
+    candidateId,
+    taskData
+  );
+  const parts =
+    taskData.storageMode === 'r2' && taskData.r2Multipart?.uploadId
+      ? await listUploadedParts(env, candidateId)
+      : [];
+
+  console.log(
+    `Resume chunked upload: uploadId=${candidateId}, ` +
+      `chunks=${uploadedChunks.length}/${taskData.totalChunks}, parts=${parts.length}`
+  );
+
+  return jsonResponse({
+    success: true,
+    uploadId: candidateId,
+    chunkSize: taskData.chunkSize,
+    totalChunks: taskData.totalChunks,
+    chunkBackend: taskData.chunkBackend,
+    r2Multipart: !!taskData.r2Multipart,
+    resumed: true,
+    uploadedChunks,
+    parts,
+    // 与 GET 端点 / safeTask 保持同样的字段名：
+    // 前端 extractDoneChunks 会嗅探 uploadedParts，extractDoneParts 嗅探 parts，
+    // 两个名字都给，避免任一侧嗅探失败退化成全量重传。
+    uploadedParts: parts,
+    fileName: taskData.fileName,
+    fileSize: taskData.fileSize,
+    storageMode: taskData.storageMode,
+    folderPath: taskData.folderPath || '',
   });
 }
 
@@ -682,60 +891,21 @@ function normalizeFolderPath(value) {
 }
 
 /**
- * 动态列出已上传分片索引。
+ * 动态列出已上传分片索引（GET 断点续传查询）。
  *
- * 契约：
- * - KV 后端状态键：chunk-state:${uploadId}:${chunkIndex}
- * - R2 后端分片对象：chunk-upload/${uploadId}/${chunkIndex}
- * - R2 原生 multipart：分片通过 mp.uploadPart 上传，无独立对象，返回 []
+ * 键名约定统一收敛到 utils/chunk-state.js：
+ * - KV 暂存后端：      chunk:<uploadId>:<chunkIndex>
+ * - R2 暂存后端：      chunk-upload/<uploadId>/<chunkIndex>
+ * - R2 原生 multipart：part-state:<uploadId>:<chunkIndex>
+ *
+ * ⚠️ 历史 bug：本函数原按 `chunk-state:${uploadId}:` 前缀 list，
+ *    而 chunk.js 写入的是 `chunk:${uploadId}:${chunkIndex}` —— 前缀对不上，
+ *    服务端查询永远返回空数组，断点续传因此实质失效。现已统一。
  *
  * list 失败不抛错，返回 []，允许前端重新上传。
  */
 async function listUploadedChunks(env, uploadId, taskData) {
-  // R2 原生 multipart：分片通过 mp.uploadPart 上传，无独立对象，返回空数组
-  if (taskData.storageMode === 'r2' && taskData.r2Multipart) {
-    return [];
-  }
-
-  const chunkBackend =
-    taskData.chunkBackend || (env.R2_BUCKET ? 'r2' : 'kv');
-
-  if (chunkBackend === 'r2' && env.R2_BUCKET) {
-    try {
-      const listed = await env.R2_BUCKET.list({
-        prefix: `chunk-upload/${uploadId}/`,
-      });
-      const indices = new Set();
-      for (const obj of listed.objects || []) {
-        const key = obj.key || '';
-        const parts = key.split('/');
-        const idx = Number(parts[parts.length - 1]);
-        if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
-      }
-      return Array.from(indices).sort((a, b) => a - b);
-    } catch (err) {
-      console.error('listUploadedChunks R2 error:', err);
-      return [];
-    }
-  }
-
-  // KV 后端：AI-1 写入 chunk-state:${uploadId}:${chunkIndex}
-  try {
-    const listed = await env.img_url.list({
-      prefix: `chunk-state:${uploadId}:`,
-    });
-    const indices = new Set();
-    for (const key of listed.keys || []) {
-      const name = key.name || '';
-      const parts = name.split(':');
-      const idx = Number(parts[parts.length - 1]);
-      if (Number.isInteger(idx) && idx >= 0) indices.add(idx);
-    }
-    return Array.from(indices).sort((a, b) => a - b);
-  } catch (err) {
-    console.error('listUploadedChunks KV error:', err);
-    return [];
-  }
+  return await listUploadedChunkIndices(env, uploadId, taskData);
 }
 
 // ============================================

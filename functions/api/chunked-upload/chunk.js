@@ -47,12 +47,19 @@
  *   由 init.js / complete.js 主动 abort，
  *   或由 R2 生命周期规则"全局 1 天后自动 abort"兜底。
  *
- * - 分片状态（chunk-state:...）：
- *   不再写入。已上传分片列表由前端内存维护，complete 时随
- *   请求体 parts 一起提交。
+ * - 分片状态：
+ *   不再单独写 chunk-state:。分片「数据键」本身即状态：
+ *     - KV 暂存：chunk:<uploadId>:<chunkIndex>
+ *     - R2 暂存：chunk-upload/<uploadId>/<chunkIndex>
+ *   由 init.js 的 listUploadedChunkIndices() 动态列举。
+ *
+ * - R2 原生 multipart 的 part 元信息（part-state:<uploadId>:<index>）：
+ *   etag 落库，供服务端级续传使用；由 complete.js 成功后清理，
+ *   或靠 KV expirationTtl（90 分钟）兜底。
  * ================================================================
  */
 import { checkAuthentication } from '../../utils/auth.js';
+import { partStateKey } from '../../utils/chunk-state.js';
 import {
   MAX_TOTAL_CHUNKS,
   MAX_FILE_SIZE_R2,
@@ -235,6 +242,35 @@ export async function onRequestPost(context) {
 
       if (!uploadedPart || !uploadedPart.etag) {
         return jsonResponse({ error: 'R2 uploadPart 未返回有效 etag' }, 500);
+      }
+
+      // ============================================================
+      // 持久化 part 元信息（服务端级断点续传的关键）
+      //
+      // etag 是 complete 合并 multipart 的必需品。以前它只存在于前端内存
+      // 与 localStorage，一旦换设备/清缓存就彻底丢失，用户只能重传整个文件。
+      // 这里把它落到 KV，服务端就能自己拼出完整 parts 直接合并。
+      //
+      // 写失败不回滚：分片已经成功进入 R2，本次上传仍然有效，
+      // 只是"下次续传"拿不到这一片。宁可降级为客户端续传，也不要让
+      // 一个已经成功的分片变成失败。
+      // ============================================================
+      try {
+        await env.img_url.put(
+          partStateKey(uploadId, chunkIndex),
+          JSON.stringify({
+            partNumber,
+            etag: uploadedPart.etag,
+            size: chunk.size,
+            uploadedAt: Date.now(),
+          }),
+          { expirationTtl: CHUNK_KV_TTL_SECONDS }
+        );
+      } catch (stateErr) {
+        console.error(
+          `Persist part state failed (uploadId=${uploadId}, part=${partNumber}):`,
+          stateErr
+        );
       }
 
       return jsonResponse({
