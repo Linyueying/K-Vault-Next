@@ -44,7 +44,6 @@
 | 文件预览 | `/preview.html` | 多格式预览，密码保护的文件会弹出密码输入 |
 | WebDAV | `/webdav.html` | WebDAV 上传与 URL 转存 |
 | 登录 | `/login.html` | 后台登录（用户名 + 密码） |
-| 拦截提示 | `/block-img.html`、`/whitelist-on.html` | 内容屏蔽 / 白名单模式下的静态提示页 |
 
 ---
 
@@ -171,7 +170,6 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 | `GUEST_UPLOAD` | 是否允许未登录访客上传（`true` 开启） | 关闭 |
 | `GUEST_MAX_FILE_SIZE` | 访客单文件大小上限（字节） | 5242880（5MB） |
 | `GUEST_DAILY_LIMIT` | 访客每日上传次数（按 IP + 日期计） | 10 |
-| `WhiteList_Mode` | `true` 时只允许白名单内文件对外访问，其余跳 `/whitelist-on.html` | 关闭 |
 | `MINIMIZE_KV_WRITES` | `true` 时 Telegram 走签名直链且不写 KV 元数据（后台列表与删除会受影响） | 关闭 |
 
 ### Telegram 专项
@@ -298,7 +296,6 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 ```text
 ├── index.html admin.html paste.html gallery.html
 ├── preview.html webdav.html login.html share.html
-├── block-img.html whitelist-on.html      # 拦截提示页
 ├── theme.css theme.js mobile-refactor.css
 ├── functions/                            # Cloudflare Pages Functions 后端
 │   ├── api/

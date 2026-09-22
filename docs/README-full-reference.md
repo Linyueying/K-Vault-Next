@@ -487,7 +487,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | 变量名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
 | `ModerateContentApiKey` | 图片审核 API Key（从 [moderatecontent.com](https://moderatecontent.com) 获取） | - |
-| `WhiteList_Mode` | 白名单模式，仅白名单图片可加载 | `false` |
 | `USE_R2` | 启用 R2 存储 | `false` |
 | `CUSTOM_BOT_API_URL` | Telegram API 基础地址（支持自部署 Bot API） | `https://api.telegram.org` |
 | `PUBLIC_BASE_URL` | Webhook 回链时使用的公开域名 | 当前请求域名 |
@@ -513,8 +512,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | 文本粘贴 | `/paste.html` | Pastebin：创建 / 列表 / 查看 / 删除，支持语言标记、过期与访问密码 |
 | 文件预览 | `/preview.html` | 多格式文件预览；受密码保护的文件会弹出密码输入 |
 | 登录页 | `/login.html` | 后台登录 |
-
-> 黑白名单（`/api/manage/block|white/:id`）后端就绪，但当前后台**没有 UI 入口**：此前唯一的入口 `admin-imgtc.html` 已随本次改造删除。
 
 ---
 
@@ -592,7 +589,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | `GUEST_MAX_FILE_SIZE` | 访客文件大小限制（字节） | 可选 |
 | `GUEST_DAILY_LIMIT` | 访客每日上传次数 | 可选 |
 | `ModerateContentApiKey` | 图片审核 API Key | 可选 |
-| `WhiteList_Mode` | 白名单模式 | 可选 |
 | `disable_telemetry` | 禁用遥测（遥测代码已移除，保留变量名仅作对照） | 可选 |
 | `PORT` | Node 运行时 API 端口（非部署目标） | 可选 |
 | `DATA_DIR` | Node 运行时数据目录 | 可选 |

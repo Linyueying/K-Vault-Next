@@ -66,7 +66,6 @@ Files land in the storage backend you pick, metadata goes into Cloudflare KV, an
 | Preview | `/preview.html` | Multi-format preview; password-protected files prompt for a password |
 | WebDAV | `/webdav.html` | WebDAV upload and upload-from-URL |
 | Login | `/login.html` | Dashboard login (username + password) |
-| Interstitial notices | `/block-img.html`, `/whitelist-on.html` | Blocked-content and whitelist-mode notice pages |
 
 ---
 
@@ -193,7 +192,6 @@ Details worth knowing:
 | `GUEST_UPLOAD` | Allow uploads without logging in (set `true`) | disabled |
 | `GUEST_MAX_FILE_SIZE` | Per-file size limit for guests, in bytes | 5242880 (5MB) |
 | `GUEST_DAILY_LIMIT` | Daily upload count per guest, counted by IP + date | 10 |
-| `WhiteList_Mode` | When `true`, only whitelisted files are reachable; everything else redirects to `/whitelist-on.html` | disabled |
 | `MINIMIZE_KV_WRITES` | When `true`, Telegram uses signed links and skips KV metadata writes (dashboard listing and deletion stop working for those files) | disabled |
 
 ### Telegram specifics
@@ -275,7 +273,6 @@ Protected files behave like this: expired or over the download limit returns `41
 ```text
 ├── index.html admin.html paste.html gallery.html
 ├── preview.html webdav.html login.html
-├── block-img.html whitelist-on.html      # interstitial notice pages
 ├── theme.css theme.js mobile-refactor.css
 ├── functions/                            # Cloudflare Pages Functions backend
 │   ├── api/

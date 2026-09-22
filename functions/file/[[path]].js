@@ -98,11 +98,9 @@ if (!fileId) {
 
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
-      // Signed links must go through the same share controls, block-list and
-      // whitelist rules as the regular path. Previously this branch returned
-      // before any of them ran, so expiry / password / download cap and
-      // block / whitelist were all silently bypassed.
-      const signedUrl = new URL(request.url);
+      // Signed links must go through the same share controls as the regular
+      // path. Previously this branch returned before any of them ran, so
+      // expiry / password / download cap were all silently bypassed.
       const signedRecord = await getRecordWithKey(
         env,
         `${signedTelegramMeta.fileId}.${signedTelegramMeta.fileExtension || 'bin'}`
@@ -115,15 +113,6 @@ if (!fileId) {
         if (signedShareAccess?.response) {
           return signedShareAccess.response;
         }
-        if (shouldBlock(signedMetadata)) {
-          return blockRedirect(signedUrl, request);
-        }
-      }
-
-      // No KV record means the list type is unknown, so whitelist mode has to
-      // deny instead of allowing the file through.
-      if (shouldWhitelistDeny(env, signedMetadata || {})) {
-        return Response.redirect(`${signedUrl.origin}/whitelist-on.html`, 302);
       }
 
       const signedResponse = await handleSignedTelegramFile(context, signedTelegramMeta);
@@ -250,26 +239,6 @@ function errorResponse(message, status = 500) {
   addCorsHeaders(headers);
   headers.set('Cache-Control', 'no-store, max-age=0');
   return new Response(message, { status, headers });
-}
-
-function shouldBlock(metadata = {}) {
-  const listType = String(metadata.ListType || '').toLowerCase();
-  const label = String(metadata.Label || '').toLowerCase();
-  return listType === 'block' || label === 'adult';
-}
-
-function shouldWhitelistDeny(env, metadata = {}) {
-  if (env.WhiteList_Mode !== 'true') return false;
-  const listType = String(metadata.ListType || '').toLowerCase();
-  return listType !== 'white';
-}
-
-function blockRedirect(requestUrl, request) {
-  const referer = request.headers.get('Referer');
-  if (referer) {
-    return Response.redirect('https://static-res.pages.dev/teleimage/img-block-compressed.png', 302);
-  }
-  return Response.redirect(`${requestUrl.origin}/block-img.html`, 302);
 }
 
 async function getRecordWithKey(env, fileId) {
@@ -461,13 +430,6 @@ async function handleTelegramFile(context, fileId, record = null) {
   const url = new URL(request.url);
 
   const metadata = record?.metadata || {};
-  if (shouldBlock(metadata)) {
-    return blockRedirect(url, request);
-  }
-  if (shouldWhitelistDeny(env, metadata)) {
-    return Response.redirect(`${url.origin}/whitelist-on.html`, 302);
-  }
-
   const fileName = metadata.fileName || fileId;
   const mimeType = getMimeType(fileName);
 
@@ -577,7 +539,6 @@ async function backfillSignedTelegramMetadata(env, signedMeta) {
 
 async function handleR2File(context, r2Key, record = null) {
   const { request, env } = context;
-  const requestUrl = new URL(request.url);
 
   if (!env.R2_BUCKET) {
     return errorResponse('R2 storage not configured', 500);
@@ -590,13 +551,6 @@ async function handleR2File(context, r2Key, record = null) {
 
   if (!record?.metadata) {
     return errorResponse('File not found', 404);
-  }
-
-  if (shouldBlock(record.metadata)) {
-    return blockRedirect(requestUrl, request);
-  }
-  if (shouldWhitelistDeny(env, record.metadata)) {
-    return Response.redirect(`${requestUrl.origin}/whitelist-on.html`, 302);
   }
 
   const fileName = record.metadata.fileName || r2Key;
@@ -700,19 +654,11 @@ function parseSimpleRange(rangeHeader, size = null) {
 
 async function handleS3File(context, fileId, record = null) {
   const { request, env } = context;
-  const requestUrl = new URL(request.url);
 
   if (!record?.metadata) {
     record = await findRecordByPrefixes(env, fileId, ['s3:', 'img:', 'vid:', 'aud:', 'doc:', '']);
   }
   if (!record?.metadata) return errorResponse('File not found', 404);
-
-  if (shouldBlock(record.metadata)) {
-    return blockRedirect(requestUrl, request);
-  }
-  if (shouldWhitelistDeny(env, record.metadata)) {
-    return Response.redirect(`${requestUrl.origin}/whitelist-on.html`, 302);
-  }
 
   const s3Key = record.metadata.s3Key || fileId.replace(/^s3:/, '');
   const fileName = record.metadata.fileName || fileId;
@@ -735,19 +681,11 @@ async function handleS3File(context, fileId, record = null) {
 
 async function handleDiscordFile(context, fileId, record = null) {
   const { request, env } = context;
-  const requestUrl = new URL(request.url);
 
   if (!record?.metadata) {
     record = await findRecordByPrefixes(env, fileId, ['discord:', 'img:', 'vid:', 'aud:', 'doc:', '']);
   }
   if (!record?.metadata) return errorResponse('File not found', 404);
-
-  if (shouldBlock(record.metadata)) {
-    return blockRedirect(requestUrl, request);
-  }
-  if (shouldWhitelistDeny(env, record.metadata)) {
-    return Response.redirect(`${requestUrl.origin}/whitelist-on.html`, 302);
-  }
 
   const { discordChannelId, discordMessageId } = record.metadata;
   if (!discordChannelId || !discordMessageId) {
@@ -780,19 +718,11 @@ async function handleDiscordFile(context, fileId, record = null) {
 
 async function handleHFFile(context, fileId, record = null) {
   const { request, env } = context;
-  const requestUrl = new URL(request.url);
 
   if (!record?.metadata) {
     record = await findRecordByPrefixes(env, fileId, ['hf:', 'img:', 'vid:', 'aud:', 'doc:', '']);
   }
   if (!record?.metadata) return errorResponse('File not found', 404);
-
-  if (shouldBlock(record.metadata)) {
-    return blockRedirect(requestUrl, request);
-  }
-  if (shouldWhitelistDeny(env, record.metadata)) {
-    return Response.redirect(`${requestUrl.origin}/whitelist-on.html`, 302);
-  }
 
   const hfPath = record.metadata.hfPath;
   if (!hfPath) return errorResponse('HuggingFace path missing', 500);
@@ -818,19 +748,11 @@ async function handleHFFile(context, fileId, record = null) {
 
 async function handleWebDAVFile(context, fileId, record = null) {
   const { request, env } = context;
-  const requestUrl = new URL(request.url);
 
   if (!record?.metadata) {
     record = await findRecordByPrefixes(env, fileId, ['webdav:', 'img:', 'vid:', 'aud:', 'doc:', '']);
   }
   if (!record?.metadata) return errorResponse('File not found', 404);
-
-  if (shouldBlock(record.metadata)) {
-    return blockRedirect(requestUrl, request);
-  }
-  if (shouldWhitelistDeny(env, record.metadata)) {
-    return Response.redirect(`${requestUrl.origin}/whitelist-on.html`, 302);
-  }
 
   const webdavPath = record.metadata.webdavPath || fileId.replace(/^webdav:/, '');
   if (!webdavPath) return errorResponse('WebDAV path missing', 500);
@@ -853,19 +775,11 @@ async function handleWebDAVFile(context, fileId, record = null) {
 
 async function handleGitHubFile(context, fileId, record = null) {
   const { request, env } = context;
-  const requestUrl = new URL(request.url);
 
   if (!record?.metadata) {
     record = await findRecordByPrefixes(env, fileId, ['github:', 'img:', 'vid:', 'aud:', 'doc:', '']);
   }
   if (!record?.metadata) return errorResponse('File not found', 404);
-
-  if (shouldBlock(record.metadata)) {
-    return blockRedirect(requestUrl, request);
-  }
-  if (shouldWhitelistDeny(env, record.metadata)) {
-    return Response.redirect(`${requestUrl.origin}/whitelist-on.html`, 302);
-  }
 
   const githubStorageKey = record.metadata.githubStorageKey || fileId.replace(/^github:/, '');
   const rangeHeader = request.headers.get('Range');
