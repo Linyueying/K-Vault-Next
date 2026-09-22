@@ -2491,6 +2491,11 @@
         cursor: not-allowed;
         filter: grayscale(0.7);
       }
+      .parallel-slider-note {
+        font-size: 0.66rem;
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
 
       /* 复用后台的开关视觉，保证两个页面观感一致 */
       .apple-switch {
@@ -3143,7 +3148,7 @@
                   <div class="parallel-toggle-desc">
                     {{
                       isParallelActive()
-                        ? '多个文件同时上传，显著提升总体速度。'
+                        ? '大文件可多路并行；Telegram 受自身限流约束仍为逐条发送。'
                         : '关闭时逐个上传，网络不稳定时更稳妥。'
                     }}
                   </div>
@@ -3177,7 +3182,7 @@
                     <span class="label">
                       <i class="fab fa-telegram telegram"></i>
                       <span>小文件并发</span>
-                      <span class="hint">≤ {{ formatSize(smartThreshold) }}</span>
+                      <span class="hint">≤ {{ formatSize(smartThreshold) }} · Telegram</span>
                     </span>
                     <span class="parallel-slider-val">{{ parallelLight }}</span>
                   </div>
@@ -3187,10 +3192,13 @@
                     min="1"
                     :max="PARALLEL_MAX_LIGHT"
                     step="1"
-                    :disabled="!parallelUpload"
+                    :disabled="!parallelUpload || PARALLEL_MAX_LIGHT <= 1"
                     :value="parallelLight"
                     @input="setParallelLight(+$event.target.value)"
                   />
+                  <div class="parallel-slider-note">
+                    Telegram 同一频道约 1 条/秒，无法并发，多发会触发限流冷却。
+                  </div>
                 </div>
 
                 <div class="parallel-slider-row">
@@ -3212,6 +3220,10 @@
                     :value="parallelHeavy"
                     @input="setParallelHeavy(+$event.target.value)"
                   />
+                  <div class="parallel-slider-note">
+                    受 Cloudflare 单 isolate 内存（128MB）与后端并发配额共同限制，
+                    上限 {{ PARALLEL_MAX_HEAVY }}。
+                  </div>
                 </div>
               </div>
 
@@ -3849,24 +3861,41 @@
       const SMART_LARGE_CANDIDATES = ["r2", "s3", "github", "discord", "huggingface"];
 
       /* ===== 并行上传（双池调度）常量 =====
-         背景：不同存储后端的"并发承载力"完全不同，用一个池子会互相拖累。
-               Telegram 走直传 /upload，不经过 chunked-upload/init；
-               其余节点走分片链路，要过 init 的并发配额检查。
-         因此拆成两个互不阻塞的池子：
+         背景：不同存储后端的「并发承载力」完全不同，用一个池子会互相拖累。
+               而并发度不是拍脑袋定的，两条链路各有一个硬约束：
 
-         heavyPool —— r2 / s3 / discord / huggingface / github（分片链路）
-                      上限必须 <= 后端 MAX_CONCURRENT_TASKS_PER_USER = 5
-                      （functions/api/chunked-upload/init.js），
-                      超过会得到 429 CONCURRENT_LIMIT_EXCEEDED。
-                      改这个数必须同步改后端，否则上传必然失败。
+         ── lightPool（telegram 直传）──
+         约束不是网络带宽，而是 **Telegram Bot API 的速率限制**：
+           - 同一 chat：约 1 条消息/秒
+           - 全局：30 条消息/秒
+         K-Vault 所有文件都发往同一个 TG_Chat_ID 频道，所以真正卡住我们的是
+         「同 chat 1 msg/sec」这一条。并发发多个 = 必然 429，且 Telegram 的
+         retry_after 冷却会递增，连续违规会让 bot 越来越长时间不可用。
+         因此 lightPool **上限锁定为 1**（即该池不具备加速能力，只是让
+         Telegram 文件不与大文件抢槽位）。
 
-         lightPool —— telegram（直传链路，不占后端并发名额）
-                      上限受 Cloudflare 单账户连接数与 TG Bot API 限流约束，
-                      取 4 作为经验安全值。 */
-      const PARALLEL_DEFAULT_HEAVY = 3;
-      const PARALLEL_DEFAULT_LIGHT = 2;
-      const PARALLEL_MAX_HEAVY = 5; // 对齐后端 MAX_CONCURRENT_TASKS_PER_USER
-      const PARALLEL_MAX_LIGHT = 4;
+         ── heavyPool（r2 / s3 / discord / huggingface / github）──
+         受两个独立约束，取较小者：
+         ① 后端并发配额：MAX_CONCURRENT_TASKS_PER_USER = 5
+            （functions/api/chunked-upload/init.js），超出报 429。
+         ② **Cloudflare isolate 内存 128MB，且被并发请求共享**
+            （官方文档：per-isolate limit, an isolate may be handling
+             multiple requests concurrently）。
+            非 R2 分支（s3/webdav/github）走内存拼装：
+              complete.js 中 `new Uint8Array(fileSize)` 一次性分配整个文件，
+              上限 MAX_IN_MEMORY_ASSEMBLY = 40MB；
+              叠加 readChunkData 读入的单个 20MB 分片，
+              单请求瞬时峰值约 60MB。
+            5 路并发 ≈ 300MB，远超 128MB → Error 1102，
+            而且是整个 isolate 挂掉，会连带影响同 isolate 上的其它请求。
+            因此 heavyPool 上限取 2（2 × 60MB = 120MB，仍在 128MB 内，
+            且已计入运行时自身开销余量）。
+         注：走 R2 原生 multipart 时后端不拼装、内存占用极小，
+            但前端无法区分 R2 与 S3 分支，故统一按最坏情况收敛。 */
+      const PARALLEL_DEFAULT_HEAVY = 2;
+      const PARALLEL_DEFAULT_LIGHT = 1;
+      const PARALLEL_MAX_HEAVY = 2; // min(后端配额 5, isolate 内存 128MB / 单请求 ~60MB)
+      const PARALLEL_MAX_LIGHT = 1; // Telegram 同 chat 约 1 msg/sec，无法并发
       // 关闭开关时的并发度：严格串行，给"我要一个一个传"的用户一个确定行为
       const PARALLEL_OFF_CONCURRENCY = 1;
 

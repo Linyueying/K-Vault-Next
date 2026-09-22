@@ -107,7 +107,21 @@ import {
 //    429 CONCURRENT_LIMIT_EXCEEDED。
 //
 //    注意 Telegram 直传（POST /upload）不经过本文件，
-//    不占用这里的并发名额，因此前端 lightPool 不受本值约束。
+//    不占用这里的并发名额；但 Telegram 有自身的速率限制
+//    （同一 chat 约 1 msg/sec），前端 lightPool 上限已锁为 1。
+//
+// 🔴 更紧的约束其实是内存，不是本值：
+//    Cloudflare isolate 内存上限 128MB，且【被并发请求共享】
+//    （官方文档：per-isolate limit, an isolate may be handling
+//     multiple requests concurrently）。
+//    非 R2 分支在 complete 阶段用 `new Uint8Array(fileSize)` 一次性
+//    分配整个文件（上限 MAX_IN_MEMORY_ASSEMBLY=40MB），再叠加
+//    readChunkData 读入的单个分片（20MB），单请求瞬时峰值约 60MB。
+//    并发 5 路 ≈ 300MB → 必爆 Error 1102，且会拖垮整个 isolate
+//    （连带影响同 isolate 上其它请求，包括静态资源）。
+//    前端因此把 heavyPool 上限收到 2（≈120MB，仍留余量）。
+//    若要放开并发，必须先把 complete.js 改成流式拼接（Streams API），
+//    而不是在这里调大数字。
 const MAX_CONCURRENT_TASKS_PER_USER = 5;
 
 // 单用户每日 init 次数（软限制，同上）
