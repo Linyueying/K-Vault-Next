@@ -679,6 +679,15 @@
 .task__name { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .task__actions { display: flex; align-items: center; gap: var(--sp-1); flex-shrink: 0; }
+/* 任务操作按钮在「暂停 / 已暂停 / 出错」三组之间整体切换。
+   之前是 <template v-if> 直接换 DOM，按钮会瞬间消失又出现。
+   复用交付结果那套 actionIn/actionOut，保证同一套手感。 */
+.taskAct-enter-active { animation: actionIn 0.3s var(--ease-spring) both; }
+.taskAct-leave-active { animation: actionOut 0.16s var(--ease-press) both; }
+/* 元信息行（速度 / 错误 / 状态文案）会随状态出现与消失，给一点纵向展开感，
+   否则这一行会突然多出一个词、整体高度跳变。 */
+.taskMeta-enter-active { animation: metaIn 0.3s var(--ease-spring) both; }
+.taskMeta-leave-active { animation: metaOut 0.16s var(--ease-press) both; }
 
 /* 进度条 */
 .progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 6px; overflow: hidden; }
@@ -841,10 +850,45 @@ html[data-theme="dark"] .tree-row.active { background: linear-gradient(135deg, r
 .tree-row__arrow { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.6rem; color: var(--text-muted); flex-shrink: 0; border-radius: 5px; transition: color var(--dur-base) var(--ease-apple), background var(--dur-base) var(--ease-apple), transform 0.3s var(--ease-spring); }
 .tree-row__arrow:not(.empty):hover { color: var(--primary); background: rgba(2, 132, 199, 0.14); transform: scale(1.15); }
 .tree-row__arrow.empty { visibility: hidden; }
+/* 箭头不用「换图标」来表示展开——fa-chevron-right / fa-chevron-down 是两个不同字形，
+   交换的是 ::before 的 content，content 无法参与过渡，会硬切。
+   改成始终用同一个箭头 + rotate(90deg)，靠 transition 平滑旋转。 */
+.tree-row__arrow > i { transition: transform 0.34s var(--ease-spring); }
 .tree-row__icon { font-size: 0.85rem; color: var(--c-warn); flex-shrink: 0; transition: transform 0.35s var(--ease-spring); }
 .tree-row:hover .tree-row__icon { transform: scale(1.12); }
 .tree-row__name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tree-row__count { font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.18); color: var(--text-muted); flex-shrink: 0; font-weight: 600; }
+
+/* 子树展开 / 收起：外层用 grid-template-rows 做真实高度过渡，
+   内层必须 overflow: hidden 且 min-height: 0，否则 grid 项不会真正被压缩。
+
+   ⚠️ Vue 的 <transition> 会自己去读 CSS 上的动画/过渡时长来决定
+   「什么时候算播完、可以移除元素」。它读的是标准属性（transition-duration /
+   animation-duration），而 grid-template-rows 不在它认识的插值属性里。
+   只有在 enter-active / leave-active 上**同时挂一个可读的 transition-duration**，
+   Vue 才能得到正确时长；否则它判定为 0，元素会在两三帧内被直接删掉，
+   动画看起来「闪一下就没了」。
+
+   因此这里同时声明：animation（负责真正的高度插值）+ transition-duration
+   （只作为给 Vue 的时长信号，不参与视觉）。 */
+.tree-children {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+}
+.tree-children > * { min-height: 0; overflow: hidden; }
+.tree-children-enter-active {
+  animation: treeGrowIn 0.42s var(--ease-fluid) both;
+  transition: opacity 0.42s var(--ease-fluid), grid-template-rows 0.42s var(--ease-fluid);
+}
+.tree-children-leave-active {
+  animation: treeGrowOut 0.26s var(--ease-press) both;
+  transition: opacity 0.26s var(--ease-press), grid-template-rows 0.26s var(--ease-press);
+}
+.tree-children-enter-from,
+.tree-children-leave-to { opacity: 1; }
+.count-enter-active { animation: countIn 0.34s var(--ease-spring) both; }
+.count-leave-active { animation: countOut 0.18s var(--ease-press) both; }
 .tree-row__actions { display: flex; gap: var(--sp-1); opacity: 0; transform: translateX(6px); transition: opacity 0.24s var(--ease-apple), transform 0.3s var(--ease-spring); }
 .tree-row:hover .tree-row__actions, .tree-row.active .tree-row__actions { opacity: 1; transform: translateX(0); }
 @media (max-width: 680px) { .tree-row__actions { opacity: 1; transform: none; } }
@@ -859,6 +903,28 @@ html[data-theme="dark"] .tree-row.active { background: linear-gradient(135deg, r
 .summary__value { font-size: 1.04rem; font-weight: 700; color: var(--primary-dark); font-family: 'JetBrains Mono', monospace; }
 
 .settings-group { margin-top: var(--sp-4); }
+
+/* 条件出现的设置块（并行上传明细、智能模式的大文件节点等）。
+   外层用 grid-template-rows 做真实高度插值，内层 overflow: hidden + min-height: 0
+   才能被真正压扁；否则 grid 项会撑住高度，动画看起来像「闪一下」。
+
+   与 .tree-children 同理：Vue 需要一条可读的 transition-duration 才知道何时收尾，
+   这里显式声明，避免元素被提前移除。 */
+.row-expand { display: grid; grid-template-rows: 1fr; min-height: 0; }
+.row-expand > * { min-height: 0; overflow: hidden; }
+/* 块内第一层子元素自带 margin-top，收缩时要一并吃掉，否则末尾会留一条缝 */
+.row-expand > * > .settings-group:first-child,
+.row-expand > * > .settings-group__footer:first-child { margin-top: 0; }
+.rowExpand-enter-active {
+  animation: rowExpandIn 0.42s var(--ease-fluid) both;
+  transition: opacity 0.42s var(--ease-fluid), grid-template-rows 0.42s var(--ease-fluid);
+}
+.rowExpand-leave-active {
+  animation: rowExpandOut 0.24s var(--ease-press) both;
+  transition: opacity 0.24s var(--ease-press), grid-template-rows 0.24s var(--ease-press);
+}
+.rowExpand-enter-from,
+.rowExpand-leave-to { opacity: 1; }
 .settings-group__header { padding: 0 var(--sp-4) var(--sp-2); }
 .settings-list { background: var(--glass-surface); border: 1px solid var(--glass-border-ice); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-soft); }
 .settings-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; text-align: left; padding: var(--sp-3) var(--sp-4); background: transparent; border: none; cursor: pointer; position: relative; transition: background var(--dur-fast) ease, transform 0.14s var(--ease-press); font: inherit; }
@@ -1240,6 +1306,47 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         0%, 100% { transform: translateY(0); }
         50%      { transform: translateY(3px); }
       }
+      /* 目录树子节点展开 / 收起：子树高度是未知的，不能写死 max-height。
+         用 grid-template-rows 0fr → 1fr 过渡，浏览器会自动插值到内容真实高度，
+         同时叠加透明度与轻微下移，让「长出/缩回」有重量感。 */
+      @keyframes treeGrowIn {
+        from { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -4px, 0); }
+        to   { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
+      }
+      @keyframes treeGrowOut {
+        from { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
+        to   { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -3px, 0); }
+      }
+      /* 文件数量徽标：出现时有轻微的弹入，避免数字「啪」地跳出来 */
+      @keyframes countIn {
+        from { opacity: 0; transform: scale(0.6) translate3d(-4px, 0, 0); }
+        60%  { opacity: 1; transform: scale(1.1) translate3d(0, 0, 0); }
+        to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+      }
+      @keyframes countOut {
+        from { opacity: 1; transform: scale(1); }
+        to   { opacity: 0; transform: scale(0.6); }
+      }
+      /* 上传任务元信息（速度 / 错误 / 状态）出现与消失：横向推开、轻微缩放，
+         避免这一行在状态变化时「凭空多出/少掉一个词」导致整块高度跳动。 */
+      @keyframes metaIn {
+        from { opacity: 0; transform: translate3d(-5px, 0, 0) scale(0.94); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      }
+      @keyframes metaOut {
+        from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+        to   { opacity: 0; transform: translate3d(-4px, 0, 0) scale(0.94); }
+      }
+      /* 设置行整体插入 / 移除（如开启并行上传后长出的两行）：
+         高度用 grid-template-rows 插值，配合透明度与位移，形成「长出来」的感觉。 */
+      @keyframes rowExpandIn {
+        from { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -6px, 0); }
+        to   { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
+      }
+      @keyframes rowExpandOut {
+        from { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
+        to   { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -4px, 0); }
+      }
 
       /* =========================================================
          Apple 风格动效 · 应用层
@@ -1589,8 +1696,12 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       <!-- 元数据行：不再包含导致跳行的标签 -->
       <div class="task__meta">
         <span>{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-        <span v-if="file.speed" style="color: var(--primary); font-weight: 600;">• {{ file.speed }}</span>
-        <span v-if="file.error" style="color: var(--c-danger);">• {{ file.error }}</span>
+        <transition name="taskMeta">
+          <span v-if="file.speed" style="color: var(--primary); font-weight: 600;">• {{ file.speed }}</span>
+        </transition>
+        <transition name="taskMeta">
+          <span v-if="file.error" style="color: var(--c-danger);">• {{ file.error }}</span>
+        </transition>
         <span>• {{ file.statusText || getStatusText(file.status) }} <span v-if="file.progress !== undefined">({{ file.progress }}%)</span></span>
       </div>
       <div class="progress" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
@@ -1598,17 +1709,30 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       </div>
     </div>
     <div class="task__actions">
-      <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
-      <template v-if="file.status === 'paused'">
-        <button class="btn btn--ghost btn--icon" @click="resumeUpload(file)" title="继续上传"><i class="fas fa-play"></i></button>
-        <button class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
-        <button class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
-      </template>
-      <template v-if="file.status === 'error'">
-        <button class="btn btn--ghost btn--icon" @click="retryUpload(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
-        <button class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
-        <button class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
-      </template>
+      <!-- 三组按钮（进行中 / 已暂停 / 出错）互斥切换。
+           这里必须用 transition-group 而不是 <transition mode="out-in">：
+           后者的模板里是「多根 <template> 片段」，Vue 会把整个片段当成一个子节点，
+           导致切到 paused / error 时只有第一个按钮被渲染出来。
+           transition-group 会按 key 逐个补间，增删都能拿到正确的数量。
+           注意：v-if/v-else-if 链在这里必须换成同一层级的独立 v-if，
+           否则 transition-group 看不到「同时存在多个子节点」的情况。 -->
+      <!-- 1) 进行中 / 等待中：单个暂停按钮 -->
+      <transition-group name="taskAct">
+        <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'"
+          key="pause" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
+        <!-- 2) 已暂停：继续 / 重传 / 取消 -->
+        <template v-if="file.status === 'paused'">
+          <button key="resume" class="btn btn--ghost btn--icon" @click="resumeUpload(file)" title="继续上传"><i class="fas fa-play"></i></button>
+          <button key="paused-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+          <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+        </template>
+        <!-- 3) 出错：续传 / 重传 / 取消 -->
+        <template v-if="file.status === 'error'">
+          <button key="err-resume" class="btn btn--ghost btn--icon" @click="retryUpload(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
+          <button key="err-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+          <button key="err-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+        </template>
+      </transition-group>
     </div>
   </div>
   </transition-group>
@@ -1782,7 +1906,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   </label>
                 </div>
 
-                <template v-if="isParallelActive()">
+                <transition name="rowExpand">
+                  <div class="row-expand" v-if="isParallelActive()">
                   <div class="settings-row locked">
                     <span class="settings-row__icon ico--blue"><i class="fab fa-telegram"></i></span>
                     <span class="settings-row__text">
@@ -1802,30 +1927,39 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                       <button v-for="n in PARALLEL_MAX_HEAVY" :key="n" :class="{ active: parallelHeavy === n }" @click="setParallelHeavy(n)">{{ n }}</button>
                     </div>
                   </div>
-                </template>
+                  </div>
+                </transition>
               </div>
-              <div class="settings-group__footer" v-if="isParallelActive()">
-                大文件并发受 Cloudflare 单实例 128MB 内存与后端并发配额限制，上限 {{ PARALLEL_MAX_HEAVY }}。
-              </div>
+              <transition name="rowExpand">
+                <div class="row-expand" v-if="isParallelActive()">
+                  <div class="settings-group__footer">
+                    大文件并发受 Cloudflare 单实例 128MB 内存与后端并发配额限制，上限 {{ PARALLEL_MAX_HEAVY }}。
+                  </div>
+                </div>
+              </transition>
             </div>
 
-            <div class="settings-group" v-if="storageMode === 'auto' && !isGuest">
-              <div class="settings-group__header">大文件节点 · 超过 {{ formatSize(smartThreshold) }}</div>
-              <div class="settings-list">
-                <button class="settings-row" v-for="opt in largeStorageOptions" :key="opt.value"
-                  :class="{ selected: smartLargeMode === opt.value, locked: !isStorageAvailable(opt.value) }"
-                  :disabled="!isStorageAvailable(opt.value)"
-                  @click="isStorageAvailable(opt.value) && setSmartLargeMode(opt.value)">
-                  <span class="settings-row__icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }"><i :class="opt.icon"></i></span>
-                  <span class="settings-row__text">
-                    <span class="settings-row__title">{{ opt.label }}</span>
-                    <span class="settings-row__sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
-                    <span class="unconfigured" v-else>未配置</span>
-                  </span>
-                  <span class="settings-row__check" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></span>
-                </button>
+            <transition name="rowExpand">
+              <div class="row-expand" v-if="storageMode === 'auto' && !isGuest">
+                <div class="settings-group">
+                  <div class="settings-group__header">大文件节点 · 超过 {{ formatSize(smartThreshold) }}</div>
+                  <div class="settings-list">
+                    <button class="settings-row" v-for="opt in largeStorageOptions" :key="opt.value"
+                      :class="{ selected: smartLargeMode === opt.value, locked: !isStorageAvailable(opt.value) }"
+                      :disabled="!isStorageAvailable(opt.value)"
+                      @click="isStorageAvailable(opt.value) && setSmartLargeMode(opt.value)">
+                      <span class="settings-row__icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }"><i :class="opt.icon"></i></span>
+                      <span class="settings-row__text">
+                        <span class="settings-row__title">{{ opt.label }}</span>
+                        <span class="settings-row__sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
+                        <span class="unconfigured" v-else>未配置</span>
+                      </span>
+                      <span class="settings-row__check" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></span>
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            </transition>
           </div>
 
           <!-- Tab 2: 上传目录 -->
@@ -2308,22 +2442,29 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             <div class="tree-row" :class="{ active: node.path === currentPath }"
               :style="{ paddingLeft: (10 + depth * 18) + 'px' }" @click="onSelect">
               <span class="tree-row__arrow" :class="{ empty: !hasChildren }" @click="onToggle">
-                <i v-if="hasChildren" class="fas" :class="isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'"></i>
+                <i v-if="hasChildren" class="fas fa-chevron-right"
+                  :style="{ transform: !isExpanded ? 'none' : 'rotate(90deg)' }"></i>
               </span>
               <i class="fas tree-row__icon" :class="hasChildren && isExpanded ? 'fa-folder-open' : 'fa-folder'"></i>
               <span class="tree-row__name">{{ node.name }}</span>
-              <span class="tree-row__count" v-if="node.fileCount > 0">{{ node.fileCount }} 文件</span>
+              <transition name="count">
+                <span class="tree-row__count" v-if="node.fileCount > 0">{{ node.fileCount }} 文件</span>
+              </transition>
               <div class="tree-row__actions">
                 <button class="btn btn--ghost btn--icon btn--sm" @click="onRename" title="重命名"><i class="fas fa-pen"></i></button>
                 <button class="btn btn--ghost btn--icon btn--sm" @click="onDelete" title="删除"><i class="fas fa-trash"></i></button>
               </div>
             </div>
-            <div v-if="hasChildren && isExpanded">
-              <folder-node v-for="child in node.children" :key="child.path" :node="child" :depth="depth + 1"
-                :current-path="currentPath" :expanded="expanded"
-                @select="$emit('select', $event)" @toggle="$emit('toggle', $event)"
-                @rename="$emit('rename', $event)" @delete="$emit('delete', $event)"></folder-node>
-            </div>
+            <transition name="tree-children">
+              <div class="tree-children" v-if="hasChildren && isExpanded">
+                <div>
+                  <folder-node v-for="child in node.children" :key="child.path" :node="child" :depth="depth + 1"
+                    :current-path="currentPath" :expanded="expanded"
+                    @select="$emit('select', $event)" @toggle="$emit('toggle', $event)"
+                    @rename="$emit('rename', $event)" @delete="$emit('delete', $event)"></folder-node>
+                </div>
+              </div>
+            </transition>
           </div>
         `,
       };
