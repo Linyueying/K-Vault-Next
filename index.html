@@ -94,6 +94,9 @@
         --dur-slow: 0.34s;
         --dur-enter: 0.5s;
         --transition: all var(--dur-base) var(--ease-fluid);
+
+        /* 节点状态过渡（识别延迟 → 平滑收敛） */
+        --dur-resolve: 0.62s;
       }
 
       html[data-theme="dark"] {
@@ -551,6 +554,47 @@
       .route-chip--large i { color: #8b5cf6; }
       html[data-theme="dark"] .route-chip--small i { color: #38bdf8; }
       html[data-theme="dark"] .route-chip--large i { color: #c4b5fd; }
+      /* 单节点（非智能分流）时的提示条：与分流条共用同一容器，切换时只有内容淡换 */
+      .route-chip--single i { color: var(--primary); }
+      html[data-theme="dark"] .route-chip--single i { color: var(--primary-light); }
+
+      /* =========================================================
+         节点识别 · 收敛动效
+         ---------------------------------------------------------
+         前端拿到 localStorage 旧值后会先渲染一版，随后被 /api/status
+         的真实结果覆盖，这段时间里文案会「跳」一次。
+         处理思路：把这次替换从瞬时切换改成有方向、有节奏的收敛——
+         1) is-settling 给容器一个极轻微的呼吸，暗示"正在确认"；
+         2) 文案用 morph 过渡：旧的向上淡出并轻微缩扁，新的从下方
+            浮起、带一点点过冲落位，形成"落定"的物理感；
+         3) 全部用 transform/opacity/filter，走合成层，不触发重排。
+         ========================================================= */
+      .upload-zone.is-settling { border-color: rgba(var(--primary-rgb), 0.55); }
+      .upload-zone__icon.is-settling,
+      .status-pill__pulse.is-settling { animation: settleBreathe 1.1s var(--ease-apple) infinite; }
+
+      @keyframes settleBreathe {
+        0%   { transform: scale(1);    opacity: 1; }
+        45%  { transform: scale(0.94); opacity: 0.72; }
+        100% { transform: scale(1);    opacity: 1; }
+      }
+
+      /* ---- morph：竖向「换字」，用于上限文案 / 分流提示整块替换 ---- */
+      .morph-enter-active { transition: opacity 0.34s var(--ease-apple), transform 0.46s var(--ease-spring), filter 0.34s var(--ease-apple); }
+      .morph-leave-active { transition: opacity 0.2s var(--ease-press), transform 0.26s var(--ease-press), filter 0.2s var(--ease-press); }
+      .morph-enter-from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.975); filter: blur(3px); }
+      .morph-leave-to   { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.975); filter: blur(3px); }
+
+      /* ---- label：横向「换字」，用于状态胶囊 / 摘要值这类定宽标签 ---- */
+      .label-enter-active { transition: opacity 0.3s var(--ease-apple), transform 0.42s var(--ease-spring), filter 0.3s var(--ease-apple); }
+      .label-leave-active { transition: opacity 0.18s var(--ease-press), transform 0.22s var(--ease-press); }
+      .label-enter-from { opacity: 0; transform: translate3d(6px, 0, 0); filter: blur(2px); }
+      .label-leave-to   { opacity: 0; transform: translate3d(-6px, 0, 0); filter: blur(2px); }
+
+      /* 换字期间容器尺寸会因内容长短变化，这里让两态共存一帧做交叉淡入，
+         避免整行高度抖动（Vue 的 out-in 已保证不重叠，此处仅兜底）。 */
+      .status-pill__text { display: inline-block; }
+      .summary__value, .upload-zone__sub > strong { display: inline-block; }
 
       /* 快捷操作条 */
       .quick-actions {
@@ -1327,8 +1371,10 @@
         </div>
         <div class="top-actions">
           <div class="status-pill" @click="openDrawer('storage')" :title="'切换存储节点 (当前: ' + storageTarget + ')'">
-            <span class="status-pill__pulse"></span>
-            <span>{{ storageTarget }}</span>
+            <span class="status-pill__pulse" :class="{ 'is-settling': nodeResolving }"></span>
+            <transition name="label" mode="out-in">
+              <span class="status-pill__text" :key="storageMode">{{ storageTarget }}</span>
+            </transition>
             <i class="fas fa-chevron-right" style="font-size: 0.65rem; opacity: 0.6;"></i>
           </div>
           <button class="btn btn--ghost btn--icon" @click="toggleLiquidTheme" :title="currentTheme === 'dark' ? '浅色模式' : '深色模式'">
@@ -1353,13 +1399,16 @@
         <section class="card upload-zone" @click="triggerUpload"
           @dragenter.prevent="onDragEnter" @dragover.prevent="onDragOver"
           @dragleave.prevent="onDragLeave" @drop.prevent="onDrop"
-          :class="{ dragover: isDragging }">
-          <div class="upload-zone__icon"><i class="fas fa-cloud-arrow-up"></i></div>
+          :class="{ dragover: isDragging, 'is-settling': nodeResolving }">
+          <div class="upload-zone__icon"><i class="fas fa-cloud-arrow-up" :class="{ 'is-settling': nodeResolving }"></i></div>
           <h2 class="upload-zone__title">点击或拖拽文件到此区域上传</h2>
-          <p class="upload-zone__sub">
+          <transition name="morph" mode="out-in">
+          <p class="upload-zone__sub" :key="uploadLimitKey">
             当前节点单文件上限：<strong style="color: var(--primary);">{{ currentUploadLimitLabel }}</strong>。支持全局快速粘贴文件 (<kbd style="padding: 2px 6px; border-radius: 6px; background: var(--primary-surface); color: var(--primary);">Ctrl+V</kbd>)。
           </p>
-          <div class="route-hint" v-if="storageMode === 'auto'">
+          </transition>
+          <transition name="morph" mode="out-in">
+          <div class="route-hint" v-if="storageMode === 'auto'" key="auto-route">
             <span class="route-chip route-chip--small">
               <i class="fab fa-telegram"></i>
               <span>≤ {{ formatSize(smartThreshold) }} → Telegram</span>
@@ -1370,6 +1419,14 @@
               <span>&gt; {{ formatSize(smartThreshold) }} → {{ storageLabel(smartLargeMode) }}</span>
             </span>
           </div>
+          <div class="route-hint route-hint--direct" v-else key="direct-route">
+            <span class="route-chip route-chip--single">
+              <!-- 固定占位节点，避免识别完成时图标被整体替换造成突兀闪变 -->
+              <i :class="getStorageIcon(storageMode)"></i>
+              <span>全部文件 → {{ storageLabel(storageMode) }}</span>
+            </span>
+          </div>
+          </transition>
           <input type="file" style="display: none;" ref="fileInput" multiple @change="handleFileSelect" />
           <input type="file" style="display: none;" ref="dirInput" multiple webkitdirectory directory @change="handleDirSelect" />
         </section>
@@ -1549,7 +1606,9 @@
           <!-- Tab 1: 存储节点 -->
           <div v-if="activeDrawerTab === 'storage'" key="storage">            <div class="summary">
               <span class="summary__label">当前存储单文件上限</span>
-              <span class="summary__value">{{ currentUploadLimitLabel }}</span>
+              <transition name="label" mode="out-in">
+                <span class="summary__value" :key="uploadLimitKey">{{ currentUploadLimitLabel }}</span>
+              </transition>
             </div>
 
             <div class="settings-group">
@@ -2181,6 +2240,9 @@
 
             smartThreshold: SMART_SMALL_FILE_LIMIT,
             smartLargeMode: "r2",
+            /* 节点识别收敛态：为 true 时模板给容器挂极轻的呼吸动画 */
+            nodeResolving: false,
+            nodeResolveTimer: null,
 
             downloadingUrls: {},
             downloadProgress: { active: false, url: '', fileName: '', loaded: 0, total: 0, speed: '' },
@@ -2294,6 +2356,11 @@
               : (limit.maxBytes || this.uploadConfig.maxSize);
             return this.formatSize(maxBytes);
           },
+
+          /* 换字动画的 key：只有"影响展示内容"的状态变化才触发过渡。
+             用 key 而不是直接对 storageMode 做过渡，是为了让识别前后
+             渲染结果相同的场景（例如 telegram → telegram）完全不闪。 */
+          uploadLimitKey() { return `${this.currentUploadLimitLabel}|${this.storageMode}|${this.isGuest ? "g" : "u"}`; },
 
           historyStats() {
             const list = this.uploadHistory || [];
@@ -2647,11 +2714,25 @@
               if (this.isGuest && !["telegram", "r2"].includes(mode)) { this.showToast("访客模式仅支持 Telegram 和 R2 存储", "error"); return; }
               if (!this.isStorageAvailable(mode) && mode !== "telegram") { this.showToast(`${labels[mode]?.label || mode} 未配置或未启用`, "error"); return; }
             }
+            /* 页面加载期（静默恢复）切换节点时进入收敛态：
+               本地缓存值与服务端真实值往往相差一拍，这里给 UI 一个
+               "还在确认"的信号，配合 morph 过渡把跳变收敛成一次落定。 */
+            if (silent && this.nodeResolving) this.beginNodeSettle();
+            const changed = this.storageMode !== mode;
             this.storageMode = mode;
             this.storageTarget = labels[mode]?.label || "Telegram 频道";
             try { localStorage.setItem("storageMode", mode); } catch (e) {}
             this.loadFolderPathForMode(mode);
+            if (changed && !this.nodeResolving) this.pulseNodeSettle();
             if (!silent) this.showToast(`已切换至：${this.storageTarget}`, "success");
+          },
+          /* 收敛态：识别期间持续呼吸；结束时用一段短脉冲平滑退场，
+             避免呼吸动画被硬切断造成的"顿一下" */
+          beginNodeSettle() { if (this.nodeResolveTimer) return; this.nodeResolving = true; },
+          pulseNodeSettle() {
+            this.beginNodeSettle();
+            if (this.nodeResolveTimer) clearTimeout(this.nodeResolveTimer);
+            this.nodeResolveTimer = setTimeout(() => { this.nodeResolving = false; this.nodeResolveTimer = null; }, 900);
           },
           setSmartLargeMode(mode, silent = false) {
             if (mode === "telegram") { this.showToast("Telegram 单文件上限 20MB，不能作为大文件节点", "error"); return; }
@@ -2797,6 +2878,8 @@
             });
           },
           async fetchUploadFolders(force = false) {
+            /* 手动点「同步目录」时也走一次收敛呼吸，让刷新有可感知的节奏 */
+            if (force && !this.isGuest) this.pulseNodeSettle();
             if (this.isGuest) { this.uploadFoldersLoading = false; return; }
             if (this.uploadFoldersFetched && !force) return;
             this.uploadFoldersLoading = true;
@@ -3835,6 +3918,9 @@
             finally { this.authChecking = false; }
           },
           async checkStorageTarget() {
+            /* 识别开始：从这一步到 finishNodeSettle 之间，
+               界面上的节点信息处于"待确认"态，走呼吸 + 交叉淡入 */
+            this.beginNodeSettle();
             try {
               const res = await fetch("/api/status", { credentials: "include" });
               const st = await res.json();
@@ -3865,6 +3951,13 @@
               this.setStorageMode("telegram", true);
               this.restoreParallelSettings();
             }
+          },
+          /* 识别收敛收尾：先让最后一次换字动画播完，再用短脉冲退出呼吸态。
+             纯定时器驱动，不依赖 transition 的 after 钩子，兼容性好且行为可预期。 */
+          finishNodeSettle() {
+            if (!this.nodeResolving) return;
+            clearTimeout(this.nodeResolveTimer);
+            this.nodeResolveTimer = setTimeout(() => { this.nodeResolving = false; this.nodeResolveTimer = null; }, 620);
           },
           async handleLogout() {
             try {
@@ -3910,8 +4003,16 @@
             try { localStorage.removeItem("imageCompressSettings"); } catch (e) {}
             this.loadHistory();
           } catch (e) {}
+
+          /* 收敛态必须在首屏之前打开：此刻渲染用的是 localStorage 旧值，
+             真实节点信息要等 /api/status 回来才落定。
+             放在 checkAuth 之后，是为了让首屏 stagger 入场先播完，
+             避免呼吸的 transform 与入场 animation 抢同一属性。 */
+          this.beginNodeSettle();
+
           await this.checkAuth();
           await this.checkStorageTarget();
+          this.finishNodeSettle();
           this.fetchUploadFolders();
 
           /* 首屏入场动画窗口结束后打上标记：
@@ -3933,6 +4034,7 @@
           document.addEventListener("click", this.resultMenuCloseHandler);
         },
         beforeUnmount() {
+          if (this.nodeResolveTimer) clearTimeout(this.nodeResolveTimer);
           if (this.globalPasteHandler) document.removeEventListener("paste", this.globalPasteHandler);
           if (this.resultMenuCloseHandler) document.removeEventListener("click", this.resultMenuCloseHandler);
           if (this.globalDragGuard) {
