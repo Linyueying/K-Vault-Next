@@ -410,13 +410,33 @@
         will-change: transform, opacity;
       }
       .modal--sheet {
-        width: min(640px, 100%);
-        max-height: 85vh;
-        border-radius: var(--r-lg) var(--r-lg) 0 0;
-        border-bottom: none;
-        padding: var(--sp-5) var(--sp-6);
-        animation: sheetIn 0.42s var(--ease-apple) backwards;
-      }
+  width: min(640px, 100%);
+  /* 1. 新增：固定高度，统一体验 */
+  height: 70vh; 
+  max-height: 85vh;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  border-bottom: none;
+  padding: var(--sp-5) var(--sp-6);
+  animation: sheetIn 0.42s var(--ease-apple) backwards;
+  /* 2. 新增：使用弹性布局 */
+  display: flex;
+  flex-direction: column;
+  /* 3. 新增：禁止外层整体滚动，改为内容区滚动 */
+  overflow: hidden; 
+}
+
+/* 4. 新增：让标签栏以下的内容区域自己滚动 */
+.modal--sheet > div:not(.modal__handle):not(.drawer-tabs) {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 美化滚动条（可选） */
+  scrollbar-width: none;
+  padding-bottom: var(--sp-3);
+}
+.modal--sheet > div:not(.modal__handle):not(.drawer-tabs)::-webkit-scrollbar {
+  display: none;
+}
       .modal--dialog {
         width: min(480px, 92vw);
         max-height: 88vh;
@@ -1201,6 +1221,61 @@
       .rise-enter-from,
       .rise-leave-to     { opacity: 0; transform: translate3d(0, 14px, 0); }
 
+      /* ---------------------------------------------------------
+         抽屉页签 · 方向感知转场（非线性）
+         ---------------------------------------------------------
+         前进（存储节点 → 上传目录 → 本地历史 → 系统导航）：
+           新页自右侧滑入并微微放大，旧页向左退场；
+         后退：方向完全镜像。
+         位移统一走 expo-out（--ease-fluid），先快后缓地「落位」，
+         再叠加一点点缩放与模糊营造纵深，而不是硬切。
+         --------------------------------------------------------- */
+      .pane-forward-enter-active,
+      .pane-back-enter-active {
+        transition: opacity 0.3s var(--ease-apple),
+                    transform 0.46s var(--ease-fluid),
+                    filter 0.3s var(--ease-apple);
+        will-change: transform, opacity, filter;
+      }
+      .pane-forward-leave-active,
+      .pane-back-leave-active {
+        transition: opacity 0.18s var(--ease-press),
+                    transform 0.24s var(--ease-press),
+                    filter 0.18s var(--ease-press);
+      }
+      .pane-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); filter: blur(6px); }
+      .pane-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); filter: blur(6px); }
+      .pane-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); filter: blur(6px); }
+      .pane-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); filter: blur(6px); }
+
+      /* 页签内容轻量错峰：让整页「长」出来，而不是整块弹现。
+         时长刻意压在 0.46s 内，避免 enter-active 被移除时动画被截断。 */
+      .pane-forward-enter-active > *,
+      .pane-back-enter-active > * {
+        animation: paneItemIn 0.34s var(--ease-fluid) backwards;
+      }
+      .pane-forward-enter-active > *:nth-child(1),
+      .pane-back-enter-active > *:nth-child(1) { animation-delay: 0.01s; }
+      .pane-forward-enter-active > *:nth-child(2),
+      .pane-back-enter-active > *:nth-child(2) { animation-delay: 0.03s; }
+      .pane-forward-enter-active > *:nth-child(3),
+      .pane-back-enter-active > *:nth-child(3) { animation-delay: 0.05s; }
+      .pane-forward-enter-active > *:nth-child(4),
+      .pane-back-enter-active > *:nth-child(4) { animation-delay: 0.07s; }
+      .pane-forward-enter-active > *:nth-child(n + 5),
+      .pane-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
+
+      @keyframes paneItemIn {
+        from { opacity: 0; transform: translate3d(0, 8px, 0); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0); }
+      }
+
+      /* 低端设备：去掉模糊，只保留位移与透明度 */
+      html[data-perf="low"] .pane-forward-enter-from,
+      html[data-perf="low"] .pane-forward-leave-to,
+      html[data-perf="low"] .pane-back-enter-from,
+      html[data-perf="low"] .pane-back-leave-to { filter: none; }
+
       .drop-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
       .drop-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
       .drop-enter-from,
@@ -1562,7 +1637,8 @@
             </button>
           </div>
 
-          <transition name="rise" mode="out-in">
+          <!-- 抽屉页签转场：方向感知的非线性滑动（前进 / 后退） -->
+          <transition :name="'pane-' + drawerNavDir" mode="out-in">
           <!-- Tab 1: 存储节点 -->
           <div v-if="activeDrawerTab === 'storage'" key="storage">            <div class="summary">
               <span class="summary__label">当前存储单文件上限</span>
@@ -2060,6 +2136,9 @@
       const SMART_SMALL_FILE_LIMIT = 20 * 1024 * 1024;
       const SMART_LARGE_CANDIDATES = ["r2", "s3", "github", "discord", "huggingface"];
 
+      /* ===== 抽屉页签顺序（决定前进 / 后退方向） ===== */
+      const DRAWER_TAB_ORDER = ["storage", "folder", "history", "menu"];
+
       /* ===== 并行上传常量 ===== */
       const PARALLEL_DEFAULT_HEAVY = 2;
       const PARALLEL_DEFAULT_LIGHT = 1;
@@ -2132,6 +2211,11 @@
             showDrawer: false,
             activeDrawerTab: "storage",
             lastMoreTab: "history",
+            drawerNavDir: "forward",
+// 👇 新增以下三行代码
+touchStartX: 0,
+touchStartY: 0,
+touchStartTime: 0,
             baseURL: document.location.origin,
             isDragging: false,
             dragDepth: 0,
@@ -2640,10 +2724,17 @@
           },
 
           /* ===== 抽屉 / 弹窗 ===== */
-          openDrawer(tab) { this.activeDrawerTab = tab; this.showDrawer = true; },
-          openMoreDrawer() { this.activeDrawerTab = this.lastMoreTab || "history"; this.showDrawer = true; },
-          switchDrawerTab(tab) {
+          /* 统一入口：切换页签前先算出方向，供 pane-forward / pane-back 使用 */
+          setDrawerTab(tab) {
+            const from = DRAWER_TAB_ORDER.indexOf(this.activeDrawerTab);
+            const to = DRAWER_TAB_ORDER.indexOf(tab);
+            if (from > -1 && to > -1 && to !== from) this.drawerNavDir = to < from ? "back" : "forward";
             this.activeDrawerTab = tab;
+          },
+          openDrawer(tab) { this.setDrawerTab(tab); this.showDrawer = true; },
+          openMoreDrawer() { this.setDrawerTab(this.lastMoreTab || "history"); this.showDrawer = true; },
+          switchDrawerTab(tab) {
+            this.setDrawerTab(tab);
             if (["history", "menu"].includes(tab)) this.lastMoreTab = tab;
             if (tab === "folder" && !this.uploadFoldersFetched) this.fetchUploadFolders();
           },

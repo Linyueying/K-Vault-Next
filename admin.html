@@ -451,7 +451,7 @@ html[data-theme="dark"] .toast.success{color:var(--primary-light)}
   <header class="micro-topbar">
     <div class="brand-box">
       <div class="brand-logo-wrap" @click="goHome" title="返回首页">
-        <img src="/logo.png" alt="Logo" onerror="this.onerror=null;this.src='/favicon.ico';">
+        <img :src="logoSrc" alt="Logo" @error="logoSrc='/favicon.ico'">
       </div>
       <div class="brand-text-wrap">
         <h1>管理后台</h1>
@@ -730,22 +730,24 @@ html[data-theme="dark"] .toast.success{color:var(--primary-light)}
             </div>
 
             <div class="kv-ops-grid" style="margin-top:12px">
-              <div class="kv-op-item" v-for="op in kvOpDefs" :key="op.key">
-                <div class="kv-op-head">
-                  <i :class="op.icon" :style="{color: op.color}"></i>
-                  <span>{{ op.label }}</span>
+              <template v-for="op in kvOpDefs" :key="op.key">
+                <div class="kv-op-item" v-if="kvUsage.kv.operations[op.key]">
+                  <div class="kv-op-head">
+                    <i :class="op.icon" :style="{color: op.color}"></i>
+                    <span>{{ op.label }}</span>
+                  </div>
+                  <div class="kv-op-bar">
+                    <div class="kv-op-bar-inner"
+                         :style="{ width: opPercent(kvUsage.kv.operations[op.key]) + '%', background: op.color }"></div>
+                  </div>
+                  <div class="kv-op-nums">
+                    <span>{{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].used) || 0 }} / {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].limit) || 0 }}</span>
+                    <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.kv.operations[op.key]) }">
+                      剩余 {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].remaining) || 0 }}
+                    </span>
+                  </div>
                 </div>
-                <div class="kv-op-bar">
-                  <div class="kv-op-bar-inner"
-                       :style="{ width: opPercent(kvUsage.kv.operations[op.key]) + '%', background: op.color }"></div>
-                </div>
-                <div class="kv-op-nums">
-                  <span>{{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].used) || 0 }} / {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].limit) || 0 }}</span>
-                  <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.kv.operations[op.key]) }">
-                    剩余 {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].remaining) || 0 }}
-                  </span>
-                </div>
-              </div>
+              </template>
             </div>
             <div class="kv-usage-label mt-sm">
               <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
@@ -754,7 +756,8 @@ html[data-theme="dark"] .toast.success{color:var(--primary-light)}
         </div>
 
         <!-- R2 未绑定 -->
-        <div class="kv-usage-block" v-if="!kvUsage.r2Available">
+        <template v-if="!kvUsage.r2Available">
+        <div class="kv-usage-block">
           <div class="kv-usage-label">
             <span><i class="fas fa-cloud"></i> R2 对象存储</span>
             <span class="kv-usage-total muted">未绑定</span>
@@ -768,8 +771,11 @@ html[data-theme="dark"] .toast.success{color:var(--primary-light)}
           </div>
         </div>
 
-        <!-- R2 已绑定 -->
-        <div class="kv-usage-block" v-for="r2 in kvUsage.r2Buckets" :key="r2.binding" v-else>
+        </template>
+
+        <!-- R2 已绑定：v-for + v-else 在 Vue 3 中不可同标签共存，改用 template 包裹 -->
+        <template v-for="r2 in kvUsage.r2Buckets" :key="r2.binding">
+        <div class="kv-usage-block">
           <div class="kv-usage-label">
             <span>
               <i class="fas fa-cloud"></i> R2 · {{ r2.bucketName }}
@@ -799,27 +805,30 @@ html[data-theme="dark"] .toast.success{color:var(--primary-light)}
             </div>
 
             <div class="kv-ops-grid" style="margin-top:10px">
-              <div class="kv-op-item" v-for="op in r2OpDefs" :key="op.key">
-                <div class="kv-op-head">
-                  <i :class="op.icon" :style="{color: op.color}"></i>
-                  <span>{{ op.label }}</span>
+              <template v-for="op in r2OpDefs" :key="op.key">
+                <div class="kv-op-item" v-if="r2.operations && r2.operations[op.key]">
+                  <div class="kv-op-head">
+                    <i :class="op.icon" :style="{color: op.color}"></i>
+                    <span>{{ op.label }}</span>
+                  </div>
+                  <div class="kv-op-bar">
+                    <div class="kv-op-bar-inner"
+                         :style="{ width: opPercent(r2.operations[op.key]) + '%', background: op.color }"></div>
+                  </div>
+                  <div class="kv-op-nums">
+                    <span>{{ (r2.operations[op.key] && r2.operations[op.key].used) || 0 }} / {{ (r2.operations[op.key] && r2.operations[op.key].limit) || 0 }}</span>
+                    <span class="kv-op-remain"
+                          :class="{ low: isOpLow(r2.operations[op.key]) }"
+                          v-if="r2.operations[op.key].remaining !== null">
+                      剩余 {{ r2.operations[op.key].remaining }}
+                    </span>
+                  </div>
                 </div>
-                <div class="kv-op-bar">
-                  <div class="kv-op-bar-inner"
-                       :style="{ width: opPercent(r2.operations[op.key]) + '%', background: op.color }"></div>
-                </div>
-                <div class="kv-op-nums">
-                  <span>{{ (r2.operations[op.key] && r2.operations[op.key].used) || 0 }} / {{ (r2.operations[op.key] && r2.operations[op.key].limit) || 0 }}</span>
-                  <span class="kv-op-remain"
-                        :class="{ low: isOpLow(r2.operations[op.key]) }"
-                        v-if="r2.operations[op.key] && r2.operations[op.key].remaining !== null">
-                    剩余 {{ r2.operations[op.key].remaining }}
-                  </span>
-                </div>
-              </div>
+              </template>
             </div>
           </template>
         </div>
+        </template>
 
         <div class="kv-usage-footer">
           <i class="fas fa-clock"></i> {{ kvUsage.planType === 'paid' ? '按月计费，超出按量付费' : 'KV 每日 00:00 UTC 重置 · R2 按月重置' }}
@@ -1409,11 +1418,19 @@ html[data-theme="dark"] .toast.success{color:var(--primary-light)}
   </div>
 
 </div>
-<script src="https://cdn.bootcdn.net/ajax/libs/vue/2.6.14/vue.min.js"></script>
+
+<!-- Vue 3 全局构建（含模板编译器）+ @vue/compat 兼容模式，替代原 Vue 2.6.14 -->
+<script src="https://cdn.jsdelivr.net/npm/vue@3.4.38/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vue/compat@3.4.38/dist/vue-compat.global.prod.js"></script>
 <script>
-new Vue({
-  el: '#app',
-  data: {
+/* Vue 3 兼容模式配置：仅对尚未改写的 API 保持 Vue 2 行为，其余一律按 Vue 3 语义告警 */
+window.Vue = window.Vue || {};
+Vue.configureCompat && Vue.configureCompat({ MODE: 'suppress-warnings' });
+</script>
+<script>
+/* Vue 3 用 createApp + mount 取代 Vue 2 的 new Vue({ el }) */
+Vue.createApp({
+  data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
 
@@ -1423,6 +1440,9 @@ new Vue({
     sort: 'dateDesc', filter: 'all', fileType: 'all', storage: 'all', viewMode: 'grid',
 
     folderPath: '', folderLoading: false,
+
+    /* Vue 3：品牌 Logo 兜底图源改为响应式属性，替代内联 onerror */
+    logoSrc: '/logo.png',
 
     drag: { ids: [], target: null },
     preview: null,
@@ -1562,7 +1582,7 @@ new Vue({
       { value: 'exhausted', label: '次数用尽' },
       { value: 'password',  label: '密码保护' }
     ]
-  },
+  } },
 
   computed: {
     /* ---------- 分享筛选 ---------- */
@@ -1861,7 +1881,7 @@ new Vue({
         this.showToast('下载已开始，请查看浏览器下载栏', 'info');
         return;
       }
-      this.$set(this.downloadingUrls, url, true);
+      this.downloadingUrls[url] = true;
 
       /* 【一次进度】直接交给浏览器原生下载，不再 fetch + blob */
       const a = document.createElement('a');
@@ -1872,7 +1892,7 @@ new Vue({
       a.click();
       setTimeout(() => {
         if (a.parentNode) a.parentNode.removeChild(a);
-        this.$delete(this.downloadingUrls, url);
+        delete this.downloadingUrls[url];
       }, 2000);
 
       this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
@@ -2858,7 +2878,7 @@ new Vue({
       .catch(() => {});
   },
 
-  beforeDestroy() {
+  beforeUnmount() {
     document.removeEventListener('click', this._closeMenusHandler);
     document.removeEventListener('keydown', this._escHandler);
   },
@@ -2873,7 +2893,7 @@ new Vue({
       if (v > this.totalPages) this.currentPage = this.totalPages;
     }
   }
-});
+}).mount('#app');
 </script>
 </body>
 </html>
