@@ -1071,6 +1071,33 @@ a.settings-row { text-decoration: none; color: inherit; }
 .settings-row__icon.ico--sky     { --icon-bg: rgba(56, 189, 248, 0.18); --icon-fg: #0ea5e9; }
 .settings-group__footer { padding: var(--sp-2) var(--sp-4) 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--text-muted); }
 
+/* 行内展开按钮：用于把次级设置折叠进主行（如智能节点 → 大文件节点） */
+.row-expand-btn {
+  flex: none; width: 28px; height: 28px;
+  border: none; background: transparent; color: var(--text-muted);
+  border-radius: 50%; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.7rem;
+  transition: background var(--dur-base) var(--ease-apple),
+              color var(--dur-base) var(--ease-apple),
+              transform var(--dur-fast) var(--ease-press);
+}
+.row-expand-btn:hover { background: rgba(var(--primary-rgb), 0.12); color: var(--primary); }
+.row-expand-btn:active { transform: scale(0.9); }
+.row-expand-btn i { transition: transform 0.36s var(--ease-apple); }
+.row-expand-btn.active { background: rgba(var(--primary-rgb), 0.1); color: var(--primary); }
+.row-expand-btn.active i { transform: rotate(180deg); }
+/* 展开态：整行保持高亮，暗示它与下方内容是一组 */
+.settings-row.row-is-open { background: rgba(var(--primary-rgb), 0.06); }
+
+/* 折叠在主行下方的子列表：缩进 + 降一档背景，体现从属关系 */
+.settings-list--nested {
+  margin: 0 var(--sp-3) var(--sp-2);
+  border-radius: var(--r-md);
+  background: var(--glass-subtle);
+  box-shadow: none;
+}
+
 .row-tag { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 6px; background: rgba(139, 92, 246, 0.16); color: #8b5cf6; }
 html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color: #c4b5fd; }
 .seg-value { flex: none; font-size: var(--fs-md); font-weight: 700; color: var(--text-muted); }
@@ -1645,6 +1672,33 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       }
       html[data-perf="low"] .ambient-orb { animation: none; }
 
+      /* 灵动引擎关闭（= 低性能模式）：模糊全撤、动画全停。
+         用通配兜底，避免遗漏 .sheet-enter-active 这类过渡类上的 backdrop-filter；
+         duration 压到 0.01ms 而非 none，可保留 fill-mode 的最终状态，元素不会停在半途。 */
+      html[data-perf="low"] *,
+      html[data-perf="low"] *::before,
+      html[data-perf="low"] *::after {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        will-change: auto !important;
+      }
+
+      /* 模糊停用后，玻璃层必须改为不透明，否则背景光晕会透上来压低文字对比度 */
+      html[data-perf="low"] {
+        --glass-surface: #ffffff;
+        --glass-elevated: #ffffff;
+        --glass-subtle: #f8fafc;
+        --glass-border: rgba(15, 23, 42, 0.1);
+      }
+      html[data-theme="dark"][data-perf="low"] {
+        --glass-surface: #0f1b31;
+        --glass-elevated: #142442;
+        --glass-subtle: #0d1626;
+      }
+
       @media (prefers-reduced-transparency: reduce) {
         .card, .menu, .dock, .selection-bar, .modal, .modal-mask {
           backdrop-filter: none !important;
@@ -1977,14 +2031,48 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             <div class="settings-group">
               <div class="settings-group__header">存储节点</div>
               <div class="settings-list">
-                <button class="settings-row" v-if="!isGuest" :class="{ selected: storageMode === 'auto' }" @click="setStorageMode('auto')">
+                <div class="settings-row" v-if="!isGuest" role="button" tabindex="0"
+                  :class="{ selected: storageMode === 'auto', 'row-is-open': smartNodeExpanded }"
+                  @click="setStorageMode('auto')" @keydown.enter.prevent="setStorageMode('auto')">
                   <span class="settings-row__icon ico--violet"><i class="fas fa-wand-magic-sparkles"></i></span>
                   <span class="settings-row__text">
                     <span class="settings-row__title">智能节点 <span class="row-tag">AUTO</span></span>
-                    <span class="settings-row__sub">≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出自动分流</span>
+                    <span class="settings-row__sub">≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出走 {{ storageLabel(smartLargeMode) }}</span>
                   </span>
+                  <button class="row-expand-btn" :class="{ active: smartNodeExpanded }"
+                    @click.stop="toggleSmartNodeExpanded()"
+                    :title="smartNodeExpanded ? '收起大文件节点设置' : '展开大文件节点设置'"
+                    :aria-expanded="smartNodeExpanded ? 'true' : 'false'">
+                    <i class="fas fa-chevron-down"></i>
+                  </button>
                   <span class="settings-row__check" v-if="storageMode === 'auto'"><i class="fas fa-check"></i></span>
-                </button>
+                </div>
+
+                <!-- 大文件节点选择：折叠进智能节点行，点箭头才展开 -->
+                <transition name="rowExpand">
+                  <div class="row-expand" v-if="!isGuest && storageMode === 'auto' && smartNodeExpanded">
+                    <div class="settings-group">
+                      <div class="settings-group__header">大文件节点 · 超过 {{ formatSize(smartThreshold) }}</div>
+                      <div class="settings-list settings-list--nested">
+                        <button class="settings-row" v-for="opt in largeStorageOptions" :key="opt.value"
+                          :class="{ selected: smartLargeMode === opt.value, locked: !isStorageAvailable(opt.value) }"
+                          :disabled="!isStorageAvailable(opt.value)"
+                          @click="isStorageAvailable(opt.value) && setSmartLargeMode(opt.value)">
+                          <span class="settings-row__icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }"><i :class="opt.icon"></i></span>
+                          <span class="settings-row__text">
+                            <span class="settings-row__title">{{ opt.label }}</span>
+                            <span class="settings-row__sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
+                            <span class="unconfigured" v-else>未配置</span>
+                          </span>
+                          <span class="settings-row__check" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></span>
+                        </button>
+                      </div>
+                      <div class="settings-group__footer">
+                        仅在文件超过 {{ formatSize(smartThreshold) }} 时生效；未配置的节点不可选。
+                      </div>
+                    </div>
+                  </div>
+                </transition>
 
                 <button class="settings-row" :class="{ selected: storageMode === 'telegram' }" @click="setStorageMode('telegram')">
                   <span class="settings-row__icon ico--blue"><i class="fab fa-telegram"></i></span>
@@ -2019,68 +2107,19 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   <span class="settings-row__icon ico--violet"><i class="fas fa-bolt"></i></span>
                   <span class="settings-row__text">
                     <span class="settings-row__title">并行上传 <span class="row-tag" v-if="isParallelActive()">ON</span></span>
-                    <span class="settings-row__sub">{{ isParallelActive() ? '大文件多路并行；Telegram 受自身限流逐条发送' : '关闭时逐个上传，网络不稳时更稳妥' }}</span>
+                    <span class="settings-row__sub">{{ isParallelActive() ? '大文件 2 路并发；Telegram 受自身限流逐条发送' : '关闭时逐个上传，网络不稳时更稳妥' }}</span>
                   </span>
-                  <label class="switch" title="开启/关闭并行上传">
+                  <label class="switch" title="开启后大文件最多 2 路并发（受 Cloudflare 单实例 128MB 内存与后端并发配额限制）">
                     <input type="checkbox" :checked="parallelUpload" @change="setParallelUpload($event.target.checked)" />
                     <span class="switch__track"></span><span class="switch__thumb"></span>
                   </label>
                 </div>
-
-                <transition name="rowExpand">
-                  <div class="row-expand" v-if="isParallelActive()">
-                  <div class="settings-row locked">
-                    <span class="settings-row__icon ico--blue"><i class="fab fa-telegram"></i></span>
-                    <span class="settings-row__text">
-                      <span class="settings-row__title">小文件并发</span>
-                      <span class="settings-row__sub">Telegram 同一频道约 1 条/秒，无法并发</span>
-                    </span>
-                    <span class="seg-value">1</span>
-                  </div>
-
-                  <div class="settings-row settings-row--static">
-                    <span class="settings-row__icon ico--violet"><i class="fas fa-server"></i></span>
-                    <span class="settings-row__text">
-                      <span class="settings-row__title">大文件并发</span>
-                      <span class="settings-row__sub">R2 / S3 / GitHub 等</span>
-                    </span>
-                    <div class="segmented">
-                      <button v-for="n in PARALLEL_MAX_HEAVY" :key="n" :class="{ active: parallelHeavy === n }" @click="setParallelHeavy(n)">{{ n }}</button>
-                    </div>
-                  </div>
-                  </div>
-                </transition>
               </div>
-              <transition name="rowExpand">
-                <div class="row-expand" v-if="isParallelActive()">
-                  <div class="settings-group__footer">
-                    大文件并发受 Cloudflare 单实例 128MB 内存与后端并发配额限制，上限 {{ PARALLEL_MAX_HEAVY }}。
-                  </div>
-                </div>
-              </transition>
+              <div class="settings-group__footer">
+                开启后大文件（R2 / S3 / GitHub 等）按 2 路并发上传，小文件仍逐条发送。
+              </div>
             </div>
 
-            <transition name="rowExpand">
-              <div class="row-expand" v-if="storageMode === 'auto' && !isGuest">
-                <div class="settings-group">
-                  <div class="settings-group__header">大文件节点 · 超过 {{ formatSize(smartThreshold) }}</div>
-                  <div class="settings-list">
-                    <button class="settings-row" v-for="opt in largeStorageOptions" :key="opt.value"
-                      :class="{ selected: smartLargeMode === opt.value, locked: !isStorageAvailable(opt.value) }"
-                      :disabled="!isStorageAvailable(opt.value)"
-                      @click="isStorageAvailable(opt.value) && setSmartLargeMode(opt.value)">
-                      <span class="settings-row__icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }"><i :class="opt.icon"></i></span>
-                      <span class="settings-row__text">
-                        <span class="settings-row__title">{{ opt.label }}</span>
-                        <span class="settings-row__sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
-                        <span class="unconfigured" v-else>未配置</span>
-                      </span>
-                      <span class="settings-row__check" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </transition>
           </div>
 
           <!-- Tab 2: 上传目录 -->
@@ -2350,6 +2389,52 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                     <span class="settings-row__sub">清除本机登录状态</span>
                   </span>
                 </button>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-list">
+                <div class="settings-row" role="button" tabindex="0"
+                  :class="{ 'row-is-open': devOptionsExpanded }"
+                  @click="toggleDevOptions()" @keydown.enter.prevent="toggleDevOptions()">
+                  <span class="settings-row__icon ico--sky"><i class="fas fa-code"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">开发者选项</span>
+                    <span class="settings-row__sub">{{ liveEngine ? '灵动引擎运行中' : '已切换到低性能模式' }}</span>
+                  </span>
+                  <button class="row-expand-btn" :class="{ active: devOptionsExpanded }"
+                    @click.stop="toggleDevOptions()"
+                    :title="devOptionsExpanded ? '收起开发者选项' : '展开开发者选项'"
+                    :aria-expanded="devOptionsExpanded ? 'true' : 'false'">
+                    <i class="fas fa-chevron-down"></i>
+                  </button>
+                </div>
+
+                <transition name="rowExpand">
+                  <div class="row-expand" v-if="devOptionsExpanded">
+                    <div class="settings-group">
+                      <div class="settings-group__header">渲染引擎</div>
+                      <div class="settings-list settings-list--nested">
+                        <div class="settings-row settings-row--static">
+                          <span class="settings-row__icon ico--violet"><i class="fas fa-wand-magic-sparkles"></i></span>
+                          <span class="settings-row__text">
+                            <span class="settings-row__title">灵动引擎 <span class="row-tag" v-if="liveEngine">ON</span></span>
+                            <span class="settings-row__sub">{{ liveEngine ? '毛玻璃与全部动态效果' : '已停用：模糊与动画全部关闭' }}</span>
+                          </span>
+                          <!-- 用 click.prevent + 受控 checked：确认框被取消时，开关不会因为
+                               原生 checkbox 已翻转而与 liveEngine 脱节 -->
+                          <label class="switch" title="关闭后将移除全部毛玻璃模糊并停止所有动画">
+                            <input type="checkbox" :checked="liveEngine" @click.prevent="setLiveEngine(!liveEngine)" />
+                            <span class="switch__track"></span><span class="switch__thumb"></span>
+                          </label>
+                        </div>
+                      </div>
+                      <div class="settings-group__footer">
+                        关闭后立即停用毛玻璃模糊、页面过渡与列表动画，可明显提升低端设备的流畅度与续航；设置会记住，可随时回来重新开启。
+                      </div>
+                    </div>
+                  </div>
+                </transition>
               </div>
             </div>
           </div>
@@ -2742,7 +2827,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             uploadLimits: {},
 
             parallelUpload: false,
-            parallelHeavy: PARALLEL_DEFAULT_HEAVY,
+            /* 并发数由并行开关派生：关 = 1，开 = 大文件 2 */
+            parallelHeavy: PARALLEL_OFF_CONCURRENCY,
             parallelLight: PARALLEL_DEFAULT_LIGHT,
 
             /* ===== 上传调度器状态（详见 uploadScheduler 区块注释） ===== */
@@ -2755,6 +2841,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
 
             smartThreshold: SMART_SMALL_FILE_LIMIT,
             smartLargeMode: "r2",
+            /* 智能节点行内的「大文件节点」子设置，默认收起 */
+            smartNodeExpanded: false,
+            /* 灵动引擎：默认开启；关闭即进入低性能模式（去模糊 + 停动画） */
+            liveEngine: true,
+            devOptionsExpanded: false,
             /* 节点识别收敛态：为 true 时模板给容器挂极轻的呼吸动画 */
             nodeResolving: false,
             nodeResolveTimer: null,
@@ -3312,34 +3403,24 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (!Number.isFinite(n) || n < 1) return fallback;
             return Math.min(Math.floor(n), max);
           },
+          /* 并行上传已收敛为一个开关：开 = 大文件 2 路并发，关 = 全部逐个上传。
+             并发数不再单独可调，统一由开关派生，避免两个入口互相打架。 */
           setParallelUpload(on) {
             this.parallelUpload = Boolean(on);
+            this.parallelHeavy = this.parallelUpload ? PARALLEL_MAX_HEAVY : PARALLEL_OFF_CONCURRENCY;
+            this.parallelLight = PARALLEL_DEFAULT_LIGHT;
             try { localStorage.setItem("parallelUpload", this.parallelUpload ? "1" : "0"); } catch (e) {}
             this.showToast(this.parallelUpload
-              ? `已开启并行上传（小文件 ×${this.concurrencyForPool("light")} · 大文件 ×${this.concurrencyForPool("heavy")}）`
+              ? `已开启并行上传（大文件 ×${this.concurrencyForPool("heavy")}）`
               : "已关闭并行上传，改为依次上传", "success");
-            this.restartUploadNow();
-          },
-          setParallelLight(v) {
-            const n = Math.min(Math.max(1, Math.floor(Number(v) || 1)), PARALLEL_MAX_LIGHT);
-            if (n === this.parallelLight) return;
-            this.parallelLight = n;
-            try { localStorage.setItem("parallelLight", String(n)); } catch (e) {}
-            this.restartUploadNow();
-          },
-          setParallelHeavy(v) {
-            const n = Math.min(Math.max(1, Math.floor(Number(v) || 1)), PARALLEL_MAX_HEAVY);
-            if (n === this.parallelHeavy) return;
-            this.parallelHeavy = n;
-            try { localStorage.setItem("parallelHeavy", String(n)); } catch (e) {}
             this.restartUploadNow();
           },
           restoreParallelSettings() {
             try { this.parallelUpload = localStorage.getItem("parallelUpload") === "1"; } catch (e) { this.parallelUpload = false; }
-            const readNum = (key, fallback) => { try { const n = Number(localStorage.getItem(key)); return Number.isFinite(n) && n > 0 ? n : fallback; } catch (e) { return fallback; } };
-            this.parallelHeavy = readNum("parallelHeavy", PARALLEL_DEFAULT_HEAVY);
-            this.parallelLight = readNum("parallelLight", PARALLEL_DEFAULT_LIGHT);
             if (this.isGuest) this.parallelUpload = false;
+            /* 并发数由开关派生，不再读取历史遗留的 parallelHeavy / parallelLight */
+            this.parallelHeavy = this.parallelUpload ? PARALLEL_MAX_HEAVY : PARALLEL_OFF_CONCURRENCY;
+            this.parallelLight = PARALLEL_DEFAULT_LIGHT;
           },
 
           /* ===== 抽屉 / 弹窗 ===== */
@@ -3465,6 +3546,65 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.smartLargeMode = mode;
             try { localStorage.setItem("smartLargeMode", mode); } catch (e) {}
             if (!silent) this.showToast(`大文件节点已切换为：${this.storageLabel(mode)}`, "success");
+          },
+          /* 智能节点行内的「大文件节点」折叠面板 */
+          toggleSmartNodeExpanded() {
+            this.smartNodeExpanded = !this.smartNodeExpanded;
+          },
+
+          /* ===== 灵动引擎 / 低性能模式 ===== */
+          toggleDevOptions() {
+            this.devOptionsExpanded = !this.devOptionsExpanded;
+          },
+          /* 把开关状态落到 <html data-perf>：关 = low（去模糊 + 停动画） */
+          applyPerfMode() {
+            const root = document.documentElement;
+            if (this.liveEngine) root.removeAttribute("data-perf");
+            else root.setAttribute("data-perf", "low");
+          },
+          async setLiveEngine(on) {
+            const next = Boolean(on);
+            if (next === this.liveEngine) return;
+
+            /* 重新开启是无损操作，直接生效 */
+            if (next) {
+              this.liveEngine = true;
+              this.applyPerfMode();
+              try { localStorage.setItem("liveEngine", "1"); } catch (e) {}
+              this.showToast("灵动引擎已开启", "success");
+              return;
+            }
+
+            /* 关闭要先讲清后果，用户确认才落盘 */
+            const ok = await this.confirmDialog(
+              "关闭后本机会立即切换到低性能模式：\n\n" +
+              "· 全部毛玻璃模糊移除，界面改为纯色底\n" +
+              "· 页面过渡、弹窗、列表动画全部停止\n" +
+              "· 视觉层次感与观感会明显下降\n\n" +
+              "换来的是更低的渲染开销：滚动与上传更流畅，也更省电。",
+              {
+                tone: "warn",
+                title: "关闭灵动引擎",
+                subtitle: "低性能模式",
+                confirmText: "仍然关闭",
+                cancelText: "保持开启",
+                note: "仅影响本机显示，随时可改回",
+              }
+            );
+            if (!ok) return;
+
+            this.liveEngine = false;
+            this.applyPerfMode();
+            try { localStorage.setItem("liveEngine", "0"); } catch (e) {}
+            this.showToast("已切换到低性能模式", "success");
+          },
+          /* 初始化：用户设过就听用户的；没设过则跟随硬件自动检测，保证开关与实际一致 */
+          syncLiveEngineFromPerf() {
+            let saved = null;
+            try { saved = localStorage.getItem("liveEngine"); } catch (e) {}
+            if (saved === "0" || saved === "1") this.liveEngine = saved === "1";
+            else this.liveEngine = document.documentElement.getAttribute("data-perf") !== "low";
+            this.applyPerfMode();
           },
           getUploadLimit(storageMode) {
             const fallback = {
@@ -4956,6 +5096,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               document.documentElement.setAttribute("data-perf", "low");
             }
           } catch (e) {}
+          /* 必须在硬件自动检测之后：用户显式设置优先，未设置过则跟随检测结果 */
+          this.syncLiveEngineFromPerf();
 
           try {
             const th = localStorage.getItem("theme") || "light";
