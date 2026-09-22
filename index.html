@@ -142,9 +142,11 @@
          Ambient Glow
          ========================================================= */
       .ambient-glow { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
-      .ambient-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.48; }
-      .orb-1 { top: -10%; left: 5%; width: 420px; height: 420px; background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, transparent 70%); animation: orbFloat 18s var(--ease-apple) infinite alternate; }
-      .orb-2 { bottom: 5%; right: -5%; width: 460px; height: 460px; background: radial-gradient(circle, rgba(14, 165, 233, 0.22) 0%, transparent 70%); animation: orbFloat 22s var(--ease-apple) -6s infinite alternate-reverse; }
+      /* 性能：不再对元素使用 filter: blur()（大半径高斯模糊会被每帧重算）。
+         radial-gradient 自带柔和边缘，观感一致但零模糊开销。 */
+      .ambient-orb { position: absolute; border-radius: 50%; opacity: 0.48; }
+      .orb-1 { top: -10%; left: 5%; width: 420px; height: 420px; background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(56, 189, 248, 0.10) 40%, transparent 72%); animation: orbFloat 18s var(--ease-apple) infinite alternate; }
+      .orb-2 { bottom: 5%; right: -5%; width: 460px; height: 460px; background: radial-gradient(circle, rgba(14, 165, 233, 0.22) 0%, rgba(14, 165, 233, 0.06) 42%, transparent 72%); animation: orbFloat 22s var(--ease-apple) -6s infinite alternate-reverse; }
 
       /* =========================================================
          通用卡片
@@ -367,8 +369,11 @@
       .modal-mask {
         position: fixed; inset: 0;
         background: rgba(0, 0, 0, 0.42);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        /* 性能：8px -> 4px。静态观感几乎无差，但全屏模糊的采样成本减半。
+           过渡期间（见下方 .sheet-*/.dialog-* 规则）会临时完全关闭模糊，
+           避免"模糊层 + opacity 动画"导致每帧重算全屏高斯模糊。 */
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
         z-index: 2000;
         display: flex; justify-content: center;
         animation: maskIn 0.34s var(--ease-apple) backwards;
@@ -399,6 +404,16 @@
         border-radius: var(--r-lg);
         padding: var(--sp-5);
         display: flex; flex-direction: column; gap: var(--sp-4);
+        animation: dialogIn 0.42s var(--ease-spring) backwards;
+      }
+      /* 预览弹窗：无底色容器，仅承载媒体内容 */
+      .modal--preview {
+        max-width: 90vw; max-height: 85vh;
+        display: flex; flex-direction: column; align-items: center;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        overflow: visible;
         animation: dialogIn 0.42s var(--ease-spring) backwards;
       }
       .modal__handle {
@@ -584,7 +599,9 @@
 
       /* 进度条 */
       .progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 6px; overflow: hidden; }
-      .progress__val { height: 100%; border-radius: var(--r-pill); background: linear-gradient(90deg, var(--primary-light), var(--primary)); transition: width 0.4s var(--ease-fluid), background 0.3s var(--ease-apple); will-change: width; }
+      /* 性能：用 transform: scaleX() 代替 width 动画（width 非合成属性，会触发每帧 layout+paint）。
+         transform-origin: left 保证从左侧生长；JS 侧传 scaleX(0~1)。 */
+      .progress__val { height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0); border-radius: var(--r-pill); background: linear-gradient(90deg, var(--primary-light), var(--primary)); transition: transform 0.4s var(--ease-fluid), background 0.3s var(--ease-apple); will-change: transform; }
 
       /* 结果列表内的分享徽标 */
       .share-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 6px; background: rgba(16, 185, 129, 0.12); color: #059669; font-weight: 600; font-size: 0.65rem; }
@@ -1094,46 +1111,133 @@
 
       /* =========================================================
          Apple 风格动效 · 应用层
+         =========================================================
+         性能：首屏依次入场只在「首次挂载窗口」内生效（#app 尚未加 .is-booted）。
+         原因是这些元素挂 animation 会各自提升合成层，而列表项数量会随
+         列表长度增长 —— 层数线性膨胀会拖慢滚动与重绘。
+         JS 在首屏稳定后给 #app 加上 .is-booted，此后新增/删除的行完全交给
+         <transition-group>（.list-*）处理，既修掉了 animation 与 transition
+         同时写 transform 的争抢抖动，也让合成层不再累积。
          ========================================================= */
       /* 首屏依次入场 */
-      .topbar         { animation: riseInSm 0.5s var(--ease-fluid) 0.02s backwards; }
-      .guest-banner   { animation: riseInSm 0.5s var(--ease-fluid) 0.06s backwards; }
-      .upload-zone    { animation: riseIn  0.62s var(--ease-fluid) 0.08s backwards; }
-      .quick-actions > * { animation: riseInSm 0.5s var(--ease-fluid) backwards; }
-      .quick-actions > *:nth-child(1) { animation-delay: 0.14s; }
-      .quick-actions > *:nth-child(2) { animation-delay: 0.18s; }
-      .quick-actions > *:nth-child(3) { animation-delay: 0.22s; }
-      .quick-actions > *:nth-child(4) { animation-delay: 0.26s; }
-      .quick-actions > *:nth-child(5) { animation-delay: 0.30s; }
-      .url-bar        { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .dock           { animation: dockIn 0.72s var(--ease-fluid) 0.1s backwards; }
+      #app:not(.is-booted) .topbar         { animation: riseInSm 0.5s var(--ease-fluid) 0.02s backwards; }
+      #app:not(.is-booted) .guest-banner   { animation: riseInSm 0.5s var(--ease-fluid) 0.06s backwards; }
+      #app:not(.is-booted) .upload-zone    { animation: riseIn  0.62s var(--ease-fluid) 0.08s backwards; }
+      #app:not(.is-booted) .quick-actions > * { animation: riseInSm 0.5s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .quick-actions > *:nth-child(1) { animation-delay: 0.14s; }
+      #app:not(.is-booted) .quick-actions > *:nth-child(2) { animation-delay: 0.18s; }
+      #app:not(.is-booted) .quick-actions > *:nth-child(3) { animation-delay: 0.22s; }
+      #app:not(.is-booted) .quick-actions > *:nth-child(4) { animation-delay: 0.26s; }
+      #app:not(.is-booted) .quick-actions > *:nth-child(5) { animation-delay: 0.30s; }
+      #app:not(.is-booted) .url-bar        { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .dock           { animation: dockIn 0.72s var(--ease-fluid) 0.1s backwards; }
 
-      /* 面板与列表项出现 */
-      .panel          { animation: riseIn 0.52s var(--ease-fluid) backwards; }
-      .task           { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .list--card .row,
-      .list > .row    { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .selection-bar  { animation: riseIn 0.46s var(--ease-spring) backwards; }
+      /* 面板出现（容器级，数量恒定，保留） */
+      #app:not(.is-booted) .panel          { animation: riseIn 0.52s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .selection-bar  { animation: riseIn 0.46s var(--ease-spring) backwards; }
+      /* 列表项（.task / .row / .hist-card）不再挂 animation —— 交给 transition-group，
+         避免与 .list-enter-active 的 transform 争抢，且不随列表长度累积合成层 */
 
-      /* 抽屉内部 */
-      .drawer-tabs    { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .summary        { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .settings-row   { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .folder-current { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .folder-new     { animation: riseInSm 0.42s var(--ease-fluid) backwards; }
-      .tree-panel     { animation: riseInSm 0.46s var(--ease-fluid) backwards; }
-      .tree-row       { animation: riseInSm 0.4s  var(--ease-fluid) backwards; }
+      /* 抽屉内部（数量恒定，保留） */
+      #app:not(.is-booted) .drawer-tabs    { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .summary        { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .settings-row   { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .folder-current { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .folder-new     { animation: riseInSm 0.42s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .tree-panel     { animation: riseInSm 0.46s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .tree-row       { animation: riseInSm 0.4s  var(--ease-fluid) backwards; }
 
       /* 本地历史 */
-      .hist-stats     { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .hist-toolbar   { animation: riseInSm 0.44s var(--ease-fluid) 0.04s backwards; }
-      .hist-options   { animation: riseInSm 0.4s  var(--ease-fluid) backwards; }
-      .hist-card      { animation: scaleIn  0.46s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .hist-stats     { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      #app:not(.is-booted) .hist-toolbar   { animation: riseInSm 0.44s var(--ease-fluid) 0.04s backwards; }
+      #app:not(.is-booted) .hist-options   { animation: riseInSm 0.4s  var(--ease-fluid) backwards; }
 
       /* 浮层 */
-      .download-panel { animation: panelIn 0.52s var(--ease-fluid) backwards; }
-      .toast          { animation: toastIn 0.5s  var(--ease-spring) backwards; }
-      .share-result   { animation: scaleIn 0.46s var(--ease-spring) backwards; }
+      /* download-panel / toast 的入场与出场统一由 Vue 过渡族接管
+         （见下方 .pop-* 与 .toast-*），不再使用 animation 以免与
+         transition 争抢 transform 属性导致抖动 */
+      #app:not(.is-booted) .share-result   { animation: scaleIn 0.46s var(--ease-spring) backwards; }
+
+      /* =========================================================
+         Vue 过渡族 —— 补齐出场（leave）动画
+         ========================================================= */
+      /* ---- fade：纯淡入淡出（遮罩、横幅、轻量提示） ---- */
+      .fade-enter-active { transition: opacity 0.24s var(--ease-apple); }
+      .fade-leave-active { transition: opacity 0.18s var(--ease-press); }
+      .fade-enter-from,
+      .fade-leave-to     { opacity: 0; }
+
+      /* ---- pop：缩放弹出 / 收回（菜单、徽标、浮层） ---- */
+      .pop-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.26s var(--ease-spring); }
+      .pop-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
+      .pop-enter-from,
+      .pop-leave-to     { opacity: 0; transform: scale(0.92) translateY(-6px); }
+
+      /* ---- rise：上浮进入 / 下沉退出（面板、横幅、工具条） ---- */
+      .rise-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
+      .rise-leave-active { transition: opacity 0.18s var(--ease-press), transform 0.24s var(--ease-press); }
+      .rise-enter-from,
+      .rise-leave-to     { opacity: 0; transform: translate3d(0, 14px, 0); }
+
+      /* ---- drop：顶部下滑进入 / 上滑退出（URL 栏、访客提示） ---- */
+      .drop-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
+      .drop-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+      .drop-enter-from,
+      .drop-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0); }
+
+      /* ---- sheet：底部抽屉滑入 / 降下 ---- */
+      /* 性能：过渡窗口内临时关闭遮罩的全屏模糊。
+         模糊层做 opacity 动画会让浏览器每帧重新采样并重算高斯模糊，
+         是弹窗开合掉帧的主因；动画结束类移除后模糊自动恢复，
+         静态观感完全一致。 */
+      .sheet-enter-active, .sheet-leave-active,
+      .dialog-enter-active, .dialog-leave-active {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+      .sheet-enter-active { transition: opacity 0.3s var(--ease-apple); }
+      .sheet-leave-active { transition: opacity 0.22s var(--ease-apple); }
+      .sheet-enter-active .modal { transition: transform 0.46s var(--ease-apple); }
+      .sheet-leave-active .modal { transition: transform 0.26s var(--ease-press), opacity 0.22s var(--ease-press); }
+      .sheet-enter-from,
+      .sheet-leave-to { opacity: 0; }
+      .sheet-enter-from .modal { transform: translate3d(0, 100%, 0); }
+      .sheet-leave-to   .modal { transform: translate3d(0, 100%, 0); opacity: 0; }
+
+      /* ---- dialog：居中弹窗缩放入场 / 收缩退出 ---- */
+      .dialog-enter-active { transition: opacity 0.26s var(--ease-apple); }
+      .dialog-leave-active { transition: opacity 0.18s var(--ease-press); }
+      .dialog-enter-active .modal { transition: transform 0.44s var(--ease-spring); }
+      .dialog-leave-active .modal { transition: transform 0.22s var(--ease-press), opacity 0.18s var(--ease-press); }
+      .dialog-enter-from,
+      .dialog-leave-to { opacity: 0; }
+      .dialog-enter-from .modal { transform: scale(0.88) translate3d(0, 14px, 0); }
+      .dialog-leave-to   .modal { transform: scale(0.92) translate3d(0, 10px, 0); opacity: 0; }
+
+      /* ---- list：列表项进出场（配合 transition-group） ---- */
+      .list-enter-active { transition: opacity 0.3s var(--ease-apple), transform 0.38s var(--ease-fluid); }
+      .list-leave-active {
+        transition: opacity 0.18s var(--ease-press), transform 0.22s var(--ease-press);
+        position: relative; pointer-events: none;
+      }
+      .list-enter-from,
+      .list-leave-to     { opacity: 0; transform: translate3d(0, 12px, 0); }
+      .list-leave-to     { transform: translate3d(0, -8px, 0); }
+      /* 删除时让后续项平滑补位 */
+      .list-move         { transition: transform 0.34s var(--ease-apple); }
+
+      /* ---- 底部条形工具条（选择栏） ---- */
+      .bar-enter-active { transition: opacity 0.24s var(--ease-apple), transform 0.34s var(--ease-spring); }
+      .bar-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+      .bar-enter-from,
+      .bar-leave-to     { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.98); }
+
+      /* ---- toast：顶部滑落进入 / 上滑消失（对应 toastIn / toastOut） ---- */
+      .toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
+      .toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+      .toast-enter-from,
+      .toast-leave-to     { opacity: 0; transform: translate3d(-50%, -22px, 0) scale(0.9); }
+      .toast-leave-to     { transform: translate3d(-50%, -14px, 0) scale(0.94); }
 
       /* 主题切换时，只对颜色类属性做平滑过渡（不含 transform，避免与入场动画互相干扰） */
       .summary, .settings-list, .tree-panel, .list--card, .menu,
@@ -1144,15 +1248,31 @@
                     color 0.45s var(--ease-apple);
       }
 
-      /* 合成层保护：让入场动画结束后元素仍保留合成层，
-         避免与父级 backdrop-filter 一起重绘时闪白 */
-      .settings-row,
-      .tree-row,
-      .list--card .row,
-      .list > .row,
-      .hist-card {
-        backface-visibility: hidden;
-        -webkit-backface-visibility: hidden;
+      /* 性能说明：原先此处用 backface-visibility: hidden 强制列表项常驻合成层，
+         但层数会随列表长度线性膨胀、长期占用显存；在遮罩模糊降级（见 .sheet-* 规则）
+         之后闪白风险已大幅降低，故整块移除，让浏览器按需自行管理图层。 */
+
+      /* =========================================================
+         性能分级：低端设备降级
+         ========================================================= */
+      /* JS 检测核心数 / 内存后给 <html> 加 data-perf="low" */
+      html[data-perf="low"] .card,
+      html[data-perf="low"] .menu,
+      html[data-perf="low"] .dock,
+      html[data-perf="low"] .selection-bar,
+      html[data-perf="low"] .modal,
+      html[data-perf="low"] .modal-mask {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+      html[data-perf="low"] .ambient-orb { animation: none; }
+
+      /* 系统级「降低透明度」偏好 */
+      @media (prefers-reduced-transparency: reduce) {
+        .card, .menu, .dock, .selection-bar, .modal, .modal-mask {
+          backdrop-filter: none !important;
+          -webkit-backdrop-filter: none !important;
+        }
       }
 
       /* =========================================================
@@ -1181,6 +1301,8 @@
           animation-iteration-count: 1 !important;
           transition-duration: 0.01ms !important;
           scroll-behavior: auto !important;
+          /* 动态效果被关闭后，预留的合成层不再有意义，一并释放显存 */
+          will-change: auto !important;
         }
       }
     </style>
@@ -1216,13 +1338,15 @@
       </header>
 
       <!-- 访客提示 -->
-      <div class="guest-banner" v-if="!authChecking && isGuest && guestUploadConfig">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <i class="fas fa-circle-info"></i>
-          <span>访客模式：单文件上限 {{ formatSize(guestUploadConfig.maxFileSize) }}，每日上限 {{ guestUploadConfig.maxDailyUploads }} 次</span>
+      <transition name="drop">
+        <div class="guest-banner" v-if="!authChecking && isGuest && guestUploadConfig">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-circle-info"></i>
+            <span>访客模式：单文件上限 {{ formatSize(guestUploadConfig.maxFileSize) }}，每日上限 {{ guestUploadConfig.maxDailyUploads }} 次</span>
+          </div>
+          <span style="cursor: pointer; text-decoration: underline;" @click="openDrawer('menu')">登录账户</span>
         </div>
-        <span style="cursor: pointer; text-decoration: underline;" @click="openDrawer('menu')">登录账户</span>
-      </div>
+      </transition>
 
       <main>
         <!-- 上传投放区 -->
@@ -1260,16 +1384,19 @@
         </div>
 
         <!-- URL 转存 -->
-        <div class="url-bar" v-if="showUrlInput">
-          <i class="fas fa-link"></i>
-          <input type="text" v-model="urlToUpload" placeholder="输入外部图片或文件 URL 直链地址..." @keyup.enter="uploadFromUrl" />
-          <button class="btn btn--primary" @click="uploadFromUrl" :disabled="urlUploading">
-            <i :class="urlUploading ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane'"></i>
-            <span>{{ urlUploading ? '转存中' : '开始转存' }}</span>
-          </button>
-        </div>
+        <transition name="drop">
+          <div class="url-bar" v-if="showUrlInput">
+            <i class="fas fa-link"></i>
+            <input type="text" v-model="urlToUpload" placeholder="输入外部图片或文件 URL 直链地址..." @keyup.enter="uploadFromUrl" />
+            <button class="btn btn--primary" @click="uploadFromUrl" :disabled="urlUploading">
+              <i :class="urlUploading ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane'"></i>
+              <span>{{ urlUploading ? '转存中' : '开始转存' }}</span>
+            </button>
+          </div>
+        </transition>
 
         <!-- 上传队列 -->
+        <transition name="rise">
         <section class="card panel" v-if="uploadingFiles.length > 0">
           <div class="panel__head">
             <span class="panel__title">
@@ -1285,7 +1412,8 @@
             </div>
           </div>
 
-          <div class="task" v-for="(file, idx) in uploadingFiles" :key="idx">
+          <transition-group name="list" tag="div">
+          <div class="task" v-for="(file, idx) in uploadingFiles" :key="file.id || idx">
             <img v-if="file.preview" :src="file.preview" class="task__thumb" />
             <div v-else class="task__thumb"><i :class="getFileIcon(file.name)"></i></div>
             <div class="task__info">
@@ -1300,7 +1428,7 @@
                 </span>
               </div>
               <div class="progress" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
-                <div class="progress__val" :style="{ width: (file.progress || 0) + '%' }"></div>
+                <div class="progress__val" :style="{ transform: 'scaleX(' + ((file.progress || 0) / 100) + ')' }"></div>
               </div>
             </div>
             <div class="task__actions">
@@ -1317,9 +1445,12 @@
               </template>
             </div>
           </div>
+          </transition-group>
         </section>
+        </transition>
 
         <!-- 交付结果 -->
+        <transition name="rise">
         <section class="card panel" v-if="uploadedFiles.length > 0">
           <div class="panel__head">
             <span class="panel__title">
@@ -1339,9 +1470,9 @@
             </div>
           </div>
 
-          <div class="list list--card">
+          <transition-group name="list" tag="div" class="list list--card">
             <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected }"
-              v-for="(file, index) in uploadedFiles" :key="index" @click="onResultRowTap(file)">
+              v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
               <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
               <span class="row__thumb">
                 <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getCleanFileUrl(file)" alt="" @error="file._imgError = true" />
@@ -1369,17 +1500,21 @@
                 </transition>
               </div>
             </div>
-          </div>
 
-          <div class="selection-bar" v-if="resultSelectMode">
-            <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
-            <div class="selection-bar__actions">
-              <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0"><i class="fas fa-copy"></i> 复制链接</button>
-              <button class="btn btn--sm" @click="copySelectedShareLinks" :disabled="selectedCount === 0"><i class="fas fa-share-nodes"></i> 复制短链</button>
-              <button class="btn btn--sm btn--danger" @click="removeSelected" :disabled="selectedCount === 0"><i class="fas fa-trash-can"></i> 移除</button>
+          </transition-group>
+
+          <transition name="bar">
+            <div class="selection-bar" v-if="resultSelectMode">
+              <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
+              <div class="selection-bar__actions">
+                <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0"><i class="fas fa-copy"></i> 复制链接</button>
+                <button class="btn btn--sm" @click="copySelectedShareLinks" :disabled="selectedCount === 0"><i class="fas fa-share-nodes"></i> 复制短链</button>
+                <button class="btn btn--sm btn--danger" @click="removeSelected" :disabled="selectedCount === 0"><i class="fas fa-trash-can"></i> 移除</button>
+              </div>
             </div>
-          </div>
+          </transition>
         </section>
+        </transition>
       </main>
 
       <!-- 底部 Dock -->
@@ -1399,6 +1534,7 @@
       </nav>
 
       <!-- 抽屉 -->
+      <transition name="sheet">
       <div class="modal-mask modal-mask--bottom" v-if="showDrawer" @click.self="showDrawer = false">
         <div class="modal modal--sheet">
           <div class="modal__handle"></div>
@@ -1409,9 +1545,9 @@
             </button>
           </div>
 
+          <transition name="rise" mode="out-in">
           <!-- Tab 1: 存储节点 -->
-          <div v-if="activeDrawerTab === 'storage'">
-            <div class="summary">
+          <div v-if="activeDrawerTab === 'storage'" key="storage">            <div class="summary">
               <span class="summary__label">当前存储单文件上限</span>
               <span class="summary__value">{{ currentUploadLimitLabel }}</span>
             </div>
@@ -1516,7 +1652,7 @@
           </div>
 
           <!-- Tab 2: 上传目录 -->
-          <div v-if="activeDrawerTab === 'folder'">
+          <div v-else-if="activeDrawerTab === 'folder'" key="folder">
             <div class="folder-current">
               <div class="folder-current__main">
                 <div class="folder-current__label"><i class="fas fa-location-dot"></i><span>当前上传目录</span></div>
@@ -1532,6 +1668,7 @@
               <button class="btn btn--ghost btn--icon" @click="fetchUploadFolders(true)" title="从云端同步目录"><i class="fas fa-rotate" :class="{ 'fa-spin': uploadFoldersLoading }"></i></button>
             </div>
 
+            <transition name="rise" mode="out-in">
             <button class="folder-new-trigger" v-if="!showUploadFolderCreator" @click="openUploadFolderCreator" :disabled="isGuest">
               <i class="fas fa-folder-plus"></i><span>新建目录</span>
             </button>
@@ -1552,6 +1689,7 @@
                 </button>
               </div>
             </div>
+            </transition>
 
             <div class="section-label">
               <i class="fas fa-sitemap"></i>
@@ -1571,17 +1709,19 @@
                 @select="selectUploadFolder" @toggle="toggleFolderExpand"
                 @rename="handleRenameFolder" @delete="handleDeleteFolder"></folder-node>
 
-              <div class="tree-empty" v-if="uploadFoldersLoading && !uploadFolderTree.children.length">
+              <transition name="fade" mode="out-in">
+              <div class="tree-empty" v-if="uploadFoldersLoading && !uploadFolderTree.children.length" key="loading">
                 <i class="fas fa-spinner fa-spin"></i><span>正在读取目录结构...</span>
               </div>
-              <div class="tree-empty" v-else-if="!uploadFolderTree.children.length">
+              <div class="tree-empty" v-else-if="!uploadFolderTree.children.length" key="empty">
                 <i class="fas fa-folder-open"></i><span>暂无子目录，可在上方直接输入路径或新建</span>
               </div>
+              </transition>
             </div>
           </div>
 
           <!-- Tab 3: 本地历史 -->
-          <div v-if="activeDrawerTab === 'history'">
+          <div v-else-if="activeDrawerTab === 'history'" key="history">
             <div class="hist-stats">
               <span class="hist-stats__item"><i class="fas fa-clock-rotate-left"></i><span><strong>{{ historyStats.count }}</strong> 条</span></span>
               <span class="hist-stats__item"><i class="fas fa-database"></i><span><strong>{{ formatSize(historyStats.totalSize) }}</strong></span></span>
@@ -1600,6 +1740,7 @@
               </button>
             </div>
 
+            <transition name="rise">
             <div class="hist-options" v-if="historyOptionsOpen">
               <div class="hist-options__row">
                 <label>排序</label>
@@ -1618,6 +1759,7 @@
                 </div>
               </div>
             </div>
+            </transition>
 
             <div class="type-tabs">
               <button class="type-tab" v-for="tab in historyTypeTabs" :key="tab.value" :class="{ active: historyTypeFilter === tab.value }" @click="historyTypeFilter = tab.value">
@@ -1625,6 +1767,7 @@
               </button>
             </div>
 
+            <transition name="bar">
             <div class="selection-bar" v-if="historySelectedCount > 0">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ historySelectedCount }}</span>
               <div class="selection-bar__actions">
@@ -1633,7 +1776,9 @@
                 <button class="btn btn--sm btn--danger" @click="deleteHistorySelected"><i class="fas fa-trash"></i> 删除</button>
               </div>
             </div>
+            </transition>
 
+            <transition name="fade">
             <div class="hist-toolbar" style="flex-wrap: wrap;" v-if="historySorted.length">
               <button class="btn btn--sm" @click="toggleHistorySelectAll">
                 <i :class="historyAllSelected ? 'fas fa-check-double' : 'fas fa-check'"></i>
@@ -1647,14 +1792,16 @@
               <span style="flex: 1;"></span>
               <button class="btn btn--sm btn--danger" @click="clearHistory" :disabled="!uploadHistory.length"><i class="fas fa-broom"></i> 清空</button>
             </div>
+            </transition>
 
-            <div v-if="historySorted.length">
+            <transition name="fade" mode="out-in">
+            <div v-if="historySorted.length" key="list">
               <div class="hist-group" v-for="(group, gIdx) in historyGroups" :key="'group-' + gIdx">
                 <div class="hist-group__label" v-if="group.label">
                   <i class="fas fa-calendar-day"></i><span>{{ group.label }}</span>
                 </div>
 
-                <div class="hist-grid" v-if="historyView === 'grid'">
+                <transition-group name="list" tag="div" class="hist-grid" v-if="historyView === 'grid'">
                   <div class="hist-card" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }" @click="historyPreview(item)">
                     <input type="checkbox" class="hist-card__check" v-model="item.selected" @click.stop />
                     <div class="hist-card__thumb">
@@ -1676,9 +1823,9 @@
                       <button class="btn btn--ghost btn--danger" @click.stop="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
-                </div>
+                </transition-group>
 
-                <div class="list" v-else>
+                <transition-group name="list" tag="div" class="list" v-else>
                   <div class="row" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }" style="border: 1px solid var(--glass-border); border-radius: var(--r-md); margin-bottom: 6px; background: var(--glass-subtle);">
                     <input type="checkbox" v-model="item.selected" style="accent-color: var(--primary); cursor: pointer; flex-shrink: 0;" />
                     <div class="row__thumb" @click="historyPreview(item)">
@@ -1706,19 +1853,20 @@
                       <button class="btn btn--ghost btn--icon btn--danger" @click="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
-                </div>
+                </transition-group>
               </div>
             </div>
 
-            <div class="hist-empty" v-else>
+            <div class="hist-empty" v-else key="empty">
               <i class="fas fa-clock-rotate-left"></i>
               <span v-if="uploadHistory.length">没有匹配的历史记录，试试调整搜索关键词或筛选条件</span>
               <span v-else>暂无本地上传历史，上传文件后将自动记录在此</span>
             </div>
+            </transition>
           </div>
 
           <!-- Tab 4: 系统导航 -->
-          <div v-if="activeDrawerTab === 'menu'" style="display: flex; flex-direction: column; gap: 10px;">
+          <div v-else key="menu" style="display: flex; flex-direction: column; gap: 10px;">
             <a href="./gallery.html" v-if="!isGuest" class="btn" style="justify-content: flex-start;"><i class="fas fa-images"></i><span>图片画廊浏览</span></a>
             <a href="./admin.html" v-if="!isGuest" class="btn" style="justify-content: flex-start;"><i class="fas fa-sliders"></i><span>管理后台</span></a>
             <a href="./webdav.html" v-if="!isGuest" class="btn" style="justify-content: flex-start;"><i class="fas fa-hard-drive"></i><span>WebDAV 服务</span></a>
@@ -1730,12 +1878,15 @@
               <i class="fas fa-arrow-right-from-bracket"></i><span>退出登录</span>
             </button>
           </div>
+          </transition>
         </div>
       </div>
+      </transition>
 
       <!-- 预览弹窗 -->
+      <transition name="dialog">
       <div class="modal-mask modal-mask--center" v-if="previewData" @click="closePreview">
-        <div style="max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; align-items: center; animation: dialogIn 0.42s var(--ease-spring) backwards;" @click.stop>
+        <div class="modal modal--preview" @click.stop>
           <img v-if="previewData.type === 'native-image'" :src="previewData.url" style="max-width: 100%; max-height: 70vh; border-radius: var(--r-md); box-shadow: var(--shadow-elevated);" />
           <div v-else-if="previewData.type === 'iframe'" style="width: 88vw; height: 70vh; border-radius: var(--r-md); overflow: hidden; background: #000;">
             <iframe ref="previewIframe" :src="previewData.iframeUrl" style="width: 100%; height: 100%; border: none;" allowfullscreen></iframe>
@@ -1750,8 +1901,10 @@
           </div>
         </div>
       </div>
+      </transition>
 
       <!-- 分享弹窗 -->
+      <transition name="dialog">
       <div class="modal-mask modal-mask--center" v-if="shareDialogVisible" @click.self="closeShareDialog">
         <div class="modal modal--dialog">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
@@ -1766,7 +1919,8 @@
             {{ shareDialogItem ? getDisplayName(shareDialogItem) : '' }}
           </div>
 
-          <div class="share-result" v-if="shareDialogResult">
+          <transition name="rise" mode="out-in">
+          <div class="share-result" v-if="shareDialogResult" key="result">
             <div class="share-result__head"><i class="fas fa-circle-check"></i><span>{{ shareDialogMode === 'manage' ? '分享设置已生效' : '分享链接已生成' }}</span></div>
             <div class="share-result__url">
               <code>{{ shareDialogResult.url }}</code>
@@ -1781,7 +1935,7 @@
             <div class="share-result__hint">访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。</div>
           </div>
 
-          <div class="share-fields" v-else>
+          <div class="share-fields" v-else key="fields">
             <div class="share-fields__row">
               <div class="field">
                 <label>有效期</label>
@@ -1834,6 +1988,7 @@
             <div class="share-hint"><i class="fas fa-circle-info"></i><span>{{ shareDialogExpiryHint }}</span></div>
             <div class="share-error" v-if="shareDialogError"><i class="fas fa-triangle-exclamation"></i><span>{{ shareDialogError }}</span></div>
           </div>
+          </transition>
 
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <button class="btn btn--danger" v-if="shareDialogMode === 'manage'" :disabled="shareDialogRevoking || shareDialogBusy" @click="revokeShare">
@@ -1849,8 +2004,10 @@
           </div>
         </div>
       </div>
+      </transition>
 
       <!-- 下载进度 -->
+      <transition name="pop">
       <div class="download-panel" v-if="downloadProgress.active">
         <div class="download-panel__title">
           <i class="fas fa-download"></i>
@@ -1858,19 +2015,22 @@
           <span class="download-panel__pct">{{ downloadProgress.total > 0 ? Math.round((downloadProgress.loaded / downloadProgress.total) * 100) + '%' : '' }}</span>
         </div>
         <div class="progress" style="margin-top: 0;">
-          <div class="progress__val" :style="{ width: (downloadProgress.total > 0 ? (downloadProgress.loaded / downloadProgress.total) * 100 : 0) + '%' }"></div>
+          <div class="progress__val" :style="{ transform: 'scaleX(' + (downloadProgress.total > 0 ? (downloadProgress.loaded / downloadProgress.total) : 0) + ')' }"></div>
         </div>
         <div class="download-panel__meta">
           <span>{{ formatSize(downloadProgress.loaded) }} / {{ downloadProgress.total > 0 ? formatSize(downloadProgress.total) : '未知大小' }}</span>
           <span class="speed" v-if="downloadProgress.speed">{{ downloadProgress.speed }}</span>
         </div>
       </div>
+      </transition>
 
       <!-- Toast -->
-      <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0">
-        <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
-        <span>{{ toasts[toasts.length - 1].message }}</span>
-      </div>
+      <transition name="toast" mode="out-in">
+        <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0" :key="toastKey">
+          <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
+          <span>{{ toasts[toasts.length - 1].message }}</span>
+        </div>
+      </transition>
     </div>
 
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>
@@ -1992,6 +2152,7 @@
 
             previewData: null,
             toasts: [],
+            toastKey: 0,
 
             PARALLEL_MAX_LIGHT,
             PARALLEL_MAX_HEAVY,
@@ -2309,6 +2470,7 @@
           },
           showToast(message, type = "info") {
             this.toasts.push({ message, type });
+            this.toastKey++;
             setTimeout(() => { this.toasts.shift(); }, 2800);
           },
 
@@ -3710,8 +3872,35 @@
               window.location.href = "/login.html";
             } catch (e) {}
           },
+
+          /* 首屏入场动画结束后，解除入场 animation 作用域。
+             等两帧确保浏览器已完成首屏样式计算与首帧绘制，再切标记，
+             这样首屏 stagger 完整播完、且不会在动画途中被中断。 */
+          markBooted() {
+            const apply = () => {
+              const el = document.getElementById("app");
+              if (el) el.classList.add("is-booted");
+            };
+            if (typeof requestAnimationFrame !== "function") { setTimeout(apply, 120); return; }
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+              /* 首屏 stagger 最长约 0.72s + 0.1s 延迟，留足窗口再解除 */
+              setTimeout(apply, 900);
+            }));
+          },
         },
         async mounted() {
+          /* 性能分级：低端设备关闭毛玻璃与环境光球动画。
+             用核心数 / 设备内存做粗判，命中即降级（宁可保守，宁可不模糊）。 */
+          try {
+            const cores = navigator.hardwareConcurrency || 8;
+            const mem = navigator.deviceMemory || 8;
+            const conn = navigator.connection;
+            const slowNet = conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ""));
+            if (cores <= 4 || mem <= 4 || slowNet) {
+              document.documentElement.setAttribute("data-perf", "low");
+            }
+          } catch (e) {}
+
           try {
             const th = localStorage.getItem("theme") || "light";
             this.currentTheme = th;
@@ -3724,6 +3913,13 @@
           await this.checkAuth();
           await this.checkStorageTarget();
           this.fetchUploadFolders();
+
+          /* 首屏入场动画窗口结束后打上标记：
+             #app.is-booted 生效后，所有 `#app:not(.is-booted) .xxx` 的入场 animation
+             自动失效，此后新增的列表项只走 <transition-group>，
+             避免合成层随列表长度累积、也避免与过渡争抢 transform。 */
+          this.markBooted();
+
           this.globalPasteHandler = (e) => {
             if (["INPUT", "TEXTAREA"].includes(e.target?.tagName)) return;
             const files = Array.from(e.clipboardData?.files || []);
