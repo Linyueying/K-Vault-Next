@@ -2731,6 +2731,9 @@
                 <button class="mini-icon-btn" @click="retryUpload(file, true)" title="从头重传">
                   <i class="fas fa-rotate-left"></i>
                 </button>
+                <button class="mini-icon-btn" @click="cancelUpload(file)" title="取消上传">
+                  <i class="fas fa-xmark"></i>
+                </button>
               </template>
               <template v-if="file.status === 'error'">
                 <button
@@ -2746,6 +2749,9 @@
                   title="放弃已传分片，从头重传"
                 >
                   <i class="fas fa-rotate-left"></i>
+                </button>
+                <button class="mini-icon-btn" @click="cancelUpload(file)" title="取消上传">
+                  <i class="fas fa-xmark"></i>
                 </button>
               </template>
             </div>
@@ -5757,12 +5763,23 @@
             file.paused = false;
 
             if (fromScratch) {
+              // 修复 C：从头重传前，先 abort 旧 uploadId 释放 R2 空间，
+              // 否则旧 multipart 会变成孤儿一直占着 R2，直到惰性清理/生命周期兜底。
+              const oldUploadId = file.uploadId;
               file.uploadId = null;
               file.chunkDone = [];
               file.parts = null;
               file.progress = 0;
               file.uploadedBytes = 0;
               this.clearResumeState(file.fileId);
+              if (oldUploadId) {
+                fetch(`${this.baseURL}/api/chunked-upload/abort`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ uploadId: oldUploadId }),
+                  credentials: "include",
+                }).catch(() => {});
+              }
             } else if (file.chunkDone && file.chunkDone.length) {
               /* 保留 uploadedBytes / progress，让 UI 显示的续传起点是真实的 */
               file.statusText = `续传（已完成 ${file.chunkDone.length} 个分片）`;
@@ -5799,6 +5816,25 @@
             this.uploadingFiles.filter((f) => f.status === "paused").forEach((f) => this.resumeUpload(f));
           },
           clearUploadQueue() { this.uploadingFiles = []; },
+
+          /** 取消上传：通知服务端 abort R2 multipart 释放空间，并移除本地项 */
+          async cancelUpload(file) {
+            const oldUploadId = file.uploadId;
+            if (oldUploadId) {
+              // fire-and-forget：不阻塞 UI，旧 uploadId 已用不到，
+              // 让它异步 abort 释放 R2 上已上传的分片空间。
+              fetch(`${this.baseURL}/api/chunked-upload/abort`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ uploadId: oldUploadId }),
+                credentials: "include",
+              }).catch(() => {});
+            }
+            // 清本地 resume 快照，避免下次同文件命中已取消的任务
+            if (file.fileId) this.clearResumeState(file.fileId);
+            // 从上传列表移除该项
+            this.uploadingFiles = this.uploadingFiles.filter((f) => f !== file);
+          },
 
           /* ============================================================
            * 分享直链
