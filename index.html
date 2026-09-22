@@ -310,6 +310,9 @@
         margin-top: 2px; flex-wrap: wrap;
       }
       .row__actions { display: flex; align-items: center; gap: 2px; flex: none; position: relative; }
+      /* 行内操作按钮进出场：退出选择模式时要有回场动画，而不是突然出现 */
+      .rowAct-enter-active { animation: actionIn 0.32s var(--ease-spring) both; }
+      .rowAct-leave-active { animation: actionOut 0.18s var(--ease-press) both; }
 
       /* 选择模式圆圈 */
       .check {
@@ -319,9 +322,17 @@
         border: 1.5px solid rgba(100, 116, 139, 0.45);
         display: inline-flex; align-items: center; justify-content: center;
         font-size: 0.6rem; color: transparent;
-        transition: all 0.26s var(--ease-spring);
+        transition: background var(--dur-base) var(--ease-spring),
+                    border-color var(--dur-base) var(--ease-spring),
+                    color var(--dur-base) var(--ease-spring),
+                    transform var(--dur-base) var(--ease-spring);
       }
       .check.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+      /* 勾选时对勾再来一次小回弹，强化「选中」确认感 */
+      .check.on i { animation: pop 0.32s var(--ease-spring); }
+      /* 圆圈进出场：出现/消失都要有动画，不能硬闪 */
+      .check-enter-active { animation: checkIn 0.34s var(--ease-spring) both; }
+      .check-leave-active { animation: checkOut 0.2s var(--ease-press) both; }
 
       /* 小徽标 */
       .badge {
@@ -736,9 +747,13 @@ html[data-theme="dark"] .menu { background: rgba(30, 41, 59, 0.95); border-color
 .menu__item--danger:hover { background: var(--c-danger-soft); }
 .menu__sep { height: 1px; margin: var(--sp-1) var(--sp-3); background: var(--glass-border-ice); }
 
-.menu-enter-active { transition: opacity 0.22s var(--ease-apple), transform 0.28s var(--ease-spring); }
-.menu-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.14s var(--ease-press); }
-.menu-enter-from, .menu-leave-to { opacity: 0; transform: scale(0.9) translateY(-4px); }
+/* 上下文菜单进出场：走 keyframes，避免同帧插入+换 class 导致动画被整帧跳过。
+   时长/缓动沿用项目既有的 --ease-spring（回弹）与 --ease-press（收束）。 */
+.menu-enter-active { animation: menuIn 0.3s var(--ease-spring) both; transform-origin: inherit; }
+.menu-leave-active { animation: menuOut 0.18s var(--ease-press) both; transform-origin: inherit; }
+/* 起始状态交给 keyframes 的 from 帧，这里不再用 transform 覆盖，防止抢帧 */
+.menu-enter-from,
+.menu-leave-to { opacity: 1; }
 
 /* =========================================================
    目录管理
@@ -1150,6 +1165,40 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
       }
       @keyframes maskIn { from { opacity: 0; } to { opacity: 1; } }
+
+      /* 上下文菜单入场：用 keyframes 而非 enter-from/enter-to 的 class 互换。
+         原因：菜单是在同一帧内「插入 DOM + 切换 class」，浏览器来不及建立
+         起始状态，过渡会被整帧跳过（实测 transform 直接从 matrix(0.9…) 跳到 none）。
+         keyframes 由合成器自行插值，不受这次 class 竞态影响。
+         transform-origin 已按 .menu / .menu--up / .menu--left 各自设置。 */
+      @keyframes menuIn {
+        from { opacity: 0; transform: scale(0.86) translate3d(0, -8px, 0); }
+        to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+      }
+      @keyframes menuOut {
+        from { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+        to   { opacity: 0; transform: scale(0.9) translate3d(0, -6px, 0); }
+      }
+      /* 选择模式复选框：入场回弹放大，出场缩回（配合列表项淡出） */
+      @keyframes checkIn {
+        from { opacity: 0; transform: scale(0.4); }
+        60%  { opacity: 1; transform: scale(1.12); }
+        to   { opacity: 1; transform: scale(1); }
+      }
+      @keyframes checkOut {
+        from { opacity: 1; transform: scale(1); }
+        to   { opacity: 0; transform: scale(0.4); }
+      }
+      /* 行内操作按钮（复制/更多）：进出都要有动画，避免「直接没掉」 */
+      @keyframes actionIn {
+        from { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      }
+      @keyframes actionOut {
+        from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+        to   { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+      }
+
       @keyframes toastIn {
         from { opacity: 0; transform: translate3d(-50%, -22px, 0) scale(0.9); }
         to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
@@ -1549,7 +1598,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       </div>
     </div>
     <div class="task__actions">
-      <button v-if="file.status === 'uploading' || file.status === 'processing'" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
+      <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
       <template v-if="file.status === 'paused'">
         <button class="btn btn--ghost btn--icon" @click="resumeUpload(file)" title="继续上传"><i class="fas fa-play"></i></button>
         <button class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
@@ -1589,7 +1638,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           <transition-group name="list" tag="div" class="list list--card">
             <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected }"
               v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
-              <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
+              <transition name="check">
+                <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
+              </transition>
               <span class="row__thumb">
                 <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getCleanFileUrl(file)" alt="" @error="file._imgError = true" />
                 <i v-else :class="getFileIcon(getDisplayName(file))"></i>
@@ -1601,20 +1652,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   <span v-if="hasShare(file)" class="share-badge"><i class="fas fa-link"></i> 已分享</span>
                 </div>
               </div>
-              <div class="row__actions" v-if="!resultSelectMode">
-                <button class="btn btn--ghost btn--icon" @click.stop="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
-                <button class="btn btn--ghost btn--icon" :class="{ open: resultMenuFor === index }" @click.stop="toggleFileMenu(index)" title="更多操作"><i class="fas fa-ellipsis"></i></button>
-                <transition name="menu">
-                  <div v-if="resultMenuFor === index" class="menu" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
-                    <button class="menu__item" @click="menuAct(openPreview(file))"><i class="fas fa-eye"></i><span>预览</span></button>
-                    <button class="menu__item" @click="menuAct(downloadFile(file))"><i class="fas fa-download"></i><span>下载</span></button>
-                    <button class="menu__item" @click="menuAct(openShareDialog(file))"><i class="fas fa-share-nodes"></i><span>{{ hasShare(file) ? '管理分享' : '创建分享' }}</span></button>
-                    <button v-if="hasShare(file)" class="menu__item" @click="menuAct(copyShareLink(file))"><i class="fas fa-link"></i><span>复制分享短链</span></button>
-                    <div class="menu__sep"></div>
-                    <button class="menu__item menu__item--danger" @click="menuAct(removeFromResults(index))"><i class="fas fa-trash-can"></i><span>移除</span></button>
-                  </div>
-                </transition>
-              </div>
+              <transition name="rowAct">
+                <div class="row__actions" v-if="!resultSelectMode">
+                  <button class="btn btn--ghost btn--icon" @click.stop="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
+                  <button class="btn btn--ghost btn--icon" :class="{ open: resultMenuFor === index }" @click.stop="toggleFileMenu(index)" title="更多操作"><i class="fas fa-ellipsis"></i></button>
+                  <transition name="menu">
+                    <div v-if="resultMenuFor === index" class="menu" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
+                      <button class="menu__item" @click="menuAct(openPreview(file))"><i class="fas fa-eye"></i><span>预览</span></button>
+                      <button class="menu__item" @click="menuAct(downloadFile(file))"><i class="fas fa-download"></i><span>下载</span></button>
+                      <button class="menu__item" @click="menuAct(openShareDialog(file))"><i class="fas fa-share-nodes"></i><span>{{ hasShare(file) ? '管理分享' : '创建分享' }}</span></button>
+                      <button v-if="hasShare(file)" class="menu__item" @click="menuAct(copyShareLink(file))"><i class="fas fa-link"></i><span>复制分享短链</span></button>
+                      <div class="menu__sep"></div>
+                      <button class="menu__item menu__item--danger" @click="menuAct(removeFromResults(index))"><i class="fas fa-trash-can"></i><span>移除</span></button>
+                    </div>
+                  </transition>
+                </div>
+              </transition>
             </div>
 
           </transition-group>
@@ -2352,7 +2405,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             parallelUpload: false,
             parallelHeavy: PARALLEL_DEFAULT_HEAVY,
             parallelLight: PARALLEL_DEFAULT_LIGHT,
+
+            /* ===== 上传调度器状态（详见 uploadScheduler 区块注释） ===== */
+            uploadEpoch: 0,              // 调度代次：任何配置/意图变化都会 +1
             uploadSchedulerRunning: false,
+            uploadDrainTimer: null,
+            schedulerDisposed: false,
+            uploadTaskSeq: 0,
+            queueCleanupTimer: null,
 
             smartThreshold: SMART_SMALL_FILE_LIMIT,
             smartLargeMode: "r2",
@@ -2414,7 +2474,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             return String(this.shareSlug || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
           },
           failedCount() { return this.uploadingFiles.filter((f) => f.status === "error").length; },
-          activeUploadCount() { return this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing").length; },
+          /* 队列里还有「想跑但没跑完」的任务（含等待中）→ 可以整体暂停 */
+          activeUploadCount() { return this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error").length; },
           pausedCount() { return this.uploadingFiles.filter((f) => f.status === "paused").length; },
           isMoreTabActive() { return ["history", "menu"].includes(this.activeDrawerTab); },
 
@@ -2668,12 +2729,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             setTimeout(() => { this.toasts.shift(); }, 2800);
           },
 
-          /* ===== XHR 上传（保留所有断点续传能力） ===== */
-          xhrUpload(url, formData, onProgress, timeoutMs) {
+          /* ===== XHR 上传（保留所有断点续传能力） =====
+             task 传了就把当前 xhr 挂到任务上，暂停时可直接 abort。
+             注意：abort 与 timeout 语义分开 —— abort 视为「用户主动暂停」，
+             timeout 视为「可续传的失败」，两者绝不能互相冒充。 */
+          xhrUpload(url, formData, onProgress, timeoutMs, task) {
             let xhrRef = null;
             const p = new Promise((resolve, reject) => {
               const xhr = new XMLHttpRequest();
               xhrRef = xhr;
+              if (task) task.xhr = xhr;
               xhr.open("POST", url);
               xhr.withCredentials = true;
               if (timeoutMs && timeoutMs > 0) xhr.timeout = timeoutMs;
@@ -2691,7 +2756,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               xhr.onabort = () => reject(new Error("__ABORTED__"));
               xhr.send(formData);
             });
+            const settle = () => { if (task && task.xhr === xhrRef) task.xhr = null; };
             p._xhr = xhrRef;
+            p.then(settle, settle);
             return p;
           },
           estimateTimeout(bytes) {
@@ -2783,21 +2850,21 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.showToast(this.parallelUpload
               ? `已开启并行上传（小文件 ×${this.concurrencyForPool("light")} · 大文件 ×${this.concurrencyForPool("heavy")}）`
               : "已关闭并行上传，改为依次上传", "success");
-            this.startUpload();
+            this.restartUploadNow();
           },
           setParallelLight(v) {
             const n = Math.min(Math.max(1, Math.floor(Number(v) || 1)), PARALLEL_MAX_LIGHT);
             if (n === this.parallelLight) return;
             this.parallelLight = n;
             try { localStorage.setItem("parallelLight", String(n)); } catch (e) {}
-            this.startUpload();
+            this.restartUploadNow();
           },
           setParallelHeavy(v) {
             const n = Math.min(Math.max(1, Math.floor(Number(v) || 1)), PARALLEL_MAX_HEAVY);
             if (n === this.parallelHeavy) return;
             this.parallelHeavy = n;
             try { localStorage.setItem("parallelHeavy", String(n)); } catch (e) {}
-            this.startUpload();
+            this.restartUploadNow();
           },
           restoreParallelSettings() {
             try { this.parallelUpload = localStorage.getItem("parallelUpload") === "1"; } catch (e) { this.parallelUpload = false; }
@@ -3222,72 +3289,204 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                 this.showToast(`文件 [${file.name}] ${this.formatSize(file.size)} 超过 ${this.storageLabel(targetMode)} 上限 ${this.formatSize(maxBytes)}${viaTip}`, "error");
                 continue;
               }
-              const item = {
-                name: file.name, size: file.size, file: file, targetMode: targetMode,
-                status: "waiting", statusText: "等待中", speed: "", uploadedBytes: 0,
-                preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-                progress: 0, error: null,
-                uploadId: null, chunkDone: [], fileId: null, paused: false,
-              };
+              const item = this.createUploadTask(file, targetMode);
               this.uploadingFiles.push(item);
             }
-            this.startUpload();
+            this.requestUploadScheduling();
           },
 
-          /* ===== 上传调度 ===== */
-          async startUpload() {
-            if (this.uploadSchedulerRunning) return;
-            this.uploadSchedulerRunning = true;
-            try { await this.runUploadPool(); }
-            finally { this.uploadSchedulerRunning = false; }
-            setTimeout(() => { this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success"); }, 2500);
+          /* ===== 上传调度（唯一入口） =====
+             设计要点：
+             1. 并发额度是「跑完即收回的令牌」，不依赖任务对象上的状态。
+                旧实现用 status === "uploading/processing" 统计在飞数量，
+                而暂停会把 status 立刻改成 "paused"、额度却还没释放，
+                于是暂停瞬间额度虚高，调度器会多捞任务、出现「跳着传」。
+             2. 每次配置变化（并发数 / 并行开关 / 暂停 / 继续 / 新增文件）
+                都会 bump 一个全局 epoch。正在跑的 worker 每轮循环都校验
+                epoch，一旦过期就自行退出，由新一轮调度接管；同一时刻
+                只可能有一代调度器在派发任务。
+             3. 暂停 = 撤销该任务的运行令牌（runToken），并 abort 它正在飞的
+                分片请求；在飞 XHR 一旦被 abort（onabort）或超时（ontimeout），
+                必须换新令牌才能重新上传，避免迟到的回调污染新一轮进度。 */
+          isRetirableError(err) {
+            const msg = String((err && err.message) || "");
+            return msg === "__ABORTED__" || msg === "网络请求超时";
           },
-          pickUploadTask(preferTelegram, lightN, heavyN) {
-            const waiting = this.uploadingFiles.filter((f) => f.status === "waiting" && !f.paused);
-            if (!waiting.length) return null;
-            const inFlightTg = this.uploadingFiles.filter((f) => (f.status === "uploading" || f.status === "processing") && this.isTelegramTask(f)).length;
-            const inFlightHeavy = this.uploadingFiles.filter((f) => (f.status === "uploading" || f.status === "processing") && !this.isTelegramTask(f)).length;
-            const allowed = (item) => this.isTelegramTask(item) ? inFlightTg < lightN : inFlightHeavy < heavyN;
-            const preferred = waiting.find((f) => this.isTelegramTask(f) === preferTelegram && allowed(f));
-            if (preferred) return preferred;
-            return waiting.find((f) => allowed(f)) || null;
+          createUploadTask(file, targetMode) {
+            return {
+              uid: `u${Date.now().toString(36)}${(this.uploadTaskSeq = (this.uploadTaskSeq || 0) + 1).toString(36)}`,
+              name: file.name, size: file.size, file: file, targetMode: targetMode,
+              status: "waiting", statusText: "等待中", speed: "", uploadedBytes: 0,
+              preview: file.type && file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+              progress: 0, error: null,
+              uploadId: null, chunkDone: [], fileId: null,
+              /* 业务意图：用户想暂停 -> want !== "run"；想继续/重试 -> want === "run" */
+              want: "run",
+              /* 运行令牌：worker 派发前写入，暂停/重试校验并作废 */
+              runToken: 0,
+              xhr: null,
+              cancelRequested: false,
+            };
           },
-          spawnUploadWorkers(concurrency, preferTelegram, lightN, heavyN) {
-            const workers = [];
-            for (let i = 0; i < concurrency; i++) {
-              workers.push((async () => {
-                for (;;) {
-                  const item = this.pickUploadTask(preferTelegram, lightN, heavyN);
-                  if (!item) return;
-                  item.status = "uploading";
-                  try { await this.uploadOne(item); }
-                  catch (err) {
-                    const msg = String((err && err.message) || "上传失败");
-                    if (msg === "__ABORTED__") { item.status = "paused"; item.statusText = "已暂停"; item.speed = ""; }
-                    else { item.status = "error"; item.statusText = "上传失败"; item.speed = ""; item.error = msg; }
-                  }
-                }
-              })());
+
+          /* 令牌失效：作废令牌 + 真正中断在飞请求 + 清空速度显示。
+             必须真的 abort，否则底层 XHR 会一直挂着、Promise 永不 settle，
+             该任务就会永久占住一个并发名额，表现为「点继续没反应」。 */
+          invalidateTaskRun(item) {
+            if (!item) return;
+            item.runToken = (item.runToken || 0) + 1;
+            const xhr = item.xhr;
+            item.xhr = null;
+            item.speed = "";
+            if (xhr && typeof xhr.abort === "function") {
+              try { xhr.abort(); } catch (_) {}
             }
-            return workers;
           },
-          async runUploadPool() {
+
+          /* 唯一调度入口：任何状态变化都走这里，内部做合并与换代 */
+          requestUploadScheduling() {
+            if (this.schedulerDisposed) return;
+            this.uploadEpoch++;
+            if (this.$nextTick && typeof this.$nextTick === "function") this.$nextTick(() => this.dispatchUploads());
+            else this.dispatchUploads();
+          },
+          /* 立即接管调度（用于「继续」「重试」，避免等待一帧） */
+          restartUploadNow() {
+            if (this.schedulerDisposed) return;
+            this.uploadEpoch++;
+            this.dispatchUploads();
+          },
+          dispatchUploads() {
+            if (this.schedulerDisposed) return;
+            this.uploadSchedulerRunning = true;
+            if (!this.uploadDrainTimer) {
+              this.uploadDrainTimer = setTimeout(() => {
+                this.uploadDrainTimer = null;
+                this.drainUploadScheduler();
+              }, 0);
+            }
+          },
+          async drainUploadScheduler() {
+            if (this.schedulerDisposed) return;
+            /* 反复调度直到「没有新变化」且「确实派不出任务」为止。
+               每轮都重新统计在飞额度，上一轮跑完的任务会立刻腾出名额；
+               期间若用户改了意图/并发（epoch 变化），立刻按新配置再来一轮。 */
+            for (;;) {
+              if (this.schedulerDisposed) return;
+              const epoch = this.uploadEpoch;
+              await this.runUploadPool(epoch);
+              if (this.schedulerDisposed) return;
+              if (this.uploadEpoch !== epoch) continue;
+              if (this.pickNextUploadTask(true) || this.pickNextUploadTask(false)) continue;
+              break;
+            }
+            this.uploadSchedulerRunning = false;
+          },
+          /* 可派发任务：用户想跑、尚未开工、且没被标记取消 */
+          pickNextUploadTask(preferTelegram) {
+            const inFlight = { light: 0, heavy: 0 };
+            for (const f of this.uploadingFiles) {
+              if (f.inFlight) inFlight[this.isTelegramTask(f) ? "light" : "heavy"]++;
+            }
             const lightN = this.concurrencyForPool("light");
             const heavyN = this.concurrencyForPool("heavy");
-            if (lightN <= 1 && heavyN <= 1) { await Promise.all(this.spawnUploadWorkers(1, true, 1, 1)); return; }
-            await Promise.all([
-              ...this.spawnUploadWorkers(lightN, true, lightN, heavyN),
-              ...this.spawnUploadWorkers(heavyN, false, lightN, heavyN),
-            ]);
+            const canRun = (item) => {
+              const blocked = this.isTelegramTask(item) ? inFlight.light >= lightN : inFlight.heavy >= heavyN;
+              return !item.inFlight && item.want === "run" && !item.cancelRequested && (item.status === "waiting" || item.status === "error") && !blocked;
+            };
+            const preferred = this.uploadingFiles.find((f) => this.isTelegramTask(f) === preferTelegram && canRun(f));
+            if (preferred) return preferred;
+            return this.uploadingFiles.find(canRun) || null;
           },
-          async uploadOne(item) {
+          async runUploadPool(epoch) {
+            const worker = async (preferTelegram, pool) => {
+              const limit = this.concurrencyForPool(pool);
+              for (let i = 0; i < limit; i++) {
+                for (;;) {
+                  if (this.schedulerDisposed) return;
+                  const item = this.pickNextUploadTask(preferTelegram);
+                  if (!item) {
+                    /* 本代已过期：不再从这一代派发新任务，交回 drain 用新配置重排 */
+                    if (this.uploadEpoch !== epoch) return;
+                    return;
+                  }
+                  item.inFlight = true;
+                  item.runToken = (item.runToken || 0) + 1;
+                  const token = item.runToken;
+                  try {
+                    item.status = "uploading";
+                    item.statusText = "上传中";
+                    item.error = null;
+                    await this.uploadOne(item, token);
+                    /* 关键：任务本身跑完了就必须结算，不能因为「别的任务被暂停」
+                       导致 epoch 过期而丢弃它的成功结果——否则该任务会永远卡在
+                       uploading。epoch 只用来决定「还要不要派发新任务」。 */
+                    this.finishUploadTask(item);
+                  } catch (err) {
+                    this.handleUploadError(item, err, token);
+                  } finally {
+                    item.inFlight = false;
+                    item.xhr = null;
+                  }
+                  if (this.uploadEpoch !== epoch) return;
+                }
+              }
+            };
+            const lightN = this.concurrencyForPool("light");
+            const heavyN = this.concurrencyForPool("heavy");
+            if (lightN <= 1 && heavyN <= 1) { await worker(true, "light"); return; }
+            await Promise.all([worker(true, "light"), worker(false, "heavy")]);
+          },
+          finishUploadTask(item) {
+            item.status = "success";
+            item.statusText = "已完成";
+            item.progress = 100;
+            item.uploadedBytes = item.size;
+            item.speed = "";
+            item.error = null;
+            this.scheduleQueueCleanup();
+          },
+          handleUploadError(item, err, token) {
+            const msg = String((err && err.message) || "上传失败");
+            item.speed = "";
+            /* 令牌已作废 = 这是被暂停/重试作废的旧请求，交给最新意图决定，不覆盖状态 */
+            if (item.runToken !== token) return;
+            if (item.want !== "run") { this.markTaskPaused(item); return; }
+            if (this.isRetirableError(err)) {
+              /* 用户并没有想停，却收到超时/中断：算失败，可续传 */
+              item.status = "error";
+              item.statusText = "上传超时，可续传";
+              item.error = msg;
+              return;
+            }
+            item.status = "error";
+            item.statusText = "上传失败";
+            item.error = msg;
+          },
+          markTaskPaused(item) {
+            this.invalidateTaskRun(item);
+            item.status = "paused";
+            item.statusText = "已暂停";
+            item.error = null;
+          },
+          scheduleQueueCleanup() {
+            if (this.queueCleanupTimer) return;
+            this.queueCleanupTimer = setTimeout(() => {
+              this.queueCleanupTimer = null;
+              for (const f of this.uploadingFiles) {
+                if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
+              }
+              this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
+            }, 2500);
+          },
+          async uploadOne(item, token) {
             const mode = item.targetMode || this.storageMode;
             const limit = this.getUploadLimit(mode);
             const threshold = this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
-            if (item.file.size > threshold && limit.supportsChunkUpload) await this.chunkedUpload(item);
-            else await this.directUpload(item);
+            if (item.file.size > threshold && limit.supportsChunkUpload) await this.chunkedUpload(item, token);
+            else await this.directUpload(item, token);
           },
-          async directUpload(item) {
+          async directUpload(item, token) {
             const mode = item.targetMode || this.storageMode;
             const shareOptions = this.buildShareOptions();
             const formData = new FormData();
@@ -3303,6 +3502,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             let lastLoaded = 0;
             item.statusText = "上传中";
             const data = await this.xhrUpload(`${this.baseURL}/upload`, formData, (loaded, total) => {
+              /* 过期令牌的进度一律丢弃，避免旧请求把新进度条拽回去 */
+              if (item.runToken !== token) return;
               const now = Date.now();
               const diff = (now - lastTime) / 1000;
               if (diff >= 0.4) {
@@ -3313,12 +3514,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               }
               item.uploadedBytes = loaded;
               item.progress = Math.min(99, Math.round((loaded / total) * 100));
-            });
+            }, 0, item);
+            if (item.runToken !== token) throw new Error("__ABORTED__");
             if (Array.isArray(data) && data[0]?.error) throw new Error(data[0]?.error || "上传未成功");
-            item.status = "success";
-            item.statusText = "已完成";
-            item.progress = 100;
-            item.speed = "";
             const src = data[0]?.src;
             const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
             this.applyShareResult(uploadedObj, data[0]);
@@ -3375,9 +3573,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const MAX = 3;
             let lastErr = null;
             for (let attempt = 1; attempt <= MAX; attempt++) {
-              if (item.paused) throw new Error("__ABORTED__");
+              this.assertTaskRunning(item, ctx.token);
               try {
                 const pr = this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, formData, (loadedChunk) => {
+                  if (item.runToken !== ctx.token) return;
                   const currentTotal = ctx.uploadedBase + loadedChunk;
                   const now = Date.now();
                   const diff = (now - ctx.lastTime) / 1000;
@@ -3389,31 +3588,55 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   }
                   item.uploadedBytes = currentTotal;
                   item.progress = Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99));
-                }, this.estimateTimeout(formData.get("chunk")?.size || 0));
-                if (ctx.onXhr) ctx.onXhr(pr._xhr);
-                return await pr;
+                }, this.estimateTimeout(formData.get("chunk")?.size || 0), item);
+                const resp = await pr;
+                this.assertTaskRunning(item, ctx.token);
+                return resp;
               } catch (err) {
                 lastErr = err;
-                const msg = String((err && err.message) || "");
-                if (msg === "__ABORTED__") throw err;
+                /* 暂停作废 或 请求超时：该分片结果不可信（服务端可能其实收下了），
+                   立刻抛出，由调度层决定重排还是标记失败，绝不在这里盲目重试。 */
+                if (this.isRetirableError(err)) throw err;
+                this.assertTaskRunning(item, ctx.token);
                 const wait = 800 * Math.pow(2, attempt - 1);
                 if (attempt < MAX) {
                   item.statusText = `分片 ${index + 1} 重试 (${attempt}/${MAX - 1})...`;
-                  await new Promise((r) => setTimeout(r, wait));
+                  await this.sleepWhileRunning(item, wait, ctx.token);
                 }
               }
             }
             throw lastErr || new Error(`分片 ${index + 1} 上传失败`);
           },
-          async chunkedUpload(item) {
+          /* 任务已不该继续跑时立刻中断当前调用栈 */
+          assertTaskRunning(item, token) {
+            if (this.schedulerDisposed) throw new Error("__ABORTED__");
+            if (item.cancelRequested) throw new Error("__ABORTED__");
+            if (item.want !== "run") throw new Error("__ABORTED__");
+            if (item.runToken !== token) throw new Error("__ABORTED__");
+          },
+          /* 可中断的退避等待：暂停/重试时立即结束等待，不再空耗 */
+          sleepWhileRunning(item, ms, token) {
+            return new Promise((resolve) => {
+              const step = 120;
+              let waited = 0;
+              const timer = setInterval(() => {
+                waited += step;
+                if (this.schedulerDisposed || item.want !== "run" || item.runToken !== token || item.cancelRequested || waited >= ms) {
+                  clearInterval(timer);
+                  resolve();
+                }
+              }, Math.min(step, Math.max(1, ms)));
+            });
+          },
+          async chunkedUpload(item, token) {
             const file = item.file;
             const mode = item.targetMode || this.storageMode;
             const chunkSize = this.resolveChunkSizeForMode(mode);
             const totalChunks = Math.ceil(file.size / chunkSize);
             if (!item.fileId) { item.statusText = "计算文件指纹..."; item.fileId = await this.computeFileId(file); }
+            this.assertTaskRunning(item, token);
             const isResume = !!item.uploadId;
             if (!isResume) { item.progress = 0; item.uploadedBytes = 0; }
-            else { item.statusText = "恢复上传..."; }
             item.statusText = isResume ? "恢复上传..." : "初始化任务...";
             const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
@@ -3428,6 +3651,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             });
             const initData = await initRes.json();
             if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
+            this.assertTaskRunning(item, token);
             const uploadId = initData.uploadId || item.uploadId;
             const serverResumed = initData && initData.resumed === true;
             const isFreshTask = !item.uploadId || uploadId !== item.uploadId;
@@ -3451,13 +3675,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               item.progress = Math.min(99, Math.round((uploadedBase / file.size) * 99));
               item.statusText = serverResumed ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片` : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`;
             }
-            let lastTime = Date.now();
-            let lastLoaded = uploadedBase;
+            const lastTime = Date.now();
+            const lastLoaded = uploadedBase;
             item.statusText = "上传中";
             this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
             for (let i = 0; i < totalChunks; i++) {
               if (doneSet.has(i)) continue;
-              if (item.paused) throw new Error("__ABORTED__");
+              /* 每个分片开传前再校验一次：暂停/重试后不再往下发新分片 */
+              this.assertTaskRunning(item, token);
               const start = i * chunkSize;
               const end = Math.min(start + chunkSize, file.size);
               const chunk = file.slice(start, end);
@@ -3466,7 +3691,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               fd.append("chunk", chunk);
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
-              const chunkResp = await this.uploadChunkWithRetry(item, fd, i, { uploadedBase, lastTime, lastLoaded, fileSize: file.size, onXhr: (xhr) => { item._xhrRef = xhr; } });
+              const chunkResp = await this.uploadChunkWithRetry(item, fd, i, { uploadedBase, lastTime, lastLoaded, fileSize: file.size, token });
+              this.assertTaskRunning(item, token);
               if (chunkResp && typeof chunkResp.etag === "string" && Number.isInteger(chunkResp.partNumber)) collectedParts.push({ partNumber: chunkResp.partNumber, etag: chunkResp.etag });
               uploadedBase += chunkBytes;
               item.uploadedBytes = uploadedBase;
@@ -3475,6 +3701,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               item.parts = collectedParts.slice();
               this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
             }
+            this.assertTaskRunning(item, token);
             item.status = "processing";
             item.statusText = "校验与合并中...";
             item.speed = "";
@@ -3492,31 +3719,33 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               if (completeRes.ok) break;
               if (completeRes.status === 503 && completeData?.code === "R2_HEAD_RETRY" && attempt < maxCompleteAttempts) {
                 item.statusText = `云端校验中，正在重试 (${attempt}/${maxCompleteAttempts - 1})...`;
-                await new Promise((r) => setTimeout(r, 1500 * attempt));
+                await this.sleepWhileRunning(item, 1500 * attempt, token);
+                this.assertTaskRunning(item, token);
                 continue;
               }
               throw new Error(completeData?.error || "合并分片失败");
             }
+            this.assertTaskRunning(item, token);
             this.clearResumeState(item.fileId);
             item.uploadId = null;
             item.chunkDone = [];
             item.parts = null;
-            item.status = "success";
-            item.statusText = "已完成";
-            item.progress = 100;
             item.uploadedBytes = file.size;
             const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
             this.applyShareResult(uploadedObj, completeData);
             this.uploadedFiles.unshift(uploadedObj);
             this.addToHistory(uploadedObj, mode);
           },
+          /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
           retryUpload(file, fromScratch = false) {
             file.targetMode = this.resolveStorageForFile(file.size);
             file.status = "waiting";
             file.statusText = fromScratch ? "重新上传" : "等待续传";
             file.speed = "";
             file.error = null;
-            file.paused = false;
+            file.want = "run";
+            /* 作废上一轮令牌，旧的在飞请求即便晚到也不会再写状态 */
+            this.invalidateTaskRun(file);
             if (fromScratch) {
               const oldUploadId = file.uploadId;
               file.uploadId = null;
@@ -3525,41 +3754,90 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               file.progress = 0;
               file.uploadedBytes = 0;
               this.clearResumeState(file.fileId);
-              if (oldUploadId) {
-                fetch(`${this.baseURL}/api/chunked-upload/abort`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ uploadId: oldUploadId }),
-                  credentials: "include",
-                }).catch(() => {});
-              }
+              if (oldUploadId) this.abortServerUpload(oldUploadId);
             } else if (file.chunkDone && file.chunkDone.length) {
               file.statusText = `续传（已完成 ${file.chunkDone.length} 个分片）`;
             }
-            this.startUpload();
+            this.restartUploadNow();
           },
-          retryAllFailed() { this.uploadingFiles.filter((f) => f.status === "error").forEach((f) => this.retryUpload(f, false)); },
+          retryAllFailed() {
+            const failed = this.uploadingFiles.filter((f) => f.status === "error");
+            if (!failed.length) return;
+            failed.forEach((f) => {
+              f.targetMode = f.targetMode || this.resolveStorageForFile(f.size);
+              f.status = "waiting";
+              f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
+              f.error = null;
+              f.want = "run";
+              this.invalidateTaskRun(f);
+            });
+            this.restartUploadNow();
+          },
           pauseUpload(file) {
-            file.paused = true;
-            file.status = "paused";
-            file.statusText = "已暂停";
-            file.speed = "";
-            try { file._xhrRef && file._xhrRef.abort(); } catch (_) {}
+            if (!file || file.status === "paused") return;
+            /* 先落意图，再作废令牌并 abort 在飞请求；顺序不能反，
+               否则 abort 引发的 onabort 回调会先于意图写入而误判成网络失败。 */
+            file.want = "pause";
+            this.markTaskPaused(file);
+            this.requestUploadScheduling();
           },
-          resumeUpload(file) { file.paused = false; file.status = "waiting"; file.statusText = "等待续传"; file.error = null; this.startUpload(); },
-          pauseAllUploads() { this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing").forEach((f) => this.pauseUpload(f)); },
-          resumeAllUploads() { this.uploadingFiles.filter((f) => f.status === "paused").forEach((f) => this.resumeUpload(f)); },
-          clearUploadQueue() { this.uploadingFiles = []; },
-          async cancelUpload(file) {
-            const oldUploadId = file.uploadId;
-            if (oldUploadId) {
-              fetch(`${this.baseURL}/api/chunked-upload/abort`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ uploadId: oldUploadId }), credentials: "include",
-              }).catch(() => {});
+          resumeUpload(file) {
+            if (!file) return;
+            if (file.status === "success" || file.cancelRequested) return;
+            file.want = "run";
+            file.error = null;
+            file.status = "waiting";
+            file.statusText = file.chunkDone && file.chunkDone.length ? `续传（已完成 ${file.chunkDone.length} 个分片）` : "等待续传";
+            this.invalidateTaskRun(file);
+            this.restartUploadNow();
+          },
+          pauseAllUploads() {
+            const targets = this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error");
+            if (!targets.length) return;
+            targets.forEach((f) => { f.want = "pause"; this.markTaskPaused(f); });
+            this.requestUploadScheduling();
+          },
+          resumeAllUploads() {
+            const targets = this.uploadingFiles.filter((f) => f.status === "paused" && !f.cancelRequested);
+            if (!targets.length) return;
+            targets.forEach((f) => {
+              f.want = "run";
+              f.error = null;
+              f.status = "waiting";
+              f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
+              this.invalidateTaskRun(f);
+            });
+            this.restartUploadNow();
+          },
+          abortServerUpload(uploadId) {
+            if (!uploadId) return;
+            fetch(`${this.baseURL}/api/chunked-upload/abort`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ uploadId }),
+              credentials: "include",
+            }).catch(() => {});
+          },
+          clearUploadQueue() {
+            for (const f of this.uploadingFiles) {
+              f.cancelRequested = true;
+              f.want = "pause";
+              this.invalidateTaskRun(f);
+              if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
             }
+            if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
+            this.uploadingFiles = [];
+            this.requestUploadScheduling();
+          },
+          async cancelUpload(file) {
+            file.cancelRequested = true;
+            file.want = "pause";
+            this.invalidateTaskRun(file);
+            if (file.uploadId) this.abortServerUpload(file.uploadId);
             if (file.fileId) this.clearResumeState(file.fileId);
+            if (file.preview) { try { URL.revokeObjectURL(file.preview); } catch (_) {} }
             this.uploadingFiles = this.uploadingFiles.filter((f) => f !== file);
+            this.requestUploadScheduling();
           },
 
           /* ===== 分享 ===== */
@@ -4204,6 +4482,15 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           document.addEventListener("click", this.resultMenuCloseHandler);
         },
         beforeUnmount() {
+          this.schedulerDisposed = true;
+          this.uploadEpoch++;
+          if (this.uploadDrainTimer) { clearTimeout(this.uploadDrainTimer); this.uploadDrainTimer = null; }
+          if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
+          for (const f of this.uploadingFiles) {
+            f.cancelRequested = true;
+            try { f.xhr && f.xhr.abort(); } catch (_) {}
+            if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
+          }
           if (this.nodeResolveTimer) clearTimeout(this.nodeResolveTimer);
           if (this.globalPasteHandler) document.removeEventListener("paste", this.globalPasteHandler);
           if (this.resultMenuCloseHandler) document.removeEventListener("click", this.resultMenuCloseHandler);
