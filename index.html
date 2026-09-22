@@ -2900,7 +2900,7 @@
                   v-if="isImageFile(getDisplayName(file)) && !file._imgError"
                   :src="getCleanFileUrl(file)"
                   alt=""
-                  @error="$set(file, '_imgError', true)"
+                  @error="file._imgError = true"
                 />
                 <i v-else :class="getFileIcon(getDisplayName(file))"></i>
               </span>
@@ -3266,12 +3266,11 @@
                     <i class="fas fa-house" style="font-size: 0.72rem;"></i>
                     <span>根目录</span>
                   </span>
-                  <template v-for="(seg, i) in folderPathSegments">
-                    <i class="fas fa-chevron-right folder-crumb-sep" :key="'sep-' + i"></i>
+                  <template v-for="(seg, i) in folderPathSegments" :key="'seg-' + i">
+                    <i class="fas fa-chevron-right folder-crumb-sep"></i>
                     <span
                       class="folder-crumb"
                       :class="{ current: i === folderPathSegments.length - 1 }"
-                      :key="'seg-' + i"
                       @click="i !== folderPathSegments.length - 1 && selectUploadFolder(folderPathUpTo(i))"
                     >{{ seg }}</span>
                   </template>
@@ -3848,7 +3847,7 @@
     </div>
 
     <!-- 国内加速 CDN -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/vue/2.6.14/vue.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>
     <script>
       const LOCAL_PREVIEW_PAGE = "/preview.html";
 
@@ -3898,7 +3897,7 @@
       const PARALLEL_OFF_CONCURRENCY = 1;
 
       /* ===== 递归目录树节点组件 ===== */
-      Vue.component("folder-node", {
+      const folderNodeComponent = {
         name: "folder-node",
         props: {
           node: { type: Object, required: true },
@@ -3968,153 +3967,156 @@
             </div>
           </div>
         `,
-      });
+      };
 
-      new Vue({
-        el: "#app",
-        data: {
-          currentTheme: "light",
-          showDrawer: false,
-          activeDrawerTab: "storage",
-          lastMoreTab: "history",
-          baseURL: document.location.origin,
-          isDragging: false,
-          /* dragenter/dragleave 会在子元素之间反复冒泡，光靠布尔值会导致高亮闪烁，
-             改用进出计数：归零才算真正离开投放区。 */
-          dragDepth: 0,
-          showUrlInput: false,
-          urlToUpload: "",
-          urlUploading: false,
-          uploadingFiles: [],
-          uploadedFiles: [],
-          uploadHistory: [],
-          linkFormat: "url",
+      /* ===== 根实例（Vue 3：data 必须为函数，组件改为局部注册）===== */
+      const app = Vue.createApp({
+        components: { "folder-node": folderNodeComponent },
+        data() {
+          return {
+            currentTheme: "light",
+            showDrawer: false,
+            activeDrawerTab: "storage",
+            lastMoreTab: "history",
+            baseURL: document.location.origin,
+            isDragging: false,
+            /* dragenter/dragleave 会在子元素之间反复冒泡，光靠布尔值会导致高亮闪烁，
+               改用进出计数：归零才算真正离开投放区。 */
+            dragDepth: 0,
+            showUrlInput: false,
+            urlToUpload: "",
+            urlUploading: false,
+            uploadingFiles: [],
+            uploadedFiles: [],
+            uploadHistory: [],
+            linkFormat: "url",
 
-          /* ===== 交付结果 · 选择模式与弹出菜单（Apple HIG 重写） ===== */
-          resultSelectMode: false,      /* iOS 风格选择模式开关 */
-          resultMenuFor: null,          /* 当前展开行级上下文菜单的条目下标 */
-          resultFormatMenuOpen: false,  /* 「链接格式」下拉是否展开 */
-          resultLinksOpen: false,       /* 「链接文本」折叠预览是否展开 */
-          clearArmed: false,            /* 「清空」两步确认状态 */
-          clearArmTimer: null,
+            /* ===== 交付结果 · 选择模式与弹出菜单（Apple HIG 重写） ===== */
+            resultSelectMode: false,      /* iOS 风格选择模式开关 */
+            resultMenuFor: null,          /* 当前展开行级上下文菜单的条目下标 */
+            resultFormatMenuOpen: false,  /* 「链接格式」下拉是否展开 */
+            resultLinksOpen: false,       /* 「链接文本」折叠预览是否展开 */
+            clearArmed: false,            /* 「清空」两步确认状态 */
+            clearArmTimer: null,
 
-          /* ===== 条目级分享弹窗 =====
-             shareEnabled 保留但恒为 false：它是「上传时是否注入分享参数」的内部
-             开关，buildShareOptions() 在它关闭时直接返回 null。分享改由条目按钮
-             在文件上传完成后单独配置，因此这条上传路径不再需要改动。
-             其余 share* 字段仅供 buildShareOptions() 读取，默认空值。 */
-          shareEnabled: false,
-          showSharePanel: false,
-          shareExpiresIn: 0,
-          sharePassword: "",
-          shareShowPassword: false,
-          shareMaxDownloads: "",
-          shareSlug: "",
+            /* ===== 条目级分享弹窗 =====
+               shareEnabled 保留但恒为 false：它是「上传时是否注入分享参数」的内部
+               开关，buildShareOptions() 在它关闭时直接返回 null。分享改由条目按钮
+               在文件上传完成后单独配置，因此这条上传路径不再需要改动。
+               其余 share* 字段仅供 buildShareOptions() 读取，默认空值。 */
+            shareEnabled: false,
+            showSharePanel: false,
+            shareExpiresIn: 0,
+            sharePassword: "",
+            shareShowPassword: false,
+            shareMaxDownloads: "",
+            shareSlug: "",
 
-          /* 分享弹窗状态 */
-          shareDialogVisible: false,
-          shareDialogItem: null,
-          shareDialogMode: "create",     // create | manage
-          shareDialogBusy: false,
-          shareDialogError: "",
-          shareDialogResult: null,       // 成功后展示的链接信息
-          shareDialogRevoking: false,
-          shareDialogForm: {
-            expiresIn: 0,
-            maxDownloads: "",
-            password: "",
-            slug: "",
-            // manage 模式下的两个开关：关闭即明确要求「清除该项」，
-            // 对应的密码框 / 短链框会被禁用，提交时发空值触发后端清除分支。
-            keepPassword: true,          // 开启 = 保留当前密码（留空即不改）
-            keepSlug: true               // 开启 = 保留当前短链（留空即不改）
-          },
-          shareDialogShowPassword: false,
+            /* 分享弹窗状态 */
+            shareDialogVisible: false,
+            shareDialogItem: null,
+            shareDialogMode: "create",     // create | manage
+            shareDialogBusy: false,
+            shareDialogError: "",
+            shareDialogResult: null,       // 成功后展示的链接信息
+            shareDialogRevoking: false,
+            shareDialogForm: {
+              expiresIn: 0,
+              maxDownloads: "",
+              password: "",
+              slug: "",
+              // manage 模式下的两个开关：关闭即明确要求「清除该项」，
+              // 对应的密码框 / 短链框会被禁用，提交时发空值触发后端清除分支。
+              keepPassword: true,          // 开启 = 保留当前密码（留空即不改）
+              keepSlug: true               // 开启 = 保留当前短链（留空即不改）
+            },
+            shareDialogShowPassword: false,
 
-          previewData: null,
-          toasts: [],
+            previewData: null,
+            toasts: [],
 
-          /* [PARALLEL] 把上限暴露给模板（滑块 max 与说明文案都依赖它），
-             避免在 template 里写死数字导致和后端配额脱钩。 */
-          PARALLEL_MAX_LIGHT: PARALLEL_MAX_LIGHT,
-          PARALLEL_MAX_HEAVY: PARALLEL_MAX_HEAVY,
+            /* [PARALLEL] 把上限暴露给模板（滑块 max 与说明文案都依赖它），
+               避免在 template 里写死数字导致和后端配额脱钩。 */
+            PARALLEL_MAX_LIGHT: PARALLEL_MAX_LIGHT,
+            PARALLEL_MAX_HEAVY: PARALLEL_MAX_HEAVY,
 
-          isAuthenticated: false,
-          folderPath: "",
-          uploadFolders: [],
-          uploadFoldersLoading: false,
-          uploadFoldersFetched: false,
-          showUploadFolderCreator: false,
-          newUploadFolderPath: "",
-          uploadFolderCreating: false,
-          expandedFolders: {},
-          storageMode: "telegram",
-          storageTarget: "Telegram 频道",
-          r2Available: false,
-          s3Available: false,
-          discordAvailable: false,
-          huggingfaceAvailable: false,
-          githubAvailable: false,
-          authChecking: true,
-          isGuest: false,
-          guestUploadConfig: null,
-          uploadConfig: {
-            maxSize: 10 * 1024 * 1024 * 1024,
-            chunkSize: 50 * 1024 * 1024,
-            smallFileThreshold: 20 * 1024 * 1024,
-          },
-          uploadLimits: {},
+            isAuthenticated: false,
+            folderPath: "",
+            uploadFolders: [],
+            uploadFoldersLoading: false,
+            uploadFoldersFetched: false,
+            showUploadFolderCreator: false,
+            newUploadFolderPath: "",
+            uploadFolderCreating: false,
+            expandedFolders: {},
+            storageMode: "telegram",
+            storageTarget: "Telegram 频道",
+            r2Available: false,
+            s3Available: false,
+            discordAvailable: false,
+            huggingfaceAvailable: false,
+            githubAvailable: false,
+            authChecking: true,
+            isGuest: false,
+            guestUploadConfig: null,
+            uploadConfig: {
+              maxSize: 10 * 1024 * 1024 * 1024,
+              chunkSize: 50 * 1024 * 1024,
+              smallFileThreshold: 20 * 1024 * 1024,
+            },
+            uploadLimits: {},
 
-          /* ===== [PARALLEL] 并行上传状态 =====
-             开关关闭 → 串行（并发度 1）；开启 → 双池各自并发。
-             访客模式强制串行（见 restoreParallelSettings）。 */
-          parallelUpload: false,
-          parallelHeavy: PARALLEL_DEFAULT_HEAVY,
-          parallelLight: PARALLEL_DEFAULT_LIGHT,
+            /* ===== [PARALLEL] 并行上传状态 =====
+               开关关闭 → 串行（并发度 1）；开启 → 双池各自并发。
+               访客模式强制串行（见 restoreParallelSettings）。 */
+            parallelUpload: false,
+            parallelHeavy: PARALLEL_DEFAULT_HEAVY,
+            parallelLight: PARALLEL_DEFAULT_LIGHT,
 
-          /* 调度器重入锁：必须放在 data() 里才是响应式布尔值。
-             若误放进 methods，Vue2 的 initMethods 会把非函数值替换成 noop，
-             导致它的取值恒为真，startUpload 的「if (this.uploadSchedulerRunning) return」
-             永远成立、调度器永不启动，所有文件卡在「等待中 (0%)」。 */
-          uploadSchedulerRunning: false,
+            /* 调度器重入锁：必须放在 data() 里才是响应式布尔值。
+               若误放进 methods，会被当成非函数值警告并忽略（Vue3 同样如此），
+               导致它的取值恒为真，startUpload 的「if (this.uploadSchedulerRunning) return」
+               永远成立、调度器永不启动，所有文件卡在「等待中 (0%)」。 */
+            uploadSchedulerRunning: false,
 
-          /* ===== [SMART] 智能节点模式状态 ===== */
-          smartThreshold: SMART_SMALL_FILE_LIMIT,
-          smartLargeMode: "r2",
+            /* ===== [SMART] 智能节点模式状态 ===== */
+            smartThreshold: SMART_SMALL_FILE_LIMIT,
+            smartLargeMode: "r2",
 
-          /* ===== 下载队列追踪字典 ===== */
-          downloadingUrls: {},
+            /* ===== 下载队列追踪字典 ===== */
+            downloadingUrls: {},
 
-          /* ===== [UX] 下载进度面板状态 ===== */
-          downloadProgress: {
-            active: false,
-            url: '',
-            fileName: '',
-            loaded: 0,
-            total: 0,
-            speed: '',
-          },
+            /* ===== [UX] 下载进度面板状态 ===== */
+            downloadProgress: {
+              active: false,
+              url: '',
+              fileName: '',
+              loaded: 0,
+              total: 0,
+              speed: '',
+            },
 
-          /* ===== [HISTORY] 失效历史清理状态 ===== */
-          historyCleanupRunning: false,
-          historyCleanupProgress: { checked: 0, total: 0 },
+            /* ===== [HISTORY] 失效历史清理状态 ===== */
+            historyCleanupRunning: false,
+            historyCleanupProgress: { checked: 0, total: 0 },
 
-          /* ===== 本地历史面板状态 ===== */
-          historySearch: "",
-          historySort: "time-desc",
-          historyView: "grid",
-          historyTypeFilter: "all",
-          /* 排序/视图收进弹层，默认收起，让首屏只留搜索 */
-          historyOptionsOpen: false,
-          historyMaxItems: 500,
-          historyTypeTabs: [
-            { value: "all", label: "全部" },
-            { value: "image", label: "图片" },
-            { value: "video", label: "视频" },
-            { value: "audio", label: "音频" },
-            { value: "doc", label: "文档" },
-            { value: "other", label: "其他" },
-          ],
+            /* ===== 本地历史面板状态 ===== */
+            historySearch: "",
+            historySort: "time-desc",
+            historyView: "grid",
+            historyTypeFilter: "all",
+            /* 排序/视图收进弹层，默认收起，让首屏只留搜索 */
+            historyOptionsOpen: false,
+            historyMaxItems: 500,
+            historyTypeTabs: [
+              { value: "all", label: "全部" },
+              { value: "image", label: "图片" },
+              { value: "video", label: "视频" },
+              { value: "audio", label: "音频" },
+              { value: "doc", label: "文档" },
+              { value: "other", label: "其他" },
+            ],
+          };
         },
         computed: {
           selectedCount() {
@@ -4812,7 +4814,7 @@
             try { localStorage.setItem("folderTreeExpanded", JSON.stringify(this.expandedFolders)); } catch (e) {}
           },
           toggleFolderExpand(path) {
-            this.$set(this.expandedFolders, path, !this.expandedFolders[path]);
+            this.expandedFolders[path] = !this.expandedFolders[path];
             this.persistExpanded();
           },
           autoExpandAncestors(path) {
@@ -4820,7 +4822,7 @@
             let cur = "";
             for (let i = 0; i < parts.length - 1; i++) {
               cur = cur ? `${cur}/${parts[i]}` : parts[i];
-              if (!this.expandedFolders[cur]) this.$set(this.expandedFolders, cur, true);
+              if (!this.expandedFolders[cur]) this.expandedFolders[cur] = true;
             }
             if (parts.length) this.persistExpanded();
           },
@@ -4881,7 +4883,7 @@
               this.applyOptimisticFolderAdd(createdPath);
 
               this.selectUploadFolder(createdPath, true);
-              this.$set(this.expandedFolders, createdPath, true);
+              this.expandedFolders[createdPath] = true;
               this.persistExpanded();
 
               this.showToast(`已创建目录：${createdPath}`, "success");
@@ -5450,14 +5452,14 @@
                       const msg = String((err && err.message) || "上传失败");
                       /* 用户主动暂停不算失败 */
                       if (msg === "__ABORTED__") {
-                        this.$set(item, "status", "paused");
-                        this.$set(item, "statusText", "已暂停");
-                        this.$set(item, "speed", "");
+                        item.status = "paused";
+                        item.statusText = "已暂停";
+                        item.speed = "";
                       } else {
-                        this.$set(item, "status", "error");
-                        this.$set(item, "statusText", "上传失败");
-                        this.$set(item, "speed", "");
-                        this.$set(item, "error", msg);
+                        item.status = "error";
+                        item.statusText = "上传失败";
+                        item.speed = "";
+                        item.error = msg;
                       }
                     }
                   }
@@ -5522,30 +5524,30 @@
             let lastTime = Date.now();
             let lastLoaded = 0;
 
-            this.$set(item, "statusText", "上传中");
+            item.statusText = "上传中";
 
             const data = await this.xhrUpload(`${this.baseURL}/upload`, formData, (loaded, total) => {
               const now = Date.now();
               const diff = (now - lastTime) / 1000;
               if (diff >= 0.4) {
                 const speedBps = (loaded - lastLoaded) / diff;
-                this.$set(item, "speed", this.formatSpeed(speedBps));
+                item.speed = this.formatSpeed(speedBps);
                 lastTime = now;
                 lastLoaded = loaded;
               }
-              this.$set(item, "uploadedBytes", loaded);
+              item.uploadedBytes = loaded;
               const percent = Math.min(99, Math.round((loaded / total) * 100));
-              this.$set(item, "progress", percent);
+              item.progress = percent;
             });
 
             if (Array.isArray(data) && data[0]?.error) {
               throw new Error(data[0]?.error || "上传未成功");
             }
 
-            this.$set(item, "status", "success");
-            this.$set(item, "statusText", "已完成");
-            this.$set(item, "progress", 100);
-            this.$set(item, "speed", "");
+            item.status = "success";
+            item.statusText = "已完成";
+            item.progress = 100;
+            item.speed = "";
 
             const src = data[0]?.src;
             const uploadedObj = {
@@ -5653,14 +5655,14 @@
                     const diff = (now - ctx.lastTime) / 1000;
                     if (diff >= 0.4) {
                       const speedBps = (currentTotal - ctx.lastLoaded) / diff;
-                      this.$set(item, "speed", this.formatSpeed(speedBps));
+                      item.speed = this.formatSpeed(speedBps);
                       ctx.lastTime = now;
                       ctx.lastLoaded = currentTotal;
                     }
-                    this.$set(item, "uploadedBytes", currentTotal);
+                    item.uploadedBytes = currentTotal;
                     /* 封顶 99：合并阶段只占最后 1%，原来封顶 95 会让最后一段显得卡住 */
                     const percent = Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99));
-                    this.$set(item, "progress", percent);
+                    item.progress = percent;
                   },
                   this.estimateTimeout(formData.get("chunk")?.size || 0)
                 );
@@ -5672,7 +5674,7 @@
                 if (msg === "__ABORTED__") throw err;
                 const wait = 800 * Math.pow(2, attempt - 1);
                 if (attempt < MAX) {
-                  this.$set(item, "statusText", `分片 ${index + 1} 重试 (${attempt}/${MAX - 1})...`);
+                  item.statusText = `分片 ${index + 1} 重试 (${attempt}/${MAX - 1})...`;
                   await new Promise((r) => setTimeout(r, wait));
                 }
               }
@@ -5688,20 +5690,20 @@
 
             /* 首次进入时算指纹；重试时 item.fileId 已经在，不重复计算 */
             if (!item.fileId) {
-              this.$set(item, "statusText", "计算文件指纹...");
+              item.statusText = "计算文件指纹...";
               item.fileId = await this.computeFileId(file);
             }
 
             /* 已有 uploadId 说明是续传，不重置进度；否则从头开始 */
             const isResume = !!item.uploadId;
             if (!isResume) {
-              this.$set(item, "progress", 0);
-              this.$set(item, "uploadedBytes", 0);
+              item.progress = 0;
+              item.uploadedBytes = 0;
             } else {
-              this.$set(item, "statusText", "恢复上传...");
+              item.statusText = "恢复上传...";
             }
 
-            this.$set(item, "statusText", isResume ? "恢复上传..." : "初始化任务...");
+            item.statusText = isResume ? "恢复上传..." : "初始化任务...";
 
             const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
@@ -5771,21 +5773,17 @@
             item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
 
             if (doneSet.size) {
-              this.$set(item, "uploadedBytes", uploadedBase);
-              this.$set(item, "progress", Math.min(99, Math.round((uploadedBase / file.size) * 99)));
-              this.$set(
-                item,
-                "statusText",
-                serverResumed
-                  ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片`
-                  : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`
-              );
+              item.uploadedBytes = uploadedBase;
+              item.progress = Math.min(99, Math.round((uploadedBase / file.size) * 99));
+              item.statusText = serverResumed
+                ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片`
+                : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`;
             }
 
             let lastTime = Date.now();
             let lastLoaded = uploadedBase;
 
-            this.$set(item, "statusText", "上传中");
+            item.statusText = "上传中";
             this.writeResumeState(item.fileId, {
               uploadId,
               doneIndices: item.chunkDone,
@@ -5833,7 +5831,7 @@
 
               /* 只有成功后才累加——原来无条件累加，分片重试一次进度就会虚高错乱 */
               uploadedBase += chunkBytes;
-              this.$set(item, "uploadedBytes", uploadedBase);
+              item.uploadedBytes = uploadedBase;
 
               doneSet.add(i);
               item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
@@ -5848,10 +5846,10 @@
               });
             }
 
-            this.$set(item, "status", "processing");
-            this.$set(item, "statusText", "校验与合并中...");
-            this.$set(item, "speed", "");
-            this.$set(item, "progress", 96);
+            item.status = "processing";
+            item.statusText = "校验与合并中...";
+            item.speed = "";
+            item.progress = 96;
 
             let completeData = null;
             const maxCompleteAttempts = 3;
@@ -5873,11 +5871,7 @@
                 completeData?.code === "R2_HEAD_RETRY" &&
                 attempt < maxCompleteAttempts
               ) {
-                this.$set(
-                  item,
-                  "statusText",
-                  `云端校验中，正在重试 (${attempt}/${maxCompleteAttempts - 1})...`
-                );
+                item.statusText = `云端校验中，正在重试 (${attempt}/${maxCompleteAttempts - 1})...`;
                 await new Promise((r) => setTimeout(r, 1500 * attempt));
                 continue;
               }
@@ -5891,10 +5885,10 @@
             item.chunkDone = [];
             item.parts = null;
 
-            this.$set(item, "status", "success");
-            this.$set(item, "statusText", "已完成");
-            this.$set(item, "progress", 100);
-            this.$set(item, "uploadedBytes", file.size);
+            item.status = "success";
+            item.statusText = "已完成";
+            item.progress = 100;
+            item.uploadedBytes = file.size;
 
             const uploadedObj = {
               name: item.name,
@@ -5950,14 +5944,14 @@
 
           /** 暂停单个任务：中断在途的 XHR，保留已完成分片 */
           pauseUpload(file) {
-            this.$set(file, "paused", true);
-            this.$set(file, "status", "paused");
-            this.$set(file, "statusText", "已暂停");
-            this.$set(file, "speed", "");
+            file.paused = true;
+            file.status = "paused";
+            file.statusText = "已暂停";
+            file.speed = "";
             try { file._xhrRef && file._xhrRef.abort(); } catch (_) {}
           },
           resumeUpload(file) {
-            this.$set(file, "paused", false);
+            file.paused = false;
             file.status = "waiting";
             file.statusText = "等待续传";
             file.error = null;
@@ -6083,12 +6077,12 @@
             if (!finalPath && !payload.shareExpiresAt && !payload.shareMaxDownloads && !payload.sharePasswordProtected) {
               return target;
             }
-            this.$set(target, "shareSlug", slug);
-            this.$set(target, "sharePath", finalPath);
-            this.$set(target, "shareExpiresAt", payload.shareExpiresAt || 0);
-            this.$set(target, "shareMaxDownloads", payload.shareMaxDownloads || 0);
-            this.$set(target, "shareProtected", Boolean(payload.sharePasswordProtected));
-            this.$set(target, "shareDownloadCount", Number(payload.shareDownloadCount) || 0);
+            target.shareSlug = slug;
+            target.sharePath = finalPath;
+            target.shareExpiresAt = payload.shareExpiresAt || 0;
+            target.shareMaxDownloads = payload.shareMaxDownloads || 0;
+            target.shareProtected = Boolean(payload.sharePasswordProtected);
+            target.shareDownloadCount = Number(payload.shareDownloadCount) || 0;
             return target;
           },
           hasShare(item) {
@@ -6331,7 +6325,7 @@
                 active: Boolean(data.active),
               };
               /* 双保险：确认 path 已写回条目，卡片上的分享行与徽标才能同步亮起 */
-              if (resolvedPath) this.$set(item, "sharePath", resolvedPath);
+              if (resolvedPath) item.sharePath = resolvedPath;
               this.shareDialogMode = "manage";
               this.persistHistory();
               this.showToast(isManage ? "分享设置已更新" : "分享已创建", "success");
@@ -6369,13 +6363,13 @@
 
               /* 清空条目上的分享字段，而不是只改 sharePath ——
                  hasShare() 现在会检查这些字段，漏清一个徽标就灭不掉。 */
-              this.$set(item, "shareSlug", "");
-              this.$set(item, "sharePath", "");
-              this.$set(item, "shareExpiresAt", 0);
-              this.$set(item, "shareMaxDownloads", 0);
-              this.$set(item, "shareProtected", false);
+              item.shareSlug = "";
+              item.sharePath = "";
+              item.shareExpiresAt = 0;
+              item.shareMaxDownloads = 0;
+              item.shareProtected = false;
               if (data.shareDownloadCount !== undefined) {
-                this.$set(item, "shareDownloadCount", Number(data.shareDownloadCount) || 0);
+                item.shareDownloadCount = Number(data.shareDownloadCount) || 0;
               }
               this.persistHistory();
               this.showToast("已取消分享", "success");
@@ -6497,7 +6491,7 @@
     this.showToast('下载已开始，请查看浏览器下载栏', 'info');
     return;
   }
-  this.$set(this.downloadingUrls, url, true);
+  this.downloadingUrls[url] = true;
 
   /* 【一次进度】先轻量 HEAD 探一下文件是否失效，再交给浏览器原生下载 */
   fetch(url, { method: 'HEAD', credentials: 'include' })
@@ -6505,7 +6499,7 @@
       if (res.status === 404 || res.status === 410) {
         this.markHistoryAsMissing(url);
         this.showToast(`[${fileName || '文件'}] 已被删除（${res.status}）`, 'error');
-        this.$delete(this.downloadingUrls, url);
+        delete this.downloadingUrls[url];
         return;
       }
       this._doNativeDownload(url, fileName);
@@ -6525,7 +6519,7 @@ _doNativeDownload(url, fileName) {
   a.click();
   setTimeout(() => {
     if (a.parentNode) a.parentNode.removeChild(a);
-    this.$delete(this.downloadingUrls, url);
+    delete this.downloadingUrls[url];
   }, 2000);
   this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
 },
@@ -7026,7 +7020,7 @@ _doNativeDownload(url, fileName) {
           this.resultMenuCloseHandler = () => this.closeResultMenus();
           document.addEventListener("click", this.resultMenuCloseHandler);
         },
-        beforeDestroy() {
+        beforeUnmount() {
           if (this.globalPasteHandler) document.removeEventListener("paste", this.globalPasteHandler);
           if (this.resultMenuCloseHandler) document.removeEventListener("click", this.resultMenuCloseHandler);
           if (this.globalDragGuard) {
@@ -7035,6 +7029,8 @@ _doNativeDownload(url, fileName) {
           }
         },
       });
+
+      app.mount("#app");
     </script>
   </body>
 </html>
