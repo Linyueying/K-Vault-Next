@@ -2327,6 +2327,203 @@
       html[data-theme="dark"] .smart-config-panel .folder-section-label { color: #c4b5fd; }
       .smart-config-panel .folder-section-label i { color: #8b5cf6; }
 
+      /* =========================================================
+         ===== [PARALLEL] 并行上传开关 =====
+         ========================================================= */
+      .parallel-toggle-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 13px;
+        margin-bottom: 12px;
+        border-radius: var(--radius-md);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-soft);
+      }
+      .parallel-toggle-icon {
+        flex-shrink: 0;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9px;
+        font-size: 0.82rem;
+        color: #fff;
+        background: linear-gradient(135deg, #8b5cf6, #6366f1);
+        box-shadow: 0 2px 8px rgba(139, 92, 246, 0.32);
+      }
+      .parallel-toggle-main { flex: 1; min-width: 0; }
+      .parallel-toggle-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.86rem;
+        font-weight: 700;
+        color: var(--text-main);
+      }
+      .parallel-toggle-desc {
+        margin-top: 3px;
+        font-size: 0.72rem;
+        line-height: 1.45;
+        color: var(--text-muted);
+      }
+      .parallel-pool-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 7px;
+      }
+      .parallel-pool-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 9px;
+        border-radius: var(--radius-pill);
+        font-size: 0.68rem;
+        font-weight: 700;
+        border: 1px solid var(--glass-border-ice);
+        background: var(--glass-surface);
+        color: var(--text-sub);
+      }
+      .parallel-pool-chip i { font-size: 0.66rem; }
+      .parallel-pool-chip.light i { color: #0284c7; }
+      .parallel-pool-chip.heavy i { color: #8b5cf6; }
+      html[data-theme="dark"] .parallel-pool-chip.light i { color: #38bdf8; }
+      html[data-theme="dark"] .parallel-pool-chip.heavy i { color: #c4b5fd; }
+
+      /* ---- 并发度滑块 ---- */
+      .parallel-sliders {
+        margin-top: 11px;
+        padding-top: 11px;
+        border-top: 1px dashed var(--glass-border-ice);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        animation: fadeIn 0.2s ease;
+      }
+      .parallel-slider-row { display: flex; flex-direction: column; gap: 6px; }
+      .parallel-slider-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: var(--text-sub);
+      }
+      .parallel-slider-head .label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .parallel-slider-head .label i { font-size: 0.72rem; }
+      .parallel-slider-head .label i.telegram { color: #0284c7; }
+      .parallel-slider-head .label i.heavy { color: #8b5cf6; }
+      html[data-theme="dark"] .parallel-slider-head .label i.telegram { color: #38bdf8; }
+      html[data-theme="dark"] .parallel-slider-head .label i.heavy { color: #c4b5fd; }
+      .parallel-slider-head .hint {
+        font-size: 0.66rem;
+        font-weight: 500;
+        color: var(--text-muted);
+      }
+      .parallel-slider-val {
+        flex-shrink: 0;
+        min-width: 30px;
+        text-align: center;
+        padding: 1px 7px;
+        border-radius: var(--radius-pill);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.74rem;
+        font-weight: 800;
+        color: #fff;
+        background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      }
+
+      /* 原生 range 跨浏览器统一外观 */
+      .parallel-range {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 22px;
+        background: transparent;
+        cursor: pointer;
+        margin: 0;
+      }
+      .parallel-range:focus { outline: none; }
+      .parallel-range::-webkit-slider-runnable-track {
+        height: 5px;
+        border-radius: 3px;
+        background: var(--primary-surface);
+        border: 1px solid var(--glass-border-ice);
+      }
+      .parallel-range::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        margin-top: -6px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2.5px solid var(--primary);
+        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+        transition: transform 0.15s ease;
+      }
+      .parallel-range:active::-webkit-slider-thumb { transform: scale(1.16); }
+      .parallel-range::-moz-range-track {
+        height: 5px;
+        border-radius: 3px;
+        background: var(--primary-surface);
+        border: 1px solid var(--glass-border-ice);
+      }
+      .parallel-range::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2.5px solid var(--primary);
+        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+      }
+      .parallel-range:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        filter: grayscale(0.7);
+      }
+
+      /* 复用后台的开关视觉，保证两个页面观感一致 */
+      .apple-switch {
+        position: relative;
+        width: 44px;
+        height: 26px;
+        flex: none;
+        cursor: pointer;
+        display: inline-block;
+      }
+      .apple-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .apple-switch .track {
+        position: absolute;
+        inset: 0;
+        border-radius: 13px;
+        background: rgba(148, 163, 184, 0.38);
+        transition: background 0.22s ease;
+      }
+      html[data-theme="dark"] .apple-switch .track { background: rgba(148, 163, 184, 0.28); }
+      .apple-switch .thumb {
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+        transition: transform 0.22s ease;
+      }
+      .apple-switch input:checked + .track { background: var(--primary); }
+      .apple-switch input:checked + .track + .thumb { transform: translateX(18px); }
+
       .smart-route-hint {
         display: flex;
         align-items: center;
@@ -2930,29 +3127,118 @@
               </div>
             </div>
 
-            <!-- [SMART] 智能节点大文件后端配置面板 -->
-            <div class="smart-config-panel" v-if="storageMode === 'auto' && !isGuest">
-              <div class="folder-section-label">
-                <i class="fas fa-sliders"></i>
-                <span>大文件节点（&gt; {{ formatSize(smartThreshold) }}）</span>
-              </div>
-              <div class="storage-cards-grid">
-                <div
-                  class="storage-node-card"
-                  v-for="opt in largeStorageOptions"
-                  :key="opt.value"
-                  :class="{ active: smartLargeMode === opt.value, disabled: !isStorageAvailable(opt.value) }"
-                  @click="setSmartLargeMode(opt.value)"
-                >
-                  <i :class="opt.icon" :style="{ fontSize: '1.7rem', color: opt.color }"></i>
-                  <div>
-                    <div class="storage-node-title">{{ opt.label }}</div>
-                    <div class="storage-node-desc" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</div>
-                    <span class="unconfigured-tag" v-else>未配置</span>
+            <!-- [SMART/PARALLEL] 存储路由配置面板
+                 面板本身放宽到「非访客都可见」，因为并行上传开关在
+                 单节点模式（telegram / r2）下同样有意义；
+                 「大文件节点」子区块仍只在智能节点模式下出现。 -->
+            <div class="smart-config-panel" v-if="!isGuest">
+              <!-- [PARALLEL] 并行上传开关 -->
+              <div class="parallel-toggle-row">
+                <div class="parallel-toggle-icon"><i class="fas fa-bolt"></i></div>
+                <div class="parallel-toggle-main">
+                  <div class="parallel-toggle-title">
+                    <span>并行上传</span>
+                    <span class="smart-badge" v-if="isParallelActive()">ON</span>
                   </div>
-                  <div class="storage-check-circle" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></div>
+                  <div class="parallel-toggle-desc">
+                    {{
+                      isParallelActive()
+                        ? '多个文件同时上传，显著提升总体速度。'
+                        : '关闭时逐个上传，网络不稳定时更稳妥。'
+                    }}
+                  </div>
+                  <div class="parallel-pool-chips" v-if="isParallelActive()">
+                    <span class="parallel-pool-chip light">
+                      <i class="fab fa-telegram"></i>
+                      <span>小文件 ×{{ concurrencyForPool('light') }}</span>
+                    </span>
+                    <span class="parallel-pool-chip heavy">
+                      <i class="fas fa-server"></i>
+                      <span>大文件 ×{{ concurrencyForPool('heavy') }}</span>
+                    </span>
+                  </div>
+                </div>
+                <label class="apple-switch" title="开启/关闭并行上传">
+                  <input
+                    type="checkbox"
+                    :checked="parallelUpload"
+                    @change="setParallelUpload($event.target.checked)"
+                  />
+                  <span class="track"></span>
+                  <span class="thumb"></span>
+                </label>
+              </div>
+
+              <!-- [PARALLEL] 并发度滑块：开关关闭时置灰但保留可见，
+                   让用户始终能看到"调到多少会生效" -->
+              <div class="parallel-sliders" v-if="!isGuest">
+                <div class="parallel-slider-row">
+                  <div class="parallel-slider-head">
+                    <span class="label">
+                      <i class="fab fa-telegram telegram"></i>
+                      <span>小文件并发</span>
+                      <span class="hint">≤ {{ formatSize(smartThreshold) }}</span>
+                    </span>
+                    <span class="parallel-slider-val">{{ parallelLight }}</span>
+                  </div>
+                  <input
+                    class="parallel-range"
+                    type="range"
+                    min="1"
+                    :max="PARALLEL_MAX_LIGHT"
+                    step="1"
+                    :disabled="!parallelUpload"
+                    :value="parallelLight"
+                    @input="setParallelLight(+$event.target.value)"
+                  />
+                </div>
+
+                <div class="parallel-slider-row">
+                  <div class="parallel-slider-head">
+                    <span class="label">
+                      <i class="fas fa-server heavy"></i>
+                      <span>大文件并发</span>
+                      <span class="hint">R2 / S3 / GitHub 等</span>
+                    </span>
+                    <span class="parallel-slider-val">{{ parallelHeavy }}</span>
+                  </div>
+                  <input
+                    class="parallel-range"
+                    type="range"
+                    min="1"
+                    :max="PARALLEL_MAX_HEAVY"
+                    step="1"
+                    :disabled="!parallelUpload"
+                    :value="parallelHeavy"
+                    @input="setParallelHeavy(+$event.target.value)"
+                  />
                 </div>
               </div>
+
+              <!-- [SMART] 大文件节点（仅智能节点模式） -->
+              <template v-if="storageMode === 'auto'">
+                <div class="folder-section-label">
+                  <i class="fas fa-sliders"></i>
+                  <span>大文件节点（&gt; {{ formatSize(smartThreshold) }}）</span>
+                </div>
+                <div class="storage-cards-grid">
+                  <div
+                    class="storage-node-card"
+                    v-for="opt in largeStorageOptions"
+                    :key="opt.value"
+                    :class="{ active: smartLargeMode === opt.value, disabled: !isStorageAvailable(opt.value) }"
+                    @click="setSmartLargeMode(opt.value)"
+                  >
+                    <i :class="opt.icon" :style="{ fontSize: '1.7rem', color: opt.color }"></i>
+                    <div>
+                      <div class="storage-node-title">{{ opt.label }}</div>
+                      <div class="storage-node-desc" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</div>
+                      <span class="unconfigured-tag" v-else>未配置</span>
+                    </div>
+                    <div class="storage-check-circle" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></div>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -3562,6 +3848,28 @@
       // 大文件节点候选（Telegram 不参与，因为其上限就是 20MB）
       const SMART_LARGE_CANDIDATES = ["r2", "s3", "github", "discord", "huggingface"];
 
+      /* ===== 并行上传（双池调度）常量 =====
+         背景：不同存储后端的"并发承载力"完全不同，用一个池子会互相拖累。
+               Telegram 走直传 /upload，不经过 chunked-upload/init；
+               其余节点走分片链路，要过 init 的并发配额检查。
+         因此拆成两个互不阻塞的池子：
+
+         heavyPool —— r2 / s3 / discord / huggingface / github（分片链路）
+                      上限必须 <= 后端 MAX_CONCURRENT_TASKS_PER_USER = 5
+                      （functions/api/chunked-upload/init.js），
+                      超过会得到 429 CONCURRENT_LIMIT_EXCEEDED。
+                      改这个数必须同步改后端，否则上传必然失败。
+
+         lightPool —— telegram（直传链路，不占后端并发名额）
+                      上限受 Cloudflare 单账户连接数与 TG Bot API 限流约束，
+                      取 4 作为经验安全值。 */
+      const PARALLEL_DEFAULT_HEAVY = 3;
+      const PARALLEL_DEFAULT_LIGHT = 2;
+      const PARALLEL_MAX_HEAVY = 5; // 对齐后端 MAX_CONCURRENT_TASKS_PER_USER
+      const PARALLEL_MAX_LIGHT = 4;
+      // 关闭开关时的并发度：严格串行，给"我要一个一个传"的用户一个确定行为
+      const PARALLEL_OFF_CONCURRENCY = 1;
+
       /* ===== 递归目录树节点组件 ===== */
       Vue.component("folder-node", {
         name: "folder-node",
@@ -3692,6 +4000,12 @@
 
           previewData: null,
           toasts: [],
+
+          /* [PARALLEL] 把上限暴露给模板（滑块 max 与说明文案都依赖它），
+             避免在 template 里写死数字导致和后端配额脱钩。 */
+          PARALLEL_MAX_LIGHT: PARALLEL_MAX_LIGHT,
+          PARALLEL_MAX_HEAVY: PARALLEL_MAX_HEAVY,
+
           isAuthenticated: false,
           folderPath: "",
           uploadFolders: [],
@@ -3715,9 +4029,15 @@
             maxSize: 10 * 1024 * 1024 * 1024,
             chunkSize: 50 * 1024 * 1024,
             smallFileThreshold: 20 * 1024 * 1024,
-            maxConcurrent: 3,
           },
           uploadLimits: {},
+
+          /* ===== [PARALLEL] 并行上传状态 =====
+             开关关闭 → 串行（并发度 1）；开启 → 双池各自并发。
+             访客模式强制串行（见 restoreParallelSettings）。 */
+          parallelUpload: false,
+          parallelHeavy: PARALLEL_DEFAULT_HEAVY,
+          parallelLight: PARALLEL_DEFAULT_LIGHT,
 
           /* ===== [SMART] 智能节点模式状态 ===== */
           smartThreshold: SMART_SMALL_FILE_LIMIT,
@@ -4180,6 +4500,12 @@
            * - 智能模式：<= 阈值 → telegram；> 阈值 → 用户指定的大文件节点
            *   若首选节点装不下，则在其它已启用节点中寻找能装下的；
            *   若都装不下，仍返回首选节点（由上层统一拦截并提示超限）。
+           *
+           * 【并发安全】本函数是纯函数：只读 size 与节点可用性，
+           * 不使用任何全局计数器 / 轮询游标 / 可变状态。
+           * 并行上传的多个 worker 同时调用它互不干扰，结果始终正确。
+           * ⚠️ 后续如需扩展（例如按节点负载轮询），必须把状态放在
+           *    调用方并显式加锁，不要往这里引入共享可变状态。
            */
           resolveStorageForFile(size) {
             if (this.storageMode !== "auto") return this.storageMode;
@@ -4223,6 +4549,114 @@
           /** 智能节点是否可用（至少有一个大文件节点已启用） */
           isSmartModeAvailable() {
             return this.largeStorageOptions.some((o) => this.isStorageAvailable(o.value));
+          },
+
+          /* ============================================================
+           * [PARALLEL] 并行上传（双池调度）
+           * ------------------------------------------------------------
+           * 设计要点：智能节点分流（resolveStorageForFile）是纯函数，
+           * 只依赖文件大小与节点可用性，没有任何全局计数器或轮询游标。
+           * 因此并发调用它不会互相干扰 —— 并发的「归属判定」在任务入队时
+           * 就已冻结到 item.targetMode，worker 只读不写。
+           *
+           * 这里新增的只是「谁先去取任务」的分派规则，不触碰分流算法本身。
+           * ============================================================ */
+
+          /** 是否处于并行模式（开关打开且非访客） */
+          isParallelActive() {
+            return Boolean(this.parallelUpload) && !this.isGuest;
+          },
+
+          /**
+           * 任务是否属于 Telegram 直传链路。
+           * Telegram 不经过 chunked-upload/init，不消耗后端并发配额，
+           * 所以它单独一个池，不会被分片任务堵住。
+           */
+          isTelegramTask(item) {
+            const mode = (item && item.targetMode) || this.storageMode;
+            return mode === "telegram";
+          },
+
+          /**
+           * 取某个池的并发度。
+           * - 并行关闭 → 1（串行）
+           * - lightPool  → parallelLight（clamp 到 PARALLEL_MAX_LIGHT）
+           * - heavyPool  → parallelHeavy（clamp 到 PARALLEL_MAX_HEAVY）
+           * 非法值（0 / 负数 / NaN）回落到默认值，而不是被 clamp 成 1 ——
+           * 否则一个写坏的 localStorage 会静默把并行降级成串行。
+           */
+          concurrencyForPool(pool) {
+            if (!this.isParallelActive()) return PARALLEL_OFF_CONCURRENCY;
+            const fallback = pool === "light" ? PARALLEL_DEFAULT_LIGHT : PARALLEL_DEFAULT_HEAVY;
+            const max = pool === "light" ? PARALLEL_MAX_LIGHT : PARALLEL_MAX_HEAVY;
+            const raw = pool === "light" ? this.parallelLight : this.parallelHeavy;
+            const n = Number(raw);
+            if (!Number.isFinite(n) || n < 1) return fallback;
+            return Math.min(Math.floor(n), max);
+          },
+
+          /** 开关状态：开启并行 */
+          setParallelUpload(on) {
+            this.parallelUpload = Boolean(on);
+            try {
+              localStorage.setItem("parallelUpload", this.parallelUpload ? "1" : "0");
+            } catch (e) {}
+            this.showToast(
+              this.parallelUpload
+                ? `已开启并行上传（小文件 ×${this.concurrencyForPool("light")} · 大文件 ×${this.concurrencyForPool("heavy")}）`
+                : "已关闭并行上传，改为依次上传",
+              "success"
+            );
+            /* 队列里可能已有 waiting 任务，需要按新并发度重新拉动 */
+            this.startUpload();
+          },
+
+          /**
+           * 改小文件并发度。
+           * 滑块 min=1，所以不需要处理 0/负数；只做上限钳制，
+           * 并保证写进 state 的是整数（range 理论上只给整数，
+           * 但手改 DOM 可以塞小数，这里兜住）。
+           */
+          setParallelLight(v) {
+            const n = Math.min(Math.max(1, Math.floor(Number(v) || 1)), PARALLEL_MAX_LIGHT);
+            if (n === this.parallelLight) return;
+            this.parallelLight = n;
+            try { localStorage.setItem("parallelLight", String(n)); } catch (e) {}
+            this.startUpload();
+          },
+
+          /** 改大文件并发度（上限对齐后端 MAX_CONCURRENT_TASKS_PER_USER） */
+          setParallelHeavy(v) {
+            const n = Math.min(Math.max(1, Math.floor(Number(v) || 1)), PARALLEL_MAX_HEAVY);
+            if (n === this.parallelHeavy) return;
+            this.parallelHeavy = n;
+            try { localStorage.setItem("parallelHeavy", String(n)); } catch (e) {}
+            this.startUpload();
+          },
+
+          /** 从 localStorage 恢复并行设置；访客强制串行 */
+          restoreParallelSettings() {
+            try {
+              const saved = localStorage.getItem("parallelUpload");
+              this.parallelUpload = saved === "1";
+            } catch (e) {
+              this.parallelUpload = false;
+            }
+
+            const readNum = (key, fallback) => {
+              try {
+                const raw = localStorage.getItem(key);
+                const n = Number(raw);
+                return Number.isFinite(n) && n > 0 ? n : fallback;
+              } catch (e) {
+                return fallback;
+              }
+            };
+            this.parallelHeavy = readNum("parallelHeavy", PARALLEL_DEFAULT_HEAVY);
+            this.parallelLight = readNum("parallelLight", PARALLEL_DEFAULT_LIGHT);
+
+            /* 访客模式：契约上就是串行，不给开关也不生效 */
+            if (this.isGuest) this.parallelUpload = false;
           },
 
           /** 切换"大文件节点" */
@@ -4877,11 +5311,25 @@
             this.startUpload();
           },
 
-          /* 并发调度 + 重入锁。
-             原来是 for...of await 串行，一个文件卡住会永久阻塞后面全部任务；
-             且没有重入保护，多处同时调用会重复取走同一批 waiting。 */
+          /* ============================================================
+           * 并发调度：双池分派 + 重入锁
+           * ------------------------------------------------------------
+           * 原来是 for...of await 串行，一个文件卡住会永久阻塞后面全部任务；
+           * 且没有重入保护，多处同时调用会重复取走同一批 waiting。
+           *
+           * [PARALLEL] 现在按「目标节点」把任务拆成两个互不阻塞的池：
+           *   - lightPool：telegram 直传（不经过 init，不占后端并发配额）
+           *   - heavyPool：r2/s3/discord/huggingface/github 分片链路
+           *
+           * 为什么必须拆开：若共用一个池，几个慢速 Telegram 小文件会占满
+           * 全部槽位，后面的大文件只能干等；反之亦然。拆池后两条链路各自
+           * 推进，总吞吐才是「多个文件同时传」应有的样子。
+           *
+           * 归属判断只看 item.targetMode —— 它在 processFiles() 入队时
+           * 已由 resolveStorageForFile() 算好并冻结，worker 全程只读。
+           * 因此这里不会与智能分流算法产生任何状态竞争。
+           * ============================================================ */
           uploadSchedulerRunning: false,
-          uploadConcurrency: 3,
 
           async startUpload() {
             if (this.uploadSchedulerRunning) return;
@@ -4896,16 +5344,60 @@
             }, 2500);
           },
 
-          async runUploadPool() {
-            const pickNext = () =>
-              this.uploadingFiles.find((f) => f.status === "waiting" && !f.paused);
+          /**
+           * 取下一个可执行任务。
+           *
+           * preferTelegram 表达「本池偏好哪一类任务」：
+           *   - lightPool(true)  → 优先取 Telegram，取不到则降级取其它
+           *   - heavyPool(false) → 优先取非 Telegram，取不到则降级取 Telegram
+           *
+           * 降级是必要的：队列里可能清一色全是 R2 文件，此时 lightPool 若
+           * 死守「只取 Telegram」就会空转，白白浪费并发度。降级只在
+           * 「自己偏好的那类确实没有了」时发生，所以分流优先级依然成立。
+           *
+           * ⚠️ 降级必须是「受限的」：两个池都会盯上 Telegram 任务，
+           *    如果不设总量闸门，Telegram 并发会变成 lightN + heavyN
+           *    （实测能冲到 5），既会触发 Cloudflare 单账户连接数限制，
+           *    也会被 TG Bot API 限流。因此这里按「链路聚合并发」放行：
+           *       - Telegram 类任务：全局在途数 < lightN 才放行
+           *       - 其它类任务：    全局在途数 < heavyN 才放行
+           *    这个计数是同步读写的，且 pick 与置为 uploading 之间没有
+           *    await，因此不会出现两个 worker 同时通过闸门的竞态。
+           */
+          pickUploadTask(preferTelegram, lightN, heavyN) {
+            const waiting = this.uploadingFiles.filter(
+              (f) => f.status === "waiting" && !f.paused
+            );
+            if (!waiting.length) return null;
 
+            /* 当前各链路的在途任务数（uploading 或 processing） */
+            const inFlightTg = this.uploadingFiles.filter(
+              (f) => (f.status === "uploading" || f.status === "processing") && this.isTelegramTask(f)
+            ).length;
+            const inFlightHeavy = this.uploadingFiles.filter(
+              (f) => (f.status === "uploading" || f.status === "processing") && !this.isTelegramTask(f)
+            ).length;
+
+            const allowed = (item) =>
+              this.isTelegramTask(item) ? inFlightTg < lightN : inFlightHeavy < heavyN;
+
+            const preferred = waiting.find(
+              (f) => this.isTelegramTask(f) === preferTelegram && allowed(f)
+            );
+            if (preferred) return preferred;
+
+            /* 偏好类取不到（没了 / 该链路已满）时降级，但仍受聚合上限约束 */
+            return waiting.find((f) => allowed(f)) || null;
+          },
+
+          /** 起一组 worker 消费任务，直到队列里再没有可取的活 */
+          spawnUploadWorkers(concurrency, preferTelegram, lightN, heavyN) {
             const workers = [];
-            for (let i = 0; i < this.uploadConcurrency; i++) {
+            for (let i = 0; i < concurrency; i++) {
               workers.push(
                 (async () => {
                   for (;;) {
-                    const item = pickNext();
+                    const item = this.pickUploadTask(preferTelegram, lightN, heavyN);
                     if (!item) return;
                     item.status = "uploading";
                     try {
@@ -4928,7 +5420,29 @@
                 })()
               );
             }
-            await Promise.all(workers);
+            return workers;
+          },
+
+          async runUploadPool() {
+            const lightN = this.concurrencyForPool("light");
+            const heavyN = this.concurrencyForPool("heavy");
+
+            /* 串行模式（并发度都是 1）：退化成单池，行为与旧版一致，
+               用户能预期到「一个一个传」。 */
+            if (lightN <= 1 && heavyN <= 1) {
+              await Promise.all(this.spawnUploadWorkers(1, true, 1, 1));
+              return;
+            }
+
+            /* 并行模式：两个池同时开跑。
+               lightPool 偏好 Telegram，heavyPool 偏好非 Telegram，
+               各自空闲时都能降级领取对方剩下的任务。
+               注意两个池共享同一组聚合闸门（lightN / heavyN），
+               所以「总 Telegram 在途」与「总分片在途」都不会被冲爆。 */
+            await Promise.all([
+              ...this.spawnUploadWorkers(lightN, true, lightN, heavyN),
+              ...this.spawnUploadWorkers(heavyN, false, lightN, heavyN),
+            ]);
           },
 
           async uploadOne(item) {
@@ -6311,6 +6825,9 @@ _doNativeDownload(url, fileName) {
                 try { localStorage.setItem("smartLargeMode", this.smartLargeMode); } catch (e) {}
               }
 
+              /* [PARALLEL] 恢复并行上传设置（访客会被强制串行） */
+              this.restoreParallelSettings();
+
               /* [SMART] 恢复节点选择：auto 需要额外校验大文件节点可用性 */
               const saved = localStorage.getItem("storageMode") || "telegram";
               const autoUsable = this.isSmartModeAvailable();
@@ -6324,6 +6841,7 @@ _doNativeDownload(url, fileName) {
               }
             } catch (e) {
               this.setStorageMode("telegram", true);
+              this.restoreParallelSettings();
             }
           },
           async handleLogout() {

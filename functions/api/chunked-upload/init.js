@@ -99,6 +99,15 @@ import {
 // ============================================
 // 单用户并发任务数（软限制：KV 无原子性，允许轻微超限，
 // 只用于防误用；防恶意请使用 Cloudflare Rate Limiting / WAF）
+//
+// ⚠️ 前端联动：index.html 的并行上传 heavyPool 上限
+//    （PARALLEL_MAX_HEAVY）与本值对齐，两者必须保持一致。
+//    调大本值后若前端未同步调大，只是并发上不去（不会报错）；
+//    调小本值后前端未同步调小，则会开始出现
+//    429 CONCURRENT_LIMIT_EXCEEDED。
+//
+//    注意 Telegram 直传（POST /upload）不经过本文件，
+//    不占用这里的并发名额，因此前端 lightPool 不受本值约束。
 const MAX_CONCURRENT_TASKS_PER_USER = 5;
 
 // 单用户每日 init 次数（软限制，同上）
