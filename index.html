@@ -2115,77 +2115,178 @@
         color: #070d19 !important;
       }
 
-      .storage-cards-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-      }
-      .storage-node-card {
-        position: relative;
-        padding: 16px 14px;
-        border-radius: var(--radius-md);
-        border: 1.5px solid var(--glass-border);
+      /* =========================================================
+         ===== 存储节点页签 · Apple HIG 分组列表（Grouped List）=====
+         设计原则：清晰（克制的系统色 + 可读层级）、
+         遵从（UI 退后，控件醒目）、纵深（柔和阴影 + 半透明分层，
+         不用重渐变/重边框）。
+         ========================================================= */
+
+      /* 顶部摘要：当前单文件上限 */
+      .storage-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
         background: var(--glass-surface);
-        cursor: pointer;
+        border: 1px solid var(--glass-border-ice);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-soft);
+      }
+      .storage-summary-label { font-size: 0.82rem; color: var(--text-sub); }
+      .storage-summary-value {
+        font-size: 1.04rem;
+        font-weight: 700;
+        color: var(--primary-dark);
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      /* 分组列表（仿 iOS 设置） */
+      .settings-group { margin-top: 18px; }
+      .settings-group-header {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        padding: 0 16px 8px;
+        letter-spacing: 0.01em;
+      }
+      .settings-list {
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        box-shadow: var(--shadow-soft);
+      }
+      .settings-row {
         display: flex;
         align-items: center;
         gap: 12px;
-        transition: var(--transition);
+        width: 100%;
+        text-align: left;
+        padding: 12px 14px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        position: relative;
+        transition: background 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        font-family: inherit;
       }
-      .storage-node-card:hover:not(.disabled) {
-        border-color: var(--primary-light);
-        background: var(--glass-elevated);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 18px rgba(2, 132, 199, 0.15);
+      /* 行间分隔线：从文字起始处缩进，跳过图标 */
+      .settings-row + .settings-row::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 58px;
+        right: 0;
+        border-top: 1px solid var(--glass-border-ice);
+        pointer-events: none;
       }
-      .storage-node-card.active {
-        border: 2px solid var(--primary) !important;
-        background: linear-gradient(135deg, rgba(224, 242, 254, 0.98), rgba(240, 249, 255, 0.95)) !important;
-        box-shadow: 0 8px 24px -2px rgba(2, 132, 199, 0.32), inset 0 0 0 1px #ffffff !important;
-        transform: translateY(-2px);
+      .settings-row:hover:not(.locked) { background: rgba(var(--primary-rgb), 0.04); }
+      .settings-row:active:not(.locked) { background: rgba(var(--primary-rgb), 0.08); }
+      .settings-row.selected { background: rgba(var(--primary-rgb), 0.09); }
+      .settings-row.locked { cursor: default; opacity: 0.55; }
+
+      .row-icon {
+        flex: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.95rem;
+        background: var(--icon-bg, rgba(var(--primary-rgb), 0.12));
+        color: var(--icon-fg, var(--primary));
       }
-      html[data-theme="dark"] .storage-node-card.active {
-        background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(15, 27, 49, 0.95)) !important;
-        border-color: var(--primary-light) !important;
-        box-shadow: 0 8px 24px -2px rgba(2, 132, 199, 0.5) !important;
+      .row-text {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
       }
-      .storage-node-card .storage-node-title {
-        font-weight: 700;
-        font-size: 0.94rem;
+      .row-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 0.9rem;
+        font-weight: 600;
         color: var(--text-main);
+        line-height: 1.2;
       }
-      .storage-node-card.active .storage-node-title {
-        color: var(--primary-dark) !important;
-        font-weight: 800;
-      }
-      html[data-theme="dark"] .storage-node-card.active .storage-node-title {
-        color: #f0f9ff !important;
-      }
-      .storage-node-card .storage-node-desc {
-        font-size: 0.78rem;
+      .row-sub {
+        font-size: 0.74rem;
         color: var(--text-muted);
-        margin-top: 2px;
+        line-height: 1.32;
       }
-      .storage-node-card.active .storage-node-desc {
-        color: #0369a1 !important;
-        font-weight: 500;
+      .row-tag {
+        font-size: 0.6rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        padding: 1px 6px;
+        border-radius: 6px;
+        background: rgba(139, 92, 246, 0.16);
+        color: #8b5cf6;
       }
-      html[data-theme="dark"] .storage-node-card.active .storage-node-desc {
-        color: #bae6fd !important;
+      html[data-theme="dark"] .row-tag {
+        background: rgba(167, 139, 250, 0.22);
+        color: #c4b5fd;
+      }
+      .row-check { flex: none; color: var(--primary); font-size: 0.92rem; }
+
+      /* 锁定的只读值（如 Telegram 并发固定 1） */
+      .seg-value {
+        flex: none;
+        font-size: 0.86rem;
+        font-weight: 700;
+        color: var(--text-muted);
       }
 
-      .storage-node-card.disabled {
-        opacity: 0.52 !important;
-        cursor: not-allowed !important;
-        background: rgba(148, 163, 184, 0.08) !important;
-        border-color: rgba(148, 163, 184, 0.25) !important;
-        filter: grayscale(0.6);
+      /* 分段控制器（替代滑块，Apple 风格离散选择） */
+      .segmented {
+        flex: none;
+        display: inline-flex;
+        background: var(--glass-subtle);
+        border: 1px solid var(--glass-border-ice);
+        border-radius: 9px;
+        padding: 2px;
+        gap: 2px;
       }
-      .storage-node-card.disabled:hover {
-        transform: none !important;
-        box-shadow: none !important;
+      .segmented button {
+        min-width: 32px;
+        padding: 5px 11px;
+        border: none;
+        background: transparent;
+        border-radius: 7px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--text-sub);
+        cursor: pointer;
+        font-family: inherit;
+        transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
       }
+      .segmented button:hover:not(.active) { color: var(--text-main); }
+      .segmented button.active {
+        background: #ffffff;
+        color: var(--primary-dark);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+      }
+      html[data-theme="dark"] .segmented button.active {
+        background: rgba(255, 255, 255, 0.16);
+        color: #ffffff;
+      }
+
+      .settings-group-footer {
+        padding: 8px 16px 0;
+        font-size: 0.7rem;
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+
+      /* 未配置标签（保留） */
       .unconfigured-tag {
+        align-self: flex-start;
         font-size: 0.68rem;
         font-weight: 700;
         padding: 2px 7px;
@@ -2194,20 +2295,6 @@
         color: var(--text-muted);
         display: inline-block;
         margin-top: 4px;
-      }
-      .storage-check-circle {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: var(--primary);
-        color: #ffffff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.65rem;
       }
 
       .toast-glass-banner {
@@ -2253,7 +2340,6 @@
         #app { padding: 12px 14px 100px; }
         .upload-hero-zone { padding: 30px 16px; }
         .quick-action-strip { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-        .storage-cards-grid { grid-template-columns: 1fr; }
         .bottom-floating-dock { width: calc(100% - 20px); }
         .history-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
 
@@ -2291,211 +2377,9 @@
         .history-view-toggle { align-self: flex-start; }
       }
 
-      /* =========================================================
-         ===== 智能节点模式（Smart Routing）新增样式 =====
-         ========================================================= */
-      .smart-badge {
-        display: inline-block;
-        margin-left: 6px;
-        padding: 1px 6px;
-        border-radius: var(--radius-pill);
-        font-size: 0.58rem;
-        font-weight: 800;
-        letter-spacing: 0.08em;
-        color: #fff;
-        background: linear-gradient(135deg, #8b5cf6, #6366f1);
-        vertical-align: middle;
-        box-shadow: 0 2px 6px rgba(139, 92, 246, 0.35);
-      }
+      /* [已迁移] 智能节点 / 并行上传样式统一收敛到「分组列表」组件，见 storage-summary / settings-* / segmented */
 
-      .smart-config-panel {
-        margin-top: 14px;
-        padding: 14px;
-        border-radius: var(--radius-md);
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.09), rgba(99, 102, 241, 0.04));
-        border: 1.5px dashed rgba(139, 92, 246, 0.42);
-        animation: fadeIn 0.22s ease;
-      }
-      html[data-theme="dark"] .smart-config-panel {
-        background: linear-gradient(135deg, rgba(139, 92, 246, 0.16), rgba(99, 102, 241, 0.08));
-        border-color: rgba(167, 139, 250, 0.4);
-      }
-      .smart-config-panel .folder-section-label {
-        margin-top: 0;
-        color: #7c3aed;
-      }
-      html[data-theme="dark"] .smart-config-panel .folder-section-label { color: #c4b5fd; }
-      .smart-config-panel .folder-section-label i { color: #8b5cf6; }
-
-      /* =========================================================
-         ===== [PARALLEL] 并行上传开关 =====
-         ========================================================= */
-      .parallel-toggle-row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 11px 13px;
-        margin-bottom: 12px;
-        border-radius: var(--radius-md);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-soft);
-      }
-      .parallel-toggle-icon {
-        flex-shrink: 0;
-        width: 30px;
-        height: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 9px;
-        font-size: 0.82rem;
-        color: #fff;
-        background: linear-gradient(135deg, #8b5cf6, #6366f1);
-        box-shadow: 0 2px 8px rgba(139, 92, 246, 0.32);
-      }
-      .parallel-toggle-main { flex: 1; min-width: 0; }
-      .parallel-toggle-title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 0.86rem;
-        font-weight: 700;
-        color: var(--text-main);
-      }
-      .parallel-toggle-desc {
-        margin-top: 3px;
-        font-size: 0.72rem;
-        line-height: 1.45;
-        color: var(--text-muted);
-      }
-      .parallel-pool-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 7px;
-      }
-      .parallel-pool-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 2px 9px;
-        border-radius: var(--radius-pill);
-        font-size: 0.68rem;
-        font-weight: 700;
-        border: 1px solid var(--glass-border-ice);
-        background: var(--glass-surface);
-        color: var(--text-sub);
-      }
-      .parallel-pool-chip i { font-size: 0.66rem; }
-      .parallel-pool-chip.light i { color: #0284c7; }
-      .parallel-pool-chip.heavy i { color: #8b5cf6; }
-      html[data-theme="dark"] .parallel-pool-chip.light i { color: #38bdf8; }
-      html[data-theme="dark"] .parallel-pool-chip.heavy i { color: #c4b5fd; }
-
-      /* ---- 并发度滑块 ---- */
-      .parallel-sliders {
-        margin-top: 11px;
-        padding-top: 11px;
-        border-top: 1px dashed var(--glass-border-ice);
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        animation: fadeIn 0.2s ease;
-      }
-      .parallel-slider-row { display: flex; flex-direction: column; gap: 6px; }
-      .parallel-slider-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        font-size: 0.76rem;
-        font-weight: 600;
-        color: var(--text-sub);
-      }
-      .parallel-slider-head .label {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-      }
-      .parallel-slider-head .label i { font-size: 0.72rem; }
-      .parallel-slider-head .label i.telegram { color: #0284c7; }
-      .parallel-slider-head .label i.heavy { color: #8b5cf6; }
-      html[data-theme="dark"] .parallel-slider-head .label i.telegram { color: #38bdf8; }
-      html[data-theme="dark"] .parallel-slider-head .label i.heavy { color: #c4b5fd; }
-      .parallel-slider-head .hint {
-        font-size: 0.66rem;
-        font-weight: 500;
-        color: var(--text-muted);
-      }
-      .parallel-slider-val {
-        flex-shrink: 0;
-        min-width: 30px;
-        text-align: center;
-        padding: 1px 7px;
-        border-radius: var(--radius-pill);
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.74rem;
-        font-weight: 800;
-        color: #fff;
-        background: linear-gradient(135deg, #8b5cf6, #6366f1);
-      }
-
-      /* 原生 range 跨浏览器统一外观 */
-      .parallel-range {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 100%;
-        height: 22px;
-        background: transparent;
-        cursor: pointer;
-        margin: 0;
-      }
-      .parallel-range:focus { outline: none; }
-      .parallel-range::-webkit-slider-runnable-track {
-        height: 5px;
-        border-radius: 3px;
-        background: var(--primary-surface);
-        border: 1px solid var(--glass-border-ice);
-      }
-      .parallel-range::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        appearance: none;
-        width: 16px;
-        height: 16px;
-        margin-top: -6px;
-        border-radius: 50%;
-        background: #fff;
-        border: 2.5px solid var(--primary);
-        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
-        transition: transform 0.15s ease;
-      }
-      .parallel-range:active::-webkit-slider-thumb { transform: scale(1.16); }
-      .parallel-range::-moz-range-track {
-        height: 5px;
-        border-radius: 3px;
-        background: var(--primary-surface);
-        border: 1px solid var(--glass-border-ice);
-      }
-      .parallel-range::-moz-range-thumb {
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        background: #fff;
-        border: 2.5px solid var(--primary);
-        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
-      }
-      .parallel-range:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-        filter: grayscale(0.7);
-      }
-      .parallel-slider-note {
-        font-size: 0.66rem;
-        line-height: 1.5;
-        color: var(--text-muted);
-      }
+      /* [已迁移] 并行上传开关 UI 改为分组列表行 + 分段控制器，样式见 settings-row / segmented */
 
       /* 复用后台的开关视觉，保证两个页面观感一致 */
       .apple-switch {
@@ -3054,203 +2938,161 @@
 
           <!-- Drawer Tab 1: Storage Node Switcher -->
           <div v-if="activeDrawerTab === 'storage'">
-            <div style="font-size: 0.88rem; color: var(--text-sub); margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; background: var(--primary-surface); padding: 10px 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border-ice);">
-              <span>当前存储单文件上限：</span>
-              <strong style="color: var(--primary-dark); font-size: 1.05rem; font-family: 'JetBrains Mono', monospace;">{{ currentUploadLimitLabel }}</strong>
+            <!-- 摘要：当前单文件上限 -->
+            <div class="storage-summary">
+              <span class="storage-summary-label">当前存储单文件上限</span>
+              <span class="storage-summary-value">{{ currentUploadLimitLabel }}</span>
             </div>
 
-            <div class="storage-cards-grid">
-              <!-- [SMART] 智能节点卡片 -->
-              <div
-                class="storage-node-card"
-                v-if="!isGuest"
-                :class="{ active: storageMode === 'auto' }"
-                @click="setStorageMode('auto')"
-              >
-                <i class="fas fa-wand-magic-sparkles" style="font-size: 1.7rem; color: #8b5cf6;"></i>
-                <div>
-                  <div class="storage-node-title">智能节点<span class="smart-badge">AUTO</span></div>
-                  <div class="storage-node-desc">
-                    ≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出自动分流
-                  </div>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 'auto'"><i class="fas fa-check"></i></div>
-              </div>
+            <!-- 分组一：存储节点 -->
+            <div class="settings-group">
+              <div class="settings-group-header">存储节点</div>
+              <div class="settings-list">
+                <!-- [SMART] 智能节点 -->
+                <button
+                  class="settings-row"
+                  v-if="!isGuest"
+                  :class="{ selected: storageMode === 'auto' }"
+                  @click="setStorageMode('auto')"
+                >
+                  <span class="row-icon" style="--icon-bg: rgba(139,92,246,0.16); --icon-fg:#8b5cf6">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                  </span>
+                  <span class="row-text">
+                    <span class="row-title">智能节点 <span class="row-tag">AUTO</span></span>
+                    <span class="row-sub">≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出自动分流</span>
+                  </span>
+                  <span class="row-check" v-if="storageMode === 'auto'"><i class="fas fa-check"></i></span>
+                </button>
 
-              <div class="storage-node-card" :class="{ active: storageMode === 'telegram' }" @click="setStorageMode('telegram')">
-                <i class="fab fa-telegram" style="font-size: 1.7rem; color: #0284c7;"></i>
-                <div>
-                  <div class="storage-node-title">Telegram 频道</div>
-                  <div class="storage-node-desc">20MB 免费无限制云存储</div>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 'telegram'"><i class="fas fa-check"></i></div>
-              </div>
-              <div class="storage-node-card" v-if="!isGuest" :class="{ active: storageMode === 'r2', disabled: !isStorageAvailable('r2') }" @click="setStorageMode('r2')">
-                <i class="fas fa-cloud" style="font-size: 1.7rem; color: #f6821f;"></i>
-                <div>
-                  <div class="storage-node-title">Cloudflare R2</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('r2')">最高10GB零流费 CDN 存储</div>
-                  <span class="unconfigured-tag" v-else>未配置</span>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 'r2'"><i class="fas fa-check"></i></div>
-              </div>
-              <div class="storage-node-card" v-if="!isGuest" :class="{ active: storageMode === 's3', disabled: !isStorageAvailable('s3') }" @click="setStorageMode('s3')">
-                <i class="fas fa-database" style="font-size: 1.7rem; color: #10b981;"></i>
-                <div>
-                  <div class="storage-node-title">Amazon S3</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('s3')">40MB 工业级对象存储</div>
-                  <span class="unconfigured-tag" v-else>未配置</span>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 's3'"><i class="fas fa-check"></i></div>
-              </div>
-              <div class="storage-node-card" v-if="!isGuest" :class="{ active: storageMode === 'discord', disabled: !isStorageAvailable('discord') }" @click="setStorageMode('discord')">
-                <i class="fab fa-discord" style="font-size: 1.7rem; color: #6366f1;"></i>
-                <div>
-                  <div class="storage-node-title">Discord 频道</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('discord')">25MB 媒体托管节点</div>
-                  <span class="unconfigured-tag" v-else>未配置</span>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 'discord'"><i class="fas fa-check"></i></div>
-              </div>
-              <div class="storage-node-card" v-if="!isGuest" :class="{ active: storageMode === 'huggingface', disabled: !isStorageAvailable('huggingface') }" @click="setStorageMode('huggingface')">
-                <i class="fas fa-robot" style="font-size: 1.7rem; color: #ec4899;"></i>
-                <div>
-                  <div class="storage-node-title">HuggingFace</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('huggingface')">35MB 开放模型与数据集</div>
-                  <span class="unconfigured-tag" v-else>未配置</span>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 'huggingface'"><i class="fas fa-check"></i></div>
-              </div>
-              <div class="storage-node-card" v-if="!isGuest" :class="{ active: storageMode === 'github', disabled: !isStorageAvailable('github') }" @click="setStorageMode('github')">
-                <i class="fab fa-github" style="font-size: 1.7rem; color: #334155;"></i>
-                <div>
-                  <div class="storage-node-title">GitHub Releases</div>
-                  <div class="storage-node-desc" v-if="isStorageAvailable('github')">40MB 仓库文件资产</div>
-                  <span class="unconfigured-tag" v-else>未配置</span>
-                </div>
-                <div class="storage-check-circle" v-if="storageMode === 'github'"><i class="fas fa-check"></i></div>
-              </div>
-            </div>
+                <!-- Telegram -->
+                <button
+                  class="settings-row"
+                  :class="{ selected: storageMode === 'telegram' }"
+                  @click="setStorageMode('telegram')"
+                >
+                  <span class="row-icon" style="--icon-bg: rgba(2,132,199,0.14); --icon-fg:#0284c7">
+                    <i class="fab fa-telegram"></i>
+                  </span>
+                  <span class="row-text">
+                    <span class="row-title">Telegram 频道</span>
+                    <span class="row-sub">20MB 免费无限制云存储</span>
+                  </span>
+                  <span class="row-check" v-if="storageMode === 'telegram'"><i class="fas fa-check"></i></span>
+                </button>
 
-            <!-- [SMART/PARALLEL] 存储路由配置面板
-                 面板本身放宽到「非访客都可见」，因为并行上传开关在
-                 单节点模式（telegram / r2）下同样有意义；
-                 「大文件节点」子区块仍只在智能节点模式下出现。 -->
-            <div class="smart-config-panel" v-if="!isGuest">
-              <!-- [PARALLEL] 并行上传开关 -->
-              <div class="parallel-toggle-row">
-                <div class="parallel-toggle-icon"><i class="fas fa-bolt"></i></div>
-                <div class="parallel-toggle-main">
-                  <div class="parallel-toggle-title">
-                    <span>并行上传</span>
-                    <span class="smart-badge" v-if="isParallelActive()">ON</span>
-                  </div>
-                  <div class="parallel-toggle-desc">
-                    {{
-                      isParallelActive()
-                        ? '大文件可多路并行；Telegram 受自身限流约束仍为逐条发送。'
-                        : '关闭时逐个上传，网络不稳定时更稳妥。'
-                    }}
-                  </div>
-                  <div class="parallel-pool-chips" v-if="isParallelActive()">
-                    <span class="parallel-pool-chip light">
-                      <i class="fab fa-telegram"></i>
-                      <span>小文件 ×{{ concurrencyForPool('light') }}</span>
-                    </span>
-                    <span class="parallel-pool-chip heavy">
-                      <i class="fas fa-server"></i>
-                      <span>大文件 ×{{ concurrencyForPool('heavy') }}</span>
-                    </span>
-                  </div>
-                </div>
-                <label class="apple-switch" title="开启/关闭并行上传">
-                  <input
-                    type="checkbox"
-                    :checked="parallelUpload"
-                    @change="setParallelUpload($event.target.checked)"
-                  />
-                  <span class="track"></span>
-                  <span class="thumb"></span>
-                </label>
-              </div>
-
-              <!-- [PARALLEL] 并发度滑块：开关关闭时置灰但保留可见，
-                   让用户始终能看到"调到多少会生效" -->
-              <div class="parallel-sliders" v-if="!isGuest">
-                <div class="parallel-slider-row">
-                  <div class="parallel-slider-head">
-                    <span class="label">
-                      <i class="fab fa-telegram telegram"></i>
-                      <span>小文件并发</span>
-                      <span class="hint">≤ {{ formatSize(smartThreshold) }} · Telegram</span>
-                    </span>
-                    <span class="parallel-slider-val">{{ parallelLight }}</span>
-                  </div>
-                  <input
-                    class="parallel-range"
-                    type="range"
-                    min="1"
-                    :max="PARALLEL_MAX_LIGHT"
-                    step="1"
-                    :disabled="!parallelUpload || PARALLEL_MAX_LIGHT <= 1"
-                    :value="parallelLight"
-                    @input="setParallelLight(+$event.target.value)"
-                  />
-                  <div class="parallel-slider-note">
-                    Telegram 同一频道约 1 条/秒，无法并发，多发会触发限流冷却。
-                  </div>
-                </div>
-
-                <div class="parallel-slider-row">
-                  <div class="parallel-slider-head">
-                    <span class="label">
-                      <i class="fas fa-server heavy"></i>
-                      <span>大文件并发</span>
-                      <span class="hint">R2 / S3 / GitHub 等</span>
-                    </span>
-                    <span class="parallel-slider-val">{{ parallelHeavy }}</span>
-                  </div>
-                  <input
-                    class="parallel-range"
-                    type="range"
-                    min="1"
-                    :max="PARALLEL_MAX_HEAVY"
-                    step="1"
-                    :disabled="!parallelUpload"
-                    :value="parallelHeavy"
-                    @input="setParallelHeavy(+$event.target.value)"
-                  />
-                  <div class="parallel-slider-note">
-                    受 Cloudflare 单 isolate 内存（128MB）与后端并发配额共同限制，
-                    上限 {{ PARALLEL_MAX_HEAVY }}。
-                  </div>
-                </div>
-              </div>
-
-              <!-- [SMART] 大文件节点（仅智能节点模式） -->
-              <template v-if="storageMode === 'auto'">
-                <div class="folder-section-label">
-                  <i class="fas fa-sliders"></i>
-                  <span>大文件节点（&gt; {{ formatSize(smartThreshold) }}）</span>
-                </div>
-                <div class="storage-cards-grid">
-                  <div
-                    class="storage-node-card"
-                    v-for="opt in largeStorageOptions"
+                <!-- R2 / S3 / Discord / HuggingFace / GitHub -->
+                <template v-if="!isGuest">
+                  <button
+                    class="settings-row"
+                    v-for="opt in storageNodeOptions"
                     :key="opt.value"
-                    :class="{ active: smartLargeMode === opt.value, disabled: !isStorageAvailable(opt.value) }"
-                    @click="setSmartLargeMode(opt.value)"
+                    :class="{ selected: storageMode === opt.value, locked: !isStorageAvailable(opt.value) }"
+                    :disabled="!isStorageAvailable(opt.value)"
+                    @click="isStorageAvailable(opt.value) && setStorageMode(opt.value)"
                   >
-                    <i :class="opt.icon" :style="{ fontSize: '1.7rem', color: opt.color }"></i>
-                    <div>
-                      <div class="storage-node-title">{{ opt.label }}</div>
-                      <div class="storage-node-desc" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</div>
+                    <span class="row-icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }">
+                      <i :class="opt.icon"></i>
+                    </span>
+                    <span class="row-text">
+                      <span class="row-title">{{ opt.label }}</span>
+                      <span class="row-sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
                       <span class="unconfigured-tag" v-else>未配置</span>
-                    </div>
-                    <div class="storage-check-circle" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></div>
-                  </div>
+                    </span>
+                    <span class="row-check" v-if="storageMode === opt.value"><i class="fas fa-check"></i></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <!-- 分组二：上传 -->
+            <div class="settings-group" v-if="!isGuest">
+              <div class="settings-group-header">上传</div>
+              <div class="settings-list">
+                <!-- 并行上传开关 -->
+                <div class="settings-row" style="cursor: default;">
+                  <span class="row-icon" style="--icon-bg: rgba(139,92,246,0.16); --icon-fg:#8b5cf6">
+                    <i class="fas fa-bolt"></i>
+                  </span>
+                  <span class="row-text">
+                    <span class="row-title">并行上传 <span class="row-tag" v-if="isParallelActive()">ON</span></span>
+                    <span class="row-sub">
+                      {{ isParallelActive() ? '大文件多路并行；Telegram 受自身限流逐条发送' : '关闭时逐个上传，网络不稳时更稳妥' }}
+                    </span>
+                  </span>
+                  <label class="apple-switch" title="开启/关闭并行上传">
+                    <input
+                      type="checkbox"
+                      :checked="parallelUpload"
+                      @change="setParallelUpload($event.target.checked)"
+                    />
+                    <span class="track"></span>
+                    <span class="thumb"></span>
+                  </label>
                 </div>
-              </template>
+
+                <!-- 并发度（仅开启时显示） -->
+                <template v-if="isParallelActive()">
+                  <!-- 小文件并发：Telegram 限流固定 1，只读 -->
+                  <div class="settings-row locked" style="cursor: default;">
+                    <span class="row-icon" style="--icon-bg: rgba(2,132,199,0.14); --icon-fg:#0284c7">
+                      <i class="fab fa-telegram"></i>
+                    </span>
+                    <span class="row-text">
+                      <span class="row-title">小文件并发</span>
+                      <span class="row-sub">Telegram 同一频道约 1 条/秒，无法并发</span>
+                    </span>
+                    <span class="seg-value">1</span>
+                  </div>
+
+                  <!-- 大文件并发：分段控制器（替代滑块） -->
+                  <div class="settings-row" style="cursor: default;">
+                    <span class="row-icon" style="--icon-bg: rgba(139,92,246,0.16); --icon-fg:#8b5cf6">
+                      <i class="fas fa-server"></i>
+                    </span>
+                    <span class="row-text">
+                      <span class="row-title">大文件并发</span>
+                      <span class="row-sub">R2 / S3 / GitHub 等</span>
+                    </span>
+                    <div class="segmented">
+                      <button
+                        v-for="n in PARALLEL_MAX_HEAVY"
+                        :key="n"
+                        :class="{ active: parallelHeavy === n }"
+                        @click="setParallelHeavy(n)"
+                      >{{ n }}</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+              <div class="settings-group-footer" v-if="isParallelActive()">
+                大文件并发受 Cloudflare 单实例 128MB 内存与后端并发配额限制，上限 {{ PARALLEL_MAX_HEAVY }}。
+              </div>
+            </div>
+
+            <!-- 分组三：大文件节点（仅智能节点模式） -->
+            <div class="settings-group" v-if="storageMode === 'auto' && !isGuest">
+              <div class="settings-group-header">大文件节点 · 超过 {{ formatSize(smartThreshold) }}</div>
+              <div class="settings-list">
+                <button
+                  class="settings-row"
+                  v-for="opt in largeStorageOptions"
+                  :key="opt.value"
+                  :class="{ selected: smartLargeMode === opt.value, locked: !isStorageAvailable(opt.value) }"
+                  :disabled="!isStorageAvailable(opt.value)"
+                  @click="isStorageAvailable(opt.value) && setSmartLargeMode(opt.value)"
+                >
+                  <span class="row-icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }">
+                    <i :class="opt.icon"></i>
+                  </span>
+                  <span class="row-text">
+                    <span class="row-title">{{ opt.label }}</span>
+                    <span class="row-sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
+                    <span class="unconfigured-tag" v-else>未配置</span>
+                  </span>
+                  <span class="row-check" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -4208,6 +4050,12 @@
               { value: "huggingface", label: "HuggingFace", desc: "35MB 开放模型与数据集", icon: "fas fa-robot", color: "#ec4899" },
               { value: "github", label: "GitHub Releases", desc: "40MB 仓库文件资产", icon: "fab fa-github", color: "#334155" },
             ];
+          },
+
+          /* [UI] 单节点候选列表（存储节点分组里的 5 个非智能节点，
+             与 largeStorageOptions 同源，但语义是"直接选定该节点"。 */
+          storageNodeOptions() {
+            return this.largeStorageOptions;
           },
 
           currentUploadLimitLabel() {
