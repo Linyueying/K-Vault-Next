@@ -3910,6 +3910,12 @@
           parallelHeavy: PARALLEL_DEFAULT_HEAVY,
           parallelLight: PARALLEL_DEFAULT_LIGHT,
 
+          /* 调度器重入锁：必须放在 data() 里才是响应式布尔值。
+             若误放进 methods，Vue2 的 initMethods 会把非函数值替换成 noop，
+             导致它的取值恒为真，startUpload 的「if (this.uploadSchedulerRunning) return」
+             永远成立、调度器永不启动，所有文件卡在「等待中 (0%)」。 */
+          uploadSchedulerRunning: false,
+
           /* ===== [SMART] 智能节点模式状态 ===== */
           smartThreshold: SMART_SMALL_FILE_LIMIT,
           smartLargeMode: "r2",
@@ -5206,7 +5212,6 @@
            * 已由 resolveStorageForFile() 算好并冻结，worker 全程只读。
            * 因此这里不会与智能分流算法产生任何状态竞争。
            * ============================================================ */
-          uploadSchedulerRunning: false,
 
           async startUpload() {
             if (this.uploadSchedulerRunning) return;
