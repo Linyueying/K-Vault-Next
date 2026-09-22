@@ -6061,31 +6061,44 @@
            * 后端不上报（老部署）时静默跳过，不影响主流程。
            */
           applyShareResult(target, payload, submittedSlug) {
-            if (!target || !payload) return target;
-            /* 短链取值：后端回传 > 本次提交的自定义短链 > 目标已有短链。
-               把「用户刚填的短链」纳入优先级，才能在提交后立即得到正确的分享地址。 */
-            const slug =
-              String(payload.shareSlug || "").trim()
-              || String(submittedSlug || "").trim()
-              || String(target.shareSlug || "").trim();
-            const incoming = payload.sharePath || (slug ? `/s/${slug}` : "");
-            /* 后端只回「无短链的通用路径」时，不覆盖自定义短链 */
-            const hasCustomSlug = Boolean(submittedSlug || target.shareSlug);
-            const nextPath = (hasCustomSlug && !payload.shareSlug) ? "" : incoming;
-            const finalPath = nextPath || this.resolveSharePath(
-              Object.assign({}, target, { shareSlug: slug })
-            );
-            if (!finalPath && !payload.shareExpiresAt && !payload.shareMaxDownloads && !payload.sharePasswordProtected) {
-              return target;
-            }
-            target.shareSlug = slug;
-            target.sharePath = finalPath;
-            target.shareExpiresAt = payload.shareExpiresAt || 0;
-            target.shareMaxDownloads = payload.shareMaxDownloads || 0;
-            target.shareProtected = Boolean(payload.sharePasswordProtected);
-            target.shareDownloadCount = Number(payload.shareDownloadCount) || 0;
-            return target;
-          },
+  if (!target || !payload) return target;
+  
+  const slug =
+    String(payload.shareSlug || "").trim()
+    || String(submittedSlug || "").trim()
+    || String(target.shareSlug || "").trim();
+  const incoming = payload.sharePath || (slug ? `/s/${slug}` : "");
+  /* 后端只回「无短链的通用路径」时，不覆盖自定义短链 */
+  const hasCustomSlug = Boolean(submittedSlug || target.shareSlug);
+  const nextPath = (hasCustomSlug && !payload.shareSlug) ? "" : incoming;
+  
+  // 👇 新增：判断是否存在实质性的分享数据（后端返回了，或者用户主动提交了）
+  const hasShareData = Boolean(
+    nextPath || 
+    payload.shareExpiresAt || 
+    payload.shareMaxDownloads || 
+    payload.sharePasswordProtected ||
+    submittedSlug
+  );
+
+  // 👇 新增：如果完全没有分享数据，说明这是一次普通上传，直接返回，不再生成兜底分享链接
+  if (!hasShareData) {
+    return target;
+  }
+
+  // 只有确认有分享数据时，才继续执行后面的赋值和兜底逻辑
+  const finalPath = nextPath || this.resolveSharePath(
+    Object.assign({}, target, { shareSlug: slug })
+  );
+  
+  target.shareSlug = slug;
+  target.sharePath = finalPath;
+  target.shareExpiresAt = payload.shareExpiresAt || 0;
+  target.shareMaxDownloads = payload.shareMaxDownloads || 0;
+  target.shareProtected = Boolean(payload.sharePasswordProtected);
+  target.shareDownloadCount = Number(payload.shareDownloadCount) || 0;
+  return target;
+},
           hasShare(item) {
             /* 「已分享」= 能拿出一个可访问的分享链接。
                注意不能只看 shareSlug：未填自定义短链的分享同样有链接，
