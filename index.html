@@ -426,7 +426,7 @@
 }
 
 /* 4. 新增：让标签栏以下的内容区域自己滚动 */
-.modal--sheet > div:not(.modal__handle):not(.drawer-tabs) {
+.modal--sheet > .drawer-pane {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
@@ -434,7 +434,7 @@
   scrollbar-width: none;
   padding-bottom: var(--sp-3);
 }
-.modal--sheet > div:not(.modal__handle):not(.drawer-tabs)::-webkit-scrollbar {
+.modal--sheet > .drawer-pane::-webkit-scrollbar {
   display: none;
 }
       .modal--dialog {
@@ -793,11 +793,13 @@
       html[data-theme="dark"] .folder-new__title { color: var(--primary-light); }
       .folder-new__hint { margin-top: 6px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
       .folder-new__actions { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
-      .folder-new__actions .grow { flex: 1; }
+      .grow { flex: 1; }
 
       /* 目录树 */
-      .section-label { display: flex; align-items: center; gap: 7px; font-size: 0.72rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.05em; margin: var(--sp-4) 0 var(--sp-2); }
-      .section-label i { color: var(--primary); font-size: 0.72rem; }
+      /* 小标题统一：存储节点 / 上传目录 / 本地历史三处共用同一套排版 */
+      .section-label, .settings-group__header, .hist-group__label { display: flex; align-items: center; gap: 7px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; color: var(--text-muted); line-height: 1.4; }
+      .section-label i, .hist-group__label i { color: var(--primary); font-size: 0.72rem; }
+      .section-label { margin: var(--sp-4) 0 var(--sp-2); }
       .section-label .count { margin-left: auto; font-weight: 650; letter-spacing: 0; color: var(--text-sub); opacity: 0.85; }
 
       .tree-panel { border: 1px solid var(--glass-border); border-radius: var(--r-md); background: var(--glass-surface); padding: 6px; max-height: 340px; overflow-y: auto; overflow-x: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
@@ -841,7 +843,7 @@
       .summary__value { font-size: 1.04rem; font-weight: 700; color: var(--primary-dark); font-family: 'JetBrains Mono', monospace; }
 
       .settings-group { margin-top: var(--sp-4); }
-      .settings-group__header { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); padding: 0 var(--sp-4) var(--sp-2); letter-spacing: 0.01em; }
+      .settings-group__header { padding: 0 var(--sp-4) var(--sp-2); }
       .settings-list { background: var(--glass-surface); border: 1px solid var(--glass-border-ice); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-soft); }
       .settings-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; text-align: left; padding: var(--sp-3) var(--sp-4); background: transparent; border: none; cursor: pointer; position: relative; transition: background var(--dur-fast) ease, transform 0.14s var(--ease-press); font: inherit; }
       .settings-row + .settings-row::before { content: ""; position: absolute; top: 0; left: 58px; right: 0; border-top: 1px solid var(--glass-border-ice); pointer-events: none; }
@@ -855,19 +857,29 @@
       .settings-row__title { display: flex; align-items: center; gap: 7px; font-size: var(--fs-md); font-weight: 600; color: var(--text-main); line-height: 1.2; }
       .settings-row__sub { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.32; }
       .settings-row__check { flex: none; color: var(--primary); font-size: 0.92rem; animation: pop 0.28s var(--ease-apple) backwards; }
+      .settings-row__go { flex: none; color: var(--text-muted); font-size: 0.78rem; }
+      .settings-row--static { cursor: default; }
+      .settings-row--danger .settings-row__icon { --icon-bg: var(--c-danger-soft); --icon-fg: var(--c-danger); }
+      .settings-row--danger .settings-row__title { color: var(--c-danger); }
+      a.settings-row { text-decoration: none; color: inherit; }
+      /* 行内图标配色：收掉重复出现的内联 --icon-bg / --icon-fg */
+      .settings-row__icon.ico--violet  { --icon-bg: rgba(139, 92, 246, 0.16); --icon-fg: #8b5cf6; }
+      .settings-row__icon.ico--blue    { --icon-bg: rgba(2, 132, 199, 0.14);  --icon-fg: #0284c7; }
+      .settings-row__icon.ico--sky     { --icon-bg: rgba(56, 189, 248, 0.18); --icon-fg: #0ea5e9; }
       .settings-group__footer { padding: var(--sp-2) var(--sp-4) 0; font-size: var(--fs-xs); line-height: 1.5; color: var(--text-muted); }
 
       .row-tag { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 6px; background: rgba(139, 92, 246, 0.16); color: #8b5cf6; }
       html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color: #c4b5fd; }
       .seg-value { flex: none; font-size: var(--fs-md); font-weight: 700; color: var(--text-muted); }
 
-      /* 分段控件：每段等宽，选中项切换时整组不动 */
-      .segmented { flex: none; display: inline-flex; background: var(--glass-subtle); border: 1px solid var(--glass-border-ice); border-radius: var(--r-xs); padding: 2px; gap: 2px; }
-      .segmented button { flex: 1; min-width: 32px; padding: 5px 11px; border: none; background: transparent; border-radius: 7px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-sub); cursor: pointer; font-family: inherit; transition: background 0.26s var(--ease-apple), color 0.26s var(--ease-apple), transform 0.12s var(--ease-press), box-shadow 0.26s var(--ease-apple); }
-      .segmented button:hover:not(.active) { color: var(--text-main); }
-      .segmented button:active { transform: scale(0.92); }
-      .segmented button.active { background: #fff; color: var(--primary-dark); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16); }
-      html[data-theme="dark"] .segmented button.active { background: rgba(255, 255, 255, 0.16); color: #fff; }
+      /* 分段控件统一：并发选择 / 视图切换 / 类型过滤共用一套轨道与选项，只在尺寸上保留差异 */
+      .segmented, .view-toggle { flex: none; display: inline-flex; gap: 2px; padding: 2px; background: var(--glass-subtle); border: 1px solid var(--glass-border-ice); border-radius: var(--r-xs); }
+      .segmented button, .view-toggle button, .type-tab { border: none; background: transparent; color: var(--text-sub); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.28s var(--ease-apple), color 0.28s var(--ease-apple), border-color 0.28s var(--ease-apple), box-shadow 0.28s var(--ease-apple), transform 0.14s var(--ease-press); }
+      .segmented button:hover:not(.active), .view-toggle button:hover:not(.active), .type-tab:hover { color: var(--primary); }
+      .segmented button:active, .view-toggle button:active, .type-tab:active { transform: scale(0.94); }
+      .segmented button.active, .view-toggle button.active, .type-tab.active { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3); }
+      .segmented button { flex: 1; min-width: 32px; padding: 5px 11px; border-radius: 6px; font-size: var(--fs-sm); }
+      .view-toggle button { width: 40px; height: 32px; border-radius: 6px; font-size: 0.76rem; display: inline-flex; align-items: center; justify-content: center; }
 
       /* 开关 */
       .switch { position: relative; width: 44px; height: 26px; flex: none; cursor: pointer; display: inline-block; }
@@ -921,23 +933,15 @@
       .hist-options__row > label { font-size: 0.74rem; font-weight: 800; color: var(--text-muted); letter-spacing: 0.02em; flex: none; }
       .hist-options__row select { flex: 1; min-width: 0; max-width: 190px; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); border: 1px solid var(--glass-border); background: var(--glass-surface); color: var(--text-main); font-size: var(--fs-sm); font-weight: 600; font-family: inherit; cursor: pointer; outline: none; transition: border-color var(--dur-base) var(--ease-apple); }
 
-      .view-toggle { display: inline-flex; padding: 3px; gap: 3px; border-radius: var(--r-pill); border: 1px solid var(--glass-border); background: var(--glass-surface); flex-shrink: 0; }
-      .view-toggle button { width: 40px; height: 32px; border: none; background: transparent; color: var(--text-muted); border-radius: var(--r-pill); cursor: pointer; font-size: 0.76rem; transition: background 0.28s var(--ease-apple), color 0.28s var(--ease-apple), box-shadow 0.28s var(--ease-apple), transform 0.14s var(--ease-press); display: inline-flex; align-items: center; justify-content: center; }
-      .view-toggle button:hover { color: var(--primary); }
-      .view-toggle button:active { transform: scale(0.9); }
-      .view-toggle button.active { background: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3); }
-
       /* 类型过滤 tab：固定最小宽度，避免「全部 (3)」→「文档 (18)」宽度抖动 */
       .type-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; margin-bottom: var(--sp-2); }
       .type-tabs::-webkit-scrollbar { display: none; }
-      .type-tab { flex: none; min-width: 72px; text-align: center; padding: 6px var(--sp-3); border-radius: var(--r-pill); border: 1px solid var(--glass-border); background: var(--glass-surface); color: var(--text-sub); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.28s var(--ease-apple), color 0.28s var(--ease-apple), border-color 0.28s var(--ease-apple), box-shadow 0.28s var(--ease-apple), transform 0.14s var(--ease-press); }
-      .type-tab:hover { border-color: rgba(var(--primary-rgb), 0.4); color: var(--primary); }
-      .type-tab:active { transform: scale(0.94); }
-      .type-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: var(--glow-primary); }
+      .type-tab { flex: none; min-width: 72px; text-align: center; padding: 6px var(--sp-3); border-radius: var(--r-pill); border: 1px solid var(--glass-border); background: var(--glass-surface); font-size: var(--fs-sm); }
+      .type-tab:hover { border-color: rgba(var(--primary-rgb), 0.4); }
+      .type-tab.active { border-color: var(--primary); box-shadow: var(--glow-primary); }
 
       .hist-group { margin-bottom: var(--sp-1); }
-      .hist-group__label { display: flex; align-items: center; gap: var(--sp-2); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em; margin: var(--sp-4) 0 var(--sp-2); }
-      .hist-group__label i { color: var(--primary); font-size: 0.7rem; }
+      .hist-group__label { margin: var(--sp-4) 0 var(--sp-2); }
       .hist-group__label::after { content: ''; flex: 1; height: 1px; background: var(--glass-border-ice); }
 
       .hist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--sp-2); }
@@ -956,6 +960,14 @@
       .hist-card:hover .hist-card__actions { opacity: 1; transform: translateY(0); }
       .hist-card__foot { display: flex; align-items: center; gap: var(--sp-1); padding: 0 5px 5px; }
       .hist-card__foot .btn { flex: 1 1 0; height: var(--h-ctrl-sm); border-radius: var(--r-xs); padding: 0; }
+
+      /* 历史列表行：原散在标签内联 style 里的卡片外观收编成类；
+         该视图是独立卡片而非分组列表，故取消 .row + .row 的分隔线。 */
+      .row.hist-row { border: 1px solid var(--glass-border); border-radius: var(--r-md); margin-bottom: 6px; background: var(--glass-subtle); }
+      .row.hist-row + .row.hist-row::before { display: none; }
+
+      /* 历史工具栏换行版（原内联 flex-wrap） */
+      .hist-toolbar--wrap { flex-wrap: wrap; }
 
       .hist-empty { padding: 38px var(--sp-4); text-align: center; color: var(--text-muted); font-size: var(--fs-sm); display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); line-height: 1.5; }
       .hist-empty i { font-size: 1.8rem; opacity: 0.4; animation: floatSoft 3.4s var(--ease-apple) infinite alternate; }
@@ -1037,6 +1049,14 @@
       .drawer-tab:active { transform: scale(0.94); }
       .drawer-tab.active { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; border-color: var(--primary); box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35); }
       html[data-theme="dark"] .drawer-tab.active { background: linear-gradient(135deg, var(--primary-light), var(--primary)); color: #070d19; }
+
+      /* 抽屉 · 横向滑动切页
+         刻意不动 touch-action：内容区只有纵向滚动（overflow-x: hidden），横向拖动
+         本就无原生含义，因此无需 preventDefault 也不会与竖直滚动打架；反之在内容区
+         声明 pan-y 会把 .type-tabs / .breadcrumb 这两个内部横向滚动条一起锁死。
+         跟手位移的两行必须排在 .pane-*-enter-active 之前，否则会盖掉页签转场。 */
+      .drawer-pane { transition: transform 0.34s var(--ease-fluid); }
+      .drawer-pane--dragging { transition: none; }
 
       /* =========================================================
          分享弹窗
@@ -1628,7 +1648,10 @@
       <!-- 抽屉 -->
       <transition name="sheet">
       <div class="modal-mask modal-mask--bottom" v-if="showDrawer" @click.self="showDrawer = false">
-        <div class="modal modal--sheet">
+        <div class="modal modal--sheet" ref="drawerSheet" tabindex="-1"
+             @touchstart.passive="onDrawerTouchStart" @touchmove.passive="onDrawerTouchMove"
+             @touchend="onDrawerTouchEnd" @touchcancel="onDrawerTouchCancel"
+             @keydown.left="stepDrawerTab(-1)" @keydown.right="stepDrawerTab(1)">
           <div class="modal__handle"></div>
 
           <div class="drawer-tabs">
@@ -1640,7 +1663,9 @@
           <!-- 抽屉页签转场：方向感知的非线性滑动（前进 / 后退） -->
           <transition :name="'pane-' + drawerNavDir" mode="out-in">
           <!-- Tab 1: 存储节点 -->
-          <div v-if="activeDrawerTab === 'storage'" key="storage">            <div class="summary">
+          <div v-if="activeDrawerTab === 'storage'" key="storage" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
+            <div class="summary">
               <span class="summary__label">当前存储单文件上限</span>
               <transition name="label" mode="out-in">
                 <span class="summary__value" :key="uploadLimitKey">{{ currentUploadLimitLabel }}</span>
@@ -1651,7 +1676,7 @@
               <div class="settings-group__header">存储节点</div>
               <div class="settings-list">
                 <button class="settings-row" v-if="!isGuest" :class="{ selected: storageMode === 'auto' }" @click="setStorageMode('auto')">
-                  <span class="settings-row__icon" style="--icon-bg: rgba(139,92,246,0.16); --icon-fg:#8b5cf6"><i class="fas fa-wand-magic-sparkles"></i></span>
+                  <span class="settings-row__icon ico--violet"><i class="fas fa-wand-magic-sparkles"></i></span>
                   <span class="settings-row__text">
                     <span class="settings-row__title">智能节点 <span class="row-tag">AUTO</span></span>
                     <span class="settings-row__sub">≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出自动分流</span>
@@ -1660,7 +1685,7 @@
                 </button>
 
                 <button class="settings-row" :class="{ selected: storageMode === 'telegram' }" @click="setStorageMode('telegram')">
-                  <span class="settings-row__icon" style="--icon-bg: rgba(2,132,199,0.14); --icon-fg:#0284c7"><i class="fab fa-telegram"></i></span>
+                  <span class="settings-row__icon ico--blue"><i class="fab fa-telegram"></i></span>
                   <span class="settings-row__text">
                     <span class="settings-row__title">Telegram 频道</span>
                     <span class="settings-row__sub">20MB 免费无限制云存储</span>
@@ -1688,8 +1713,8 @@
             <div class="settings-group" v-if="!isGuest">
               <div class="settings-group__header">上传</div>
               <div class="settings-list">
-                <div class="settings-row" style="cursor: default;">
-                  <span class="settings-row__icon" style="--icon-bg: rgba(139,92,246,0.16); --icon-fg:#8b5cf6"><i class="fas fa-bolt"></i></span>
+                <div class="settings-row settings-row--static">
+                  <span class="settings-row__icon ico--violet"><i class="fas fa-bolt"></i></span>
                   <span class="settings-row__text">
                     <span class="settings-row__title">并行上传 <span class="row-tag" v-if="isParallelActive()">ON</span></span>
                     <span class="settings-row__sub">{{ isParallelActive() ? '大文件多路并行；Telegram 受自身限流逐条发送' : '关闭时逐个上传，网络不稳时更稳妥' }}</span>
@@ -1701,8 +1726,8 @@
                 </div>
 
                 <template v-if="isParallelActive()">
-                  <div class="settings-row locked" style="cursor: default;">
-                    <span class="settings-row__icon" style="--icon-bg: rgba(2,132,199,0.14); --icon-fg:#0284c7"><i class="fab fa-telegram"></i></span>
+                  <div class="settings-row locked">
+                    <span class="settings-row__icon ico--blue"><i class="fab fa-telegram"></i></span>
                     <span class="settings-row__text">
                       <span class="settings-row__title">小文件并发</span>
                       <span class="settings-row__sub">Telegram 同一频道约 1 条/秒，无法并发</span>
@@ -1710,8 +1735,8 @@
                     <span class="seg-value">1</span>
                   </div>
 
-                  <div class="settings-row" style="cursor: default;">
-                    <span class="settings-row__icon" style="--icon-bg: rgba(139,92,246,0.16); --icon-fg:#8b5cf6"><i class="fas fa-server"></i></span>
+                  <div class="settings-row settings-row--static">
+                    <span class="settings-row__icon ico--violet"><i class="fas fa-server"></i></span>
                     <span class="settings-row__text">
                       <span class="settings-row__title">大文件并发</span>
                       <span class="settings-row__sub">R2 / S3 / GitHub 等</span>
@@ -1747,7 +1772,8 @@
           </div>
 
           <!-- Tab 2: 上传目录 -->
-          <div v-else-if="activeDrawerTab === 'folder'" key="folder">
+          <div v-else-if="activeDrawerTab === 'folder'" key="folder" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
             <div class="folder-current">
               <div class="folder-current__main">
                 <div class="folder-current__label"><i class="fas fa-location-dot"></i><span>当前上传目录</span></div>
@@ -1816,7 +1842,8 @@
           </div>
 
           <!-- Tab 3: 本地历史 -->
-          <div v-else-if="activeDrawerTab === 'history'" key="history">
+          <div v-else-if="activeDrawerTab === 'history'" key="history" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
             <div class="hist-stats">
               <span class="hist-stats__item"><i class="fas fa-clock-rotate-left"></i><span><strong>{{ historyStats.count }}</strong> 条</span></span>
               <span class="hist-stats__item"><i class="fas fa-database"></i><span><strong>{{ formatSize(historyStats.totalSize) }}</strong></span></span>
@@ -1874,7 +1901,7 @@
             </transition>
 
             <transition name="fade">
-            <div class="hist-toolbar" style="flex-wrap: wrap;" v-if="historySorted.length">
+            <div class="hist-toolbar hist-toolbar--wrap" v-if="historySorted.length">
               <button class="btn btn--sm" @click="toggleHistorySelectAll">
                 <i :class="historyAllSelected ? 'fas fa-check-double' : 'fas fa-check'"></i>
                 {{ historyAllSelected ? '取消全选' : '全选' }}
@@ -1884,7 +1911,7 @@
                 <i :class="historyCleanupRunning ? 'fas fa-spinner fa-spin' : 'fas fa-magnifying-glass-chart'"></i>
                 {{ historyCleanupRunning ? `检查 ${historyCleanupProgress.checked}/${historyCleanupProgress.total}` : '清理失效' }}
               </button>
-              <span style="flex: 1;"></span>
+              <span class="grow"></span>
               <button class="btn btn--sm btn--danger" @click="clearHistory" :disabled="!uploadHistory.length"><i class="fas fa-broom"></i> 清空</button>
             </div>
             </transition>
@@ -1921,7 +1948,7 @@
                 </transition-group>
 
                 <transition-group name="list" tag="div" class="list" v-else>
-                  <div class="row" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }" style="border: 1px solid var(--glass-border); border-radius: var(--r-md); margin-bottom: 6px; background: var(--glass-subtle);">
+                  <div class="row hist-row" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }">
                     <input type="checkbox" v-model="item.selected" style="accent-color: var(--primary); cursor: pointer; flex-shrink: 0;" />
                     <div class="row__thumb" @click="historyPreview(item)">
                       <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getCleanFileUrl(item)" @error="handleHistoryImgError($event, item)" />
@@ -1961,17 +1988,58 @@
           </div>
 
           <!-- Tab 4: 系统导航 -->
-          <div v-else key="menu" style="display: flex; flex-direction: column; gap: 10px;">
-            <a href="./gallery.html" v-if="!isGuest" class="btn" style="justify-content: flex-start;"><i class="fas fa-images"></i><span>图片画廊浏览</span></a>
-            <a href="./admin.html" v-if="!isGuest" class="btn" style="justify-content: flex-start;"><i class="fas fa-sliders"></i><span>管理后台</span></a>
-            <a href="./webdav.html" v-if="!isGuest" class="btn" style="justify-content: flex-start;"><i class="fas fa-hard-drive"></i><span>WebDAV 服务</span></a>
-            <button class="btn" style="justify-content: flex-start;" @click="toggleLiquidTheme">
-              <i :class="currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
-              <span>切换外观主题 ({{ currentTheme === 'dark' ? '深色' : '浅蓝' }})</span>
-            </button>
-            <button v-if="isAuthenticated" class="btn btn--danger" style="justify-content: flex-start;" @click="handleLogout">
-              <i class="fas fa-arrow-right-from-bracket"></i><span>退出登录</span>
-            </button>
+          <div v-else key="menu" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
+            <div class="settings-group" v-if="!isGuest">
+              <div class="settings-group__header">扩展工具</div>
+              <div class="settings-list">
+                <a href="./gallery.html" class="settings-row">
+                  <span class="settings-row__icon ico--violet"><i class="fas fa-images"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">图片画廊浏览</span>
+                    <span class="settings-row__sub">按时间线浏览已上传的图片</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+                <a href="./admin.html" class="settings-row">
+                  <span class="settings-row__icon ico--sky"><i class="fas fa-sliders"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">管理后台</span>
+                    <span class="settings-row__sub">存储节点、账户与全局配置</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+                <a href="./webdav.html" class="settings-row">
+                  <span class="settings-row__icon ico--blue"><i class="fas fa-hard-drive"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">WebDAV 服务</span>
+                    <span class="settings-row__sub">用系统文件管理器挂载云端目录</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group__header">偏好</div>
+              <div class="settings-list">
+                <button class="settings-row" @click="toggleLiquidTheme">
+                  <span class="settings-row__icon ico--violet"><i :class="currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">外观主题</span>
+                    <span class="settings-row__sub">当前：{{ currentTheme === 'dark' ? '深色' : '浅蓝' }}</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </button>
+                <button class="settings-row settings-row--danger" v-if="isAuthenticated" @click="handleLogout">
+                  <span class="settings-row__icon"><i class="fas fa-arrow-right-from-bracket"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">退出登录</span>
+                    <span class="settings-row__sub">清除本机登录状态</span>
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
           </transition>
         </div>
@@ -2090,7 +2158,7 @@
               <i :class="shareDialogRevoking ? 'fas fa-circle-notch fa-spin' : 'fas fa-ban'"></i>
               <span>{{ shareDialogRevoking ? '处理中…' : '取消分享' }}</span>
             </button>
-            <span style="flex: 1;"></span>
+            <span class="grow"></span>
             <button class="btn" :disabled="shareDialogBusy" @click="closeShareDialog"><span>{{ shareDialogResult ? '完成' : '取消' }}</span></button>
             <button class="btn btn--primary" v-if="!shareDialogResult" :disabled="shareDialogBusy" @click="submitShareDialog">
               <i :class="shareDialogBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-share-nodes'"></i>
@@ -2212,10 +2280,8 @@
             activeDrawerTab: "storage",
             lastMoreTab: "history",
             drawerNavDir: "forward",
-// 👇 新增以下三行代码
-touchStartX: 0,
-touchStartY: 0,
-touchStartTime: 0,
+            /* 抽屉横向滑动切页的手势状态 */
+            drawerSwipe: { active: false, lock: "", x0: 0, y0: 0, dx: 0, t0: 0 },
             baseURL: document.location.origin,
             isDragging: false,
             dragDepth: 0,
@@ -2347,6 +2413,20 @@ touchStartTime: 0,
           activeUploadCount() { return this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing").length; },
           pausedCount() { return this.uploadingFiles.filter((f) => f.status === "paused").length; },
           isMoreTabActive() { return ["history", "menu"].includes(this.activeDrawerTab); },
+
+          /* 手势拖拽中：跟手位移，首尾页做阻尼 */
+          drawerPaneDragging() {
+            const s = this.drawerSwipe;
+            return s.active && s.lock === "x" && !!s.dx;
+          },
+          drawerPaneStyle() {
+            const s = this.drawerSwipe;
+            if (!s.active || s.lock !== "x" || !s.dx) return {};
+            const order = DRAWER_TAB_ORDER;
+            const i = order.indexOf(this.activeDrawerTab);
+            const atEdge = (s.dx > 0 && i <= 0) || (s.dx < 0 && i >= order.length - 1);
+            return { transform: "translate3d(" + (s.dx * (atEdge ? 0.12 : 0.34)).toFixed(2) + "px, 0, 0)" };
+          },
 
           uploadFolderOptions() {
             const seen = new Set();
@@ -2731,12 +2811,72 @@ touchStartTime: 0,
             if (from > -1 && to > -1 && to !== from) this.drawerNavDir = to < from ? "back" : "forward";
             this.activeDrawerTab = tab;
           },
-          openDrawer(tab) { this.setDrawerTab(tab); this.showDrawer = true; },
-          openMoreDrawer() { this.setDrawerTab(this.lastMoreTab || "history"); this.showDrawer = true; },
+          openDrawer(tab) { this.setDrawerTab(tab); this.showDrawer = true; this.focusDrawerSheet(); },
+          openMoreDrawer() { this.setDrawerTab(this.lastMoreTab || "history"); this.showDrawer = true; this.focusDrawerSheet(); },
           switchDrawerTab(tab) {
             this.setDrawerTab(tab);
             if (["history", "menu"].includes(tab)) this.lastMoreTab = tab;
             if (tab === "folder" && !this.uploadFoldersFetched) this.fetchUploadFolders();
+          },
+          /* 让抽屉拿到焦点，方向键才能在桌面端翻页；tabindex=-1 不会唤起键盘 */
+          focusDrawerSheet() {
+            this.$nextTick(() => {
+              const el = this.$refs.drawerSheet;
+              if (!el || !el.focus) return;
+              try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+            });
+          },
+
+          /* ===== 抽屉横向滑动切页 =====
+             全程不碰 preventDefault，纵向滚动完全交给浏览器原生处理；
+             这里只认横向：先锁轴再累计位移，手一斜不会把竖直滚动抢走。 */
+          isDrawerSwipeBlocked(target) {
+            if (!target || typeof target.closest !== "function") return false;
+            /* .drawer-tabs / .type-tabs / .breadcrumb 都是横向滚动条，
+               手势从这里起手时一律让给它们自己滚动 */
+            return !!target.closest('input, textarea, select, [contenteditable="true"], .drawer-tabs, .type-tabs, .breadcrumb, .switch, .no-swipe');
+          },
+          onDrawerTouchStart(e) {
+            const s = this.drawerSwipe;
+            if (e.touches.length !== 1 || this.isDrawerSwipeBlocked(e.target)) { s.active = false; return; }
+            const t = e.touches[0];
+            s.active = true; s.lock = ""; s.dx = 0;
+            s.x0 = t.clientX; s.y0 = t.clientY; s.t0 = Date.now();
+          },
+          onDrawerTouchMove(e) {
+            const s = this.drawerSwipe;
+            if (!s.active || e.touches.length !== 1) return;
+            const dx = e.touches[0].clientX - s.x0;
+            const dy = e.touches[0].clientY - s.y0;
+            if (!s.lock) {
+              const ax = Math.abs(dx), ay = Math.abs(dy);
+              if (ax < 10 && ay < 10) return;         // 抖动阈值：位移太小先不判方向
+              s.lock = ax > ay * 1.35 ? "x" : "y";    // 纵向优先，竖直滚动永不被抢
+            }
+            if (s.lock === "x") s.dx = dx;
+          },
+          onDrawerTouchEnd() {
+            const s = this.drawerSwipe;
+            if (!s.active) return;
+            const dx = s.dx;
+            const horizontal = s.lock === "x";
+            const velocity = Math.abs(dx) / Math.max(1, Date.now() - s.t0);   // px/ms
+            s.active = false; s.lock = ""; s.dx = 0;
+            if (!horizontal) return;
+            if (Math.abs(dx) < 24) return;                     // 纯抖动，不翻页
+            if (Math.abs(dx) < 56 && velocity < 0.5) return;   // 拖得不够远、也没甩起来
+            this.stepDrawerTab(dx < 0 ? 1 : -1);
+          },
+          onDrawerTouchCancel() {
+            const s = this.drawerSwipe;
+            s.active = false; s.lock = ""; s.dx = 0;
+          },
+          /* 手势与方向键共用的翻页入口 */
+          stepDrawerTab(step, e) {
+            const t = e && e.target;
+            if (t && typeof t.closest === "function" && t.closest('input, textarea, select, [contenteditable="true"]')) return;
+            const next = DRAWER_TAB_ORDER[DRAWER_TAB_ORDER.indexOf(this.activeDrawerTab) + step];
+            if (next) this.switchDrawerTab(next);
           },
           toggleLiquidTheme() {
             this.currentTheme = this.currentTheme === "dark" ? "light" : "dark";
