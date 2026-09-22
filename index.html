@@ -135,7 +135,7 @@
         border-radius: var(--radius-lg);
         transition: var(--transition);
         position: relative;
-        overflow: hidden;
+        overflow: visible;
       }
       .liquid-card::before {
         content: '';
@@ -147,6 +147,7 @@
         background: linear-gradient(90deg, transparent, var(--glass-specular), transparent);
         opacity: 0.9;
         pointer-events: none;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0; /* 👈 新增这一行 */
       }
 
       #app {
