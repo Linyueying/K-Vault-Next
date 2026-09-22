@@ -6,6 +6,9 @@
 <title>K-Vault · 管理后台</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/logo.png">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -22,13 +25,16 @@
   --bg-gradient:radial-gradient(at 8% 8%,#e0f2fe 0px,transparent 45%),radial-gradient(at 92% 92%,#bae6fd 0px,transparent 48%),#f0f7ff;
   --glass-surface:rgba(255,255,255,.84);--glass-elevated:rgba(255,255,255,.95);--glass-subtle:rgba(255,255,255,.65);
   --glass-border:rgba(255,255,255,.95);--glass-border-ice:rgba(186,230,253,.75);--glass-specular:rgba(255,255,255,.95);
-  --text-main:#0f172a;--text-sub:#334155;--text-muted:#64748b;
+  --text-main:#0f172a;--text-sub:#334155;--text-muted:#475569;
+  /* 语义文字色：与图形装饰色分开，保证 WCAG AA 对比度 */
+  --primary-text:#0369a1;--c-success-text:#15803d;
   --shadow-soft:0 8px 24px -4px rgba(2,132,199,.08),0 2px 8px -2px rgba(0,0,0,.03);
   --shadow-elevated:0 16px 36px -6px rgba(2,132,199,.16),0 4px 12px -2px rgba(0,0,0,.04);
   --glow-primary:0 3px 10px rgba(var(--primary-rgb),.26);
   --r-xs:8px;--r-sm:12px;--r-md:16px;--r-lg:22px;--r-pill:9999px;
   --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;
-  --fs-xs:.68rem;--fs-sm:.78rem;--fs-md:.88rem;--fs-lg:1rem;--fs-xl:1.15rem;--fs-2xl:1.35rem;
+  /* 字号下限提到 12px：低于此值中文几乎不可读 */
+  --fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.88rem;--fs-lg:1rem;--fs-xl:1.15rem;--fs-2xl:1.35rem;
   --h-ctrl-sm:30px;--h-ctrl:36px;--h-ctrl-lg:44px;
 
   /* ================================================
@@ -49,9 +55,13 @@ html[data-theme="dark"]{
   --bg-gradient:radial-gradient(at 10% 10%,rgba(2,132,199,.18) 0px,transparent 50%),radial-gradient(at 90% 90%,rgba(14,165,233,.12) 0px,transparent 50%),#070d19;
   --glass-surface:rgba(15,27,49,.85);--glass-elevated:rgba(20,36,66,.95);--glass-subtle:rgba(15,27,49,.6);
   --glass-border:rgba(255,255,255,.14);--glass-border-ice:rgba(56,189,248,.25);--glass-specular:rgba(255,255,255,.2);
-  --text-main:#f8fafc;--text-sub:#cbd5e1;--text-muted:#94a3b8;
+  --text-main:#f8fafc;--text-sub:#cbd5e1;--text-muted:#a3b1c6;
+  --primary-text:#7dd3fc;--c-success-text:#4ade80;
   --shadow-soft:0 10px 30px -6px rgba(0,0,0,.55);--shadow-elevated:0 18px 45px -6px rgba(0,0,0,.7);
 }
+/* 让滚动条、原生 select 下拉、表单控件跟随主题（否则深色下仍是白底） */
+html[data-theme="light"]{color-scheme:light}
+html[data-theme="dark"]{color-scheme:dark}
 /* =========================================================
 Reset & Base
 ========================================================= */
@@ -71,10 +81,12 @@ a{color:inherit}
 .shrink0{flex-shrink:0}
 .pad-sm{padding:var(--sp-3)}
 .pad-xs{padding:14px 6px}
-.tiny{font-size:.75rem}
-.tiny-muted{font-size:.75rem;line-height:1.6}
+.tiny{font-size:var(--fs-xs)}
+.tiny-muted{font-size:var(--fs-xs);line-height:1.6}
 .icon-home{color:var(--primary)}
 .crumb-home{font-size:var(--fs-xs)}
+/* 移动端专用：目录面板折叠按钮 / 工具箱「更多」 */
+.collapse-only{display:none}
 /* =========================================================
 环境光（移植 index .ambient-glow / orbFloat 无限漂浮）
 ========================================================= */
@@ -105,7 +117,12 @@ a{color:inherit}
 /* =========================================================
 App 布局
 ========================================================= */
-#app{position:relative;z-index:2;max-width:1320px;margin:0 auto;padding:var(--sp-4) var(--sp-5) 130px}
+#app{position:relative;z-index:2;max-width:1320px;margin:0 auto;
+  padding:
+    calc(var(--sp-4) + env(safe-area-inset-top,0px))
+    calc(var(--sp-5) + env(safe-area-inset-right,0px))
+    calc(130px + env(safe-area-inset-bottom,0px))
+    calc(var(--sp-5) + env(safe-area-inset-left,0px));}
 /* 顶栏 */
 .micro-topbar{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin-bottom:18px;padding:var(--sp-1);flex-wrap:wrap}
 .brand-box{display:flex;align-items:center;gap:var(--sp-3);user-select:none}
@@ -114,7 +131,7 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .brand-box:hover .brand-logo-wrap{transform:rotate(-6deg) scale(1.06);box-shadow:0 8px 20px rgba(2,132,199,.24)}
 .brand-logo-wrap img{width:24px;height:24px;object-fit:contain}
 .brand-text-wrap h1{font-size:var(--fs-xl);font-weight:800;letter-spacing:-.02em;background:linear-gradient(135deg,var(--text-main) 30%,var(--primary));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-.brand-text-wrap span{font-size:.72rem;font-weight:600;color:var(--text-muted);display:block;margin-top:-2px}
+.brand-text-wrap span{font-size:.75rem;font-weight:600;color:var(--text-muted);display:block;margin-top:-2px}
 .top-actions,.toolbar-tools,.token-row-top{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
 .status-cluster{display:inline-flex;align-items:center;gap:2px;padding:6px 10px;border-radius:var(--r-pill);background:var(--glass-surface);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-soft);cursor:pointer;transition:var(--transition);}
 .status-cluster:hover{border-color:var(--primary);transform:translateY(-1px)}
@@ -146,19 +163,23 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .view-toggle button:hover{color:var(--primary)}
 .view-toggle button:active{transform:scale(.92)}
 .view-toggle button.active{background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(var(--primary-rgb),.3)}
-.tool-stat{margin-left:auto;font-size:.76rem;font-weight:600;color:var(--text-muted);white-space:nowrap}
-.tool-stat strong{color:var(--primary);font-family:'JetBrains Mono',monospace}
+.tool-stat{margin-left:auto;font-size:.78rem;font-weight:600;color:var(--text-muted);white-space:nowrap}
+.tool-stat strong{color:var(--primary-text);font-family:'JetBrains Mono',monospace}
 /* 筛选触发器 + 徽标 */
 .filter-trigger{position:relative}
-.badge-count{min-width:17px;height:17px;padding:0 5px;border-radius:var(--r-pill);background:var(--primary);color:#fff;font-size:.62rem;font-weight:800;display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;animation:pop .28s var(--ease-apple) backwards;}
+.badge-count{min-width:17px;height:17px;padding:0 5px;border-radius:var(--r-pill);background:var(--primary);color:#fff;font-size:.66rem;font-weight:800;display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;animation:pop .28s var(--ease-apple) backwards;}
 /* 常驻工具条 */
 .tool-hub{display:flex;align-items:stretch;gap:var(--sp-2);flex-wrap:wrap;margin-top:2px;padding:var(--sp-3) var(--sp-3) var(--sp-3) 14px;border-radius:var(--r-md);background:rgba(var(--primary-rgb),.04);border:1px solid var(--glass-border-ice);}
 html[data-theme="dark"] .tool-hub{background:rgba(255,255,255,.03)}
-.tool-hub-label{display:flex;align-items:center;gap:7px;flex:none;font-size:.72rem;font-weight:800;letter-spacing:.04em;color:var(--text-sub);padding-right:var(--sp-1);}
+.tool-hub-label{display:flex;align-items:center;gap:7px;flex:none;font-size:.75rem;font-weight:800;letter-spacing:.04em;color:var(--text-sub);padding-right:var(--sp-1);}
 .tool-hub-label i{font-size:.8rem;color:var(--primary)}
 .tool-hub-items{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;flex:1}
-/* 工具卡片 */
-.tool-chip{display:inline-flex;align-items:center;gap:9px;padding:8px 14px 8px 11px;border-radius:var(--r-md);border:1px solid var(--glass-border);background:var(--glass-surface);color:var(--text-sub);font-family:inherit;font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:transform .34s var(--ease-spring),box-shadow .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple),background .3s var(--ease-apple);box-shadow:0 1px 2px rgba(15,23,42,.04);}
+/* =========================================================
+工具卡片
+—— 统一 44px 高 / 128px 宽基准，height 改 min-height 以支持文字缩放
+—— 去掉语义突兀的 .accent 实心蓝（导出链接曾用它，导致整排参差）
+========================================================= */
+.tool-chip{display:inline-flex;align-items:center;justify-content:flex-start;gap:9px;min-height:44px;min-width:128px;padding:6px 14px 6px 11px;box-sizing:border-box;border-radius:var(--r-md);border:1px solid var(--glass-border);background:var(--glass-surface);color:var(--text-sub);font-family:inherit;font-size:var(--fs-sm);font-weight:600;line-height:1.2;cursor:pointer;white-space:nowrap;transition:transform .34s var(--ease-spring),box-shadow .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple),background .3s var(--ease-apple);box-shadow:0 1px 2px rgba(15,23,42,.04);}
 html[data-theme="dark"] .tool-chip{background:rgba(255,255,255,.04)}
 .tool-chip .chip-icon{width:26px;height:26px;border-radius:var(--r-xs);flex:none;display:inline-flex;align-items:center;justify-content:center;background:rgba(var(--primary-rgb),.1);color:var(--primary);font-size:.76rem;transition:background .34s var(--ease-apple),color .34s var(--ease-apple),transform .34s var(--ease-spring);}
 .tool-chip:hover{border-color:rgba(var(--primary-rgb),.42);color:var(--primary);box-shadow:0 4px 14px -3px rgba(var(--primary-rgb),.22);transform:translateY(-2px)}
@@ -166,16 +187,15 @@ html[data-theme="dark"] .tool-chip{background:rgba(255,255,255,.04)}
 .tool-chip:active{transform:scale(.97);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .tool-chip.on{border-color:rgba(var(--primary-rgb),.5);color:var(--primary);background:rgba(var(--primary-rgb),.07)}
 .tool-chip.on .chip-icon{background:var(--primary);color:#fff}
-.tool-chip.accent{border-color:transparent;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;box-shadow:0 4px 14px -3px rgba(var(--primary-rgb),.38)}
-.tool-chip.accent .chip-icon{background:rgba(255,255,255,.2);color:#fff}
-.tool-chip.accent:hover{color:#fff;box-shadow:0 7px var(--sp-5) -4px rgba(var(--primary-rgb),.5)}
-.tool-chip.accent:hover .chip-icon{background:rgba(255,255,255,.32);color:#fff}
-.tool-chip .caret{font-size:.55rem;opacity:.55;transition:transform .34s var(--ease-spring)}
+/* caret 靠右，避免「批量操作」因多了箭头而挤歪整排节奏 */
+.tool-chip .caret{font-size:.55rem;opacity:.55;margin-left:auto;transition:transform .34s var(--ease-spring)}
+/* 「更多工具」仅在窄屏出现；被折叠的 chip 用 --extra 标记 */
+.tool-more{display:none}
 /* 生效条件 chips */
 .active-filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.active-filters .af-label{font-size:.72rem;font-weight:700;color:var(--text-muted)}
-.filter-pill{display:inline-flex;align-items:center;gap:6px;padding:var(--sp-1) 10px;border-radius:var(--r-pill);border:1px solid rgba(var(--primary-rgb),.32);background:rgba(var(--primary-rgb),.08);color:var(--primary);font-family:inherit;font-size:.74rem;font-weight:700;cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
-.filter-pill i{font-size:.62rem;opacity:.75;transition:opacity var(--dur-fast)}
+.active-filters .af-label{font-size:.75rem;font-weight:700;color:var(--text-muted)}
+.filter-pill{display:inline-flex;align-items:center;gap:6px;padding:var(--sp-1) 10px;border-radius:var(--r-pill);border:1px solid rgba(var(--primary-rgb),.32);background:rgba(var(--primary-rgb),.08);color:var(--primary-text);font-family:inherit;font-size:var(--fs-xs);font-weight:700;cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
+.filter-pill i{font-size:.66rem;opacity:.75;transition:opacity var(--dur-fast)}
 .filter-pill:hover{background:rgba(var(--primary-rgb),.16);border-color:rgba(var(--primary-rgb),.5);transform:translateY(-2px)}
 .filter-pill:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .filter-pill:hover i{opacity:1}
@@ -185,14 +205,14 @@ html[data-theme="dark"] .tool-chip{background:rgba(255,255,255,.04)}
 .filter-sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--sp-3);margin-top:2px;padding:var(--sp-3);border-radius:var(--r-md);background:rgba(var(--primary-rgb),.045);border:1px solid var(--glass-border-ice);animation:dropIn .34s var(--ease-fluid) backwards;}
 html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .filter-field{display:flex;flex-direction:column;gap:7px;min-width:0}
-.filter-field>label{font-size:.72rem;font-weight:800;color:var(--text-muted);letter-spacing:.02em;padding-left:2px}
+.filter-field>label{font-size:.75rem;font-weight:800;color:var(--text-muted);letter-spacing:.02em;padding-left:2px}
 .filter-select{display:flex;align-items:center;gap:9px;padding:9px var(--sp-3);border-radius:11px;border:1px solid var(--glass-border);background:var(--glass-surface);color:var(--text-main);font-family:inherit;font-size:.83rem;font-weight:600;cursor:pointer;transition:var(--transition);text-align:left;min-width:0;}
 .filter-select:hover{border-color:rgba(var(--primary-rgb),.42);transform:translateY(-1px)}
 .filter-select:active{transform:scale(.985);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .filter-select>i:first-child{color:var(--primary);font-size:var(--fs-sm);flex:none;width:15px;text-align:center}
 .filter-select>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .filter-select .caret{font-size:.55rem;opacity:.55;flex:none;transition:transform .34s var(--ease-spring)}
-.filter-select.on{border-color:rgba(var(--primary-rgb),.5);background:rgba(var(--primary-rgb),.07);color:var(--primary)}
+.filter-select.on{border-color:rgba(var(--primary-rgb),.5);background:rgba(var(--primary-rgb),.07);color:var(--primary)!important}
 .filter-switch-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px var(--sp-3);border-radius:11px;border:1px solid var(--glass-border);background:var(--glass-surface);}
 .filter-switch-row .switch-text{display:flex;align-items:center;gap:9px;font-size:.83rem;font-weight:600;min-width:0}
 .filter-switch-row .switch-text i{color:var(--primary);font-size:var(--fs-sm)}
@@ -208,7 +228,7 @@ html[data-theme="dark"] .switch__track{background:rgba(148,163,184,.28)}
 .switch input:checked:active + .switch__track + .switch__thumb{transform:translateX(14px)}
 /* 下拉菜单容器 */
 .dropdown-wrap{position:relative}
-.tool-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);font-size:.8rem;font-weight:600;font-family:inherit;cursor:pointer;transition:var(--transition);white-space:nowrap;}
+.tool-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);font-size:var(--fs-sm);font-weight:600;font-family:inherit;cursor:pointer;transition:var(--transition);white-space:nowrap;}
 .tool-btn:hover{border-color:var(--primary-light);color:var(--primary);transform:translateY(-1px)}
 .tool-btn:active{transform:scale(.96);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .tool-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 4px var(--sp-3) rgba(var(--primary-rgb),.3)}
@@ -223,7 +243,7 @@ html[data-theme="dark"] .switch__track{background:rgba(148,163,184,.28)}
 .dropdown-item:hover{background:rgba(var(--primary-rgb),.09);color:var(--primary)}
 .dropdown-item:hover i:first-child{color:var(--primary)}
 .dropdown-item:active{transform:scale(.97);transition-duration:.08s}
-.dropdown-item.active{color:var(--primary);font-weight:700}
+.dropdown-item.active{color:var(--primary-text);font-weight:700}
 .dropdown-item.active i:first-child{color:var(--primary)}
 .dropdown-item .tick{margin-left:auto;font-size:var(--fs-xs);color:var(--primary);width:auto}
 .dropdown-item:disabled{opacity:.4;cursor:not-allowed}
@@ -237,26 +257,26 @@ KV / R2 用量面板
 .kv-usage-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);flex-wrap:wrap;gap:var(--sp-2)}
 .kv-usage-title{font-size:.85rem;font-weight:800;display:flex;align-items:center;gap:var(--sp-2)}
 .kv-usage-title i{color:var(--primary)}
-.kv-usage-date{font-size:.7rem;font-weight:600;color:var(--text-muted);background:var(--glass-subtle);padding:2px var(--sp-2);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);font-family:'JetBrains Mono',monospace;}
-.kv-plan-badge{font-size:var(--fs-xs);font-weight:800;padding:3px 10px;border-radius:var(--r-pill);letter-spacing:.03em;text-transform:uppercase;animation:pop .28s var(--ease-apple) backwards}
-.kv-plan-badge.free{background:rgba(148,163,184,.18);color:var(--text-muted);border:1px solid rgba(148,163,184,.35)}
-.kv-plan-badge.paid{background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(245,158,11,.12));color:#b45309;border:1px solid rgba(245,158,11,.4)}
+.kv-usage-date{font-size:.72rem;font-weight:600;color:var(--text-muted);background:var(--glass-subtle);padding:2px var(--sp-2);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);font-family:'JetBrains Mono',monospace;}
+.kv-plan-badge{font-size:var(--fs-xs);font-weight:800;padding:3px 10px;border-radius:var(--r-pill);letter-spacing:.03em;animation:pop .28s var(--ease-apple) backwards}
+.kv-plan-badge.free{background:rgba(100,116,139,.16);color:var(--text-muted);border:1px solid rgba(100,116,139,.35)}
+.kv-plan-badge.paid{background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(245,158,11,.12));color:#92400e;border:1px solid rgba(245,158,11,.4)}
 html[data-theme="dark"] .kv-plan-badge.paid{color:#fbbf24;border-color:rgba(251,191,36,.35)}
 .kv-usage-actions{display:flex;gap:var(--sp-1)}
-.kv-usage-empty{padding:var(--sp-6);text-align:center;color:var(--text-muted);font-size:.8rem;display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);line-height:1.6}
+.kv-usage-empty{padding:var(--sp-6);text-align:center;color:var(--text-muted);font-size:var(--fs-sm);display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);line-height:1.6}
 .kv-usage-empty i{font-size:1.6rem;opacity:.4;animation:floatSoft 3.4s var(--ease-apple) infinite alternate}
-.kv-usage-warn{margin-bottom:var(--sp-3);padding:9px var(--sp-3);border-radius:var(--r-md);background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);font-size:.75rem;color:#b45309;display:flex;align-items:flex-start;gap:var(--sp-2);line-height:1.55;animation:shakeIn .45s var(--ease-apple) backwards;}
+.kv-usage-warn{margin-bottom:var(--sp-3);padding:9px var(--sp-3);border-radius:var(--r-md);background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.35);font-size:var(--fs-xs);color:#92400e;display:flex;align-items:flex-start;gap:var(--sp-2);line-height:1.55;animation:shakeIn .45s var(--ease-apple) backwards;}
 html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 .kv-usage-warn i{flex-shrink:0;margin-top:2px}
 .kv-usage-body{display:flex;flex-direction:column;gap:var(--sp-4)}
 .kv-usage-block{padding:var(--sp-3) 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);transition:background .45s var(--ease-apple),border-color .45s var(--ease-apple),box-shadow .45s var(--ease-apple)}
 .kv-usage-label{display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-sm);font-weight:700;flex-wrap:wrap;gap:6px}
 .kv-usage-label i{color:var(--primary);margin-right:var(--sp-1)}
-.kv-usage-total{font-family:'JetBrains Mono',monospace;font-size:.74rem;color:var(--text-muted)}
+.kv-usage-total{font-family:'JetBrains Mono',monospace;font-size:var(--fs-xs);color:var(--text-muted)}
 .kv-usage-total.muted{color:var(--text-muted)}
-.kv-usage-meta{display:flex;justify-content:space-between;margin-top:7px;font-size:.72rem;color:var(--text-muted);flex-wrap:wrap;gap:6px}
+.kv-usage-meta{display:flex;justify-content:space-between;margin-top:7px;font-size:var(--fs-xs);color:var(--text-muted);flex-wrap:wrap;gap:6px}
 .kv-usage-meta strong{color:var(--text-main);font-family:'JetBrains Mono',monospace}
-.kv-usage-footer{font-size:.7rem;color:var(--text-muted);text-align:center;padding-top:2px}
+.kv-usage-footer{font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding-top:2px}
 /* 进度条（对齐 index .progress —— scaleX 而非 width，纯合成层动画） */
 .progress{height:4px;border-radius:var(--r-pill);background:rgba(148,163,184,.2);margin-top:6px;overflow:hidden}
 .progress__val{height:100%;width:100%;transform-origin:left center;transform:scaleX(0);border-radius:var(--r-pill);background:linear-gradient(90deg,var(--primary-light),var(--primary));transition:transform .4s var(--ease-fluid),background .3s var(--ease-apple);will-change:transform}
@@ -265,17 +285,19 @@ html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 .progress--lg{height:8px;margin-top:var(--sp-2)}
 .kv-ops-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:10px}
 .kv-op-item{padding:9px 11px;border-radius:var(--r-xs);background:var(--glass-surface);border:1px solid var(--glass-border-ice)}
-.kv-op-head{display:flex;align-items:center;gap:6px;font-size:.75rem;font-weight:700;margin-bottom:7px}
+.kv-op-head{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);font-weight:700;margin-bottom:7px}
 .kv-op-bar{height:5px;border-radius:var(--r-pill);background:rgba(148,163,184,.2);overflow:hidden;margin-bottom:6px}
 .kv-op-bar-inner{height:100%;border-radius:var(--r-pill);transition:transform .4s var(--ease-fluid);transform-origin:left center}
 .kv-op-nums{display:flex;justify-content:space-between;font-size:var(--fs-xs);color:var(--text-muted);font-family:'JetBrains Mono',monospace}
-.kv-op-remain{color:#22c55e;font-weight:700}
+.kv-op-remain{color:var(--c-success-text);font-weight:700}
 .kv-op-remain.low{color:var(--c-danger-strong)}
 /* =========================================================
 主布局
 ========================================================= */
 .admin-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:var(--sp-4);align-items:start}
-.folders-panel{padding:var(--sp-3);max-height:calc(100vh - 190px);display:flex;flex-direction:column;z-index:1}
+.folders-panel{padding:var(--sp-3);max-height:calc(100dvh - 190px);display:flex;flex-direction:column;z-index:1}
+.folders-panel.collapsed .folder-tree-panel{display:none}
+.folders-panel.collapsed{max-height:none}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:10px}
 .panel-title{font-size:.88rem;font-weight:700;display:flex;align-items:center;gap:var(--sp-2)}
 .panel-title i{color:var(--primary);font-size:.82rem}
@@ -303,8 +325,8 @@ html[data-theme="dark"] .folder-tree-row.active{background:linear-gradient(135de
 .folder-tree-row:hover .folder-tree-icon{transform:scale(1.14)}
 .folder-tree-row.active .folder-tree-icon{color:var(--primary)}
 .folder-tree-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.folder-tree-count{font-size:var(--fs-xs);padding:1px 7px;border-radius:var(--r-pill);background:rgba(148,163,184,.18);color:var(--text-muted);flex-shrink:0;font-weight:700;font-variant-numeric:tabular-nums;animation:pop .28s var(--ease-apple) backwards}
-.folder-tree-empty{padding:26px var(--sp-3);text-align:center;font-size:.79rem;color:var(--text-muted);display:flex;flex-direction:column;align-items:center;gap:var(--sp-2)}
+.folder-tree-count{font-size:var(--fs-xs);padding:1px 7px;border-radius:var(--r-pill);background:rgba(100,116,139,.16);color:var(--text-muted);flex-shrink:0;font-weight:700;font-variant-numeric:tabular-nums;animation:pop .28s var(--ease-apple) backwards}
+.folder-tree-empty{padding:26px var(--sp-3);text-align:center;font-size:var(--fs-sm);color:var(--text-muted);display:flex;flex-direction:column;align-items:center;gap:var(--sp-2)}
 .folder-tree-empty i{font-size:1.4rem;opacity:.4;animation:floatSoft 3.4s var(--ease-apple) infinite alternate}
 /* 内容区 */
 .content-area{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0}
@@ -325,25 +347,25 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .vault-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(var(--primary-rgb),.2)}
 .vault-card.dragging{opacity:.45;transform:scale(.97)}
 .vault-card.drop-target{border-color:#22c55e;box-shadow:0 0 0 2px rgba(34,197,94,.28)}
-.card-fav{position:absolute;top:8px;right:8px;z-index:4;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(15,23,42,.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.74rem;transition:transform .4s var(--ease-spring),background .3s var(--ease-apple),color .3s var(--ease-apple),border-color .3s var(--ease-apple);}
-.card-fav::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
-@media(hover:hover){.card-fav:hover{transform:scale(1.12)}}
-.card-fav:active{transform:scale(.88);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.card-fav.active{color:#fbbf24;border-color:rgba(251,191,36,.6);background:rgba(120,53,15,.55)}
+/* 卡片右上角下载按钮（原 .card-fav 是收藏遗留类名，语义已归位） */
+.card-dl{position:absolute;top:8px;right:8px;z-index:4;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(15,23,42,.42);backdrop-filter:blur(10px) saturate(1.4);-webkit-backdrop-filter:blur(10px) saturate(1.4);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.72rem;transition:transform .4s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
+.card-dl::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+@media(hover:hover){.card-dl:hover{transform:scale(1.12);background:rgba(15,23,42,.7);border-color:rgba(255,255,255,.6)}}
+.card-dl:active{transform:scale(.88);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .card-thumb{height:132px;display:flex;align-items:center;justify-content:center;background:var(--glass-subtle);cursor:pointer;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-border);}
 .card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s var(--ease-apple)}
 .vault-card:hover .card-thumb img{transform:scale(1.08)}
 .card-thumb>i{font-size:2.6rem;color:var(--primary);opacity:.55}
-.card-badge{position:absolute;bottom:7px;right:7px;font-size:.6rem;font-weight:700;letter-spacing:.03em;padding:2px var(--sp-2);border-radius:var(--r-pill);background:rgba(15,23,42,.55);color:#fff;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);text-transform:uppercase;animation:pop .28s var(--ease-apple) backwards}
+.card-badge{position:absolute;bottom:7px;right:7px;font-size:.66rem;font-weight:700;letter-spacing:.03em;padding:2px var(--sp-2);border-radius:var(--r-pill);background:rgba(15,23,42,.55);color:#fff;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);animation:pop .28s var(--ease-apple) backwards}
 .card-body{padding:var(--sp-2) var(--sp-3) 2px;flex:1;min-width:0}
 .card-name{font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-meta{display:flex;gap:var(--sp-2);font-size:var(--fs-xs);color:var(--text-muted);margin-top:var(--sp-1);font-weight:600}
 .card-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.card-meta i{font-size:.6rem}
+.card-meta i{font-size:.66rem}
 .card-meta .push{margin-left:auto}
 /* 列表视图（错峰入场，见动画应用层） */
-.vault-list{display:flex;flex-direction:column;gap:7px}
-.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple);}
+.vault-list{display:flex;flex-direction:column;gap:7px;width:100%;flex:1}
+.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple);width:100%;box-sizing:border-box;}
 @media(hover:hover){.vault-row:hover{border-color:var(--primary-light);transform:translateX(3px)}}
 .vault-row:active{transform:scale(.99);transition-duration:.1s}
 .vault-row.selected{border-color:var(--primary);background:var(--primary-surface)}
@@ -352,10 +374,12 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .row-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .row-info{flex:1;min-width:0}
 .row-name{font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row-meta{display:flex;gap:10px;font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;flex-wrap:wrap;font-weight:600}
-.row-meta .tag{padding:1px 7px;border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.12);color:var(--primary)}
+.row-meta{display:flex;gap:10px;font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;flex-wrap:nowrap;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.row-meta .tag{padding:1px 7px;border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.12);color:var(--primary-text)}
 /* 行/卡片操作区：40px 触控目标，热区撑到 44px（HIG） */
 .row-actions,.card-actions{display:flex;align-items:center;gap:2px;flex:none;flex-wrap:nowrap;justify-content:flex-end}
+/* 卡片操作区不再贴边 */
+.card-actions{padding:0 6px 8px}
 .act{position:relative;width:40px;height:40px;flex:none;border:none;border-radius:50%;background:transparent;color:var(--text-muted);font-size:.95rem;font-family:inherit;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:background .3s var(--ease-apple),color .3s var(--ease-apple),transform .34s var(--ease-spring);}
 .act::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
 .act:hover{background:rgba(var(--primary-rgb),.1);color:var(--primary);transform:scale(1.1)}
@@ -375,32 +399,35 @@ html[data-theme="dark"] .check{background:rgba(255,255,255,.08);border-color:rgb
 .check input{position:absolute;opacity:0;width:0;height:0;margin:0;pointer-events:none}
 /* 卡片内浮动勾选 */
 .card-check{position:absolute;top:10px;left:10px;z-index:4}
-.act.liked{color:#f59e0b}
+.act.liked{color:#b45309}
 /* 卡片/行操作弹出菜单 */
 .act-wrap{position:relative;display:inline-flex;flex:none}
 .act-menu{min-width:172px;padding:var(--sp-1)}
 .act-menu .dropdown-item{padding:10px var(--sp-3);border-radius:var(--r-sm);font-size:.83rem}
 .act-menu .dropdown-item i:first-child{width:18px;font-size:.85rem}
 /* 空状态 */
-.empty-state{padding:56px var(--sp-5);text-align:center;color:var(--text-muted);font-size:.85rem;display:flex;flex-direction:column;align-items:center;gap:var(--sp-3)}
+.empty-state{padding:56px var(--sp-5);text-align:center;color:var(--text-muted);font-size:var(--fs-sm);display:flex;flex-direction:column;align-items:center;gap:var(--sp-3)}
 .empty-state i{font-size:2.4rem;opacity:.35;animation:floatSoft 3.4s var(--ease-apple) infinite alternate}
+.empty-state .btn{margin-top:2px}
 /* 分页 */
 .pager{display:flex;align-items:center;justify-content:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:6px}
 .pager-pages{display:flex;gap:5px;align-items:center}
 .page-btn{min-width:34px;height:34px;padding:0 9px;border-radius:var(--r-xs);border:1px solid var(--glass-border-ice);background:var(--glass-surface);color:var(--text-sub);font-size:.8rem;font-weight:700;font-family:inherit;cursor:pointer;transition:border-color .3s var(--ease-apple),color .3s var(--ease-apple),background .3s var(--ease-apple),transform .3s var(--ease-spring),box-shadow .3s var(--ease-apple);display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;}
 .page-btn:hover:not(:disabled){border-color:var(--primary-light);color:var(--primary);transform:translateY(-2px)}
 .page-btn:active:not(:disabled){transform:scale(.92);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.page-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);box-shadow:0 4px var(--sp-3) rgba(var(--primary-rgb),.3)}
+.page-btn.active{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border-color:transparent;box-shadow:0 4px var(--sp-3) rgba(var(--primary-rgb),.3)}
 .page-btn:disabled{opacity:.35;cursor:not-allowed}
 /* =========================================================
 底部批量操作栏
 ========================================================= */
-.batch-dock{position:fixed;left:50%;bottom:max(var(--sp-3),env(safe-area-inset-bottom,12px));transform:translateX(-50%);width:min(680px,calc(100% - var(--sp-5)));padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);z-index:1000;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
+.batch-dock{position:fixed;left:50%;bottom:max(var(--sp-3),env(safe-area-inset-bottom,12px));transform:translateX(-50%);
+  width:min(680px,calc(100% - var(--sp-5) - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));
+  padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);z-index:1000;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
 .batch-dock::-webkit-scrollbar{display:none}
-.batch-dock__info{font-size:var(--fs-md);font-weight:700;color:var(--primary);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.batch-dock__info{font-size:var(--fs-md);font-weight:700;color:var(--primary-text);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
 .batch-dock__info strong{font-family:'JetBrains Mono',monospace}
 .batch-dock__actions{display:flex;align-items:center;gap:var(--sp-1);flex:none}
-.dock-act{width:44px;height:44px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--text-sub);display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:inherit;font-size:.6rem;font-weight:600;cursor:pointer;transition:background .3s var(--ease-apple),color .3s var(--ease-apple),transform .34s var(--ease-spring);flex:none}
+.dock-act{width:44px;height:44px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--text-sub);display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:inherit;font-size:.66rem;font-weight:600;cursor:pointer;transition:background .3s var(--ease-apple),color .3s var(--ease-apple),transform .34s var(--ease-spring);flex:none}
 .dock-act i{font-size:.94rem;color:var(--primary);transition:transform .4s var(--ease-spring)}
 .dock-act:hover{background:rgba(var(--primary-rgb),.08)}
 .dock-act:hover i{transform:scale(1.14) translateY(-1px)}
@@ -411,14 +438,14 @@ html[data-theme="dark"] .check{background:rgba(255,255,255,.08);border-color:rgb
 弹层（对齐 index .modal-mask / .modal--dialog / .modal--preview）
 ========================================================= */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:2000;display:flex;align-items:center;justify-content:center;padding:var(--sp-5);}
-.dialog-panel{width:min(560px,100%);max-height:86vh;overflow-y:auto;border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(32px);-webkit-backdrop-filter:blur(32px);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);padding:22px 24px;will-change:transform,opacity;}
+.dialog-panel{width:min(560px,100%);max-height:86dvh;overflow-y:auto;border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(32px);-webkit-backdrop-filter:blur(32px);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);padding:22px 24px;will-change:transform,opacity;}
 .dialog-panel.wide{width:min(880px,100%)}
 .dialog-title{font-size:var(--fs-lg);font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:9px}
 .dialog-title i{color:var(--primary)}
 .dialog-title.danger i{color:var(--c-danger-strong)}
-.dialog-message{font-size:.85rem;color:var(--text-sub);line-height:1.65;margin-bottom:14px}
-.dialog-message strong{color:var(--primary);font-weight:700}
-.dialog-hint{font-size:var(--fs-sm);color:var(--text-muted)}
+.dialog-message{font-size:var(--fs-sm);color:var(--text-sub);line-height:1.65;margin-bottom:14px}
+.dialog-message strong{color:var(--primary-text);font-weight:700}
+.dialog-hint{font-size:var(--fs-xs);color:var(--text-muted)}
 .dialog-input{width:100%;padding:10px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-main);font-size:.86rem;font-family:inherit;outline:none;transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);margin-bottom:14px;}
 .dialog-input:focus,.token-input:focus,.token-select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
 .dialog-actions{display:flex;gap:var(--sp-2);justify-content:flex-end;flex-wrap:wrap;margin-top:var(--sp-1)}
@@ -432,11 +459,11 @@ API Token 管理面板
 .token-section-title{font-size:.86rem;font-weight:800;display:flex;align-items:center;gap:var(--sp-2)}
 .token-section-title i{color:var(--primary)}
 .token-field{margin-bottom:var(--sp-3)}
-.token-field>label{display:block;font-size:.75rem;font-weight:700;color:var(--text-sub);margin-bottom:6px}
+.token-field>label{display:block;font-size:var(--fs-xs);font-weight:700;color:var(--text-sub);margin-bottom:6px}
 .token-input,.token-select{width:100%;padding:9px var(--sp-3);border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-main);font-size:.83rem;font-family:inherit;outline:none;transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);}
 .token-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .token-chips{display:flex;gap:var(--sp-2);flex-wrap:wrap}
-.token-chip{display:inline-flex;align-items:center;gap:6px;font-size:.74rem;font-weight:700;padding:6px var(--sp-3);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);}
+.token-chip{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-xs);font-weight:700;padding:6px var(--sp-3);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);}
 .token-chip:hover{border-color:var(--primary);color:var(--primary);transform:translateY(-2px)}
 .token-chip:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .token-chip.active{background:var(--primary-surface);border-color:var(--primary);color:var(--primary-dark)}
@@ -456,21 +483,22 @@ html[data-theme="dark"] .token-chip.active{color:var(--primary-light)}
 .token-row{border:1px solid var(--glass-border-ice);border-radius:var(--r-md);background:var(--glass-subtle);padding:11px 13px;transition:background .45s var(--ease-apple),border-color .45s var(--ease-apple),box-shadow .45s var(--ease-apple),opacity .3s var(--ease-apple)}
 .token-row.disabled{opacity:.62}
 .token-name{font-weight:700;font-size:.85rem}
-.token-preview{font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--text-muted)}
-.token-badge{font-size:.66rem;font-weight:700;padding:2px var(--sp-2);border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.12);color:var(--primary-dark);animation:pop .28s var(--ease-apple) backwards}
+.token-preview{font-family:'JetBrains Mono',monospace;font-size:var(--fs-xs);color:var(--text-muted)}
+.token-badge{font-size:.68rem;font-weight:700;padding:2px var(--sp-2);border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.12);color:var(--primary-dark);animation:pop .28s var(--ease-apple) backwards}
 html[data-theme="dark"] .token-badge{color:var(--primary-light)}
-.token-badge.off{background:rgba(148,163,184,.18);color:var(--text-muted)}
-.token-badge.warn{background:rgba(245,158,11,.16);color:#b45309}
-.token-row-meta{display:flex;gap:var(--sp-3);flex-wrap:wrap;font-size:.71rem;color:var(--text-muted);margin-top:7px}
+.token-badge.off{background:rgba(100,116,139,.16);color:var(--text-muted)}
+.token-badge.warn{background:rgba(245,158,11,.16);color:#92400e}
+html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
+.token-row-meta{display:flex;gap:var(--sp-3);flex-wrap:wrap;font-size:var(--fs-xs);color:var(--text-muted);margin-top:7px}
 .token-row-actions{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
 .token-secret{margin-bottom:14px;padding:var(--sp-3) 14px;border-radius:var(--r-md);border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.08);animation:shakeIn .5s var(--ease-apple) backwards}
-.token-secret-title{font-size:var(--fs-sm);font-weight:800;color:#16a34a;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+.token-secret-title{font-size:var(--fs-sm);font-weight:800;color:var(--c-success-text);margin-bottom:7px;display:flex;align-items:center;gap:7px}
 .token-secret-title i{animation:pop .28s var(--ease-apple) backwards}
 .token-secret-value{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap}
-.token-secret-value code{flex:1;min-width:180px;font-family:'JetBrains Mono',monospace;font-size:.76rem;word-break:break-all;background:var(--glass-elevated);border:1px solid var(--glass-border-ice);border-radius:var(--r-xs);padding:var(--sp-2) 10px;}
-.token-empty{text-align:center;color:var(--text-muted);font-size:.8rem;padding:22px}
+.token-secret-value code{flex:1;min-width:180px;font-family:'JetBrains Mono',monospace;font-size:var(--fs-xs);word-break:break-all;background:var(--glass-elevated);border:1px solid var(--glass-border-ice);border-radius:var(--r-xs);padding:var(--sp-2) 10px;}
+.token-empty{text-align:center;color:var(--text-muted);font-size:var(--fs-sm);padding:22px}
 .token-empty i{animation:spin .8s linear infinite;display:inline-block;margin-right:6px}
-.token-hint{font-size:.71rem;color:var(--text-muted);margin-top:5px;line-height:1.55}
+.token-hint{font-size:var(--fs-xs);color:var(--text-muted);margin-top:5px;line-height:1.55}
 .token-divider{height:1px;background:var(--glass-border-ice);margin:var(--sp-4) 0}
 .checkbox-row{display:flex;align-items:center;gap:var(--sp-2);cursor:pointer}
 .checkbox-row input{width:var(--sp-4);height:var(--sp-4);accent-color:var(--primary)}
@@ -485,21 +513,23 @@ html[data-theme="dark"] .token-badge{color:var(--primary-light)}
 .share-stats>.share-stat:nth-child(5){animation-delay:.14s}
 .share-stats>.share-stat:nth-child(n+6){animation-delay:.17s}
 .share-stat-value{font-size:var(--fs-xl);font-weight:800;line-height:1.2;color:var(--primary-dark)}
-.share-stat-value.ok{color:#059669}
-.share-stat-value.warn{color:#b45309}
+.share-stat-value.ok{color:var(--c-success-text)}
+.share-stat-value.warn{color:#92400e}
+html[data-theme="dark"] .share-stat-value.warn{color:#fbbf24}
 .share-stat-label{font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;font-weight:600}
 .share-filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:11px}
-.share-filter-btn{font-family:inherit;font-size:.74rem;font-weight:700;cursor:pointer;padding:5px 11px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-surface);color:var(--text-sub);transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);display:inline-flex;align-items:center;gap:5px;}
+.share-filter-btn{font-family:inherit;font-size:var(--fs-xs);font-weight:700;cursor:pointer;padding:5px 11px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-surface);color:var(--text-sub);transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);display:inline-flex;align-items:center;gap:5px;}
 .share-filter-btn:hover{border-color:var(--primary-light);color:var(--primary);transform:translateY(-2px)}
 .share-filter-btn:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 .share-filter-btn.active{background:var(--primary);border-color:var(--primary);color:#fff}
-.share-filter-count{font-size:.66rem;font-weight:700;padding:0 5px;border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.16);color:var(--primary-dark);font-variant-numeric:tabular-nums}
+.share-filter-count{font-size:.68rem;font-weight:700;padding:0 5px;border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.16);color:var(--primary-dark);font-variant-numeric:tabular-nums}
 .share-filter-btn.active .share-filter-count{background:rgba(255,255,255,.26);color:#fff}
 .share-search{display:flex;align-items:center;gap:7px;margin-left:auto;border:1px solid var(--glass-border-ice);border-radius:var(--r-pill);padding:5px var(--sp-3);background:var(--glass-surface);min-width:180px;}
-.share-search i{color:var(--text-muted);font-size:.74rem}
-.share-search input{border:none;background:transparent;outline:none;font-family:inherit;font-size:.76rem;color:var(--text-main);width:100%;min-width:0}
+.share-search i{color:var(--text-muted);font-size:var(--fs-xs)}
+.share-search input{border:none;background:transparent;outline:none;font-family:inherit;font-size:var(--fs-xs);color:var(--text-main);width:100%;min-width:0}
 .share-list{max-height:420px}
-.badge-env{font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:var(--r-pill);background:rgba(245,158,11,.15);color:#b45309;margin-left:6px}
+.badge-env{font-size:.66rem;font-weight:700;padding:2px 7px;border-radius:var(--r-pill);background:rgba(245,158,11,.15);color:#92400e;margin-left:6px}
+html[data-theme="dark"] .badge-env{color:#fbbf24}
 .kv-code{font-family:'JetBrains Mono',monospace;background:var(--glass-subtle);padding:1px 5px;border-radius:var(--r-xs)}
 /* 移动目录 */
 .move-list{max-height:260px;overflow:auto;margin:var(--sp-2) 0 var(--sp-3);border:1px solid var(--glass-border-ice);border-radius:var(--r-md);padding:5px;background:var(--glass-subtle)}
@@ -510,36 +540,32 @@ html[data-theme="dark"] .token-badge{color:var(--primary-light)}
 html[data-theme="dark"] .move-item.active{background:linear-gradient(135deg,rgba(2,132,199,.35),rgba(56,189,248,.15));color:#f0f9ff}
 .move-item i{font-size:.8rem;color:var(--c-warn);width:15px;text-align:center;transition:transform .35s var(--ease-spring)}
 .move-item:hover i{transform:scale(1.15)}
-.move-item .cnt{margin-left:auto;font-size:.7rem;color:var(--text-muted);font-weight:600}
+.move-item .cnt{margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted);font-weight:600}
 .move-item .mi-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 预览灯箱 */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--sp-5);}
-.lightbox img{max-width:92vw;max-height:76vh;border-radius:var(--r-md);box-shadow:var(--shadow-elevated)}
-.lightbox iframe{width:92vw;height:76vh;border:0;background:#000;border-radius:var(--r-md);overflow:hidden}
-.lightbox-close{position:absolute;top:18px;right:18px;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:1.1rem;cursor:pointer;transition:background .3s var(--ease-apple),transform .45s var(--ease-spring),border-color .3s var(--ease-apple);display:flex;align-items:center;justify-content:center;}
+.lightbox img{max-width:92vw;max-height:76dvh;border-radius:var(--r-md);box-shadow:var(--shadow-elevated)}
+.lightbox iframe{width:92vw;height:76dvh;border:0;background:#000;border-radius:var(--r-md);overflow:hidden}
+.lightbox-close{position:absolute;top:18px;right:18px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;font-size:1.1rem;cursor:pointer;transition:background .3s var(--ease-apple),transform .45s var(--ease-spring),border-color .3s var(--ease-apple);display:flex;align-items:center;justify-content:center;}
 .lightbox-close:hover{background:rgba(239,68,68,.85);border-color:transparent;transform:rotate(90deg)}
 .lightbox-close:active{transform:rotate(90deg) scale(.9)}
 .lightbox-bar{display:flex;align-items:center;gap:10px;margin-top:var(--sp-4);padding:9px var(--sp-4);border-radius:var(--r-pill);background:rgba(255,255,255,.12);backdrop-filter:blur(var(--sp-4));-webkit-backdrop-filter:blur(var(--sp-4));border:1px solid rgba(255,255,255,.2);color:#fff;max-width:92vw;flex-wrap:wrap;justify-content:center;}
 .lightbox-bar .fname{font-size:.83rem;font-weight:600;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* =========================================================
-下载进度浮层（对齐 index .download-panel）
+Toast —— 顶部堆叠，支持「撤销」动作按钮
+（原单条 fixed 版本在出现撤销提示时会遮挡上一条，改为容器堆叠）
 ========================================================= */
-.download-panel{position:fixed;bottom:calc(var(--sp-5) + env(safe-area-inset-bottom,0px));right:var(--sp-4);left:var(--sp-4);max-width:380px;margin-left:auto;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--glass-elevated);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);z-index:2500;}
-.download-panel__title{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:6px}
-/* 下载图标持续上下轻浮，提示「正在进行」 */
-.download-panel__title i{color:var(--primary);animation:bounceDown 1.4s var(--ease-apple) infinite}
-.download-panel__name{flex:1;min-width:0;font-size:var(--fs-sm);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.download-panel__pct{font-size:.75rem;color:var(--primary);font-family:'JetBrains Mono',monospace;font-weight:700;flex-shrink:0;font-variant-numeric:tabular-nums}
-.download-panel__meta{display:flex;justify-content:space-between;margin-top:6px;font-size:var(--fs-xs);color:var(--text-muted)}
-.download-panel__meta .speed{color:var(--primary);font-weight:600}
-/* =========================================================
-Toast（对齐 index .toast —— 顶部回弹落下）
-========================================================= */
-.toast{position:fixed;top:var(--sp-5);left:50%;transform:translateX(-50%);padding:9px var(--sp-5);border-radius:var(--r-pill);background:var(--glass-elevated);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);z-index:9999;font-size:var(--fs-md);font-weight:600;display:flex;align-items:center;gap:9px;max-width:90vw;}
-.toast.error{border-color:rgba(239,68,68,.4);color:#dc2626}
-.toast.success{color:var(--primary-dark)}
-html[data-theme="dark"] .toast.success{color:var(--primary-light)}
+.toast-stack{position:fixed;top:calc(var(--sp-5) + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:calc(100vw - 32px);pointer-events:none}
+.toast{position:relative;pointer-events:auto;padding:9px var(--sp-5);border-radius:var(--r-pill);background:var(--glass-elevated);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);font-size:var(--fs-md);font-weight:600;display:flex;align-items:center;gap:9px;max-width:100%;}
+.toast>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast.error{border-color:rgba(239,68,68,.45);color:#b91c1c}
+html[data-theme="dark"] .toast.error{color:#fca5a5}
+.toast.success{color:var(--primary-text)}
 .toast.info{color:var(--text-sub)}
+.toast.undo{border-color:rgba(var(--primary-rgb),.4);color:var(--text-main)}
+.toast__action{margin-left:2px;padding:5px 15px;border-radius:var(--r-pill);border:1px solid rgba(var(--primary-rgb),.42);background:rgba(var(--primary-rgb),.1);color:var(--primary-text);font-family:inherit;font-size:var(--fs-xs);font-weight:800;cursor:pointer;transition:background .2s var(--ease-apple),transform .24s var(--ease-spring);flex:none}
+.toast__action:hover{background:rgba(var(--primary-rgb),.2)}
+.toast__action:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 /* =========================================================
 加载骨架
 ========================================================= */
@@ -559,10 +585,6 @@ Animations —— Apple 风格关键帧（整套移植自 index）
   from{opacity:0;transform:scale(.92) translate3d(0,10px,0);}
   to{opacity:1;transform:scale(1) translate3d(0,0,0);}
 }
-@keyframes sheetIn{
-  from{opacity:.35;transform:translate3d(0,100%,0);}
-  to{opacity:1;transform:translate3d(0,0,0);}
-}
 @keyframes dialogIn{
   from{opacity:0;transform:scale(.86) translate3d(0,16px,0);}
   60%{opacity:1;}
@@ -570,8 +592,8 @@ Animations —— Apple 风格关键帧（整套移植自 index）
 }
 @keyframes maskIn{from{opacity:0}to{opacity:1}}
 @keyframes toastIn{
-  from{opacity:0;transform:translate3d(-50%,-22px,0) scale(.9);}
-  to{opacity:1;transform:translate3d(-50%,0,0) scale(1);}
+  from{opacity:0;transform:translate3d(0,-22px,0) scale(.9);}
+  to{opacity:1;transform:translate3d(0,0,0) scale(1);}
 }
 @keyframes panelIn{
   from{opacity:0;transform:translate3d(0,18px,0) scale(.94);}
@@ -606,10 +628,6 @@ Animations —— Apple 风格关键帧（整套移植自 index）
   from{transform:translateY(0);}
   to{transform:translateY(-6px);}
 }
-@keyframes bounceDown{
-  0%,100%{transform:translateY(0);}
-  50%{transform:translateY(3px);}
-}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes dropIn{
   from{opacity:0;transform:translate3d(0,-12px,0) scale(.97);}
@@ -624,13 +642,11 @@ Animations —— Apple 风格关键帧（整套移植自 index）
 
 /* =========================================================
 Apple 风格动效 · 应用层（首屏错峰入场 —— 移植自 index）
----------------------------------------------------------
-#app 挂载后统一加上 .is-booted，入场动画只跑一次；
-每块内容带各自的 delay，让整页「长」出来而不是整块弹现。
 ========================================================= */
 #app:not(.is-booted) .micro-topbar   {animation:riseInSm .5s var(--ease-fluid) .02s backwards;}
 #app:not(.is-booted) .toolbar-card   {animation:riseIn .62s var(--ease-fluid) .06s backwards;}
-#app:not(.is-booted) .crumb-bar      {animation:riseInSm .44s var(--ease-fluid) .1s backwards;}
+/* 修正：原写作 .crumb-bar，与实际类名 .crumbs-bar 不匹配，该动画从未生效 */
+#app:not(.is-booted) .crumbs-bar     {animation:riseInSm .44s var(--ease-fluid) .1s backwards;}
 #app:not(.is-booted) .brand-box      {animation:riseInSm .5s var(--ease-fluid) .04s backwards;}
 #app:not(.is-booted) .top-actions > *{animation:riseInSm .5s var(--ease-fluid) backwards;}
 #app:not(.is-booted) .top-actions > *:nth-child(1){animation-delay:.06s;}
@@ -639,7 +655,6 @@ Apple 风格动效 · 应用层（首屏错峰入场 —— 移植自 index）
 #app:not(.is-booted) .top-actions > *:nth-child(4){animation-delay:.18s;}
 #app:not(.is-booted) .folders-panel  {animation:riseIn .56s var(--ease-fluid) .12s backwards;}
 #app:not(.is-booted) .content-area   {animation:riseIn .52s var(--ease-fluid) .16s backwards;}
-/* 工具条里的每个 chip / 滤镜条件也错峰浮现 */
 #app:not(.is-booted) .tool-hub-items > *{animation:riseInSm .46s var(--ease-fluid) backwards;}
 #app:not(.is-booted) .tool-hub-items > *:nth-child(1){animation-delay:.14s;}
 #app:not(.is-booted) .tool-hub-items > *:nth-child(2){animation-delay:.17s;}
@@ -649,7 +664,6 @@ Apple 风格动效 · 应用层（首屏错峰入场 —— 移植自 index）
 #app:not(.is-booted) .tool-hub-items > *:nth-child(6){animation-delay:.29s;}
 #app:not(.is-booted) .tool-hub-items > *:nth-child(7){animation-delay:.32s;}
 #app:not(.is-booted) .tool-hub-items > *:nth-child(n+8){animation-delay:.35s;}
-/* 目录树逐行落下 */
 #app:not(.is-booted) .folder-tree-row{animation:riseInSm .4s var(--ease-fluid) backwards;}
 #app:not(.is-booted) .folder-tree-panel > *:nth-child(1){animation-delay:.16s;}
 #app:not(.is-booted) .folder-tree-panel > *:nth-child(2){animation-delay:.18s;}
@@ -689,7 +703,6 @@ Apple 风格动效 · 应用层（首屏错峰入场 —— 移植自 index）
 .kv-ops-grid .kv-op-item:nth-child(2){animation-delay:.04s}
 .kv-ops-grid .kv-op-item:nth-child(3){animation-delay:.08s}
 .kv-ops-grid .kv-op-item:nth-child(4){animation-delay:.12s}
-/* 目录树空态 / 用量空态图标呼吸 */
 .folder-tree-empty i,.kv-usage-empty i{animation:floatSoft 3.4s var(--ease-apple) infinite alternate}
 
 /* =========================================================
@@ -709,10 +722,6 @@ Vue 过渡族 —— 补齐出场（leave）动画
 
 /* ---------------------------------------------------------
    方向感知转场（非线性）—— 移植自 index .pane-forward / back
-   网格 ⇄ 列表视图切换：新视图自右侧滑入并微微放大，
-   旧视图向左退场；反方向完全镜像。
-   位移统一走 expo-out（先快后缓地「落位」），
-   再叠加一点点缩放与模糊营造纵深，而不是硬切。
    --------------------------------------------------------- */
 .view-forward-enter-active,
 .view-back-enter-active{
@@ -728,9 +737,7 @@ Vue 过渡族 —— 补齐出场（leave）动画
 .view-forward-leave-to  {opacity:0;transform:translate3d(-24px,0,0) scale(.986);filter:blur(6px);}
 .view-back-enter-from   {opacity:0;transform:translate3d(-32px,0,0) scale(.982);filter:blur(6px);}
 .view-back-leave-to     {opacity:0;transform:translate3d(24px,0,0) scale(.986);filter:blur(6px);}
-/* 转场容器需要撑住绝对定位的离场层 */
-.view-stage{position:relative;display:flex;flex-direction:column;gap:var(--sp-3)}
-/* 内容轻量错峰：让新视图「长」出来，而不是整块弹现。时长压在 .46s 内避免被截断 */
+.view-stage{position:relative;display:flex;flex-direction:column;gap:var(--sp-3);width:100%;align-items:stretch}
 .view-forward-enter-active > *,
 .view-back-enter-active > *{animation:paneItemIn .34s var(--ease-fluid) backwards;}
 .view-forward-enter-active > *:nth-child(1),
@@ -747,7 +754,6 @@ Vue 过渡族 —— 补齐出场（leave）动画
   from{opacity:0;transform:translate3d(0,8px,0);}
   to{opacity:1;transform:translate3d(0,0,0);}
 }
-/* 低端设备：去掉模糊，只保留位移与透明度 */
 html[data-perf="low"] .view-forward-enter-from,
 html[data-perf="low"] .view-forward-leave-to,
 html[data-perf="low"] .view-back-enter-from,
@@ -765,33 +771,28 @@ html[data-perf="low"] .view-back-leave-to{filter:none;}
 .dialog-enter-from,.dialog-leave-to{opacity:0;}
 .dialog-enter-from .dialog-panel{transform:scale(.88) translate3d(0,14px,0);}
 .dialog-leave-to   .dialog-panel{transform:scale(.92) translate3d(0,10px,0);opacity:0;}
-/* 遮罩进场时临时关掉 backdrop-filter，避免大范围合成抖动 */
 .dialog-enter-active,.dialog-leave-active{backdrop-filter:none !important;-webkit-backdrop-filter:none !important;}
 
-/* 列表行增删：错位滑入 + FLIP 位移 */
 .list-enter-active{transition:opacity .3s var(--ease-apple),transform .38s var(--ease-fluid);}
 .list-leave-active{transition:opacity .18s var(--ease-press),transform .22s var(--ease-press);position:relative;pointer-events:none;}
 .list-enter-from,.list-leave-to{opacity:0;transform:translate3d(0,12px,0);}
 .list-leave-to{transform:translate3d(0,-8px,0);}
 .list-move{transition:transform .34s var(--ease-apple);}
 
-/* 底部批量栏 */
 .bar-enter-active{transition:opacity .24s var(--ease-apple),transform .34s var(--ease-spring);}
 .bar-leave-active{transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);}
 .bar-enter-from,.bar-leave-to{opacity:0;transform:translate3d(0,18px,0) scale(.98);}
 
-/* 下拉菜单：从触发点方向弹开 */
 .menu-enter-active{transition:opacity .22s var(--ease-apple),transform .28s var(--ease-spring);}
 .menu-leave-active{transition:opacity .14s var(--ease-press),transform .14s var(--ease-press);}
 .menu-enter-from,.menu-leave-to{opacity:0;transform:scale(.9) translateY(-4px);}
 
-/* Toast：顶部带回弹落下 */
+/* Toast：顶部带回弹落下（容器已居中，元素自身不再带 -50% 位移） */
 .toast-enter-active{transition:opacity .26s var(--ease-apple),transform .42s var(--ease-spring);}
 .toast-leave-active{transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);}
-.toast-enter-from,.toast-leave-to{opacity:0;transform:translate3d(-50%,-22px,0) scale(.9);}
-.toast-leave-to{transform:translate3d(-50%,-14px,0) scale(.94);}
+.toast-enter-from,.toast-leave-to{opacity:0;transform:translate3d(0,-22px,0) scale(.9);}
+.toast-leave-to{transform:translate3d(0,-14px,0) scale(.94);}
 
-/* 面板 / 卡片 / 目录树：主题与状态切换走长缓动，不硬切 */
 .summary,.settings-list,.tree-panel,.list--card,.menu,
 .toolbar-card,.folders-panel,.crumbs-bar,.liquid-card,.batch-dock,
 .kv-usage-block,.token-row{
@@ -811,7 +812,6 @@ html[data-perf="low"] .batch-dock,
 html[data-perf="low"] .overlay,
 html[data-perf="low"] .vault-card,
 html[data-perf="low"] .vault-row,
-html[data-perf="low"] .download-panel,
 html[data-perf="low"] .toast,
 html[data-perf="low"] .lightbox-bar{
   backdrop-filter:none !important;
@@ -820,25 +820,67 @@ html[data-perf="low"] .lightbox-bar{
 html[data-perf="low"] .ambient-orb{animation:none}
 
 @media (prefers-reduced-transparency: reduce){
-  .liquid-card,.dropdown-panel,.dialog-panel,.batch-dock,.overlay,.vault-card,.vault-row,.download-panel,.toast,.lightbox-bar{
+  .liquid-card,.dropdown-panel,.dialog-panel,.batch-dock,.overlay,.vault-card,.vault-row,.toast,.lightbox-bar{
     backdrop-filter:none !important;
     -webkit-backdrop-filter:none !important;
   }
 }
-/* 状态呼吸点：节点识别中走收敛动画（移植 index settleBreathe） */
+/* 提高对比度偏好：把玻璃面换成实心白，弱化色改为更深一档 */
+@media (prefers-contrast: more){
+  :root{--text-muted:#334155;--glass-border:rgba(15,23,42,.28);--glass-border-ice:rgba(2,132,199,.5)}
+  .liquid-card,.vault-card,.vault-row,.dropdown-panel,.dialog-panel,.batch-dock,.toast{background:#fff}
+}
 .status-pulse.is-settling,
 .kv-usage-title i.is-settling{animation:settleBreathe 1.1s var(--ease-apple) infinite}
 
 /* =========================================================
+触控目标：HIG 要求 ≥44pt。仅在粗指针（触屏）设备上抬高，
+鼠标设备保留原有紧凑密度。
+========================================================= */
+@media (pointer:coarse){
+  .btn{height:48px}
+  .btn--sm{height:44px}
+  .mini-icon-btn{width:44px;height:44px;border-radius:var(--r-sm)}
+  .panel-actions{gap:6px}
+  .page-btn{min-width:44px;height:44px}
+  .view-toggle{padding:4px}
+  .view-toggle button{width:54px;height:44px}
+  .tool-btn{min-height:44px;padding:0 16px}
+  .token-chip,.filter-pill,.share-filter-btn{min-height:44px}
+  .filter-select{padding-block:12px}
+  .dropdown-item{min-height:44px}
+  .dialog-input,.token-input,.token-select{min-height:44px}
+  /* 搜索框清除键：保持小图标，用伪元素把热区撑到 44px */
+  .search-clear{position:relative;padding:0 4px}
+  .search-clear::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+  .act{width:44px;height:44px}
+  /* 44px 热区在 gap:2px 下会互相重叠约 2px，撑开间距消除误触 */
+  .row-actions,.card-actions{gap:6px}
+  .check{width:28px;height:28px}
+  .move-item{padding:12px 11px}
+}
+
+/* =========================================================
 响应式
 ========================================================= */
-@media (max-width:980px){.admin-layout{grid-template-columns:1fr}.folders-panel{max-height:280px}}
+@media (max-width:980px){
+  .admin-layout{grid-template-columns:1fr}
+  .folders-panel{max-height:280px}
+  .collapse-only{display:inline-flex}
+}
 @media (max-width:680px){
-  #app{padding:var(--sp-3) var(--sp-3) 160px}
+  #app{
+    padding:
+      calc(var(--sp-3) + env(safe-area-inset-top,0px))
+      calc(var(--sp-3) + env(safe-area-inset-right,0px))
+      calc(160px + env(safe-area-inset-bottom,0px))
+      calc(var(--sp-3) + env(safe-area-inset-left,0px));
+  }
   .brand-text-wrap h1{font-size:1.02rem}
+  /* 状态点被收起，但「连接状态」功能仍可从工具箱进入 */
   .status-cluster{display:none}
   .toolbar-tools{gap:6px}
-  .tool-btn{padding:6px 11px;font-size:.75rem}
+  .tool-btn{padding:6px 11px;font-size:var(--fs-xs)}
   .tool-stat{width:100%;margin-left:0;text-align:right}
   .vault-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
   .card-thumb{height:118px}
@@ -846,11 +888,19 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .row-actions{flex-wrap:nowrap}
   .lightbox-bar .fname{max-width:60vw}
   .kv-ops-grid{grid-template-columns:repeat(2,1fr)}
+  /* 工具箱：收起次要项 + 统一拉伸（否则 dropdown-wrap 里的「批量操作」不撑满） */
   .tool-hub{flex-direction:column;align-items:stretch;gap:10px}
   .tool-hub-label{padding-left:2px}
   .tool-hub-items{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-2)}
-  .tool-chip{padding:9px 11px;font-size:.76rem;gap:var(--sp-2)}
+  .tool-hub-items > *{width:100%;min-width:0;animation:none}
+  .tool-hub-items .dropdown-wrap{display:flex;width:100%}
+  .tool-hub-items .dropdown-wrap > .tool-chip{width:100%}
+  .tool-chip{justify-content:flex-start;min-height:44px;min-width:0;padding:6px 10px;font-size:var(--fs-xs);gap:var(--sp-2)}
+  .tool-chip .caret{margin-left:auto}
   .tool-chip .chip-icon{width:24px;height:24px;font-size:.72rem}
+  .tool-chip--extra{display:none}
+  .tool-hub.is-open .tool-chip--extra{display:inline-flex}
+  .tool-more{display:inline-flex}
   .filter-sheet{grid-template-columns:1fr;padding:var(--sp-3);gap:11px}
   .batch-dock{border-radius:var(--r-md);padding:var(--sp-2)}
   .dropdown-panel{max-height:min(60vh,360px);overflow-y:auto;-webkit-overflow-scrolling:touch;z-index:1200;padding:var(--sp-2);}
@@ -859,16 +909,27 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .act-menu{min-width:184px;padding:var(--sp-2)}
   .act-menu .dropdown-item{padding:12px 13px;font-size:.87rem}
   .card-actions,.row-actions{gap:0}
-  .act{width:38px;height:38px;font-size:.9rem}
+  /* 与 (pointer:coarse) 保持一致：不再缩到 38px */
+  .act{width:44px;height:44px;font-size:.9rem}
   .vault-row{min-height:60px;padding:var(--sp-2) 10px;gap:10px}
+  /* 分享面板搜索框在窄屏独占一行，避免被筛选项挤爆 */
+  .share-search{margin-left:0;width:100%;min-width:0}
+  .toast{font-size:var(--fs-sm);padding:8px var(--sp-4)}
   /* 小屏去掉转场模糊，保住帧率 */
   .view-forward-enter-from,.view-forward-leave-to,
   .view-back-enter-from,.view-back-leave-to{filter:none}
 }
-@media (max-width:360px){.dock-act{width:40px}.dock-act span{display:none}.batch-dock{padding:var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3)}}
+@media (max-width:360px){
+  .dock-act{width:40px}
+  .dock-act span{display:none}
+  .batch-dock{padding:var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3)}
+  .toast__action{padding:5px 10px}
+}
 
 /* =========================================================
 无障碍：尊重系统「减弱动态效果」
+—— 但加载指示器属于「状态信息」，冻结会让页面看起来像卡死，
+   因此显式豁免（原始版本把它一起冻住了）
 ========================================================= */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{
@@ -878,6 +939,12 @@ html[data-perf="low"] .ambient-orb{animation:none}
     scroll-behavior:auto !important;
     will-change:auto !important;
   }
+  .spinner-ring,
+  .fa-spin,
+  .token-empty i{
+    animation-duration:.9s !important;
+    animation-iteration-count:infinite !important;
+  }
 }</style>
 </head>
 <body>
@@ -886,6 +953,15 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <div class="ambient-orb orb-1"></div>
   <div class="ambient-orb orb-2"></div>
 </div>
+
+<noscript>
+  <div style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+    <p style="font-size:1.15rem;font-weight:800;color:#0f172a">需要启用 JavaScript</p>
+    <p style="margin-top:10px;color:#475569;line-height:1.7;font-size:.9rem">
+      管理后台依赖 JavaScript 运行。请在浏览器设置中开启后刷新本页。
+    </p>
+  </div>
+</noscript>
 
 <div id="app" v-cloak :class="{'is-booted': booted}">
 
@@ -909,7 +985,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
         <span class="status-pulse" :class="{'is-settling': statusChecking}"></span>
         <span class="status-chip" v-for="s in statusItems" :key="s.key">
-          <i class="fas fa-circle" :style="{color: dot(s.key)}"></i>
+          <i class="fas" :class="statusIcon(s.key)" :style="{color: dot(s.key)}"></i>
           <span>{{ s.short }}</span>
         </span>
       </div>
@@ -1058,7 +1134,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
     </transition-group>
 
     <!-- ===== 工具箱 ===== -->
-    <div class="tool-hub">
+    <div class="tool-hub" :class="{'is-open': toolHubOpen}">
       <span class="tool-hub-label"><i class="fas fa-toolbox"></i>工具箱</span>
       <div class="tool-hub-items">
         <button class="tool-chip" :class="{on: kvUsage.visible}" @click="handleTool('kvUsage')" title="KV / R2 用量监控">
@@ -1073,15 +1149,16 @@ html[data-perf="low"] .ambient-orb{animation:none}
           <span class="chip-icon"><i class="fas fa-share-nodes"></i></span>
           <span>分享管理</span>
         </button>
-        <button class="tool-chip" @click="handleTool('tokens')" title="API Token 管理">
+        <button class="tool-chip tool-chip--extra" @click="handleTool('tokens')" title="API Token 管理">
           <span class="chip-icon"><i class="fas fa-key"></i></span>
           <span>Token</span>
         </button>
-        <button class="tool-chip" @click="handleTool('paste')" title="打开文本粘贴工具">
+        <button class="tool-chip tool-chip--extra" @click="handleTool('paste')" title="打开文本粘贴工具">
           <span class="chip-icon"><i class="fas fa-paste"></i></span>
           <span>文本粘贴</span>
         </button>
-        <button class="tool-chip accent" @click="handleTool('export')" title="导出已加载的全部链接">
+        <!-- 原为 .tool-chip.accent（实心蓝），是全工具箱唯一的异色块，已统一 -->
+        <button class="tool-chip tool-chip--extra" @click="handleTool('export')" title="导出已加载的全部链接">
           <span class="chip-icon"><i class="fas fa-file-export"></i></span>
           <span>导出链接</span>
         </button>
@@ -1117,6 +1194,12 @@ html[data-perf="low"] .ambient-orb{animation:none}
           </div>
           </transition>
         </div>
+
+        <!-- 窄屏才出现的「更多工具」 -->
+        <button class="tool-chip tool-more" @click="toolHubOpen = !toolHubOpen">
+          <span class="chip-icon"><i class="fas fa-ellipsis"></i></span>
+          <span>{{ toolHubOpen ? '收起工具' : '更多工具' }}</span>
+        </button>
       </div>
     </div>
 
@@ -1187,7 +1270,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
               <span v-else>付费计划 · 存储按量计费</span>
             </div>
 
-            <div class="kv-ops-grid" style="margin-top:12px">
+            <!-- 标题在内容之前（原来挂在了操作项下方） -->
+            <div class="kv-usage-label" style="margin-top:12px">
+              <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
+            </div>
+            <div class="kv-ops-grid">
               <template v-for="op in kvOpDefs" :key="op.key">
                 <div class="kv-op-item" v-if="kvUsage.kv.operations[op.key]">
                   <div class="kv-op-head">
@@ -1207,9 +1294,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
                 </div>
               </template>
             </div>
-            <div class="kv-usage-label mt-sm">
-              <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
-            </div>
           </template>
         </div>
 
@@ -1228,7 +1312,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
             </span>
           </div>
         </div>
-
         </template>
 
         <!-- R2 已绑定：v-for + v-else 在 Vue 3 中不可同标签共存，改用 template 包裹 -->
@@ -1301,10 +1384,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <div class="admin-layout">
 
     <!-- 目录树 -->
-    <aside class="liquid-card folders-panel">
+    <aside class="liquid-card folders-panel" :class="{collapsed: folderPanelCollapsed}">
       <div class="panel-head">
-        <span class="panel-title"><i class="fas fa-folder-tree"></i> 目录管理</span>
+        <h2 class="panel-title"><i class="fas fa-folder-tree"></i> 目录管理</h2>
         <div class="panel-actions">
+          <button class="mini-icon-btn collapse-only" @click="folderPanelCollapsed = !folderPanelCollapsed"
+                  :title="folderPanelCollapsed ? '展开目录' : '收起目录'">
+            <i class="fas" :class="folderPanelCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
+          </button>
           <button class="mini-icon-btn" @click="refresh" :disabled="folderLoading" title="刷新">
             <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
           </button>
@@ -1387,12 +1474,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <input type="checkbox" v-model="item.selected" tabindex="-1">
           </label>
 
-          <button class="card-fav" :class="{active:item.metadata.liked}" @click.stop="toggleLike(item)" :title="item.metadata.liked?'取消收藏':'收藏'">
-            <i :class="item.metadata.liked ? 'fas fa-bookmark' : 'far fa-bookmark'"></i>
+          <!-- 卡片右上角：下载按钮 -->
+          <button class="card-dl" @click.stop="triggerDownload(baseURL + '/file/' + item.name, item.metadata.fileName || item.name)" title="下载">
+            <i class="fas fa-download"></i>
           </button>
 
           <div class="card-thumb" @click="openPreview(item)">
-            <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" :alt="item.name">
+            <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
+                 :alt="item.metadata.fileName || item.name">
             <i v-else :class="icon(item.name)"></i>
             <span class="card-badge">{{ typeLabelOf(item.name) }}</span>
           </div>
@@ -1416,7 +1505,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
               <div class="dropdown-panel right act-menu" v-if="openMenu==='card:'+item.name">
                 <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
-                <button class="dropdown-item" @click.stop="menuRun('like',item)"><i :class="item.metadata.liked?'fas fa-bookmark':'far fa-bookmark'"></i><span>{{ item.metadata.liked?'取消收藏':'收藏' }}</span></button>
+                <button class="dropdown-item" @click.stop="menuRun('like',item)">
+                  <i :class="item.metadata.liked?'fas fa-bookmark':'far fa-bookmark'"></i>
+                  <span>{{ item.metadata.liked?'取消收藏':'收藏' }}</span>
+                </button>
                 <button class="dropdown-item" @click.stop="menuRun('move',item)"><i class="fas fa-folder-tree"></i><span>移动到目录</span></button>
                 <div class="dropdown-divider"></div>
                 <button class="dropdown-item danger-item" @click.stop="menuRun('delete',item)"><i class="fas fa-trash"></i><span>删除</span></button>
@@ -1437,7 +1529,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <input type="checkbox" v-model="item.selected" tabindex="-1">
           </label>
           <div class="row-thumb" @click="openPreview(item)">
-            <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" :alt="item.name">
+            <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
+                 :alt="item.metadata.fileName || item.name">
             <i v-else :class="icon(item.name)"></i>
           </div>
           <div class="row-info">
@@ -1450,8 +1543,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
             </div>
           </div>
           <div class="row-actions">
-            <button class="act" :class="{liked:item.metadata.liked}" @click.stop="toggleLike(item)" :title="item.metadata.liked?'取消收藏':'收藏'">
-              <i :class="item.metadata.liked ? 'fas fa-bookmark' : 'far fa-bookmark'"></i>
+            <button class="act" @click.stop="triggerDownload(baseURL + '/file/' + item.name, item.metadata.fileName || item.name)" title="下载">
+              <i class="fas fa-download"></i>
             </button>
             <div class="act-wrap">
               <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
@@ -1462,6 +1555,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
                 <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
+                <button class="dropdown-item" @click.stop="menuRun('like',item)">
+                  <i :class="item.metadata.liked?'fas fa-bookmark':'far fa-bookmark'"></i>
+                  <span>{{ item.metadata.liked?'取消收藏':'收藏' }}</span>
+                </button>
                 <button class="dropdown-item" @click.stop="menuRun('move',item)"><i class="fas fa-folder-tree"></i><span>移动到目录</span></button>
                 <div class="dropdown-divider"></div>
                 <button class="dropdown-item danger-item" @click.stop="menuRun('delete',item)"><i class="fas fa-trash"></i><span>删除</span></button>
@@ -1472,17 +1569,28 @@ html[data-perf="low"] .ambient-orb{animation:none}
         </div>
       </div>
 
-      <!-- 空状态 -->
+      <!-- 空状态 / 加载中 / 失败重试 -->
       <div v-else class="liquid-card empty-state" key="empty">
-        <i class="fas fa-folder-open"></i>
-        <span>{{ folderLoading ? '正在加载文件...' : '当前目录下没有符合条件的文件' }}</span>
+        <template v-if="loadError">
+          <i class="fas fa-cloud-exclamation"></i>
+          <span>加载失败：{{ loadError }}</span>
+          <button class="btn btn--primary" @click="refresh">
+            <i class="fas fa-rotate"></i> 重试
+          </button>
+        </template>
+        <template v-else>
+          <div class="spinner-ring" v-if="folderLoading || loadingMore"></div>
+          <i class="fas fa-folder-open" v-else></i>
+          <span>{{ (folderLoading || loadingMore) ? '正在加载文件...' : '当前目录下没有符合条件的文件' }}</span>
+        </template>
       </div>
       </transition>
       </div>
 
-      <!-- 分页 -->
-      <div class="pager" v-if="paginationTotal > pageSize || nextCursor">
-        <div class="pager-pages" v-if="paginationTotal > pageSize">
+      <!-- 分页（nextCursor 在 loadList 中恒为 null，「加载更多」永远不会出现，
+           原 v-if 里的 `|| nextCursor` 是死条件，已移除） -->
+      <div class="pager" v-if="paginationTotal > pageSize">
+        <div class="pager-pages">
           <button class="page-btn" :disabled="currentPage<=1" @click="currentPage--">
             <i class="fas fa-chevron-left"></i>
           </button>
@@ -1492,11 +1600,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <i class="fas fa-chevron-right"></i>
           </button>
         </div>
-        <button class="btn btn--primary" v-if="nextCursor" @click="loadMore" :disabled="loadingMore">
-          <i class="fas fa-spinner fa-spin" v-if="loadingMore"></i>
-          <i class="fas fa-arrow-down" v-else></i>
-          <span>{{ loadingMore ? '加载中...' : '加载更多' }}</span>
-        </button>
       </div>
 
     </section>
@@ -1516,14 +1619,16 @@ html[data-perf="low"] .ambient-orb{animation:none}
   </div>
   </transition>
 
-  <!-- ===== 通用对话框（遮罩淡入 + 面板回弹放大） ===== -->
+  <!-- ===== 通用对话框（遮罩淡入 + 面板回弹放大）
+       注意：危险操作点遮罩不关闭（HIG：不可逆操作不得因误触外部而取消）
+       ============================================================ -->
   <transition name="dialog">
-  <div class="overlay" v-if="dialog.visible" @click.self="dialogCancel">
+  <div class="overlay" v-if="dialog.visible" @click.self="dialog.danger || dialogCancel()">
     <div class="dialog-panel">
-      <div class="dialog-title" :class="{danger: dialog.danger}">
+      <h2 class="dialog-title" :class="{danger: dialog.danger}">
         <i :class="dialog.danger ? 'fas fa-triangle-exclamation' : 'fas fa-circle-info'"></i>
         <span>{{ dialog.title }}</span>
-      </div>
+      </h2>
       <div class="dialog-message" v-if="dialog.message" v-html="dialog.message"></div>
       <div class="dialog-message" v-if="dialog.html" v-html="dialog.html"></div>
       <input v-if="dialog.input" ref="dialogInput" class="dialog-input" type="text"
@@ -1542,10 +1647,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <transition name="dialog">
   <div class="overlay" v-if="tokenPanelVisible" @click.self="closeTokenPanel">
     <div class="dialog-panel wide">
-      <div class="dialog-title">
+      <h2 class="dialog-title">
         <i class="fas fa-key"></i>
         <span>API Token 管理</span>
-      </div>
+      </h2>
       <div class="dialog-message">
         面向机器客户端（curl / ShareX / 脚本 / Agent）的长期凭据，与网页登录态完全隔离。密钥<strong>仅在创建或轮换时返回一次</strong>，请立即保存。
       </div>
@@ -1568,10 +1673,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <!-- 创建 / 编辑 -->
       <div class="token-section">
         <div class="token-section-head">
-          <div class="token-section-title">
+          <h3 class="token-section-title">
             <i class="fas" :class="tokenEditingId ? 'fa-pen-to-square' : 'fa-plus'"></i>
             <span>{{ tokenEditingId ? ('编辑 Token：' + tokenEditingId) : '新建 Token' }}</span>
-          </div>
+          </h3>
           <button class="btn" v-if="tokenEditingId" @click="resetTokenForm">取消编辑</button>
         </div>
 
@@ -1646,7 +1751,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <!-- 列表 -->
       <div class="token-section no-margin">
         <div class="token-section-head">
-          <div class="token-section-title"><i class="fas fa-list"></i><span>已有 Token（{{ tokens.length }}）</span></div>
+          <h3 class="token-section-title"><i class="fas fa-list"></i><span>已有 Token（{{ tokens.length }}）</span></h3>
           <button class="btn" :disabled="tokenLoading" @click="loadTokens">
             <i class="fas" :class="tokenLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
           </button>
@@ -1696,10 +1801,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <transition name="dialog">
   <div class="overlay" v-if="sharePanelVisible" @click.self="closeSharePanel">
     <div class="dialog-panel wide">
-      <div class="dialog-title">
+      <h2 class="dialog-title">
         <i class="fas fa-share-nodes"></i>
         <span>分享管理</span>
-      </div>
+      </h2>
       <div class="dialog-message">
         所有已开启分享的文件。可在此查看<strong>有效期</strong>、<strong>下载次数</strong>与<strong>密码状态</strong>，或取消分享。
         <br>
@@ -1735,10 +1840,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
 
       <div class="token-section no-margin">
         <div class="token-section-head">
-          <div class="token-section-title">
+          <h3 class="token-section-title">
             <i class="fas fa-list"></i>
             <span>分享列表（{{ filteredShares.length }} / {{ shares.length }}）</span>
-          </div>
+          </h3>
           <button class="btn" :disabled="sharesLoading" @click="loadShares">
             <i class="fas" :class="sharesLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
           </button>
@@ -1817,10 +1922,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <transition name="dialog">
   <div class="overlay" v-if="moveVisible" @click.self="moveVisible=false">
     <div class="dialog-panel">
-      <div class="dialog-title">
+      <h2 class="dialog-title">
         <i class="fas fa-folder-tree"></i>
         <span>移动文件</span>
-      </div>
+      </h2>
       <div class="dialog-message">
         已选 <strong>{{ moveFiles.length }}</strong> 个文件，目标：<strong>{{ moveTarget || '根目录' }}</strong>
       </div>
@@ -1861,12 +1966,20 @@ html[data-perf="low"] .ambient-orb{animation:none}
   </div>
   </transition>
 
-  <!-- ===== 预览灯箱（淡入，关闭按钮悬停旋转 90°） ===== -->
+  <!-- ===== 预览灯箱（淡入，关闭按钮悬停旋转 90°）
+       注意：sandbox 限制预览内容的越权能力；彻底隔离请把 preview.html 放到独立子域
+       ============================================================ -->
   <transition name="fade">
   <div class="lightbox" v-if="preview" @click.self="closePreview">
     <button class="lightbox-close" @click="closePreview"><i class="fas fa-xmark"></i></button>
-    <img v-if="preview.type==='image'" :src="preview.url" @click.stop :alt="preview.fileName">
-    <iframe v-else :src="preview.url" allow="clipboard-write;autoplay;fullscreen;encrypted-media" allowfullscreen @click.stop></iframe>
+    <img v-if="preview.type==='image'" :src="preview.url" @click.stop" :alt="preview.fileName">
+    <iframe v-else :src="preview.url"
+            sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads"
+            referrerpolicy="no-referrer"
+            allow="clipboard-write;autoplay;fullscreen;encrypted-media"
+            allowfullscreen
+            :title="preview.fileName"
+            @click.stop></iframe>
     <div class="lightbox-bar" @click.stop>
       <span class="fname">{{ preview.fileName }}</span>
       <button class="btn btn--sm btn--primary" @click="copyPreview">
@@ -1879,70 +1992,73 @@ html[data-perf="low"] .ambient-orb{animation:none}
   </div>
   </transition>
 
-  <!-- ===== 下载进度浮层 ===== -->
-  <transition name="bar">
-  <div class="download-panel" v-if="downloadProgress.active">
-    <div class="download-panel__title">
-      <i class="fas fa-download"></i>
-      <span class="download-panel__name">{{ downloadProgress.fileName || '下载中' }}</span>
-      <span class="download-panel__pct">
-        {{ downloadProgress.total > 0 ? Math.round((downloadProgress.loaded / downloadProgress.total) * 100) + '%' : '' }}
-      </span>
-    </div>
-    <div class="progress no-margin">
-      <div class="progress__val"
-           :style="{ transform: 'scaleX(' + (downloadProgress.total > 0 ? (downloadProgress.loaded / downloadProgress.total) : 0) + ')' }"></div>
-    </div>
-    <div class="download-panel__meta">
-      <span>
-        {{ formatSize(downloadProgress.loaded) }}
-        / {{ downloadProgress.total > 0 ? formatSize(downloadProgress.total) : '未知大小' }}
-      </span>
-      <span class="speed" v-if="downloadProgress.speed">{{ downloadProgress.speed }}</span>
-    </div>
+  <!-- ===== Toast（顶部堆叠，可带撤销动作） ===== -->
+  <div class="toast-stack" v-if="toasts.length">
+    <transition-group name="toast">
+      <div class="toast" v-for="t in toasts" :key="t.id" :class="t.type">
+        <i :class="toastIcon(t.type)"></i>
+        <span>{{ t.message }}</span>
+        <button v-if="t.action" class="toast__action" @click="t.action()">{{ t.actionLabel || '撤销' }}</button>
+      </div>
+    </transition-group>
   </div>
-  </transition>
-
-  <!-- ===== Toast（顶部带回弹落下） ===== -->
-  <transition name="toast">
-    <div class="toast" :class="toasts[toasts.length-1].type" v-if="toasts.length" :key="(toasts[toasts.length-1].id || 0)">
-      <i :class="toasts[toasts.length-1].type==='error' ? 'fas fa-triangle-exclamation' : (toasts[toasts.length-1].type==='success' ? 'fas fa-circle-check' : 'fas fa-circle-info')"></i>
-      <span>{{ toasts[toasts.length-1].message }}</span>
-    </div>
-  </transition>
 
 </div>
-<!-- Vue 3 全局构建（含模板编译器）+ @vue/compat 兼容模式，替代原 Vue 2.6.14 -->
+
+<!-- Vue 3 全局构建（含模板编译器）+ @vue/compat 兼容模式 -->
 <script src="https://cdn.jsdelivr.net/npm/vue@3.4.38/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@vue/compat@3.4.38/dist/vue-compat.global.prod.js"></script>
 <script>
-/* Vue 3 兼容模式配置：仅对尚未改写的 API 保持 Vue 2 行为，其余一律按 Vue 3 语义告警 */
+/* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
+   8 秒后仍未挂载就渲染一个可操作的错误页。 */
+setTimeout(function () {
+  var el = document.getElementById('app');
+  if (el && el.hasAttribute('v-cloak')) {
+    el.removeAttribute('v-cloak');
+    el.innerHTML =
+      '<div style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif">' +
+        '<p style="font-size:1.15rem;font-weight:800;color:#0f172a">脚本加载失败</p>' +
+        '<p style="margin-top:10px;color:#475569;line-height:1.7;font-size:.9rem">请检查网络连接后重试。</p>' +
+        '<button onclick="location.reload()" style="margin-top:18px;padding:12px 26px;border-radius:999px;border:0;' +
+        'background:#0284c7;color:#fff;font-size:.9rem;font-weight:700;cursor:pointer">重新加载</button>' +
+      '</div>';
+  }
+}, 8000);
+
+/* Vue 3 兼容模式配置 */
 window.Vue = window.Vue || {};
 Vue.configureCompat && Vue.configureCompat({ MODE: 'suppress-warnings' });
 </script>
 <script>
-/* Vue 3 用 createApp + mount 取代 Vue 2 的 new Vue({ el }) */
+/* ============ 展示层格式化器（避免每次调用都新建实例） ============ */
+const SIZE_FMT = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
+const TIME_FMT = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false
+});
+/* 删除的撤销窗口（同时用作撤销 Toast 的停留时长） */
+const UNDO_MS = 8000;
+
 Vue.createApp({
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
 
-    /* ===== 动效状态（移植 index 的 Apple 风格入场体系） =====
-       booted：挂载后翻 true，撤掉 #app:not(.is-booted) 的首屏错峰入场，
-              保证入场只跑一次，后续交互不被重放。
-       viewTransition：网格 ⇄ 列表的方向感知转场名（forward / back）。 */
+    /* ===== 动效状态 ===== */
     booted: false,
     viewTransition: 'view-forward',
     statusChecking: false,
 
     files: [], folders: [], nextCursor: null, total: 0, loadingMore: false,
+    loadError: '',
 
     search: '', currentPage: 1, pageSize: 24,
     sort: 'dateDesc', filter: 'all', fileType: 'all', storage: 'all', viewMode: 'grid',
 
     folderPath: '', folderLoading: false,
+    folderPanelCollapsed: false,
+    toolHubOpen: false,
 
-    /* Vue 3：品牌 Logo 兜底图源改为响应式属性，替代内联 onerror */
     logoSrc: '/logo.png',
 
     drag: { ids: [], target: null },
@@ -1953,20 +2069,10 @@ Vue.createApp({
     status: { telegram:{}, kv:{}, r2:{}, s3:{}, discord:{}, huggingface:{}, github:{} },
 
     openMenu: null,
-    /* 筛选抽屉开合状态；筛选条件本身收在抽屉里，不占常驻空间 */
     filterSheetOpen: false,
     toasts: [],
 
-    /* ===== 下载队列追踪 ===== */
     downloadingUrls: {},
-    downloadProgress: {
-      active: false,
-      url: '',
-      fileName: '',
-      loaded: 0,
-      total: 0,
-      speed: '',
-    },
 
     dialog: {
       visible: false, title: '', message: '', html: '',
@@ -2087,7 +2193,6 @@ Vue.createApp({
 
   computed: {
     /* ---------- 分享筛选 ---------- */
-    // 全量返回后在前端筛选：与文件列表的做法一致，也便于显示各项计数
     filteredShares() {
       const kw = this.shareSearch.trim().toLowerCase();
       return this.shares.filter(s => {
@@ -2097,11 +2202,10 @@ Vue.createApp({
         if (this.shareFilter === 'password' && !s.passwordProtected) return false;
         if (!kw) return true;
         return String(s.fileName || '').toLowerCase().includes(kw)
-          || String(s.shareSlug || '').toLowerCase().includes(kw);
+            || String(s.shareSlug || '').toLowerCase().includes(kw);
       });
     },
 
-    /** 各筛选条件的条目数，用于在按钮上显示角标 */
     shareFilterCounts() {
       const counts = { active: 0, expired: 0, exhausted: 0, password: 0 };
       for (const s of this.shares) {
@@ -2118,8 +2222,7 @@ Vue.createApp({
       const s = this.search.trim().toLowerCase();
       const curFolder = this.normalizeFolderPath(this.folderPath);
       return this.files.filter(f => {
-        // 【本地目录过滤】不再请求后端，切目录零消耗
-        const fileFolder = this.normalizeFolderPath(f.metadata?.folderPath || '');
+        const fileFolder = this.normalizeFolderPath((f.metadata && f.metadata.folderPath) || '');
         if (fileFolder !== curFolder) return false;
 
         const n = String(f.metadata.fileName || f.name || '').toLowerCase();
@@ -2133,7 +2236,7 @@ Vue.createApp({
     },
     sorted() {
       const a = this.filtered.slice();
-      if (this.sort === 'nameAsc') a.sort((x, y) => String(x.name).localeCompare(String(y.name)));
+      if (this.sort === 'nameAsc') a.sort((x, y) => String(x.name).localeCompare(String(y.name), 'zh-CN'));
       else if (this.sort === 'sizeDesc') a.sort((x, y) => (y.metadata.fileSize || 0) - (x.metadata.fileSize || 0));
       else a.sort((x, y) => (y.metadata.TimeStamp || 0) - (x.metadata.TimeStamp || 0));
       return a;
@@ -2154,10 +2257,6 @@ Vue.createApp({
     selectedFiles() { return this.files.filter(f => f.selected); },
     isAllSelected() { return this.pageData.length > 0 && this.pageData.every(f => f.selected); },
 
-    /**
-     * 生效中的筛选条件数量，用于「筛选」按钮上的徽标。
-     * 排序不算筛选（不影响结果集大小），但「仅收藏」算。
-     */
     activeFilterCount() {
       let n = 0;
       if (this.fileType !== 'all') n += 1;
@@ -2168,10 +2267,9 @@ Vue.createApp({
 
     /* ---------- 目录 ---------- */
     folderTreeNodes() {
-      // 【本地计数】目录里的文件数由本地 files 算出，避免依赖后端 folders 接口的计数
       const countByFolder = {};
       this.files.forEach(f => {
-        const fp = this.normalizeFolderPath(f.metadata?.folderPath || '');
+        const fp = this.normalizeFolderPath((f.metadata && f.metadata.folderPath) || '');
         if (fp) countByFolder[fp] = (countByFolder[fp] || 0) + 1;
       });
 
@@ -2231,6 +2329,12 @@ Vue.createApp({
     }
   },
 
+  created() {
+    /* 实例级（非响应式）状态 */
+    this._toastSeq = 0;
+    this._pendingDeletes = [];
+  },
+
   methods: {
     /* ================= 工具函数 ================= */
     normalizeFolderPath(v) {
@@ -2249,8 +2353,9 @@ Vue.createApp({
       if ('mp3 wav ogg flac aac m4a opus'.split(' ').includes(e)) return 'audio';
       return 'file';
     },
+    /* 徽标改为中文，避免全中文界面里冒出 IMG / AUD */
     typeLabelOf(n) {
-      return { image:'IMG', video:'VID', audio:'AUD', file:'FILE' }[this.type(n)] || 'FILE';
+      return { image:'图片', video:'视频', audio:'音频', file:'文件' }[this.type(n)] || '文件';
     },
     icon(n) {
       const t = this.type(n);
@@ -2259,11 +2364,13 @@ Vue.createApp({
            : t === 'audio' ? 'fas fa-file-audio'
            : 'fas fa-file';
     },
+    /* 交给 Intl：自动获得本地化的小数分隔与千分位 */
     formatSize(b) {
-      if (!b) return '0 B';
+      const n = Number(b) || 0;
+      if (n <= 0) return '0 B';
       const k = 1024, u = ['B','KB','MB','GB','TB'];
-      const i = Math.min(u.length - 1, Math.floor(Math.log(b) / Math.log(k)));
-      return (b / Math.pow(k, i)).toFixed(2) + ' ' + u[i];
+      const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(k)));
+      return SIZE_FMT.format(n / Math.pow(k, i)) + ' ' + u[i];
     },
     storageType(n) {
       n = String(n || '');
@@ -2295,17 +2402,21 @@ Vue.createApp({
       const s = this.status[k] || {};
       return s.connected ? '#22c55e' : (this.unconf(s) ? '#94a3b8' : '#ef4444');
     },
+    /* 状态用「形状 + 颜色」双通道表达，不再只靠颜色区分 */
+    statusIcon(k) {
+      const s = this.status[k] || {};
+      if (s.connected) return 'fa-circle-check';
+      return this.unconf(s) ? 'fa-circle-minus' : 'fa-circle-exclamation';
+    },
 
     /* ================= 交互 ================= */
     toggleMenu(name) {
       this.openMenu = this.openMenu === name ? null : name;
     },
     closeMenus() { this.openMenu = null; },
-    /** 圆形勾选：切换单文件选中态（Vue 2 直接改数组项属性即可触发更新） */
     toggleSelect(item) {
       item.selected = !item.selected;
     },
-    /** 「⋯」菜单项分发：统一关闭菜单后再执行动作 */
     menuRun(action, item) {
       this.openMenu = null;
       if (action === 'copy') this.copy(item);
@@ -2339,7 +2450,6 @@ Vue.createApp({
       this.currentPage = 1;
       this.openMenu = null;
     },
-    /** 一键清空所有筛选条件（搜索词也一并清掉，符合「全部清除」的预期） */
     clearAllFilters() {
       this.fileType = 'all';
       this.storage = 'all';
@@ -2350,6 +2460,7 @@ Vue.createApp({
     },
 
     /* ================= 主题（带非线性色彩过渡） ================= */
+    /* 用户未表态时跟随系统；一旦手动切换就写入 localStorage 成为显式偏好 */
     toggleTheme() {
       this.currentTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', this.currentTheme);
@@ -2359,35 +2470,40 @@ Vue.createApp({
     /* ================= 视图切换（方向感知转场） ================= */
     setView(mode, dir) {
       if (this.viewMode === mode) return;
-      // 网格 → 列表 视为「前进」，列表 → 网格 视为「后退」，位移方向完全镜像
       this.viewTransition = dir === 'back' ? 'view-back' : 'view-forward';
       this.viewMode = mode;
       this.openMenu = null;
       try { localStorage.setItem('adminViewMode', mode); } catch (e) {}
     },
 
+    /* ================= Toast（堆叠 + 撤销动作） ================= */
+    toastIcon(type) {
+      if (type === 'error') return 'fas fa-triangle-exclamation';
+      if (type === 'success') return 'fas fa-circle-check';
+      if (type === 'undo') return 'fas fa-arrow-rotate-left';
+      return 'fas fa-circle-info';
+    },
+    _dismissToast(id) {
+      const i = this.toasts.findIndex(t => t.id === id);
+      if (i > -1) this.toasts.splice(i, 1);
+    },
     showToast(message, type = 'info') {
       const id = ++this._toastSeq;
-      this.toasts.push({ message, type, id });
-      setTimeout(() => {
-        const i = this.toasts.findIndex(t => t.id === id);
-        if (i > -1) this.toasts.splice(i, 1);
-      }, 2600);
+      this.toasts.push({ id, message, type });
+      const dur = Math.min(6000, Math.max(2600, 1400 + String(message).length * 80));
+      setTimeout(() => this._dismissToast(id), dur);
+    },
+    showUndoToast(message, onUndo) {
+      const id = ++this._toastSeq;
+      this.toasts.push({
+        id, message, type: 'undo',
+        actionLabel: '撤销',
+        action: () => { this._dismissToast(id); onUndo(); }
+      });
+      setTimeout(() => this._dismissToast(id), UNDO_MS);
     },
 
-    /* ================= 下载（流式 + 进度浮层） ================= */
-    formatSpeed(bps) {
-      if (!bps || bps <= 0) return '0 KB/s';
-      if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + ' MB/s';
-      return (bps / 1024).toFixed(0) + ' KB/s';
-    },
-
-    isDownloading(item) {
-      if (!item) return false;
-      const url = typeof item === 'string' ? item : (item.url || '');
-      return !!this.downloadingUrls[url];
-    },
-
+    /* ================= 下载（交给浏览器原生下载栏） ================= */
     triggerDownload(url, fileName) {
       if (!url) return;
       if (this.downloadingUrls[url]) {
@@ -2396,10 +2512,10 @@ Vue.createApp({
       }
       this.downloadingUrls[url] = true;
 
-      /* 【一次进度】直接交给浏览器原生下载，不再 fetch + blob */
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName || '';
+      a.rel = 'noopener';
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
@@ -2408,7 +2524,7 @@ Vue.createApp({
         delete this.downloadingUrls[url];
       }, 2000);
 
-      this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
+      this.showToast(`已开始下载「${fileName || '文件'}」，请查看浏览器下载栏`, 'success');
     },
 
     /* ================= 通用对话框 ================= */
@@ -2458,18 +2574,18 @@ Vue.createApp({
 
     /* ================= 数据加载 ================= */
     async loadList() {
-      // 【省额度】一次性拉全部文件，前端本地过滤（切目录 0 次 KV list）
       this.loadingMore = true;
+      this.loadError = '';
       const p = new URLSearchParams();
       p.set('_t', Date.now());
       p.set('limit', '1000');
       p.set('includeStats', '1');
       p.set('sort', 'sizeAsc');
-      // 注意：不传 folderPath，后端返回全部目录的文件
       if (this.storage !== 'all') p.set('storage', this.storage);
 
       try {
         const r = await fetch('./api/manage/list?' + p, { credentials: 'include' }).then(r => r.json());
+        if (r && r.error) throw new Error(r.error);
         const arr = (r.keys || []).map(x => ({
           ...x,
           selected: false,
@@ -2479,6 +2595,9 @@ Vue.createApp({
         this.nextCursor = null;
         this.total = arr.length;
       } catch (e) {
+        this.loadError = e.message || '网络异常';
+        this.files = [];
+        this.total = 0;
         this.showToast('加载文件失败', 'error');
       } finally {
         this.loadingMore = false;
@@ -2503,10 +2622,8 @@ Vue.createApp({
     async refresh() {
       await Promise.all([this.loadFolders(), this.loadList()]);
     },
-    loadMore() { this.loadList(true); },
 
     selectFolder(path) {
-      // 【省额度】切目录只改本地状态，Vue 会自动重算 filtered，不打后端
       this.folderPath = this.normalizeFolderPath(path);
       this.currentPage = 1;
       try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
@@ -2517,7 +2634,6 @@ Vue.createApp({
       this.kvUsage.loading = true;
       this.kvUsage.error = '';
       try {
-        /* ★ 唯一改动：API 路径从 kv-usage 改为 usage */
         const r = await fetch('./api/manage/usage?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json());
         if (!r.success) {
           this.kvUsage.configured = r.configured === false ? false : true;
@@ -2526,12 +2642,10 @@ Vue.createApp({
         }
         this.kvUsage.configured = true;
 
-        /* 计划信息 */
         const plan = r.plan || {};
         this.kvUsage.planType = plan.type || '';
         this.kvUsage.detectionError = plan.detectionError || '';
 
-        /* KV 数据 */
         if (r.kv) {
           const st = r.kv.storage || {};
           const ops = r.kv.operations || {};
@@ -2552,7 +2666,6 @@ Vue.createApp({
           };
         }
 
-        /* R2 数据 */
         this.kvUsage.r2Available = r.r2Available !== false;
         this.kvUsage.r2Source = r.r2Source || null;
         this.kvUsage.r2Buckets = (r.r2 || []).map(bucket => ({
@@ -2602,7 +2715,7 @@ Vue.createApp({
       return Math.min(100, (op.used / op.limit) * 100).toFixed(1);
     },
     isOpLow(op) {
-      if (!op || !op.limit) return false;
+      if (!op || !op.limit) return 0;
       return op.remaining < op.limit * 0.2;
     },
 
@@ -2778,47 +2891,117 @@ Vue.createApp({
         const r = await fetch('./api/manage/toggleLike/' + encodeURIComponent(item.name), { credentials: 'include' }).then(r => r.json());
         if (!r.success) throw 0;
         this.showToast(item.metadata.liked ? '已加入收藏' : '已取消收藏', 'success');
-      } catch (e) {
+            } catch (e) {
         item.metadata.liked = old;
         this.showToast('操作失败', 'error');
       }
     },
 
-    async deleteFile(item) {
-      const ok = await this.askConfirm(
-        `确定永久删除该文件？<br><span style="color:var(--text-muted);font-size:.8rem">${this.escapeHtml(item.metadata.fileName || item.name)}</span>`,
-        '删除文件', true
-      );
-      if (!ok) return;
+    /* ================= 删除（推迟落盘 + 撤销窗口） =================
+       没有 undelete 接口，所以「删了立刻调接口、再本地插回去」是在骗用户。
+       改为：先从列表移除给即时反馈，8 秒内可撤销；窗口结束才真正调接口。
+       期间若页面被关闭/隐藏，用 keepalive 请求立即落盘，避免删除丢失。
+       ============================================================ */
+    _restoreDeleted(entries) {
+      // 按原索引升序插回，尽量保持原有顺序
+      entries.slice().sort((a, b) => a.index - b.index).forEach(({ item, index }) => {
+        const arr = this.files.slice();
+        arr.splice(Math.max(0, Math.min(index, arr.length)), 0, item);
+        this.files = arr;
+      });
+      this.total += entries.length;
+    },
+
+    _flushPendingDeletes() {
+      if (!this._pendingDeletes.length) return;
+      const recs = this._pendingDeletes;
+      this._pendingDeletes = [];
+      recs.forEach(rec => {
+        clearTimeout(rec.timer);
+        try {
+          // keepalive 让请求在页面卸载过程中仍能发出
+          fetch('./api/manage/delete/' + encodeURIComponent(rec.name), {
+            credentials: 'include', keepalive: true
+          }).catch(() => {});
+        } catch (e) {}
+      });
+    },
+
+    async _commitDelete(rec) {
       try {
-        const r = await fetch('./api/manage/delete/' + encodeURIComponent(item.name), { credentials: 'include' }).then(r => r.json());
+        const r = await fetch('./api/manage/delete/' + encodeURIComponent(rec.name), { credentials: 'include' })
+          .then(r => r.json());
         if (!r.success) throw new Error(r.error || '删除失败');
-        this.files = this.files.filter(f => f.name !== item.name);
-        this.total = Math.max(0, this.total - 1);
-        this.showToast('删除成功', 'success');
       } catch (e) {
+        // 服务端失败：回滚 UI，避免「看起来删了其实还在」
+        this._restoreDeleted([{ item: rec.item, index: rec.index }]);
         this.showToast(e.message || '删除失败', 'error');
       }
     },
 
+    deleteFile(item) {
+      const snapshot = item;
+      const idx = this.files.indexOf(item);
+      const name = snapshot.metadata.fileName || snapshot.name;
+
+      this.files = this.files.filter(f => f.name !== snapshot.name);
+      this.total = Math.max(0, this.total - 1);
+
+      const rec = { name: snapshot.name, item: snapshot, index: idx, timer: null };
+      this._pendingDeletes.push(rec);
+
+      this.showUndoToast(`已删除「${name}」`, () => {
+        clearTimeout(rec.timer);
+        this._pendingDeletes = this._pendingDeletes.filter(r => r !== rec);
+        this._restoreDeleted([{ item: snapshot, index: idx }]);
+        this.showToast('已撤销删除', 'info');
+      });
+
+      rec.timer = setTimeout(() => {
+        this._pendingDeletes = this._pendingDeletes.filter(r => r !== rec);
+        this._commitDelete(rec);
+      }, UNDO_MS);
+    },
+
     async batchDelete() {
       if (!this.selectedFiles.length) return;
+      const list = this.selectedFiles.slice();
       const ok = await this.askConfirm(
-        `确定删除选中的 <strong>${this.selectedFiles.length}</strong> 个文件？<br><span style="color:var(--text-muted);font-size:.8rem">此操作不可撤销。</span>`,
+        `确定删除选中的 <strong>${list.length}</strong> 个文件？<br>
+         <span style="color:var(--text-muted);font-size:.8rem">删除后 8 秒内仍可撤销。</span>`,
         '批量删除', true
       );
       if (!ok) return;
-      const list = this.selectedFiles.slice();
-      try {
-        await Promise.all(list.map(f =>
-          fetch('./api/manage/delete/' + encodeURIComponent(f.name), { credentials: 'include' }).then(r => r.json())
-        ));
-        this.files = this.files.filter(f => !list.some(x => x.name === f.name));
-        this.total = Math.max(0, this.total - list.length);
-        this.showToast(`已删除 ${list.length} 个文件`, 'success');
-      } catch (e) {
-        this.showToast('批量删除失败', 'error');
-      }
+
+      const entries = list.map(item => ({ item, index: this.files.indexOf(item) }));
+      const names = new Set(list.map(f => f.name));
+      this.files = this.files.filter(f => !names.has(f.name));
+      this.total = Math.max(0, this.total - list.length);
+
+      const rec = { names: list, entries, timer: null };
+      this._pendingDeletes.push({ name: null, timer: rec.timer, batch: rec });
+
+      this.showUndoToast(`已删除 ${list.length} 个文件`, () => {
+        clearTimeout(rec.timer);
+        this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
+        this._restoreDeleted(entries);
+        this.showToast('已撤销删除', 'info');
+      });
+
+      rec.timer = setTimeout(async () => {
+        this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
+        try {
+          const results = await Promise.all(list.map(f =>
+            fetch('./api/manage/delete/' + encodeURIComponent(f.name), { credentials: 'include' })
+              .then(r => r.json())
+          ));
+          const failed = results.filter(r => !r || !r.success).length;
+          if (failed) this.showToast(`${failed} 个文件删除失败`, 'error');
+        } catch (e) {
+          this._restoreDeleted(entries);
+          this.showToast('批量删除失败', 'error');
+        }
+      }, UNDO_MS);
     },
 
     async editName(item) {
@@ -2829,7 +3012,7 @@ Vue.createApp({
           './api/manage/editName/' + encodeURIComponent(item.name) + '?newName=' + encodeURIComponent(val),
           { credentials: 'include' }
         ).then(r => r.json());
-        if (!r.success) throw new Error('重命名失败');
+        if (!r.success) throw new Error(r.error || '重命名失败');
         item.metadata.fileName = val;
         this.showToast('重命名成功', 'success');
       } catch (e) {
@@ -2851,13 +3034,9 @@ Vue.createApp({
       const list = this.selectedFiles.slice();
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
-        await this.triggerDownload(
-          this.baseURL + '/file/' + f.name,
-          f.metadata.fileName || f.name
-        );
-        if (i < list.length - 1) {
-          await new Promise(r => setTimeout(r, 500));
-        }
+        this.triggerDownload(this.baseURL + '/file/' + f.name, f.metadata.fileName || f.name);
+        // 逐个触发之间留间隔，否则浏览器会把并发下载判为滥用
+        if (i < list.length - 1) await new Promise(r => setTimeout(r, 500));
       }
     },
 
@@ -2902,10 +3081,7 @@ Vue.createApp({
     },
     downloadPreview() {
       if (!this.preview) return;
-      this.triggerDownload(
-        this.preview.fileUrl || this.preview.url,
-        this.preview.fileName
-      );
+      this.triggerDownload(this.preview.fileUrl || this.preview.url, this.preview.fileName);
     },
 
     /* ================= 批量菜单 ================= */
@@ -2939,14 +3115,20 @@ Vue.createApp({
       } else if (c === 'shares') {
         this.openSharePanel();
       } else if (c === 'paste') {
-        window.open('./paste.html', '_blank');
+        window.open('./paste.html', '_blank', 'noopener');
       } else if (c === 'export') {
+        if (!this.files.length) { this.showToast('没有可导出的链接', 'info'); return; }
         const t = this.files.map(f => this.baseURL + '/file/' + f.name).join('\n');
         const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain' }));
+        a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain;charset=utf-8' }));
         a.download = 'links.txt';
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1200);
+        setTimeout(() => {
+          URL.revokeObjectURL(a.href);
+          if (a.parentNode) a.parentNode.removeChild(a);
+        }, 1200);
         this.showToast(`已导出 ${this.files.length} 条链接`, 'success');
       }
     },
@@ -2962,138 +3144,6 @@ Vue.createApp({
       this.tokenPanelVisible = false;
       this.tokenSecret = null;
       this.resetTokenForm();
-    },
-
-    /* ================= 分享管理 ================= */
-    openSharePanel() {
-      this.sharePanelVisible = true;
-      this.shareFilter = 'all';
-      this.shareSearch = '';
-      this.loadShares();
-    },
-    closeSharePanel() {
-      this.sharePanelVisible = false;
-    },
-    async loadShares() {
-      this.sharesLoading = true;
-      try {
-        const res = await fetch('./api/manage/shares', {
-          headers: { 'Accept': 'application/json' },
-          credentials: 'same-origin',
-          cache: 'no-store'
-        });
-        if (res.status === 401) {
-          this.showToast('登录已过期，请重新登录', 'error');
-          return;
-        }
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) {
-          throw new Error(data.error || data.message || ('HTTP ' + res.status));
-        }
-        this.shares = Array.isArray(data.shares) ? data.shares : [];
-        this.shareStats = data.stats || null;
-      } catch (err) {
-        console.error('加载分享列表失败:', err);
-        this.showToast('加载分享列表失败：' + (err.message || '未知错误'), 'error');
-      } finally {
-        this.sharesLoading = false;
-      }
-    },
-
-    /** 分享链接的完整地址（用于复制 / 打开） */
-    shareFullUrl(s) {
-      const path = s.sharePath || ('/s/' + encodeURIComponent(s.kvKey || ''));
-      return this.baseURL + path;
-    },
-    copyShareLink(s) {
-      this.copyText(this.shareFullUrl(s));
-    },
-    openSharePage(s) {
-      window.open(this.shareFullUrl(s), '_blank', 'noopener');
-    },
-
-    /** 从面板里取消分享：二次确认后调 revoke，成功即从列表移除 */
-    async revokeShareFromPanel(s) {
-      const name = s.fileName || s.kvKey;
-      if (!window.confirm(`确定要取消「${name}」的分享吗？\n\n取消后分享链接立即失效，但已用掉的下载次数会被保留（重新开启不会重置配额）。`)) {
-        return;
-      }
-      this.shareRevokingKey = s.kvKey;
-      try {
-        const res = await fetch('./api/manage/share/' + encodeURIComponent(s.kvKey), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ action: 'revoke' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) {
-          throw new Error(data.message || data.error || ('HTTP ' + res.status));
-        }
-        this.showToast('已取消分享', 'success');
-        // 本地剔除，避免整表重拉
-        this.shares = this.shares.filter(item => item.kvKey !== s.kvKey);
-        if (this.shareStats) {
-          this.shareStats = {
-            ...this.shareStats,
-            total: Math.max(0, this.shareStats.total - 1),
-            active: Math.max(0, this.shareStats.active - (s.active ? 1 : 0)),
-            expired: Math.max(0, this.shareStats.expired - (s.expired ? 1 : 0)),
-            exhausted: Math.max(0, this.shareStats.exhausted - (s.exhausted ? 1 : 0)),
-            passwordProtected: Math.max(0, this.shareStats.passwordProtected - (s.passwordProtected ? 1 : 0))
-          };
-        }
-      } catch (err) {
-        console.error('取消分享失败:', err);
-        this.showToast('取消分享失败：' + (err.message || '未知错误'), 'error');
-      } finally {
-        this.shareRevokingKey = '';
-      }
-    },
-
-    /* ---------- 分享展示格式化 ---------- */
-
-    /** 有效期：显示剩余时长，已过期标红 */
-    formatShareExpiry(s) {
-      if (!s.shareExpiresAt) return '永久有效';
-      const remain = Number(s.shareExpiresAt) - Date.now();
-      if (remain <= 0) return '已过期（' + this.formatTokenTime(s.shareExpiresAt) + '）';
-      return '还剩 ' + this.formatShareDuration(remain) + '（至 ' + this.formatTokenTime(s.shareExpiresAt) + '）';
-    },
-
-    /** 下载次数：`已用 / 上限`，无上限时只显示已用 */
-    formatShareQuota(s) {
-      const used = Number(s.downloadCount) || 0;
-      if (!s.shareMaxDownloads) return '已下载 ' + used + ' 次 · 不限';
-      return '已下载 ' + used + ' / ' + s.shareMaxDownloads + ' 次';
-    },
-
-    /** 次数进度百分比，用于进度条 */
-    shareQuotaPercent(s) {
-      const max = Number(s.shareMaxDownloads) || 0;
-      if (max <= 0) return 0;
-      const used = Number(s.downloadCount) || 0;
-      return Math.min(100, Math.round((used / max) * 100));
-    },
-
-    formatShareDuration(ms) {
-      const seconds = Math.max(0, Math.floor(ms / 1000));
-      if (seconds < 60) return seconds + ' 秒';
-      const minutes = Math.floor(seconds / 60);
-      if (minutes < 60) return minutes + ' 分钟';
-      const hours = Math.floor(minutes / 60);
-      if (hours < 24) return hours + ' 小时';
-      return Math.floor(hours / 24) + ' 天';
-    },
-
-    formatShareSize(bytes) {
-      const value = Number(bytes) || 0;
-      if (value <= 0) return '—';
-      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-      let i = 0;
-      let size = value;
-      while (size >= 1024 && i < units.length - 1) { size /= 1024; i += 1; }
-      return (i === 0 ? size : size.toFixed(size >= 100 ? 0 : 1)) + ' ' + units[i];
     },
 
     resetTokenForm() {
@@ -3112,7 +3162,7 @@ Vue.createApp({
       this.tokenLoading = true;
       try {
         const res = await fetch('./api/admin/tokens', { credentials: 'include' });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
         this.tokens = Array.isArray(data.tokens) ? data.tokens : [];
       } catch (e) {
@@ -3169,7 +3219,7 @@ Vue.createApp({
       }
 
       const policies = this.buildTokenPolicies();
-      const payload = { scopes: scopes, enabled: Boolean(this.tokenForm.enabled) };
+      const payload = { scopes, enabled: Boolean(this.tokenForm.enabled) };
       if (Number(this.tokenForm.expiresInSeconds) > 0) {
         payload.expiresInSeconds = Number(this.tokenForm.expiresInSeconds);
       }
@@ -3184,7 +3234,7 @@ Vue.createApp({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
           this.showToast('已保存 ' + this.tokenEditingId, 'success');
           this.resetTokenForm();
@@ -3196,7 +3246,7 @@ Vue.createApp({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
           this.tokenSecret = { token: String(data.token || ''), mode: 'create' };
           this.showToast('Token 已创建，请立即保存密钥', 'success');
@@ -3217,7 +3267,7 @@ Vue.createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: !token.enabled })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
         token.enabled = !token.enabled;
         this.showToast(token.id + (token.enabled ? ' 已启用' : ' 已禁用'), 'success');
@@ -3225,14 +3275,20 @@ Vue.createApp({
         this.showToast('操作失败：' + (e.message || ''), 'error');
       }
     },
+    /* 原来用 window.confirm，与全站玻璃拟态弹窗不一致且会阻塞主线程，已改为 askConfirm */
     async rotateToken(token) {
-      if (!window.confirm('轮换 ' + token.id + ' 的密钥？旧密钥会立即失效，调用方需要更新配置。')) return;
+      const ok = await this.askConfirm(
+        `轮换 <strong>${this.escapeHtml(token.id)}</strong> 的密钥？<br>
+         <span style="color:var(--text-muted);font-size:.8rem">旧密钥立即失效，调用方需要同步更新配置。</span>`,
+        '轮换密钥', true
+      );
+      if (!ok) return;
       try {
         const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id) + '/rotate', {
           method: 'POST',
           credentials: 'include'
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
         this.tokenSecret = { token: String(data.token || ''), mode: 'rotate' };
         this.showToast('已轮换，请立即保存新密钥', 'success');
@@ -3242,13 +3298,18 @@ Vue.createApp({
       }
     },
     async deleteToken(token) {
-      if (!window.confirm('删除 Token「' + (token.name || token.id) + '」？使用该密钥的调用方会立即失效。')) return;
+      const ok = await this.askConfirm(
+        `删除 Token「<strong>${this.escapeHtml(token.name || token.id)}</strong>」？<br>
+         <span style="color:var(--text-muted);font-size:.8rem">使用该密钥的调用方会立即失效。</span>`,
+        '删除 Token', true
+      );
+      if (!ok) return;
       try {
         const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id), {
           method: 'DELETE',
           credentials: 'include'
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
         this.tokens = this.tokens.filter(t => t.id !== token.id);
         if (this.tokenEditingId === token.id) this.resetTokenForm();
@@ -3261,12 +3322,11 @@ Vue.createApp({
       const exp = Number(token && token.expiresAt);
       return Number.isFinite(exp) && exp > 0 && Date.now() > exp;
     },
+    /* 交给 Intl，自动获得本地化日期格式（含 29 个地区的差异） */
     formatTokenTime(ts) {
       const value = Number(ts || 0);
       if (!value) return '—';
-      const d = new Date(value);
-      const pad = n => String(n).padStart(2, '0');
-      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      return TIME_FMT.format(new Date(value));
     },
     formatTokenExpiry(expiresAt) {
       const exp = Number(expiresAt);
@@ -3290,9 +3350,136 @@ Vue.createApp({
       this.showToast(message || '已复制', 'success');
     },
 
+    /* ================= 分享管理 ================= */
+    openSharePanel() {
+      this.sharePanelVisible = true;
+      this.shareFilter = 'all';
+      this.shareSearch = '';
+      this.loadShares();
+    },
+    closeSharePanel() {
+      this.sharePanelVisible = false;
+    },
+    async loadShares() {
+      this.sharesLoading = true;
+      try {
+        const res = await fetch('./api/manage/shares', {
+          headers: { 'Accept': 'application/json' },
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        if (res.status === 401) {
+          this.showToast('登录已过期，请重新登录', 'error');
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        }
+        this.shares = Array.isArray(data.shares) ? data.shares : [];
+        this.shareStats = data.stats || null;
+      } catch (err) {
+        console.error('加载分享列表失败:', err);
+        this.showToast('加载分享列表失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        this.sharesLoading = false;
+      }
+    },
+
+    shareFullUrl(s) {
+      const path = s.sharePath || ('/s/' + encodeURIComponent(s.kvKey || ''));
+      return this.baseURL + path;
+    },
+    copyShareLink(s) {
+      this.copyText(this.shareFullUrl(s));
+      this.showToast('分享链接已复制', 'success');
+    },
+    openSharePage(s) {
+      window.open(this.shareFullUrl(s), '_blank', 'noopener');
+    },
+
+    /* 原为 window.confirm，已统一到站内对话框 */
+    async revokeShareFromPanel(s) {
+      const name = s.fileName || s.kvKey;
+      const ok = await this.askConfirm(
+        `确定取消「<strong>${this.escapeHtml(name)}</strong>」的分享？<br>
+         <span style="color:var(--text-muted);font-size:.8rem">取消后分享链接立即失效；已用掉的下载次数会被保留（重新开启不会重置配额）。</span>`,
+        '取消分享', true
+      );
+      if (!ok) return;
+
+      this.shareRevokingKey = s.kvKey;
+      try {
+        const res = await fetch('./api/manage/share/' + encodeURIComponent(s.kvKey), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ action: 'revoke' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        }
+        this.showToast('已取消分享', 'success');
+        // 本地剔除，避免整表重拉
+        this.shares = this.shares.filter(item => item.kvKey !== s.kvKey);
+        if (this.shareStats) {
+          this.shareStats = {
+            ...this.shareStats,
+            total: Math.max(0, this.shareStats.total - 1),
+            active: Math.max(0, this.shareStats.active - (s.active ? 1 : 0)),
+            expired: Math.max(0, this.shareStats.expired - (s.expired ? 1 : 0)),
+            exhausted: Math.max(0, this.shareStats.exhausted - (s.exhausted ? 1 : 0)),
+            passwordProtected: Math.max(0, this.shareStats.passwordProtected - (s.passwordProtected ? 1 : 0))
+          };
+        }
+      } catch (err) {
+        console.error('取消分享失败:', err);
+        this.showToast('取消分享失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        this.shareRevokingKey = '';
+      }
+    },
+
+    /* ---------- 分享展示格式化 ---------- */
+    formatShareExpiry(s) {
+      if (!s.shareExpiresAt) return '永久有效';
+      const remain = Number(s.shareExpiresAt) - Date.now();
+      if (remain <= 0) return '已过期（' + this.formatTokenTime(s.shareExpiresAt) + '）';
+      return '还剩 ' + this.formatShareDuration(remain) + '（至 ' + this.formatTokenTime(s.shareExpiresAt) + '）';
+    },
+    formatShareQuota(s) {
+      const used = Number(s.downloadCount) || 0;
+      if (!s.shareMaxDownloads) return '已下载 ' + used + ' 次 · 不限';
+      return '已下载 ' + used + ' / ' + s.shareMaxDownloads + ' 次';
+    },
+    shareQuotaPercent(s) {
+      const max = Number(s.shareMaxDownloads) || 0;
+      if (max <= 0) return 0;
+      const used = Number(s.downloadCount) || 0;
+      return Math.min(100, Math.round((used / max) * 100));
+    },
+    formatShareDuration(ms) {
+      const seconds = Math.max(0, Math.floor(ms / 1000));
+      if (seconds < 60) return seconds + ' 秒';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return minutes + ' 分钟';
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return hours + ' 小时';
+      return Math.floor(hours / 24) + ' 天';
+    },
+    formatShareSize(bytes) {
+      const value = Number(bytes) || 0;
+      if (value <= 0) return '—';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0;
+      let size = value;
+      while (size >= 1024 && i < units.length - 1) { size /= 1024; i += 1; }
+      return SIZE_FMT.format(size) + ' ' + units[i];
+    },
+
     /* ================= 状态 / 退出 ================= */
     async checkStatus() {
-      // 查询期间状态点走 settleBreathe 收敛动画，得到结果后再平滑收敛回静止
       this.statusChecking = true;
       try {
         const r = await fetch('./api/status', { credentials: 'include' }).then(r => r.json());
@@ -3302,11 +3489,14 @@ Vue.createApp({
           const s = this.status[k] || {};
           const ok = s.connected;
           const color = this.dot(k);
+          const shape = this.statusIcon(k);
           return `<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--glass-border-ice);">
             <i class="${i}" style="width:18px;text-align:center;color:${color};font-size:.85rem"></i>
             <b style="font-size:.84rem;min-width:88px">${n}</b>
-            <span style="color:${color};font-size:.8rem;font-weight:700">${ok ? '✓ 已连接' : (this.unconf(s) ? '○ 未配置' : '✕ 异常')}</span>
-            <span style="margin-left:auto;color:var(--text-muted);font-size:.74rem;text-align:right">${this.escapeHtml(s.message || '')}</span>
+            <span style="color:${color};font-size:.8rem;font-weight:700;display:inline-flex;align-items:center;gap:5px">
+              <i class="fas ${shape}" style="font-size:.7rem"></i>${ok ? '已连接' : (this.unconf(s) ? '未配置' : '异常')}
+            </span>
+            <span style="margin-left:auto;color:var(--text-muted);font-size:.75rem;text-align:right">${this.escapeHtml(s.message || '')}</span>
           </div>`;
         };
 
@@ -3346,27 +3536,40 @@ Vue.createApp({
   async mounted() {
     /* Toast 序号，保证 transition key 唯一 */
     this._toastSeq = 0;
+    this._pendingDeletes = this._pendingDeletes || [];
 
-    /* 主题 */
+    /* 主题：无显式偏好时跟随系统（HIG 要求） */
     try {
-      const th = localStorage.getItem('theme') || 'light';
-      this.currentTheme = th;
-      document.documentElement.setAttribute('data-theme', th);
+      const saved = localStorage.getItem('theme');
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      this.currentTheme = saved || (mq.matches ? 'dark' : 'light');
+    } catch (e) {
+      this.currentTheme = 'light';
+    }
+    document.documentElement.setAttribute('data-theme', this.currentTheme);
+
+    /* 系统深浅色切换时同步（仅在用户未手动覆盖时） */
+    try {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      this._schemeHandler = (e) => {
+        let hasPref = false;
+        try { hasPref = !!localStorage.getItem('theme'); } catch (err) {}
+        if (hasPref) return;
+        this.currentTheme = e.matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', this.currentTheme);
+      };
+      mq.addEventListener('change', this._schemeHandler);
     } catch (e) {}
 
-    /* ===== 性能分级（移植 index 的 data-perf 降级策略） =====
-       低端设备 / 省电模式下关掉大范围 backdrop-filter 与模糊转场，
-       只保留位移与透明度这些走合成层的便宜动画。 */
+    /* ==== 性能分级（移植 index 的 data-perf 降级策略）==== */
     try {
       const cores = navigator.hardwareConcurrency || 4;
       const mem = navigator.deviceMemory || 4;
-      const low = cores <= 2 || mem <= 2 || navigator.connection?.saveData === true;
+      const low = cores <= 2 || mem <= 2 || (navigator.connection && navigator.connection.saveData === true);
       if (low) document.documentElement.setAttribute('data-perf', 'low');
     } catch (e) {}
 
-    /* ===== 首屏入场编排 =====
-       先让 #app 处于 :not(.is-booted)，逐块错峰「长」出来；
-       数据就位后再翻 booted，把入场样式整体撤掉，避免重放。 */
+    /* ==== 首屏入场编排 ==== */
     const bootDelay = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ? 60 : 780;
     setTimeout(() => { this.booted = true; }, bootDelay);
 
@@ -3374,15 +3577,24 @@ Vue.createApp({
     this._closeMenusHandler = () => { this.openMenu = null; };
     document.addEventListener('click', this._closeMenusHandler);
 
-    /* 键盘：Esc 关闭弹层 */
+    /* 键盘：Esc 关闭弹层（按层级从前往后） */
     this._escHandler = (e) => {
       if (e.key !== 'Escape') return;
       if (this.preview) { this.closePreview(); return; }
       if (this.moveVisible) { this.moveVisible = false; return; }
+      if (this.tokenPanelVisible) { this.closeTokenPanel(); return; }
+      if (this.sharePanelVisible) { this.closeSharePanel(); return; }
       if (this.dialog.visible) { this.dialogCancel(); return; }
       this.openMenu = null;
     };
     document.addEventListener('keydown', this._escHandler);
+
+    /* 离开页面时把「撤销窗口内未提交的删除」立即落盘，避免删除丢失 */
+    this._pageHideHandler = () => this._flushPendingDeletes();
+    window.addEventListener('pagehide', this._pageHideHandler);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this._flushPendingDeletes();
+    });
 
     /* 登录校验 */
     try {
@@ -3417,6 +3629,14 @@ Vue.createApp({
   beforeUnmount() {
     document.removeEventListener('click', this._closeMenusHandler);
     document.removeEventListener('keydown', this._escHandler);
+    window.removeEventListener('pagehide', this._pageHideHandler);
+    try {
+      if (this._schemeHandler) {
+        window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);
+      }
+    } catch (e) {}
+    /* 卸载前把待删除项落盘 */
+    this._flushPendingDeletes();
   },
 
   watch: {
@@ -3431,3 +3651,5 @@ Vue.createApp({
   }
 }).mount('#app');
 </script>
+</body>
+</html>

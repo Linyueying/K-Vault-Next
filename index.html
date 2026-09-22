@@ -473,6 +473,127 @@
       }
 
       /* =========================================================
+         统一自定义对话框 —— 全面替代 alert / confirm / prompt
+         复用既有 modal 容器与 dialog 过渡，仅补充内部结构
+         ========================================================= */
+      .dlg { gap: var(--sp-4); }
+
+      .dlg__head {
+        display: flex; align-items: flex-start; gap: var(--sp-3);
+      }
+      .dlg__icon {
+        flex: none;
+        width: 38px; height: 38px;
+        border-radius: var(--r-sm);
+        display: grid; place-items: center;
+        font-size: var(--fs-lg); line-height: 1;
+        background: rgba(var(--primary-rgb), 0.12);
+        color: var(--primary);
+        transition: var(--transition);
+      }
+      .dlg__heading {
+        flex: 1; min-width: 0;
+        display: flex; flex-direction: column; gap: 3px;
+        padding-top: 2px;
+      }
+      .dlg__title {
+        font-size: var(--fs-xl); font-weight: 800;
+        color: var(--text-main); letter-spacing: -0.015em;
+        line-height: 1.3; word-break: break-word;
+      }
+      .dlg__sub {
+        font-size: var(--fs-xs); font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase; letter-spacing: 0.06em;
+      }
+
+      .dlg__body { display: flex; flex-direction: column; gap: var(--sp-3); }
+      .dlg__text {
+        font-size: var(--fs-md); font-weight: 600;
+        line-height: 1.7; color: var(--text-sub);
+        white-space: pre-line;      /* 保留消息里的 \n 换行 */
+        word-break: break-word;
+        max-height: 42vh; overflow-y: auto;
+      }
+      .dlg__text strong { color: var(--text-main); font-weight: 800; }
+      .dlg__text code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92em; padding: 1px 5px;
+        border-radius: var(--r-xs);
+        background: rgba(var(--primary-rgb), 0.1);
+        color: var(--primary);
+        word-break: break-all;
+      }
+
+      .dlg__field { display: flex; flex-direction: column; gap: var(--sp-2); }
+      .dlg__field > label {
+        font-size: var(--fs-xs); font-weight: 700; color: var(--text-sub);
+      }
+      .dlg__input {
+        width: 100%;
+        padding: var(--sp-3);
+        border-radius: var(--r-sm);
+        border: 1px solid var(--glass-border);
+        background: var(--glass-surface);
+        color: var(--text-main);
+        font: inherit; font-size: var(--fs-md);
+        transition: var(--transition);
+      }
+      .dlg__input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+      }
+      .dlg__input::placeholder { color: var(--text-muted); }
+      .dlg__hint { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+      .dlg__error {
+        font-size: var(--fs-sm); font-weight: 700; color: var(--c-danger);
+        display: flex; align-items: center; gap: 6px;
+      }
+
+      .dlg__actions {
+        display: flex; align-items: center; justify-content: flex-end;
+        gap: var(--sp-2); flex-wrap: wrap;
+      }
+      .dlg__actions .btn { min-width: 88px; justify-content: center; }
+      .dlg__actions--split { justify-content: space-between; }
+      .dlg__actions .dlg__group { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+      /* 语调变体：danger / warn / success */
+      .dlg--danger { border-color: rgba(244, 63, 94, 0.32); }
+      .dlg--danger .dlg__icon { background: var(--c-danger-soft); color: var(--c-danger); }
+      .dlg--warn   .dlg__icon { background: rgba(245, 158, 11, 0.14); color: var(--c-warn); }
+      .dlg--success .dlg__icon { background: rgba(16, 185, 129, 0.14); color: var(--c-success); }
+
+      /* 危险操作：确认按钮用实心红，强化阻断感 */
+      .btn--danger-solid {
+        background: linear-gradient(135deg, var(--c-danger), #be123c);
+        color: #fff; border-color: transparent;
+        box-shadow: 0 4px 14px rgba(225, 29, 72, 0.32);
+      }
+      .btn--danger-solid:hover:not(:disabled) {
+        background: linear-gradient(135deg, #f43f5e, #e11d48);
+        color: #fff; border-color: transparent;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(225, 29, 72, 0.4);
+      }
+      .btn--danger-solid:active:not(:disabled) { transform: scale(0.96); }
+
+      @media (max-width: 680px) {
+        .dlg--dialog, .modal--dialog.dlg {
+          width: min(480px, 94vw);
+          padding: var(--sp-4);
+        }
+        .dlg__icon { width: 34px; height: 34px; font-size: var(--fs-md); }
+        .dlg__title { font-size: var(--fs-lg); }
+        .dlg__actions { flex-direction: column-reverse; align-items: stretch; }
+        .dlg__actions .btn { width: 100%; }
+        .dlg__actions--split { flex-direction: column-reverse; }
+        .dlg__actions--split .dlg__group { flex-direction: column-reverse; width: 100%; }
+        .dlg__actions--split .dlg__group .btn { width: 100%; }
+      }
+
+      /* =========================================================
          App 布局
          ========================================================= */
       #app {
@@ -2378,6 +2499,53 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       </div>
       </transition>
 
+      <!-- 统一自定义对话框（替代原生 alert / confirm / prompt） -->
+      <transition name="dialog">
+        <div class="modal-mask modal-mask--center" v-if="dlg.visible" @click.self="dlgDismiss">
+          <div class="modal modal--dialog dlg" :class="dlg.tone ? 'dlg--' + dlg.tone : ''"
+            role="alertdialog" aria-modal="true" :aria-label="dlg.title" @click.stop
+            @keydown.esc.prevent="dlgDismiss">
+            <div class="dlg__head">
+              <div class="dlg__icon"><i :class="dlg.icon"></i></div>
+              <div class="dlg__heading">
+                <span class="dlg__sub" v-if="dlg.subtitle">{{ dlg.subtitle }}</span>
+                <h3 class="dlg__title">{{ dlg.title }}</h3>
+              </div>
+              <button class="btn btn--ghost btn--icon btn--sm" v-if="dlg.closable" @click="dlgDismiss" title="关闭 (Esc)">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+
+            <div class="dlg__body">
+              <p class="dlg__text" v-if="dlg.message">{{ dlg.message }}</p>
+
+              <div class="dlg__field" v-if="dlg.mode === 'prompt'">
+                <label for="uni-dlg-input">{{ dlg.label }}</label>
+                <input id="uni-dlg-input" ref="dlgInput" class="dlg__input" type="text"
+                  v-model="dlg.value" :placeholder="dlg.placeholder" :maxlength="dlg.maxlength || null"
+                  autocomplete="off" spellcheck="false"
+                  @keyup.enter="dlgConfirm" @keydown.esc.prevent="dlgDismiss" />
+                <span class="dlg__hint" v-if="dlg.hint">{{ dlg.hint }}</span>
+                <span class="dlg__error" v-if="dlg.error"><i class="fas fa-circle-exclamation"></i>{{ dlg.error }}</span>
+              </div>
+            </div>
+
+            <div class="dlg__actions" :class="{ 'dlg__actions--split': dlg.note }">
+              <span class="dlg__hint" v-if="dlg.note" style="flex: 1; min-width: 120px;">{{ dlg.note }}</span>
+              <div class="dlg__group">
+                <button class="btn" v-if="dlg.showCancel" @click="dlgDismiss">{{ dlg.cancelText }}</button>
+                <button class="btn" ref="dlgConfirmBtn"
+                  :class="dlg.tone === 'danger' ? 'btn--danger-solid' : 'btn--primary'"
+                  @click="dlgConfirm">
+                  <i :class="dlg.confirmIcon" v-if="dlg.confirmIcon"></i>
+                  <span>{{ dlg.confirmText }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+
       <!-- Toast -->
       <transition name="toast" mode="out-in">
         <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0" :key="toastKey">
@@ -2390,6 +2558,31 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>
     <script>
       const LOCAL_PREVIEW_PAGE = "/preview.html";
+
+      /* ===== 统一自定义对话框：默认配置（替代 alert / confirm / prompt） ===== */
+      const DLG_DEFAULTS = {
+        visible: false,
+        mode: "confirm",      // confirm | prompt | alert
+        tone: "info",         // info | danger | warn | success
+        icon: "",
+        title: "",
+        subtitle: "",
+        message: "",
+        note: "",
+        label: "请输入",
+        value: "",
+        placeholder: "",
+        hint: "",
+        error: "",
+        maxlength: null,
+        confirmText: "确定",
+        cancelText: "取消",
+        confirmIcon: "",
+        showCancel: true,
+        closable: true,
+        validate: null,
+        resolver: null,
+      };
 
       /* ===== 智能节点模式常量 ===== */
       const SMART_SMALL_FILE_LIMIT = 20 * 1024 * 1024;
@@ -2518,6 +2711,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             shareDialogRevoking: false,
             shareDialogForm: { expiresIn: 0, maxDownloads: "", password: "", slug: "", keepPassword: true, keepSlug: true },
             shareDialogShowPassword: false,
+
+            /* 统一自定义对话框状态与队列 */
+            dlg: Object.assign({}, DLG_DEFAULTS),
+            dlgQueue: [],
+            dlgBusy: false,
 
             previewData: null,
             toasts: [],
@@ -2868,6 +3066,135 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.toasts.push({ message, type });
             this.toastKey++;
             setTimeout(() => { this.toasts.shift(); }, 2800);
+          },
+
+          /* =====================================================
+             统一自定义对话框 —— 全面替代 window.alert / confirm / prompt
+             全部 Promise 化，多个请求自动串行排队，不会互相覆盖。
+             ===================================================== */
+
+          /* 底层：提交一个对话框请求，返回 Promise */
+          requestDialog(options) {
+            return new Promise((resolve) => {
+              this.dlgQueue.push({ options: options || {}, resolve });
+              if (!this.dlgBusy) this.dlgDrain();
+            });
+          },
+
+          /* 取出队列里的下一个请求并渲染 */
+          dlgDrain() {
+            if (this.dlgBusy || !this.dlgQueue.length) return;
+            this.dlgBusy = true;
+            const job = this.dlgQueue.shift();
+            const o = job.options || {};
+            const tone = o.tone || "info";
+            const mode = o.mode || "confirm";
+            const iconMap = {
+              danger: "fas fa-triangle-exclamation",
+              warn: "fas fa-triangle-exclamation",
+              success: "fas fa-circle-check",
+              info: mode === "prompt" ? "fas fa-pen" : "fas fa-circle-info",
+            };
+            this.dlg = Object.assign({}, DLG_DEFAULTS, o, {
+              mode, tone,
+              icon: o.icon || iconMap[tone] || iconMap.info,
+              value: o.value != null ? String(o.value) : "",
+              error: "",
+              visible: true,
+              resolver: job.resolve,
+            });
+            this.$nextTick(() => {
+              const el = this.dlg.mode === "prompt" ? this.$refs.dlgInput : this.$refs.dlgConfirmBtn;
+              if (el && typeof el.focus === "function") {
+                el.focus();
+                if (typeof el.select === "function") el.select();
+              }
+            });
+          },
+
+          /* 关闭并把结果交给等待方 */
+          dlgClose(result) {
+            const resolve = this.dlg.resolver;
+            this.dlg.visible = false;
+            this.dlg.resolver = null;
+            this.dlgBusy = false;
+            if (typeof resolve === "function") resolve(result);
+            this.$nextTick(() => this.dlgDrain());
+          },
+
+          /* 点「确定」：prompt 先跑校验 */
+          dlgConfirm() {
+            if (!this.dlg.visible) return;
+            const d = this.dlg;
+            if (d.mode === "prompt") {
+              const val = String(d.value == null ? "" : d.value).trim();
+              if (typeof d.validate === "function") {
+                const msg = d.validate(val);
+                if (msg) {
+                  d.error = msg;
+                  const el = this.$refs.dlgInput;
+                  if (el && typeof el.focus === "function") el.focus();
+                  return;
+                }
+              }
+              this.dlgClose(val);
+              return;
+            }
+            this.dlgClose(true);
+          },
+
+          /* 取消 / 关闭 / 点遮罩 / Esc：prompt 返回 null，其余返回 false */
+          dlgDismiss() {
+            if (!this.dlg.visible || !this.dlg.closable) return;
+            this.dlgClose(this.dlg.mode === "prompt" ? null : false);
+          },
+
+          /* 语义化封装 —— 业务代码只调这三个 */
+          confirmDialog(message, options = {}) {
+            const o = (typeof options === "string") ? { title: options } : (options || {});
+            return this.requestDialog(Object.assign({
+              mode: "confirm", tone: "info",
+              title: "请确认", message: message || "",
+              confirmText: "确定", cancelText: "取消",
+            }, o));
+          },
+
+          /* 危险确认：红色主按钮 + 阻断感 */
+          confirmDanger(message, options = {}) {
+            const o = (typeof options === "string") ? { title: options } : (options || {});
+            return this.confirmDialog(message, Object.assign({
+              tone: "danger", confirmText: "确认删除", confirmIcon: "fas fa-trash",
+            }, o));
+          },
+
+          promptDialog(message, options = {}) {
+            const o = (typeof options === "string") ? { title: options } : (options || {});
+            return this.requestDialog(Object.assign({
+              mode: "prompt", tone: "info",
+              title: "请输入", message: message || "",
+              confirmText: "确定", cancelText: "取消",
+            }, o));
+          },
+
+          alertDialog(message, options = {}) {
+            const o = (typeof options === "string") ? { title: options } : (options || {});
+            return this.requestDialog(Object.assign({
+              mode: "alert", tone: "info",
+              title: "提示", message: message || "",
+              confirmText: "知道了", showCancel: false,
+            }, o));
+          },
+
+          /* 全局 Esc：即使焦点不在框内也能关闭当前对话框 */
+          dlgHandleGlobalKey(e) {
+            if (!this.dlg.visible) return;
+            if (e.key === "Escape" || e.key === "Esc") {
+              e.preventDefault();
+              this.dlgDismiss();
+            } else if (e.key === "Enter" && this.dlg.mode !== "prompt") {
+              e.preventDefault();
+              this.dlgConfirm();
+            }
           },
 
           /* ===== XHR 上传（保留所有断点续传能力） =====
@@ -3221,7 +3548,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             finally { this.uploadFolderCreating = false; }
           },
           async handleRenameFolder(node) {
-            const newPath = window.prompt(`重命名目录：\n"${node.path}"\n\n请输入新路径（包含完整路径）：`, node.path);
+            const newPath = await this.promptDialog(`请输入目录 "${node.path}" 的新路径（需包含完整路径）：`, {
+              title: "重命名目录",
+              subtitle: "目录管理",
+              label: "新路径",
+              value: node.path,
+              placeholder: "例如 images/2024",
+              hint: "重命名会一并迁移该目录下的所有子目录。",
+              confirmText: "重命名",
+              confirmIcon: "fas fa-pen",
+              validate: (val) => {
+                const p = this.normalizeFolderPath(val);
+                if (!p) return "请输入有效的目录路径";
+                if (p === this.normalizeFolderPath(node.path)) return "新路径与原路径相同，无需重命名";
+                return "";
+              },
+            });
             if (newPath === null) return;
             const targetPath = this.normalizeFolderPath(newPath);
             if (!targetPath || targetPath === node.path) { this.showToast("新路径与原路径相同或无效", "error"); return; }
@@ -3238,7 +3580,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             } catch (err) { this.showToast(err.message, "error"); }
           },
           async handleDeleteFolder(node) {
-            if (!window.confirm(`⚠️ 确定要删除目录 "${node.path}" 及其所有子目录和文件吗？\n\n此操作不可撤销！`)) return;
+            const delOk = await this.confirmDanger(`即将删除目录 "${node.path}" 及其所有子目录和文件。\n\n删除后无法恢复。`, {
+              title: "删除目录",
+              subtitle: "危险操作",
+              confirmText: "删除目录",
+              cancelText: "保留",
+              note: "此操作不可撤销",
+            });
+            if (!delOk) return;
             try {
               const res = await fetch(`/api/manage/folders?path=${encodeURIComponent(node.path)}&recursive=1`, { method: "DELETE", credentials: "include" });
               const data = await res.json();
@@ -4392,9 +4741,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (this.uploadHistory.length > this.historyMaxItems) this.uploadHistory = this.uploadHistory.slice(0, this.historyMaxItems);
             this.persistHistory();
           },
-          clearHistory() {
+          async clearHistory() {
             if (!this.uploadHistory.length) return;
-            if (!window.confirm(`确定清空全部 ${this.uploadHistory.length} 条本地历史吗？\n\n此操作不可撤销。`)) return;
+            const clearOk = await this.confirmDanger(`将清空全部 ${this.uploadHistory.length} 条本地历史记录。\n\n清空后无法恢复。`, {
+              title: "清空历史",
+              subtitle: "危险操作",
+              confirmText: "全部清空",
+              cancelText: "再想想",
+              note: "仅影响本地记录，云端文件不受影响",
+            });
+            if (!clearOk) return;
             this.uploadHistory = [];
             try { localStorage.removeItem("uploadHistory"); } catch (e) {}
             this.showToast("本地历史已清空", "success");
@@ -4446,10 +4802,17 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             }
             this.historyCleanupRunning = false;
           },
-          deleteHistorySelected() {
+          async deleteHistorySelected() {
             const list = this.historySorted.filter((it) => it.selected);
             if (!list.length) return;
-            if (!window.confirm(`确定删除选中的 ${list.length} 条历史记录吗？`)) return;
+            const delOk = await this.confirmDanger(`将删除选中的 ${list.length} 条历史记录。`, {
+              title: "删除记录",
+              subtitle: "危险操作",
+              confirmText: `删除 ${list.length} 条`,
+              cancelText: "取消",
+              note: "仅影响本地记录，云端文件不受影响",
+            });
+            if (!delOk) return;
             const ids = new Set(list.map((it) => it.id));
             this.uploadHistory = this.uploadHistory.filter((it) => !ids.has(it.id));
             this.persistHistory();
@@ -4581,6 +4944,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
         },
         async mounted() {
+          /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
+          this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
+          window.addEventListener("keydown", this._dlgKeyHandler, true);
           try {
             const cores = navigator.hardwareConcurrency || 8;
             const mem = navigator.deviceMemory || 8;
@@ -4623,6 +4989,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           document.addEventListener("click", this.resultMenuCloseHandler);
         },
         beforeUnmount() {
+          if (this._dlgKeyHandler) {
+            window.removeEventListener("keydown", this._dlgKeyHandler, true);
+            this._dlgKeyHandler = null;
+          }
+          /* 卸载时兜底放行所有仍在等待的对话框请求，避免 Promise 永久挂起 */
+          if (this.dlgQueue && this.dlgQueue.length) {
+            for (const job of this.dlgQueue) { try { job.resolve(false); } catch (_) {} }
+            this.dlgQueue = [];
+          }
+          if (this.dlg && typeof this.dlg.resolver === "function") {
+            const r = this.dlg.resolver; this.dlg.resolver = null; r(false);
+          }
           this.schedulerDisposed = true;
           this.uploadEpoch++;
           if (this.uploadDrainTimer) { clearTimeout(this.uploadDrainTimer); this.uploadDrainTimer = null; }
