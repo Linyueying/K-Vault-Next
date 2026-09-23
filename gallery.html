@@ -1337,13 +1337,34 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.min.js"></script>
+  <!-- Vue 3 全局构建（含模板编译器）+ @vue/compat 兼容模式。
+       与 index.html / admin.html 保持同一套运行时，便于统一开发与排错。 -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@vue/compat@3.5.13/dist/vue-compat.global.prod.js"></script>
+  <script>
+    /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
+       8 秒后仍未挂载就渲染一个可操作的错误页。 */
+    setTimeout(function () {
+      var el = document.getElementById('app');
+      if (el && el.hasAttribute('v-cloak')) {
+        el.removeAttribute('v-cloak');
+        el.innerHTML =
+          '<div style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif">' +
+            '<p style="font-size:1.15rem;font-weight:800;color:#0f172a">脚本加载失败</p>' +
+            '<p style="margin-top:10px;color:#475569;line-height:1.7;font-size:.9rem">请检查网络连接后重试。</p>' +
+            '<button onclick="location.reload()" style="margin-top:18px;padding:12px 26px;border-radius:999px;border:0;' +
+            'background:#0284c7;color:#fff;font-size:.9rem;font-weight:700;cursor:pointer">重新加载</button>' +
+          '</div>';
+      }
+    }, 8000);
+    Vue.configureCompat && Vue.configureCompat({ MODE: 'suppress-warnings' });
+  </script>
   <script>
     const LOCAL_PREVIEW_PAGE = '/preview.html';
 
-    new Vue({
-      el: '#app',
-      data: {
+    const galleryApp = Vue.createApp({
+      data() {
+        return {
         baseURL: document.location.origin,
         images: [],
         loading: true,
@@ -1356,6 +1377,7 @@
         previewData: null,
         toasts: [],
         searchTimer: null
+        };
       },
       computed: {
         filteredImages() {
@@ -1424,6 +1446,7 @@
           return pages;
         }
       },
+
       methods: {
         async loadImages() {
           this.loading = true;
@@ -1742,6 +1765,8 @@
         });
       }
     });
+    /* Vue 3：用 createApp().mount() 取代 Vue 2 的 el 选项 */
+    galleryApp.mount('#app');
   </script>
 </body>
 </html>
