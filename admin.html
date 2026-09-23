@@ -2107,9 +2107,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
 
 </div>
 
-<!-- Vue 3 全局构建（含模板编译器）+ @vue/compat 兼容模式 -->
-<script src="https://cdn.jsdelivr.net/npm/vue@3.4.38/dist/vue.global.prod.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@vue/compat@3.4.38/dist/vue-compat.global.prod.js"></script>
+<!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
 <script>
 /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
    8 秒后仍未挂载就渲染一个可操作的错误页。 */
@@ -2126,10 +2125,6 @@ setTimeout(function () {
       '</div>';
   }
 }, 8000);
-
-/* Vue 3 兼容模式配置 */
-window.Vue = window.Vue || {};
-Vue.configureCompat && Vue.configureCompat({ MODE: 'suppress-warnings' });
 </script>
 <script>
 /* ============ 展示层格式化器（避免每次调用都新建实例） ============ */
