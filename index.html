@@ -797,7 +797,7 @@
 .task { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--glass-subtle); border: 1px solid var(--glass-border); margin-bottom: var(--sp-2); }
 .task__thumb { width: 42px; height: 42px; border-radius: var(--r-xs); object-fit: cover; background: var(--glass-surface); border: 1px solid var(--glass-border-ice); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--primary); flex-shrink: 0; }
 
-.task__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.task__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .task__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
 .task__name {
   flex: 1; min-width: 0;
@@ -814,10 +814,13 @@
 .task__name--long { cursor: zoom-in; }
 /* 长文件名展开到 4 行 */
 .task__name.is-open { -webkit-line-clamp: 4; max-height: calc(1.3em * 4); }
-.task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 .task__speed-slot {
   display: inline-block; min-width: 5.2em; text-align: right;
   font-variant-numeric: tabular-nums; white-space: nowrap;
+  /* 速率恢复成设计体系里那抹「高级的淡蓝色」（浅色 #38bdf8 / 深色 #7dd3fc），
+     之前重构时误把颜色去掉、退化成了灰色 --text-muted */
+  color: var(--primary-light); font-weight: 600;
 }
 .task__speed-slot:empty { min-width: 0; }
 .task__nowrap { white-space: nowrap; }
@@ -842,7 +845,7 @@
 .taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
 
 /* 进度条 */
-.progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 6px; overflow: hidden; }
+.progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 3px; overflow: hidden; }
 .progress__val { height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0); border-radius: var(--r-pill); background: linear-gradient(90deg, var(--primary-light), var(--primary)); transition: transform 0.4s var(--ease-fluid), background 0.3s var(--ease-apple); will-change: transform; }
 
 /* 结果列表内的分享徽标 */
