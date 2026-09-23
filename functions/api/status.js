@@ -71,7 +71,7 @@ export async function onRequestGet(context) {
     webdav: configuredItem('webdav', 'mounted'),
     github: configuredItem('github'),
     auth: { enabled: Boolean(env.BASIC_USER && env.BASIC_PASS) },
-    guestUpload: getGuestConfig(env),
+    guestUpload: await getGuestConfig(env),
     uploadLimits: getUploadLimits(),
     capabilities: [
       storageCapability('telegram', 'Telegram', 'direct'),

@@ -41,7 +41,14 @@ export async function onRequestPost(context) {
   if (!isAdmin) {
     const guestCheck = await checkGuestUpload(request, env, 0);
     if (!guestCheck.allowed) {
-      return jsonResponse({ error: guestCheck.reason }, guestCheck.status || 403);
+      return jsonResponse(
+        {
+          error: guestCheck.reason,
+          code: guestCheck.code || "GUEST_UPLOAD_FORBIDDEN",
+          requireLogin: true,
+        },
+        guestCheck.status || 403
+      );
     }
   }
 

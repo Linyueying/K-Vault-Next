@@ -791,24 +791,55 @@
       .panel__title i { color: var(--primary); }
       .panel__title i.fa-circle-check { animation: pop 0.28s var(--ease-apple) backwards; }
 
-/* 上传任务 */
+/* 上传任务
+   稳定性总则：整卡高度不允许随状态变化而变。所有「按状态出现 / 消失」的
+   元素，要么预留固定槽位，要么用绝对定位脱离文档流。 */
 .task { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--glass-subtle); border: 1px solid var(--glass-border); margin-bottom: var(--sp-2); }
 .task__thumb { width: 42px; height: 42px; border-radius: var(--r-xs); object-fit: cover; background: var(--glass-surface); border: 1px solid var(--glass-border-ice); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--primary); flex-shrink: 0; }
 
 .task__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.task__header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-.task__name { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
+.task__name {
+  flex: 1; min-width: 0;
+  font-size: var(--fs-md); font-weight: 600; line-height: 1.3;
+  letter-spacing: -0.01em;
+  /* 文件名最新鲜、后缀最关键（.png / .tar.gz / .mp4），
+     所以优先换行把名字「摊开」，真的放不下才截断。
+     max-height 恰好 2 行，保证不会因为名字长短把卡片高度撑开。 */
+  white-space: normal; overflow-wrap: anywhere; word-break: break-all;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; max-height: calc(1.3em * 2);
+  transition: max-height 0.28s var(--ease-fluid);
+}
+.task__name--long { cursor: zoom-in; }
+/* 长文件名展开到 4 行 */
+.task__name.is-open { -webkit-line-clamp: 4; max-height: calc(1.3em * 4); }
 .task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.task__actions { display: flex; align-items: center; gap: var(--sp-1); flex-shrink: 0; }
-/* 任务操作按钮在「暂停 / 已暂停 / 出错」三组之间整体切换。
-   之前是 <template v-if> 直接换 DOM，按钮会瞬间消失又出现。
-   复用交付结果那套 actionIn/actionOut，保证同一套手感。 */
-.taskAct-enter-active { animation: actionIn 0.3s var(--ease-spring) both; }
-.taskAct-leave-active { animation: actionOut 0.16s var(--ease-press) both; }
-/* 元信息行（速度 / 错误 / 状态文案）会随状态出现与消失，给一点纵向展开感，
-   否则这一行会突然多出一个词、整体高度跳变。 */
-.taskMeta-enter-active { animation: metaIn 0.3s var(--ease-spring) both; }
-.taskMeta-leave-active { animation: metaOut 0.16s var(--ease-press) both; }
+.task__speed-slot {
+  display: inline-block; min-width: 5.2em; text-align: right;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.task__speed-slot:empty { min-width: 0; }
+.task__nowrap { white-space: nowrap; }
+/* 操作按钮槽：宽度固定为「3 个按钮」的宽度。
+   暂停（1 个按钮）与已暂停 / 失败（3 个按钮）之间切换时，
+   容器宽度如果跟着变，左边的文件名就会被推来推去 —— 这是抽动的主因之一。 */
+.task__actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1);
+  flex-shrink: 0; min-width: 116px;
+}
+/* 操作按钮在「暂停 / 已暂停 / 出错」三组之间整体切换。
+   关键：离场元素必须脱离文档流。
+   否则在出入场交叉的那 160ms 里，容器里会短暂同时存在「1 暂停 + 3 续传」
+   共 4 个按钮，把后面的任务行横向挤开、又缩回去 —— 就是那股弹动。
+   绝对定位让离场按钮不再参与布局，容器宽度恒定。 */
+.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
+/* 离场按钮绝对定位：切换瞬间「1 暂停 + 3 续传」不会同时占位，
+   容器宽度恒定，左侧文件名不再被推来推去。容器高度恰等于按钮高，
+   故 top:0 即垂直居中。 */
+.taskAct-leave-active { position: absolute; top: 0; right: 0; margin: 0;
+  animation: actionOut 0.16s var(--ease-press) both; }
+.taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
 
 /* 进度条 */
 .progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 6px; overflow: hidden; }
@@ -1475,15 +1506,20 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         from { opacity: 1; transform: scale(1); }
         to   { opacity: 0; transform: scale(0.6); }
       }
-      /* 上传任务元信息（速度 / 错误 / 状态）出现与消失：横向推开、轻微缩放，
-         避免这一行在状态变化时「凭空多出/少掉一个词」导致整块高度跳动。 */
-      @keyframes metaIn {
-        from { opacity: 0; transform: translate3d(-5px, 0, 0) scale(0.94); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+      /* 上传任务状态文案（上传中 / 已暂停 / 已失败…）在同一行上原位换字，不做动画。
+         原因：文案长度一变就跑缩放动画，会把 <span> 自己的行盒变胖、带动整行重排，
+         整条任务卡高度跟着抖 —— 看起来就是「弹一下」。纯换字反而最稳。 */
+      /* 上传任务整卡进出（入队 / 完成后自动清理）：
+         只做透明度与位移，入场用 expo-out、出场用压感曲线，都带 0s 的延迟收敛。
+         刻意不用 --ease-spring —— 回弹曲线会让卡片「过冲再收回来」，
+         与上面按钮的平移叠在一起就是用户说的那种抽动。 */
+      @keyframes taskIn {
+        from { opacity: 0; transform: translate3d(-10px, 0, 0); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0); }
       }
-      @keyframes metaOut {
-        from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-        to   { opacity: 0; transform: translate3d(-4px, 0, 0) scale(0.94); }
+      @keyframes taskOut {
+        from { opacity: 1; transform: translate3d(0, 0, 0); }
+        to   { opacity: 0; transform: translate3d(-12px, 0, 0); }
       }
       /* 设置行整体插入 / 移除（如开启并行上传后长出的两行）：
          高度用 grid-template-rows 插值，配合透明度与位移，形成「长出来」的感觉。 */
@@ -1629,15 +1665,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       .dialog-enter-from .modal { transform: scale(0.88) translate3d(0, 14px, 0); }
       .dialog-leave-to   .modal { transform: scale(0.92) translate3d(0, 10px, 0); opacity: 0; }
 
-      .list-enter-active { transition: opacity 0.3s var(--ease-apple), transform 0.38s var(--ease-fluid); }
+      /* 上传队列整卡进出。
+         离场元素必须脱离文档流：否则它会在 160ms 里继续占着原来的高度，
+         下方的任务行得等它淡完才「跳」上来；一旦同一 tick 里又有新任务入队
+         （过渡期间被推迟插入的那种），layout 会在两套占位之间来回跳。
+         用 keyframes（taskIn / taskOut）而非 class 互换来触发动画，
+         合成器自行插值，不受「插入 DOM + 切换 class」的竞态影响。
+         .list 是 transition-group 的包裹层，必须 position: relative，
+         否则 .list-leave-active 的 position: absolute 会锚到更外层的定位祖先。 */
+      .list { position: relative; }
+      .list-enter-active { animation: taskIn 0.28s var(--ease-fluid) both; }
       .list-leave-active {
-        transition: opacity 0.18s var(--ease-press), transform 0.22s var(--ease-press);
-        position: relative; pointer-events: none;
+        animation: taskOut 0.18s var(--ease-press) both;
+        position: absolute; left: 0; right: 0;
+        width: 100%; pointer-events: none;
       }
-      .list-enter-from,
-      .list-leave-to     { opacity: 0; transform: translate3d(0, 12px, 0); }
-      .list-leave-to     { transform: translate3d(0, -8px, 0); }
-      .list-move         { transition: transform 0.34s var(--ease-apple); }
+      .list-move         { transition: transform 0.32s var(--ease-apple); }
 
       .bar-enter-active { transition: opacity 0.24s var(--ease-apple), transform 0.34s var(--ease-spring); }
       .bar-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
@@ -1780,6 +1823,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           </div>
           <span style="cursor: pointer; text-decoration: underline;" @click="openDrawer('menu')">登录账户</span>
         </div>
+        <!-- 访客上传已关闭：明确告知必须登录，点击即跳登录页 -->
+        <div class="guest-banner" v-else-if="!authChecking && guestBlocked" role="button" @click="redirectToLogin()">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-lock"></i>
+            <span>访客上传已关闭，请登录后上传</span>
+          </div>
+          <span style="cursor: pointer; text-decoration: underline;">去登录</span>
+        </div>
       </transition>
 
       <main>
@@ -1787,11 +1838,15 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         <section class="card upload-zone" @click="triggerUpload"
           @dragenter.prevent="onDragEnter" @dragover.prevent="onDragOver"
           @dragleave.prevent="onDragLeave" @drop.prevent="onDrop"
-          :class="{ dragover: isDragging, 'is-settling': nodeResolving }">
+          :class="{ dragover: isDragging, 'is-settling': nodeResolving, 'is-blocked': guestBlocked }"
+          :style="guestBlocked ? 'cursor: not-allowed;' : ''">
           <div class="upload-zone__icon"><i class="fas fa-cloud-arrow-up" :class="{ 'is-settling': nodeResolving }"></i></div>
-          <h2 class="upload-zone__title">点击或拖拽文件到此区域上传</h2>
+          <h2 class="upload-zone__title">{{ guestBlocked ? '访客上传已关闭，请登录后上传' : '点击或拖拽文件到此区域上传' }}</h2>
           <transition name="morph" mode="out-in">
-          <p class="upload-zone__sub" :key="uploadLimitKey">
+          <p class="upload-zone__sub" v-if="guestBlocked" key="blocked">
+            <span style="cursor: pointer; text-decoration: underline; color: var(--primary);" @click.stop="redirectToLogin()">点此登录</span>
+          </p>
+          <p class="upload-zone__sub" v-else :key="uploadLimitKey">
             当前节点单文件上限：<strong style="color: var(--primary);">{{ currentUploadLimitLabel }}</strong>。支持全局快速粘贴文件 (<kbd style="padding: 2px 6px; border-radius: 6px; background: var(--primary-surface); color: var(--primary);">Ctrl+V</kbd>)。
           </p>
           </transition>
@@ -1856,46 +1911,46 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
     </div>
   </div>
 
-  <transition-group name="list" tag="div">
-  <div class="task" v-for="(file, idx) in uploadingFiles" :key="file.id || idx">
+  <transition-group name="list" tag="div" class="list">
+  <div class="task" v-for="file in uploadingFiles" :key="file.uid || file.id">
     <img v-if="file.preview" :src="file.preview" class="task__thumb" />
     <div v-else class="task__thumb"><i :class="getFileIcon(file.name)"></i></div>
     <div class="task__info">
-      <!-- 头部行：文件名与存储标签固定在一行 -->
+      <!-- 头部行：文件名最多两行，目标节点徽章固定在右端 -->
       <div class="task__header">
-        <div class="task__name" :title="file.name">{{ file.name }}</div>
+        <div class="task__name"
+             :class="{ 'task__name--long': isLongFileName(file.name), 'is-open': isNameExpanded(file) }"
+             :title="file.name"
+             @click="toggleNameExpanded(file)">{{ file.name }}</div>
         <span class="target-badge" v-if="storageMode === 'auto' && file.targetMode">
           <i :class="getStorageIcon(file.targetMode)"></i><span>{{ storageLabel(file.targetMode) }}</span>
         </span>
       </div>
-      <!-- 元数据行：不再包含导致跳行的标签 -->
+      <!-- 操作行：速度 / 错误 / 状态文案，一行之内交叉换字，永不换行加高 -->
       <div class="task__meta">
-        <span>{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-        <transition name="taskMeta">
-          <span v-if="file.speed" style="color: var(--primary); font-weight: 600;">• {{ file.speed }}</span>
-        </transition>
-        <transition name="taskMeta">
-          <span v-if="file.error" style="color: var(--c-danger);">• {{ file.error }}</span>
-        </transition>
-        <span>• {{ file.statusText || getStatusText(file.status) }} <span v-if="file.progress !== undefined">({{ file.progress }}%)</span></span>
+        <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
+        <span class="task__speed-slot" v-if="file.speed">• {{ file.speed }}</span>
+        <span class="task__nowrap" v-if="file.error" :title="file.error" style="color: var(--c-danger);">• {{ file.error }}</span>
+        <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
       </div>
       <div class="progress" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
         <div class="progress__val" :style="{ transform: 'scaleX(' + ((file.progress || 0) / 100) + ')' }"></div>
       </div>
     </div>
     <div class="task__actions">
-      <!-- 三组按钮（进行中 / 已暂停 / 出错）互斥切换。
+      <!-- 操作按钮组在「进行中 / 已暂停 / 出错 / 已阻断」四组之间互斥切换。
            这里必须用 transition-group 而不是 <transition mode="out-in">：
            后者的模板里是「多根 <template> 片段」，Vue 会把整个片段当成一个子节点，
            导致切到 paused / error 时只有第一个按钮被渲染出来。
            transition-group 会按 key 逐个补间，增删都能拿到正确的数量。
-           注意：v-if/v-else-if 链在这里必须换成同一层级的独立 v-if，
-           否则 transition-group 看不到「同时存在多个子节点」的情况。 -->
+           另外，v-if/v-else-if 链在这里必须换成同一层级的独立 v-if，
+           否则 transition-group 看不到「同时存在多个子节点」的情况。
+           宽度由 .task__actions 的 min-width 兜住，.taskAct-leave-active 绝对定位，
+           所以 1 个按钮 <-> 3 个按钮切换时不会把左侧内容推来推去。 -->
       <!-- 1) 进行中 / 等待中：单个暂停按钮 -->
-      <transition-group name="taskAct">
+      <transition-group name="taskAct" tag="div" class="taskAct">
         <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'"
           key="pause" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
-        <!-- 2) 已暂停：继续 / 重传 / 取消 -->
         <template v-if="file.status === 'paused'">
           <button key="resume" class="btn btn--ghost btn--icon" @click="resumeUpload(file)" title="继续上传"><i class="fas fa-play"></i></button>
           <button key="paused-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
@@ -1906,6 +1961,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           <button key="err-resume" class="btn btn--ghost btn--icon" @click="retryUpload(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
           <button key="err-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
           <button key="err-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+        </template>
+        <!-- 4) 已阻断（访客上传关闭 / 登录失效）：只提供去登录，不提供重试 -->
+        <template v-if="file.status === 'blocked'">
+          <button key="blocked-login" class="btn btn--ghost btn--icon" @click="redirectToLogin()" title="登录后上传"><i class="fas fa-right-to-bracket"></i></button>
+          <button key="blocked-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="移除"><i class="fas fa-xmark"></i></button>
         </template>
       </transition-group>
     </div>
@@ -2765,6 +2825,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             urlToUpload: "",
             urlUploading: false,
             uploadingFiles: [],
+            /* 长文件名展开态：单独存，不混入上传任务对象，避免每展开一次
+               就触发整条列表的依赖重收集与重渲染。 */
+            expandedTaskNames: {},
             uploadedFiles: [],
             uploadHistory: [],
             linkFormat: "url",
@@ -2822,7 +2885,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             storageTarget: "Telegram 频道",
             r2Available: false, s3Available: false, discordAvailable: false,
             huggingfaceAvailable: false, githubAvailable: false,
-            authChecking: true, isGuest: false, guestUploadConfig: null,
+            authChecking: true, isGuest: false, guestUploadConfig: null, guestBlocked: false,
             uploadConfig: { maxSize: 10 * 1024 * 1024 * 1024, chunkSize: 50 * 1024 * 1024, smallFileThreshold: 20 * 1024 * 1024 },
             uploadLimits: {},
 
@@ -3064,6 +3127,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
 
           /* ===== 工具方法 ===== */
           formatSpeed(bps) {
+            /* 位数固定（xx.x KB/s 起步，最宽 3 位数字 + 单位），
+               .task__speed-slot 的宽度定死了，速度刷新时不会把同行文字推走 */
             if (!bps || bps <= 0) return "0 KB/s";
             if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + " MB/s";
             return (bps / 1024).toFixed(0) + " KB/s";
@@ -3140,8 +3205,29 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             return "other";
           },
           getStatusText(status) {
-            const texts = { waiting: "等待中", processing: "处理中", uploading: "上传中", success: "已完成", error: "失败", paused: "已暂停" };
+            const texts = { waiting: "等待中", processing: "处理中", uploading: "上传中", success: "已完成", error: "失败", paused: "已暂停", blocked: "需登录" };
             return texts[status] || status;
+          },
+          /* ===== 上传任务文件名展示 =====
+             文件名默认最多 2 行（见 .task__name），保证卡片高度恒定、不因名字长短抖动。
+             超过长度只在「点击」时才展开到 4 行；展开态单独存在 expandedTaskNames 里，
+             不混入上传任务对象 —— 任务对象每多一个响应式字段，整条列表都要重新
+             收集依赖，把纯 UI 的展开态塞进去会白白触发一次全量渲染。
+             注：expandedTaskNames 已在 data 中，Vue 3 的 Proxy 响应式对「新增 key」
+             同样能追踪，直接赋值即可，不需要 $set（Vue 3 已移除该 API）。 */
+          isLongFileName(name) {
+            const s = String(name || "");
+            /* 单行大约能放 34 个 ASCII 字符 / 17 个全角字符；取一个保守阈值 */
+            let width = 0;
+            for (const ch of s) width += ch.charCodeAt(0) > 0xff ? 2 : 1;
+            return width > 34;
+          },
+          isNameExpanded(file) { return !!(this.expandedTaskNames && this.expandedTaskNames[file.uid]); },
+          toggleNameExpanded(file) {
+            if (!file || !this.isLongFileName(file.name)) return;
+            const key = file.uid;
+            if (!key) return;
+            this.expandedTaskNames[key] = !this.expandedTaskNames[key];
           },
           copyToClipboard(text) {
             const t = document.createElement("textarea");
@@ -3308,7 +3394,17 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                 let data = null;
                 try { data = JSON.parse(xhr.responseText); } catch (_) {}
                 if (xhr.status >= 200 && xhr.status < 300) resolve(data || {});
-                else reject(new Error((data && (data.error || data.message)) || `HTTP ${xhr.status}`));
+                else {
+                  const e = new Error((data && (data.error || data.message)) || `HTTP ${xhr.status}`);
+                  e.status = xhr.status;
+                  /* 鉴权 / 配额类失败标记为 blocking：调用方据此判定为终态，
+                     绝不重排重试。requireLogin 由后端显式下发。 */
+                  e.blocking = xhr.status === 401 || xhr.status === 403 || xhr.status === 429
+                    || (data && (data.requireLogin === true || data.code === "GUEST_UPLOAD_FORBIDDEN"
+                      || String(data.code || "").startsWith("GUEST_")));
+                  e.requireLogin = Boolean(data && data.requireLogin);
+                  reject(e);
+                }
               };
               xhr.onerror = () => reject(new Error("网络连接失败，上传中断"));
               xhr.ontimeout = () => reject(new Error("网络请求超时"));
@@ -3781,12 +3877,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
 
           /* ===== 上传入口 ===== */
-          triggerUpload() { this.$refs.fileInput.click(); },
+          /* 统一门禁：未登录且访客上传被禁时，任何上传入口都在这里被挡住。
+             必须在「生成任务 / 发送请求 / 读取文件体」之前短路，否则被拒的访客
+             会不断重排上传任务，形成无限循环并反复打满后端。 */
+          guardUploadAllowed() {
+            if (this.guestBlocked) {
+              this.blockGuestUpload();
+              return false;
+            }
+            return true;
+          },
+          triggerUpload() { if (!this.guardUploadAllowed()) return; this.$refs.fileInput.click(); },
           handleFileSelect(e) { const files = Array.from(e.target.files || []); this.processFiles(files); e.target.value = ""; },
-          triggerDirUpload() { this.$refs.dirInput.click(); },
+          triggerDirUpload() { if (!this.guardUploadAllowed()) return; this.$refs.dirInput.click(); },
           handleDirSelect(e) {
             const files = Array.from(e.target.files || []).filter((f) => !this.isIgnorableFile(f.name));
-            if (files.length) { this.processFiles(files); this.showToast(`已从文件夹读取 ${files.length} 个文件`, "success"); }
+            if (files.length) { if (!this.guardUploadAllowed()) { e.target.value = ""; return; } this.processFiles(files); this.showToast(`已从文件夹读取 ${files.length} 个文件`, "success"); }
             e.target.value = "";
           },
           onDragOver(e) { if (e) e.preventDefault(); this.isDragging = true; },
@@ -3797,6 +3903,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             e.preventDefault();
             this.dragDepth = 0;
             this.isDragging = false;
+            if (!this.guardUploadAllowed()) return;
             const files = await this.collectFilesFromDataTransfer(e.dataTransfer);
             this.processFiles(files);
           },
@@ -3909,6 +4016,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           /* ===== 文件入队 ===== */
           async processFiles(files) {
             if (!files || !files.length) return;
+            /* 兜底门禁：任何调用方（拖拽 / 粘贴 / 文件夹 / 选择）都不得绕过。
+               访客被禁时直接拦下，不入队、不调度、不发请求。 */
+            if (!this.guardUploadAllowed()) return;
             for (const file of files) {
               const targetMode = this.resolveStorageForFile(file.size);
               const limit = this.getUploadLimit(targetMode);
@@ -3938,6 +4048,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
              3. 暂停 = 撤销该任务的运行令牌（runToken），并 abort 它正在飞的
                 分片请求；在飞 XHR 一旦被 abort（onabort）或超时（ontimeout），
                 必须换新令牌才能重新上传，避免迟到的回调污染新一轮进度。 */
+          /* 鉴权 / 配额类错误 = 终态：
+             访客被拒（401/403）、当日限额用尽（429）、登录态失效（401）这几类错误
+             重发多少次结果都一样。必须把它们与「网络抖动」区分开，否则任务会被标成
+             error 后由 retryAllFailed / 续传按钮反复重排，形成无限循环。 */
+          isBlockingError(err) {
+            const msg = String((err && err.message) || "");
+            if (err && err.blocking === true) return true;
+            return /HTTP (401|403|429|503)\b/.test(msg)
+              || /请登录|未登录|登录已失效|访客上传已关闭|每日上传上限|限额校验暂不可用|需登录/.test(msg);
+          },
           isRetirableError(err) {
             const msg = String((err && err.message) || "");
             return msg === "__ABORTED__" || msg === "网络请求超时";
@@ -3988,6 +4108,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
           dispatchUploads() {
             if (this.schedulerDisposed) return;
+            /* 调度器开跑期间置位，drain 收尾时复位，供外部判断「当前是否还有调度在进行」，
+               避免同一批任务被重复派发。 */
             this.uploadSchedulerRunning = true;
             if (!this.uploadDrainTimer) {
               this.uploadDrainTimer = setTimeout(() => {
@@ -4082,6 +4204,17 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             /* 令牌已作废 = 这是被暂停/重试作废的旧请求，交给最新意图决定，不覆盖状态 */
             if (item.runToken !== token) return;
             if (item.want !== "run") { this.markTaskPaused(item); return; }
+            /* 鉴权 / 配额类终态：标记为 blocked 并终止该任务的重试意图，
+               同时引导登录。绝不进入 retryAllFailed / 续传的可重试路径。 */
+            if (this.isBlockingError(err)) {
+              item.want = "stop";
+              item.status = "blocked";
+              item.statusText = err && err.requireLogin ? "需登录后上传" : "已阻断，请登录";
+              item.error = msg;
+              if (err && err.requireLogin) this.blockGuestUpload();
+              else this.showToast(msg, "error");
+              return;
+            }
             if (this.isRetirableError(err)) {
               /* 用户并没有想停，却收到超时/中断：算失败，可续传 */
               item.status = "error";
@@ -4368,6 +4501,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
           /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
           retryUpload(file, fromScratch = false) {
+            if (!file || file.status === "blocked") return;
+            if (!this.guardUploadAllowed()) return;
             file.targetMode = this.resolveStorageForFile(file.size);
             file.status = "waiting";
             file.statusText = fromScratch ? "重新上传" : "等待续传";
@@ -4391,8 +4526,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.restartUploadNow();
           },
           retryAllFailed() {
-            const failed = this.uploadingFiles.filter((f) => f.status === "error");
+            /* blocked 任务（访客被拒 / 登录失效）不参与批量续传，否则又会形成循环 */
+            const failed = this.uploadingFiles.filter((f) => f.status === "error" && f.want !== "stop");
             if (!failed.length) return;
+            if (!this.guardUploadAllowed()) return;
             failed.forEach((f) => {
               f.targetMode = f.targetMode || this.resolveStorageForFile(f.size);
               f.status = "waiting";
@@ -5014,6 +5151,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               if (data.authRequired && !data.authenticated) {
                 if (data.guestUpload && data.guestUpload.enabled) {
                   this.isGuest = true;
+                  this.guestBlocked = false;
                   this.guestUploadConfig = {
                     maxFileSize: data.guestUpload.maxFileSize || 5 * 1024 * 1024,
                     maxDailyUploads: data.guestUpload.dailyLimit || 10,
@@ -5022,10 +5160,24 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   this.storageTarget = "Telegram 频道";
                   return;
                 }
+                /* 需要登录、且访客上传未开启：明确标记为「禁止上传」。
+                   前端据此在上传入口就拦住，而不是等后端返回 401 再重排。 */
+                this.isGuest = false;
+                this.guestBlocked = true;
+                this.guestUploadConfig = null;
               }
               this.isAuthenticated = data.authenticated || false;
+              if (data.authenticated) this.guestBlocked = false;
             } catch (e) {}
             finally { this.authChecking = false; }
+          },
+          /* 访客被禁用时的统一拦截：提示 + 直接跳登录页 */
+          blockGuestUpload() {
+            this.showToast("访客上传已关闭，请登录后上传", "error");
+            this.redirectToLogin();
+          },
+          redirectToLogin() {
+            window.location.href = "/login.html?redirect=%2F";
           },
           async checkStorageTarget() {
             this.beginNodeSettle();
@@ -5121,7 +5273,12 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           this.globalPasteHandler = (e) => {
             if (["INPUT", "TEXTAREA"].includes(e.target?.tagName)) return;
             const files = Array.from(e.clipboardData?.files || []);
-            if (files.length) { e.preventDefault(); this.processFiles(files); this.showToast(`已捕获 ${files.length} 个剪贴板文件并加入上传`, "success"); }
+            if (files.length) {
+              e.preventDefault();
+              if (!this.guardUploadAllowed()) return;
+              this.processFiles(files);
+              this.showToast(`已捕获 ${files.length} 个剪贴板文件并加入上传`, "success");
+            }
           };
           document.addEventListener("paste", this.globalPasteHandler);
           this.globalDragGuard = this.preventWindowFileNav;

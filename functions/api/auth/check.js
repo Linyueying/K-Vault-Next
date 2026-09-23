@@ -12,7 +12,7 @@ export async function onRequestGet(context) {
   const { env } = context;
 
   try {
-    const guestConfig = getGuestConfig(env);
+    const guestConfig = await getGuestConfig(env);
     const authRequired = isAuthRequired(env); // 明确转为布尔值使用
 
     // 如果没有配置认证

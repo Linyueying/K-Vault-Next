@@ -456,6 +456,24 @@ API Token 管理面板
 ========================================================= */
 .token-section{margin-bottom:18px}
 .token-section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+
+/* ===== 上传设置：访客开关 ===== */
+.settings-loading{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--text-muted);padding:8px 0}
+.settings-switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);margin-bottom:var(--sp-3);}
+.settings-switch-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.settings-switch-text strong{font-size:.84rem;font-weight:800;color:var(--text-main)}
+.settings-switch-text span{font-size:var(--fs-xs);color:var(--text-muted);line-height:1.55}
+.switch{position:relative;flex:none;width:46px;height:26px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:rgba(100,116,139,.2);cursor:pointer;padding:0;transition:background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
+.switch.on{background:var(--primary);border-color:var(--primary)}
+.switch-knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.2);transition:transform .32s var(--ease-spring)}
+.switch.on .switch-knob{transform:translateX(20px)}
+.input-with-unit{position:relative;display:flex;align-items:center;gap:8px}
+.input-with-unit .token-input{flex:1;min-width:0}
+.input-with-unit .unit{flex:none;font-size:var(--fs-xs);font-weight:700;color:var(--text-muted);white-space:nowrap}
+.field-hint{display:block;margin-top:5px;font-size:.7rem;color:var(--text-muted);line-height:1.5}
+.settings-note{display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:var(--r-md);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.28);font-size:var(--fs-xs);color:#92400e;line-height:1.6}
+html[data-theme="dark"] .settings-note{color:#fbbf24}
+.settings-note i{margin-top:2px;flex:none}
 .token-section-title{font-size:.86rem;font-weight:800;display:flex;align-items:center;gap:var(--sp-2)}
 .token-section-title i{color:var(--primary)}
 .token-field{margin-bottom:var(--sp-3)}
@@ -1149,6 +1167,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
           <span class="chip-icon"><i class="fas fa-share-nodes"></i></span>
           <span>分享管理</span>
         </button>
+        <button class="tool-chip" :class="{on: settingsPanelVisible}" @click="handleTool('settings')" title="访客上传与上传策略设置">
+          <span class="chip-icon"><i class="fas fa-sliders"></i></span>
+          <span>上传设置</span>
+        </button>
         <button class="tool-chip tool-chip--extra" @click="handleTool('tokens')" title="API Token 管理">
           <span class="chip-icon"><i class="fas fa-key"></i></span>
           <span>Token</span>
@@ -1639,6 +1661,86 @@ html[data-perf="low"] .ambient-orb{animation:none}
           {{ dialog.okText || '确定' }}
         </button>
       </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ===== 上传设置（访客上传开关 + 限额）===== -->
+  <transition name="dialog">
+  <div class="overlay" v-if="settingsPanelVisible" @click.self="closeSettingsPanel">
+    <div class="dialog-panel wide">
+      <h2 class="dialog-title">
+        <i class="fas fa-user-lock"></i>
+        <span>上传设置</span>
+      </h2>
+      <div class="dialog-message">
+        这里的改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
+        未在此保存过时，以下取值来自 Cloudflare Pages 的环境变量。
+      </div>
+
+      <div class="token-section" v-if="settingsLoading">
+        <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取设置...</div>
+      </div>
+
+      <template v-else>
+        <!-- 访客上传 -->
+        <div class="token-section">
+          <div class="token-section-head">
+            <h3 class="token-section-title">
+              <i class="fas fa-user-group"></i>
+              <span>访客上传</span>
+            </h3>
+            <span class="badge-env" v-if="settingsSource === 'kv'">KV 覆盖中</span>
+            <span class="badge-env" v-else>来自环境变量</span>
+          </div>
+
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>允许未登录访客上传</strong>
+              <span>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</span>
+            </div>
+            <button class="switch" :class="{on: guestForm.enabled}" role="switch"
+                    :aria-checked="String(guestForm.enabled)"
+                    @click="guestForm.enabled = !guestForm.enabled">
+              <span class="switch-knob"></span>
+            </button>
+          </div>
+
+          <div class="token-grid" v-if="guestForm.enabled">
+            <div class="token-field">
+              <label>单文件上限</label>
+              <div class="input-with-unit">
+                <input class="token-input" type="number" min="1" v-model.number="guestForm.maxFileSizeMb">
+                <span class="unit">MB</span>
+              </div>
+              <small class="field-hint">访客可上传的单文件最大体积。环境变量基线：{{ formatSize(settingsEnvBaseline.maxFileSize) }}</small>
+            </div>
+            <div class="token-field">
+              <label>每日上传次数</label>
+              <div class="input-with-unit">
+                <input class="token-input" type="number" min="1" step="1" v-model.number="guestForm.dailyLimit">
+                <span class="unit">次 / 天</span>
+              </div>
+              <small class="field-hint">按访客 IP + 日期统计，每日自动重置。环境变量基线：{{ settingsEnvBaseline.dailyLimit || '—' }}</small>
+            </div>
+          </div>
+
+          <div class="settings-note" v-else>
+            <i class="fas fa-circle-info"></i>
+            <span>访客上传已关闭：首页的上传区、拖拽、粘贴与文件夹入口都会被拦下，并提示登录。</span>
+          </div>
+        </div>
+
+        <div class="dialog-actions mt">
+          <button class="btn" @click="resetGuestSettings" :disabled="settingsSaving || settingsSource !== 'kv'"
+                  title="清除 KV 覆盖，回退到环境变量取值">恢复默认</button>
+          <button class="btn" @click="closeSettingsPanel">取消</button>
+          <button class="btn btn--primary" @click="saveGuestSettings" :disabled="settingsSaving">
+            <i class="fas" :class="settingsSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i>
+            {{ settingsSaving ? '保存中...' : '保存' }}
+          </button>
+        </div>
+      </template>
     </div>
   </div>
   </transition>
@@ -2173,6 +2275,15 @@ Vue.createApp({
       maxFileSizeMb: 0,
       enabled: true
     },
+
+    /* ---------- 上传设置（访客上传） ---------- */
+    settingsPanelVisible: false,
+    settingsLoading: false,
+    settingsSaving: false,
+    /* 配置来源：kv = 已在后台保存过；env = 取自环境变量 */
+    settingsSource: 'env',
+    settingsEnvBaseline: { enabled: false, maxFileSize: 5 * 1024 * 1024, dailyLimit: 10 },
+    guestForm: { enabled: false, maxFileSizeMb: 5, dailyLimit: 10 },
 
     /* ---------- 分享管理 ---------- */
     sharePanelVisible: false,
@@ -3114,6 +3225,8 @@ Vue.createApp({
         this.openTokenPanel();
       } else if (c === 'shares') {
         this.openSharePanel();
+      } else if (c === 'settings') {
+        this.openSettingsPanel();
       } else if (c === 'paste') {
         window.open('./paste.html', '_blank', 'noopener');
       } else if (c === 'export') {
@@ -3130,6 +3243,97 @@ Vue.createApp({
           if (a.parentNode) a.parentNode.removeChild(a);
         }, 1200);
         this.showToast(`已导出 ${this.files.length} 条链接`, 'success');
+      }
+    },
+
+    /* ================= 上传设置（访客上传） ================= */
+    openSettingsPanel() {
+      this.settingsPanelVisible = true;
+      this.loadSettings();
+    },
+    closeSettingsPanel() {
+      this.settingsPanelVisible = false;
+    },
+
+    async loadSettings() {
+      this.settingsLoading = true;
+      try {
+        const res = await fetch('./api/manage/settings', { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '读取设置失败');
+        this.applySettingsView(data);
+      } catch (e) {
+        this.showToast(e.message || '读取设置失败', 'error');
+      } finally {
+        this.settingsLoading = false;
+      }
+    },
+
+    /* 把后端返回的视图铺进表单：字节 → MB 便于填写 */
+    applySettingsView(data) {
+      const guest = data.guest || {};
+      this.settingsSource = guest.source === 'kv' ? 'kv' : 'env';
+      this.settingsEnvBaseline = {
+        enabled: Boolean(data.envBaseline && data.envBaseline.enabled),
+        maxFileSize: (data.envBaseline && data.envBaseline.maxFileSize) || 5 * 1024 * 1024,
+        dailyLimit: (data.envBaseline && data.envBaseline.dailyLimit) || 10
+      };
+      this.guestForm = {
+        enabled: Boolean(guest.enabled),
+        maxFileSizeMb: Math.max(1, Math.round((guest.maxFileSize || 5 * 1024 * 1024) / 1024 / 1024)),
+        dailyLimit: Number(guest.dailyLimit) || 10
+      };
+    },
+
+    async saveGuestSettings() {
+      const mb = Number(this.guestForm.maxFileSizeMb);
+      const limit = Number(this.guestForm.dailyLimit);
+      if (!Number.isFinite(mb) || mb <= 0) { this.showToast('单文件上限需为正数（MB）', 'error'); return; }
+      if (!Number.isInteger(limit) || limit <= 0) { this.showToast('每日次数需为正整数', 'error'); return; }
+
+      this.settingsSaving = true;
+      try {
+        const res = await fetch('./api/manage/settings', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            guest: {
+              enabled: this.guestForm.enabled,
+              maxFileSize: Math.round(mb * 1024 * 1024),
+              dailyLimit: limit
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '保存失败');
+        this.applySettingsView(data);
+        this.showToast('访客上传设置已保存，立即生效', 'success');
+      } catch (e) {
+        this.showToast(e.message || '保存失败', 'error');
+      } finally {
+        this.settingsSaving = false;
+      }
+    },
+
+    async resetGuestSettings() {
+      const ok = await this.askConfirm(
+        '将清除后台保存的访客上传配置，改为使用 Cloudflare Pages 上配置的环境变量。确定继续吗？',
+        '恢复默认设置'
+      );
+      if (!ok) return;
+
+      this.settingsSaving = true;
+      try {
+        const res = await fetch('./api/manage/settings', { method: 'DELETE', credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '重置失败');
+        this.applySettingsView(data);
+        this.showToast('已恢复为环境变量配置', 'success');
+      } catch (e) {
+        this.showToast(e.message || '重置失败', 'error');
+      } finally {
+        this.settingsSaving = false;
       }
     },
 

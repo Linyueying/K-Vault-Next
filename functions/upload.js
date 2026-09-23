@@ -60,6 +60,32 @@ export async function onRequestPost(context) {
   const { request, env } = context;
 
   try {
+    // API v1 token-authenticated requests should bypass guest limits.
+    const isApiTokenRequest = Boolean(context?.data?.apiToken);
+    const isAdmin = isApiTokenRequest || await isUserAuthenticated(context);
+
+    /* 访客门禁必须发生在解析 multipart 之前。
+       旧实现先 `request.clone().formData()` 把整个文件体读进内存，之后才判断访客是否
+       被允许上传 —— 被拒的访客白白消耗一次完整请求（文件体 + 内存），前端还会因为
+       任务被标记成可重试而反复重发，形成「拒绝 → 重排 → 再拒绝」的无限循环。
+       现在未登录访客直接在此处短路：不读 body、不写 KV、不触碰任何存储后端。 */
+    if (!isAdmin) {
+      const guestCheck = await checkGuestUpload(request, env, 0);
+      if (!guestCheck.allowed) {
+        return new Response(
+          JSON.stringify({
+            error: guestCheck.reason,
+            code: guestCheck.code || "GUEST_UPLOAD_FORBIDDEN",
+            requireLogin: true,
+          }),
+          {
+            status: guestCheck.status || 403,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
     const clonedRequest = request.clone();
     const formData = await clonedRequest.formData();
 
@@ -72,16 +98,21 @@ export async function onRequestPost(context) {
     const fileExtension = normalizeFileExtension(fileName);
     const folderPath = normalizeFolderPath(formData.get("folderPath"));
 
-    // API v1 token-authenticated requests should bypass guest limits.
-    const isApiTokenRequest = Boolean(context?.data?.apiToken);
-    const isAdmin = isApiTokenRequest || await isUserAuthenticated(context);
+    // 访客已被上面的前置门禁放行后，这里只补做与文件大小相关的限制校验。
     if (!isAdmin) {
       const guestCheck = await checkGuestUpload(request, env, uploadFile.size);
       if (!guestCheck.allowed) {
-        return new Response(JSON.stringify({ error: guestCheck.reason }), {
-          status: guestCheck.status || 403,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            error: guestCheck.reason,
+            code: guestCheck.code || "GUEST_UPLOAD_FORBIDDEN",
+            requireLogin: true,
+          }),
+          {
+            status: guestCheck.status || 403,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
       }
     }
 
