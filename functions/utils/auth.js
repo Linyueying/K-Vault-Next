@@ -170,3 +170,31 @@ export async function checkAuthentication(context) {
 
   return { authenticated: false };
 }
+
+/**
+ * 恒定时间字符串比较，用于凭据校验，防止时序攻击。
+ *
+ * 注意：Cloudflare Workers / 浏览器环境的 Web Crypto（crypto.subtle）
+ * 没有 timingSafeEqual（那是 Node 专有 API），因此这里用纯 JS 实现：
+ * 遍历两串的较短长度做逐字节 XOR 累加，并以长度异或反映长度差异，
+ * 既不短路、也不依赖任何非标准 API，在 Workers / 浏览器 / Node 下行为一致。
+ *
+ * 长度不同直接反映到 diff 并返回 false（不泄露「差多少」，只泄露「不相等」），
+ * 调用方务必「总是执行两次比较、再用 && 组合」，避免短路泄露用户名是否存在
+ * （见 functions/api/auth/login.js）。
+ */
+export function safeStringEqual(a, b) {
+  const sa = String(a ?? '');
+  const sb = String(b ?? '');
+  const ea = new TextEncoder().encode(sa);
+  const eb = new TextEncoder().encode(sb);
+  const lenA = ea.length;
+  const lenB = eb.length;
+  // 长度差异直接反映到 diff（不泄露具体差多少，只泄露「不相等」）。
+  let diff = lenA ^ lenB;
+  const n = lenA < lenB ? lenA : lenB;
+  for (let i = 0; i < n; i++) {
+    diff |= ea[i] ^ eb[i];
+  }
+  return diff === 0;
+}

@@ -3,6 +3,7 @@ import {
   isAuthRequired 
 } from '../../utils/auth.js';
 import { apiError } from '../../utils/api-v1.js';
+import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
 
 /**
  * The login entry helper deliberately stays reachable while logged out.
@@ -62,11 +63,33 @@ async function errorHandling(context) {
     
     // 使用统一的认证检查（支持 Cookie session 和 Basic Auth）
     const authResult = await checkAuthentication(context);
-    
+
     if (authResult.authenticated) {
         return context.next();
     }
-    
+
+    // 认证失败：IP 级节流，防管理面 Basic Auth 暴力破解。
+    // 已认证的正常请求已在上面直接 next，不受此限。
+    const ip = getClientIp(context.request);
+    const rl = await fixedWindowRateLimit({
+      env: context.env,
+      key: ip,
+      namespace: 'manage-auth-ip',
+      windowMs: 60 * 1000,
+      max: 30,
+    });
+    if (!rl.allowed) {
+      const retryAfter = Math.ceil(rl.retryAfterMs / 1000);
+      return new Response('Too many authentication attempts. Try again later.', {
+        status: 429,
+        headers: {
+          'Content-Type': 'text/plain;charset=UTF-8',
+          'Retry-After': String(retryAfter),
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
     // 认证失败，返回 401
     return new Response('You need to login.', {
         status: 401,

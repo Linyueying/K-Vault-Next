@@ -1,5 +1,6 @@
 import { checkAuthentication, isAuthRequired } from "./utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "./utils/guest.js";
+import { getClientIp, fixedWindowRateLimit } from "./utils/ratelimit.js";
 import { createS3Client } from "./utils/s3client.js";
 import { uploadToDiscord } from "./utils/discord.js";
 import { hasHuggingFaceConfig, uploadToHuggingFace } from "./utils/huggingface.js";
@@ -72,6 +73,29 @@ export async function onRequestPost(context) {
        任务被标记成可重试而反复重发，形成「拒绝 → 重排 → 再拒绝」的无限循环。
        现在未登录访客直接在此处短路：不读 body、不写 KV、不触碰任何存储后端。 */
     if (!isAdmin) {
+      // 访客上传 IP 级节流（防匿名滥用 / 刷存储），发生在解析 multipart 之前，省资源。
+      // 已认证用户（isAdmin）不受此限。
+      const guestIpRl = await fixedWindowRateLimit({
+        env, key: getClientIp(request), namespace: 'guest-upload-ip',
+        windowMs: 60 * 1000, max: 20,
+      });
+      if (!guestIpRl.allowed) {
+        const retryAfter = Math.ceil(guestIpRl.retryAfterMs / 1000);
+        return new Response(
+          JSON.stringify({
+            error: '上传过于频繁，请稍后再试。',
+            code: 'RATE_LIMITED',
+            retryAfterMs: guestIpRl.retryAfterMs,
+          }),
+          {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Retry-After': String(retryAfter),
+            },
+          }
+        );
+      }
       const guestCheck = await checkGuestUpload(request, env, 0);
       if (!guestCheck.allowed) {
         return new Response(
