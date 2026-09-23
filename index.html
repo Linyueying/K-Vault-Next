@@ -262,9 +262,12 @@
       html[data-theme="dark"] .list--card { background: var(--glass-subtle); }
 
       .row {
+        /* 行内横向间距抽成 --row-gap：.check 的「空间补间」要用它做负 margin 抵消，
+           小屏（@media）会把 gap 改成 --sp-2，补间值必须跟着一起变，否则会多/少滑一点。 */
+        --row-gap: var(--sp-3);
         display: flex;
         align-items: center;
-        gap: var(--sp-3);
+        gap: var(--row-gap);
         padding: var(--sp-3) var(--sp-4);
         position: relative;
         cursor: pointer;
@@ -330,9 +333,37 @@
       .check.on { background: var(--primary); border-color: var(--primary); color: #fff; }
       /* 勾选时对勾再来一次小回弹，强化「选中」确认感 */
       .check.on i { animation: pop 0.32s var(--ease-spring); }
-      /* 圆圈进出场：出现/消失都要有动画，不能硬闪 */
-      .check-enter-active { animation: checkIn 0.34s var(--ease-spring) both; }
-      .check-leave-active { animation: checkOut 0.2s var(--ease-press) both; }
+      /* 圆圈进出场。
+         关键：不能只让圆圈自己淡入/回弹 —— 它在 flex 里占着 22px 宽 + 一格 gap。
+         如果这 34px 是「瞬间占位」，后面的缩略图 / 文件名 / 操作按钮就会被硬生生
+         挤到右边，那正是「没有动画的横向位移」。
+         所以改成「宽 + 负 margin + 边框宽」三者一起补间：
+           进入：宽 0 → 22px，同时 margin-right 由 -gap → 0，
+                 (宽 + margin) 也就是它带来的额外间距，从 0 平滑撑到 22 + gap，
+                 缩略图等行内内容跟着一起滑过去；
+           离开：反向收回到 0，内容平滑滑回，不再「啪」地弹回。 */
+      .check-enter-from {
+        width: 0; margin-right: calc(-1 * var(--row-gap));
+        border-width: 0; opacity: 0; transform: scale(0.4);
+      }
+      .check-enter-active {
+        transition: width var(--dur-base) var(--ease-fluid),
+                    margin-right var(--dur-base) var(--ease-fluid),
+                    border-width var(--dur-base) var(--ease-fluid),
+                    opacity 0.2s ease,
+                    transform 0.3s var(--ease-spring);
+      }
+      .check-leave-active {
+        transition: width 0.2s var(--ease-press),
+                    margin-right 0.2s var(--ease-press),
+                    border-width 0.2s var(--ease-press),
+                    opacity 0.16s var(--ease-press),
+                    transform 0.2s var(--ease-press);
+      }
+      .check-leave-to {
+        width: 0; margin-right: calc(-1 * var(--row-gap));
+        border-width: 0; opacity: 0; transform: scale(0.5);
+      }
 
       /* 小徽标 */
       .badge {
@@ -1427,16 +1458,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         from { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
         to   { opacity: 0; transform: scale(0.9) translate3d(0, -6px, 0); }
       }
-      /* 选择模式复选框：入场回弹放大，出场缩回（配合列表项淡出） */
-      @keyframes checkIn {
-        from { opacity: 0; transform: scale(0.4); }
-        60%  { opacity: 1; transform: scale(1.12); }
-        to   { opacity: 1; transform: scale(1); }
-      }
-      @keyframes checkOut {
-        from { opacity: 1; transform: scale(1); }
-        to   { opacity: 0; transform: scale(0.4); }
-      }
       /* 行内操作按钮（复制/更多）：进出都要有动画，避免「直接没掉」 */
       @keyframes actionIn {
         from { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
@@ -1759,7 +1780,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         #app { padding: var(--sp-3) var(--sp-3) 100px; }
         .upload-zone { padding: var(--sp-6) var(--sp-4); }
         .quick-actions { grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
-        .row { padding: var(--sp-3) var(--sp-3); gap: var(--sp-2); }
+        .row { padding: var(--sp-3) var(--sp-3); --row-gap: var(--sp-2); }
         .row + .row::before { left: 60px; }
         .menu { min-width: 180px; }
         .hist-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
