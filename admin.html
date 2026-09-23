@@ -9,10 +9,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.2/css/all.min.css">
+<link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
 <style>[v-cloak]{display:none!important}
 /* =========================================================
 设计变量 —— 与前端 index 完全对齐的语义化 Token
@@ -2108,7 +2105,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
 </div>
 
 <!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
-<script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+<script src="/vendor/vue.global.prod.min.js"></script>
 <script>
 /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
    8 秒后仍未挂载就渲染一个可操作的错误页。 */

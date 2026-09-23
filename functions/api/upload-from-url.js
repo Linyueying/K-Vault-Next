@@ -13,7 +13,7 @@ import {
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
 } from "../utils/telegram.js";
-import { checkAuthentication } from "../utils/auth.js";
+import { checkAuthentication, isAuthRequired } from "../utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "../utils/guest.js";
 import { putRecordIndex } from "../utils/file-record.js";
 import {
@@ -36,7 +36,10 @@ export async function onRequestPost(context) {
   const { request, env } = context;
 
   const auth = await checkAuthentication(context);
-  const isAdmin = Boolean(auth?.authenticated);
+  // 仅当「要求认证」且用户真实登录时才视为管理员；未配置认证（开放实例）时
+  // 匿名访客应走普通访客上传流程（受每日限额约束、禁止抢占 slug / 发布受保护链接），
+  // 而非被当成管理员绕过一切限制。
+  const isAdmin = Boolean(auth?.authenticated) && isAuthRequired(env);
 
   if (!isAdmin) {
     const guestCheck = await checkGuestUpload(request, env, 0);

@@ -38,7 +38,9 @@ export async function onRequestGet(context) {
   // `enabled`/`configured` pair stays public. The live connectivity probes and
   // the backend messages/details are diagnostics and are admin-only.
   const auth = await checkAuthentication(context);
-  const isAdmin = Boolean(auth?.authenticated);
+  // 仅当「要求认证」且用户真实登录时才视为管理员；未配置认证（开放实例）时
+  // 匿名访客不得读取管理诊断信息，避免把 internal 状态暴露给公网。
+  const isAdmin = Boolean(auth?.authenticated) && isAuthRequired(env);
 
   const configuredMap = {
     telegram: Boolean(env.TG_Bot_Token && env.TG_Chat_ID),

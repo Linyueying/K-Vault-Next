@@ -53,9 +53,23 @@ function isPrivateIPv6(host) {
   if (value.startsWith('fc') || value.startsWith('fd')) return true; // ULA fc00::/7
   if (value.startsWith('fec') || value.startsWith('fed') || value.startsWith('fee') || value.startsWith('fef')) return true;
   if (value.startsWith('fd00:ec2:')) return true; // AWS IPv6 metadata
+
   if (value.startsWith('::ffff:')) {
-    const mapped = value.slice(7);
-    if (mapped.includes('.')) return isPrivateIPv4(mapped);
+    // IPv4-mapped (RFC 4291): ::ffff:w.x.y.z（点分）与 ::ffff:hhhh:hhhh（十六进制）
+    const tail = value.slice(7);
+    if (tail.includes('.')) return isPrivateIPv4(tail);
+    const hex = tail.split(':');
+    if (hex.length === 2) {
+      const a = parseInt(hex[0], 16);
+      const b = parseInt(hex[1], 16);
+      if (!Number.isNaN(a) && !Number.isNaN(b)) {
+        return isPrivateIPv4(`${a >> 8}.${a & 255}.${b >> 8}.${b & 255}`);
+      }
+    }
+  } else {
+    // IPv4-compatible（已废弃但仍会被 new URL 解析）：::w.x.y.z
+    const embedded = value.match(/^::(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (embedded) return isPrivateIPv4(embedded[1]);
   }
   return false;
 }

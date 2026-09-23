@@ -62,7 +62,9 @@ export async function onRequestPost(context) {
   try {
     // API v1 token-authenticated requests should bypass guest limits.
     const isApiTokenRequest = Boolean(context?.data?.apiToken);
-    const isAdmin = isApiTokenRequest || await isUserAuthenticated(context);
+    // 仅当「要求认证」且用户真实登录（或持有 API token）时才视为管理员；
+    // 未配置认证（开放实例）时匿名访客走普通访客流程，禁止被当成管理员。
+    const isAdmin = isApiTokenRequest || (isAuthRequired(env) && await isUserAuthenticated(context));
 
     /* 访客门禁必须发生在解析 multipart 之前。
        旧实现先 `request.clone().formData()` 把整个文件体读进内存，之后才判断访客是否
