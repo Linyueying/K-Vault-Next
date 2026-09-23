@@ -1313,24 +1313,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       /* =========================================================
          Toast
          ========================================================= */
-      /* 容器负责定位与堆叠，.toast 只管自己长什么样 ——
-         这样多条提示才能同时可见，而不是互相顶掉。 */
-      .toast-stack {
-        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        z-index: 9999;
-        display: flex; flex-direction: column; align-items: center; gap: 8px;
-        width: max-content; max-width: calc(100vw - 32px);
-        pointer-events: none;
-      }
       .toast {
+        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
         padding: 9px var(--sp-5);
         border-radius: var(--r-pill);
         background: var(--glass-elevated);
         border: 1.5px solid var(--glass-border-ice);
         box-shadow: var(--shadow-elevated);
+        z-index: 9999;
         font-size: var(--fs-md); font-weight: 600;
         display: flex; align-items: center; gap: 9px;
-        max-width: 100%;
       }
       .toast.error { border-color: rgba(239, 68, 68, 0.4); color: #dc2626; }
       .toast.success { color: var(--primary-dark); }
@@ -1628,10 +1620,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       .toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
       .toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
       .toast-enter-from,
-      .toast-leave-to     { opacity: 0; transform: translateY(-22px) scale(0.9); }
-      .toast-leave-to     { transform: translateY(-14px) scale(0.94); }
-      /* 一条离场时其余平滑上移，不会突然跳位 */
-      .toast-move         { transition: transform 0.24s var(--ease-fluid); }
+      .toast-leave-to     { opacity: 0; transform: translate3d(-50%, -22px, 0) scale(0.9); }
+      .toast-leave-to     { transform: translate3d(-50%, -14px, 0) scale(0.94); }
 
       .summary, .settings-list, .tree-panel, .list--card, .menu,
       .dock, .hist-stats, .folder-current {
@@ -1679,16 +1669,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         .selection-bar { flex-wrap: wrap; }
         .status-pill { min-width: 120px; }   /* 小屏收窄一点，避免顶栏挤压 */
         .target-badge { min-width: 88px; }
-      }
-
-      /* 移动端专属上传入口：桌面端隐藏。
-         手机浏览器不支持 webkitdirectory，拖拽事件也不触发，投放区实际上
-         只剩「点击」一条路。这里补一个直达系统拍照/相册的入口 —— accept
-         不加 capture 是为了让系统弹出「拍照 / 照片图库 / 浏览」三选一，
-         而不是被强制绑死后置摄像头。 */
-      .btn--mobile-only { display: none; }
-      @media (max-width: 680px) {
-        .btn--mobile-only { display: inline-flex; }
       }
 
       /* =========================================================
@@ -1782,14 +1762,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           </transition>
           <input type="file" style="display: none;" ref="fileInput" multiple @change="handleFileSelect" />
           <input type="file" style="display: none;" ref="dirInput" multiple webkitdirectory directory @change="handleDirSelect" />
-          <!-- 移动端拍照 / 相册：不设 capture，让系统自己给选项 -->
-          <input type="file" style="display: none;" ref="cameraInput" accept="image/*" multiple @change="handleFileSelect" />
         </section>
 
         <!-- 快捷操作 -->
         <div class="quick-actions">
           <button class="btn" @click="triggerUpload"><i class="fas fa-folder-open"></i><span>选择文件</span></button>
-          <button class="btn btn--mobile-only" @click="triggerCamera"><i class="fas fa-camera"></i><span>拍照 / 相册</span></button>
           <button class="btn" @click="triggerDirUpload"><i class="fas fa-folder-tree"></i><span>选择文件夹</span></button>
           <a href="./gallery.html" class="btn"><i class="fas fa-images"></i><span>图片浏览</span></a>
           <button class="btn" @click="showUrlInput = !showUrlInput"><i class="fas fa-link"></i><span>URL 转存</span></button>
@@ -2569,17 +2546,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         </div>
       </transition>
 
-      <!-- Toast：堆叠显示最近 3 条。
-           以前只渲染最后一条，批量拖入几十个文件时后面的提示会把前面的
-           「N 个文件超限」直接顶掉，用户根本不知道少了哪些文件。 -->
-      <div class="toast-stack">
-        <transition-group name="toast">
-          <div class="toast" v-for="t in visibleToasts" :key="t.id" :class="t.type">
-            <i :class="t.type === 'error' ? 'fas fa-triangle-exclamation' : (t.type === 'success' ? 'fas fa-circle-check' : 'fas fa-circle-info')"></i>
-            <span>{{ t.message }}</span>
-          </div>
-        </transition-group>
-      </div>
+      <!-- Toast -->
+      <transition name="toast" mode="out-in">
+        <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0" :key="toastKey">
+          <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
+          <span>{{ toasts[toasts.length - 1].message }}</span>
+        </div>
+      </transition>
     </div>
 
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/3.5.13/vue.global.prod.min.js"></script>
@@ -2624,35 +2597,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       const PARALLEL_MAX_HEAVY = 2;
       const PARALLEL_MAX_LIGHT = 1;
       const PARALLEL_OFF_CONCURRENCY = 1;
-
-      /* ===== 分片上传常量 =====
-         分片大小与分片数由服务端权威下发（见 init 响应的 chunkSize /
-         totalChunks / maxChunkConcurrency）。下面两个值只在后端尚未升级到
-         「后端下发」版本时才会被用到 —— 它们刻意沿用旧后端的推导口径
-         （r2 → 50MB，否则 20MB），这样才能和旧后端对得上。 */
-      const CHUNK_SIZE_R2_FALLBACK = 50 * 1024 * 1024;
-      const CHUNK_SIZE_KV_FALLBACK = 20 * 1024 * 1024;
-
-      /* 秒传哈希体积上限：超过就不算全量 SHA-256。
-         原因：WebCrypto 的 digest 需要整块 ArrayBuffer，1GB 文件要先在内存里
-         摊开 1GB；纯 JS 实现又要跑几十秒阻塞主线程。小文件算全量哈希换来
-         「0 字节上传」很划算，大文件不划算，交给续传机制即可。 */
-      const INSTANT_HASH_MAX_BYTES = 64 * 1024 * 1024;
-
-      /* 上传队列里最多同时持有多少个 objectURL 预览。
-         拖一整个目录进来可能是几千个文件，每个都 createObjectURL 会白白
-         吃掉几百 MB 内存；超出的任务直接回落到文件类型图标。 */
-      const MAX_UPLOAD_PREVIEWS = 200;
-
-      /* 网络类失败自动重试的退避间隔（毫秒），共两次 */
-      const AUTO_RETRY_DELAYS_MS = [8000, 25000];
-
-      /* 全局在飞分片数上限。
-         这是「所有上传任务加起来」的上限，不是每个任务各自的上限 ——
-         Cloudflare isolate 的 128MB 内存是被并发请求共享的，若改成每任务
-         2 路，heavyPool 两个任务同时跑就是 4 路 × 40MB = 160MB，必爆
-         Error 1102，还会连带拖垮同一 isolate 上的静态资源请求。 */
-      const CHUNK_SLOT_BUDGET = 2;
 
       /* ===== 存储节点元数据（唯一真相来源，合并原 getStorageIcon + storageLabel） =====
          注意：auto 的 label 为 "智能"，用于顶栏胶囊；设置列表里的行标题是硬编码的
@@ -2776,7 +2720,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             previewData: null,
             toasts: [],
             toastKey: 0,
-            toastSeq: 0,
 
             PARALLEL_MAX_LIGHT,
             PARALLEL_MAX_HEAVY,
@@ -2797,14 +2740,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             authChecking: true, isGuest: false, guestUploadConfig: null,
             uploadConfig: { maxSize: 10 * 1024 * 1024 * 1024, chunkSize: 50 * 1024 * 1024, smallFileThreshold: 20 * 1024 * 1024 },
             uploadLimits: {},
-            /* 服务端权威分片计划（由 init 响应下发）。
-               改用它而不是本地推导，是因为本地按 storageMode 猜、后端按
-               chunkBackend 判，两者不一致时整条分片链路会 400。 */
-            serverChunkPlan: null,
-            /* 跨任务共享的「在飞分片」计数，用于全局分片并发预算 */
-            chunkSlotsInUse: 0,
-            /* 当前持有多少个 objectURL 预览，用于上限控制 */
-            previewUrlCount: 0,
 
             parallelUpload: false,
             parallelHeavy: PARALLEL_DEFAULT_HEAVY,
@@ -2855,8 +2790,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           };
         },
         computed: {
-          /* 屏幕上最多同时显示 3 条提示，多了会盖住上传区 */
-          visibleToasts() { return this.toasts.slice(-3); },
           selectedCount() { return this.uploadedFiles.filter((f) => f.selected).length; },
           isAllSelected() { return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected); },
           batchLinkCount() {
@@ -3130,18 +3063,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             document.body.removeChild(t);
           },
           showToast(message, type = "info") {
-            /* 同一条消息连续刷屏时（比如批量上传里每个文件都报同一个错）
-               合并计数而不是堆一摞一模一样的提示。 */
-            const last = this.toasts[this.toasts.length - 1];
-            if (last && last.raw === message && last.type === type) {
-              last.count = (last.count || 1) + 1;
-              last.message = `${message}（×${last.count}）`;
-              return;
-            }
-            this.toasts.push({ id: ++this.toastSeq, message, raw: message, type, count: 1 });
+            this.toasts.push({ message, type });
             this.toastKey++;
-            /* 最多同时留 3 条，更早的直接丢 —— 屏幕上放不下，留着也没人看 */
-            while (this.toasts.length > 3) this.toasts.shift();
             setTimeout(() => { this.toasts.shift(); }, 2800);
           },
 
@@ -3310,83 +3233,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const mb = (Number(bytes) || 0) / (1024 * 1024);
             return Math.max(30000, Math.round(30000 + mb * 2000));
           },
-          /* 文件指纹：头 + 中 + 尾各采样 1MB，再拼上文件体积。
-             只采头尾是不够的 ——「同一模板导出、只改了中间一段」的两个文件
-             头尾完全一致，撞上之后会用 A 的续传进度去续 B，拼出来的就是损坏
-             文件。补中间采样把这个概率压下去，而成本仍是 O(1)，与文件大小无关。
-             注意这里【故意不算全文件哈希】：WebCrypto 的 digest 需要整块
-             ArrayBuffer，1GB 文件要先在内存里摊开 1GB，不现实。全量哈希只在
-             秒传场景对 ≤64MB 的小文件才算（见 computeFileHash）。 */
           async computeFileId(file) {
             if (!file) return "";
             const SAMPLE = 1024 * 1024;
             try {
-              const size = file.size;
-              const chunks = [];
-              const grab = async (start, len) => {
-                if (len <= 0) return;
-                chunks.push(new Uint8Array(await file.slice(start, start + len).arrayBuffer()));
-              };
-              const headLen = Math.min(SAMPLE, size);
-              await grab(0, headLen);
-              if (size > SAMPLE * 2) {
-                const mid = Math.floor(size / 2);
-                await grab(mid, Math.min(SAMPLE, size - mid));
-              }
-              if (size > headLen) {
-                const tailStart = size - Math.min(SAMPLE, size - headLen);
-                await grab(tailStart, size - tailStart);
-              }
-              const total = chunks.reduce((n, c) => n + c.length, 0);
-              const merged = new Uint8Array(total);
-              let off = 0;
-              for (const c of chunks) { merged.set(c, off); off += c.length; }
+              const head = await file.slice(0, Math.min(SAMPLE, file.size)).arrayBuffer();
+              const tailStart = Math.max(0, file.size - SAMPLE);
+              const tail = await file.slice(tailStart, file.size).arrayBuffer();
+              const merged = new Uint8Array(head.byteLength + tail.byteLength);
+              merged.set(new Uint8Array(head), 0);
+              merged.set(new Uint8Array(tail), head.byteLength);
               const digest = await crypto.subtle.digest("SHA-256", merged);
               const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-              /* v2 前缀 = 指纹算法版本。升级算法后旧记录自然失效（键名不同），
-                 绝不会拿旧算法算出的 ID 去命中新算法的续传进度。 */
-              return `v2-${hex.slice(0, 32)}-${size}`;
+              return `${hex.slice(0, 32)}-${file.size}`;
             } catch (_) {
-              return `v2-m-${file.name}-${file.size}-${file.lastModified || 0}`;
+              return `m-${file.name}-${file.size}-${file.lastModified || 0}`;
             }
-          },
-          /* 全量 SHA-256，只为秒传服务，且只给小文件算。
-             大文件不算的理由很实在：WebCrypto 的 digest 要整块 ArrayBuffer，
-             1GB 文件就是先在内存里摊开 1GB；用纯 JS 增量实现则要跑几十秒，
-             把主线程彻底卡死。为「偶尔能省一次上传」付出这个代价不值 ——
-             大文件有续传机制兜底就够了。 */
-          async computeFileHash(file) {
-            if (!file || file.size > INSTANT_HASH_MAX_BYTES) return "";
-            try {
-              const buf = await file.arrayBuffer();
-              const digest = await crypto.subtle.digest("SHA-256", buf);
-              return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-            } catch (_) { return ""; }
-          },
-          /* 秒传索引可能指向一个早就被删掉的文件（索引 30 天才过期）。
-             所以拿到结果先探一次活，探不到就当没命中，老老实实重传 ——
-             给用户一个打不开的链接，比让他多等几秒糟糕得多。 */
-          async probeFileAlive(url) {
-            try {
-              const res = await fetch(url, { method: "HEAD", credentials: "include" });
-              return res.ok;
-            } catch (_) { return false; }
-          },
-          async finishInstantUpload(item, uploadedObj, mode) {
-            if (!(await this.probeFileAlive(uploadedObj.url))) return false;
-            this.stopMergeProgressTicker(item);
-            item.status = "success";
-            item.statusText = "秒传完成";
-            item.progress = 100;
-            item.uploadedBytes = item.size;
-            item.speed = "";
-            item.error = null;
-            this.releasePreview(item);
-            this.uploadedFiles.unshift(uploadedObj);
-            this.addToHistory(uploadedObj, mode);
-            this.scheduleQueueCleanup();
-            this.showToast(`「${item.name}」内容重复，已秒传（未重复上传）`, "success");
-            return true;
           },
           resumeKey(fileId) { return `chunkResume:${fileId}`; },
           readResumeState(fileId) {
@@ -3430,29 +3292,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             }
             return preferred || "r2";
           },
-          /* 分片大小：优先用服务端下发的权威值，本地推导只作兜底。
-             权威值在每次 init 响应回来后落到 serverChunkPlan，所以只要成功
-             init 过一次，后续所有文件都不再需要猜。 */
           resolveChunkSizeForMode(mode) {
-            const fromServer = Number(this.serverChunkPlan && this.serverChunkPlan.chunkSize);
-            if (fromServer > 0) return fromServer;
-            if (mode === "r2") return CHUNK_SIZE_R2_FALLBACK;
-            return this.r2Available ? CHUNK_SIZE_R2_FALLBACK : CHUNK_SIZE_KV_FALLBACK;
-          },
-          /* 采纳服务端的分片计划：分片大小、片数、分片并发额度一律以后端为准。
-             后端按「文件体积 + 分片暂存后端」分档推导，前端不该重复这套逻辑。 */
-          applyServerChunkPlan(initData) {
-            if (!initData || typeof initData !== "object") return null;
-            const chunkSize = Number(initData.chunkSize);
-            if (!(chunkSize > 0)) return null;
-            const plan = {
-              chunkSize,
-              chunkBackend: initData.chunkBackend || null,
-              totalChunks: Number(initData.totalChunks) || 0,
-              maxChunkConcurrency: Math.max(1, Math.min(2, Number(initData.maxChunkConcurrency) || 1)),
-            };
-            this.serverChunkPlan = plan;
-            return plan;
+            const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
+            const CHUNK_SIZE_KV = 20 * 1024 * 1024;
+            if (mode === "r2") return CHUNK_SIZE_R2;
+            return this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
           },
           isSmartModeAvailable() { return this.largeStorageOptions.some((o) => this.isStorageAvailable(o.value)); },
 
@@ -3800,7 +3644,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           triggerUpload() { this.$refs.fileInput.click(); },
           handleFileSelect(e) { const files = Array.from(e.target.files || []); this.processFiles(files); e.target.value = ""; },
           triggerDirUpload() { this.$refs.dirInput.click(); },
-          triggerCamera() { this.$refs.cameraInput && this.$refs.cameraInput.click(); },
           handleDirSelect(e) {
             const files = Array.from(e.target.files || []).filter((f) => !this.isIgnorableFile(f.name));
             if (files.length) { this.processFiles(files); this.showToast(`已从文件夹读取 ${files.length} 个文件`, "success"); }
@@ -3926,33 +3769,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           /* ===== 文件入队 ===== */
           async processFiles(files) {
             if (!files || !files.length) return;
-            /* 超限文件先攒着，最后聚合成一条提示。
-               一次拖 200 个文件进来如果有 30 个超限，逐条弹就是 30 个 toast
-               排队刷屏，最后一条把前面全顶掉，用户根本不知道少了什么。 */
-            const rejected = [];
             for (const file of files) {
               const targetMode = this.resolveStorageForFile(file.size);
               const limit = this.getUploadLimit(targetMode);
               let maxBytes = limit.maxBytes || this.uploadConfig.maxSize;
               if (this.isGuest && this.guestUploadConfig) maxBytes = Math.min(maxBytes, this.guestUploadConfig.maxFileSize);
               if (maxBytes && file.size > maxBytes) {
-                rejected.push({ name: file.name, size: file.size, label: this.storageLabel(targetMode), maxBytes });
+                const viaTip = this.storageMode === "auto" ? `（智能分流 → ${this.storageLabel(targetMode)}）` : "";
+                this.showToast(`文件 [${file.name}] ${this.formatSize(file.size)} 超过 ${this.storageLabel(targetMode)} 上限 ${this.formatSize(maxBytes)}${viaTip}`, "error");
                 continue;
               }
               const item = this.createUploadTask(file, targetMode);
               this.uploadingFiles.push(item);
-            }
-            if (rejected.length) {
-              const accepted = files.length - rejected.length;
-              const first = rejected[0];
-              const head = accepted > 0 ? `已加入 ${accepted} 个文件；` : "";
-              const sample = rejected.length > 1
-                ? `，如「${first.name}」${this.formatSize(first.size)}`
-                : ` [${first.name}] ${this.formatSize(first.size)}`;
-              this.showToast(
-                `${head}${rejected.length} 个超出 ${first.label} 上限 ${this.formatSize(first.maxBytes)} 未加入${sample}`,
-                "error"
-              );
             }
             this.requestUploadScheduling();
           },
@@ -3979,46 +3807,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               uid: `u${Date.now().toString(36)}${(this.uploadTaskSeq = (this.uploadTaskSeq || 0) + 1).toString(36)}`,
               name: file.name, size: file.size, file: file, targetMode: targetMode,
               status: "waiting", statusText: "等待中", speed: "", uploadedBytes: 0,
-              preview: this.shouldMakePreview(file),
+              preview: file.type && file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
               progress: 0, error: null,
               uploadId: null, chunkDone: [], fileId: null,
-              /* 记录这批 chunkDone 索引是按多大的分片切出来的，用于识别
-                 「分片大小变了但旧索引还在」这种会产出损坏文件的情况 */
-              chunkSizeAtResume: 0,
-              /* 全量内容哈希（仅小文件），用于秒传查重 */
-              fileHash: "",
-              /* 已经撞过一次失效的秒传索引，不再重试秒传 */
-              instantTried: false,
               /* 业务意图：用户想暂停 -> want !== "run"；想继续/重试 -> want === "run" */
               want: "run",
               /* 运行令牌：worker 派发前写入，暂停/重试校验并作废 */
               runToken: 0,
               xhr: null,
               cancelRequested: false,
-              /* 已自动重试过几次（网络类失败才会计数） */
-              autoRetries: 0,
             };
           },
 
-          /* 预览缩略图按需限量创建。
-             拖一整个目录进来可能一次几千张图，每张都 createObjectURL 就是几千
-             个 objectURL 常驻内存；而队列里绝大多数行根本滚不到。超上限的直接
-             回落到文件类型图标（.task__thumb 本来就有这个兜底）。 */
-          shouldMakePreview(file) {
-            if (!file || !file.type || !String(file.type).startsWith("image/")) return null;
-            if (this.previewUrlCount >= MAX_UPLOAD_PREVIEWS) return null;
-            try {
-              const url = URL.createObjectURL(file);
-              this.previewUrlCount++;
-              return url;
-            } catch (_) { return null; }
-          },
-          releasePreview(item) {
-            if (!item || !item.preview) return;
-            try { URL.revokeObjectURL(item.preview); } catch (_) {}
-            item.preview = null;
-            if (this.previewUrlCount > 0) this.previewUrlCount--;
-          },
           /* 令牌失效：作废令牌 + 真正中断在飞请求 + 清空速度显示。
              必须真的 abort，否则底层 XHR 会一直挂着、Promise 永不 settle，
              该任务就会永久占住一个并发名额，表现为「点继续没反应」。 */
@@ -4127,37 +3927,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (lightN <= 1 && heavyN <= 1) { await worker(true, "light"); return; }
             await Promise.all([worker(true, "light"), worker(false, "heavy")]);
           },
-          /* 传输比例 → 进度条数值。
-             把传输阶段的 0~1 映射到 2~96，前后各留出一段给「初始化」和
-             「校验合并」。此前传输阶段被 Math.min(99,...) 压着、合并阶段硬
-             写 96，用户看到的就是长时间停在 99% 不动 —— 那其实是在合并分片。 */
-          progressFromTransfer(ratio) {
-            const r = Math.max(0, Math.min(1, Number(ratio) || 0));
-            return Math.round(2 + r * 94);
-          },
-          /* 合并阶段没有可上报的字节数，用一个缓慢爬升的假进度顶住，
-             避免进度条在这段时间里看起来像卡死。上限 99，真正的 100 由
-             finishUploadTask 在拿到结果后才给。 */
-          startMergeProgressTicker(item) {
-            this.stopMergeProgressTicker(item);
-            if (!item) return;
-            item.mergeTicker = setInterval(() => {
-              if (!item || item.status === "success" || item.cancelRequested || item.want !== "run") {
-                this.stopMergeProgressTicker(item);
-                return;
-              }
-              const cur = Number(item.progress) || 96;
-              if (cur < 99) item.progress = cur + 1;
-            }, 400);
-          },
-          stopMergeProgressTicker(item) {
-            if (item && item.mergeTicker) {
-              clearInterval(item.mergeTicker);
-              item.mergeTicker = null;
-            }
-          },
           finishUploadTask(item) {
-            this.stopMergeProgressTicker(item);
             item.status = "success";
             item.statusText = "已完成";
             item.progress = 100;
@@ -4168,74 +3938,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
           handleUploadError(item, err, token) {
             const msg = String((err && err.message) || "上传失败");
-            this.stopMergeProgressTicker(item);
             item.speed = "";
             /* 令牌已作废 = 这是被暂停/重试作废的旧请求，交给最新意图决定，不覆盖状态 */
             if (item.runToken !== token) return;
             if (item.want !== "run") { this.markTaskPaused(item); return; }
-            item.status = "error";
-            item.error = msg;
             if (this.isRetirableError(err)) {
               /* 用户并没有想停，却收到超时/中断：算失败，可续传 */
+              item.status = "error";
               item.statusText = "上传超时，可续传";
-            } else {
-              item.statusText = "上传失败";
+              item.error = msg;
+              return;
             }
-            /* 网络抖动 / 服务端临时故障：自动排队重试，不必让用户守着点按钮 */
-            if (this.isTransientError(err)) this.scheduleAutoRetry(item);
-          },
-          /* 申请一个分片上传名额（全局共享，不是每任务独立）。
-             拿不到就等，等待期间仍可被暂停/取消立刻打断。 */
-          async acquireChunkSlot(item, token) {
-            while (this.chunkSlotsInUse >= CHUNK_SLOT_BUDGET) {
-              this.assertTaskRunning(item, token);
-              await this.sleepWhileRunning(item, 120, token);
-            }
-            this.chunkSlotsInUse++;
-          },
-          releaseChunkSlot() {
-            if (this.chunkSlotsInUse > 0) this.chunkSlotsInUse--;
-          },
-          /* 真的有任务在飞时才拦截刷新。条件放宽会让用户连关个标签页都被
-             弹窗拦一次 —— 那种"贴心"只会让人想关掉整个网站。 */
-          hasActiveUploads() {
-            return this.uploadingFiles.some(
-              (f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting"
-            );
-          },
-          /* 只重试「看起来一会儿就能自己好」的错误。
-             权限不足、体积超限、短链冲突这类确定性失败重试一万次也是失败，
-             自动重试它们只会让用户看着进度条空转。 */
-          isTransientError(err) {
-            if (this.isRetirableError(err)) return true;
-            const msg = String((err && err.message) || "");
-            if (/网络连接失败|网络请求超时|Failed to fetch|NetworkError|net::ERR/i.test(msg)) return true;
-            if (/(^|\D)(500|502|503|504)(\D|$)/.test(msg)) return true;
-            return false;
-          },
-          scheduleAutoRetry(item) {
-            const attempt = item.autoRetries || 0;
-            if (attempt >= AUTO_RETRY_DELAYS_MS.length) return false;
-            item.autoRetries = attempt + 1;
-            const wait = AUTO_RETRY_DELAYS_MS[attempt];
-            item.status = "waiting";
-            item.statusText = `网络异常，${Math.round(wait / 1000)} 秒后自动重试（${item.autoRetries}/${AUTO_RETRY_DELAYS_MS.length}）`;
-            item.error = null;
-            item.want = "run";
-            /* 作废旧令牌，避免在飞请求的迟到回调污染下一轮 */
-            this.invalidateTaskRun(item);
-            const token = item.runToken;
-            setTimeout(() => {
-              /* 期间用户自己点了暂停 / 重试 / 取消，或任务已被移除 —— 一律不插手 */
-              if (this.schedulerDisposed || !this.uploadingFiles.includes(item)) return;
-              if (item.runToken !== token || item.want !== "run" || item.cancelRequested) return;
-              item.statusText = "等待中";
-              this.restartUploadNow();
-            }, wait);
-            return true;
+            item.status = "error";
+            item.statusText = "上传失败";
+            item.error = msg;
           },
           markTaskPaused(item) {
-            this.stopMergeProgressTicker(item);
             this.invalidateTaskRun(item);
             item.status = "paused";
             item.statusText = "已暂停";
@@ -4246,7 +3964,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.queueCleanupTimer = setTimeout(() => {
               this.queueCleanupTimer = null;
               for (const f of this.uploadingFiles) {
-                this.releasePreview(f);
+                if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
               }
               this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
             }, 2500);
@@ -4265,14 +3983,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             formData.append("file", item.file);
             formData.append("storageMode", mode);
             formData.append("folderPath", this.folderPath);
-            /* 小文件也算一次全量哈希，直传同样能命中秒传。
-               instantTried 用来防止「命中了一条失效索引」后重算哈希、又命中
-               同一条失效索引的死循环。 */
-            if (!item.fileHash && !item.instantTried && item.file.size <= INSTANT_HASH_MAX_BYTES) {
-              item.statusText = "计算校验值...";
-              item.fileHash = await this.computeFileHash(item.file);
-            }
-            if (item.fileHash) formData.append("fileHash", item.fileHash);
             if (shareOptions) {
               Object.entries(shareOptions).forEach(([key, value]) => {
                 if (value !== undefined && value !== null && value !== "") formData.append(key, String(value));
@@ -4293,25 +4003,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                 lastLoaded = loaded;
               }
               item.uploadedBytes = loaded;
-              item.progress = this.progressFromTransfer(loaded / total);
-              /* 传完字节后服务端还要落库 / 转存，这段时间没有进度可报，
-                 先爬到 99，等真正成功再跳 100 */
-              if (item.progress >= 96) item.statusText = "服务端处理中...";
-            }, this.estimateTimeout(item.file.size), item);
+              item.progress = Math.min(99, Math.round((loaded / total) * 100));
+            }, 0, item);
             if (item.runToken !== token) throw new Error("__ABORTED__");
             if (Array.isArray(data) && data[0]?.error) throw new Error(data[0]?.error || "上传未成功");
-            /* 秒传命中：服务端已经有一模一样的内容 */
-            if (Array.isArray(data) && data[0]?.instant === true && data[0]?.src) {
-              const hit = {
-                name: item.name, fileName: item.name,
-                url: `${this.baseURL}${data[0].src}`, size: item.size, selected: false,
-              };
-              if (await this.finishInstantUpload(item, hit, mode)) return;
-              /* 索引指向的文件已经被删了，别再拿同一个哈希去撞第二次 */
-              item.instantTried = true;
-              item.fileHash = "";
-              return this.directUpload(item, token);
-            }
             const src = data[0]?.src;
             const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
             this.applyShareResult(uploadedObj, data[0]);
@@ -4381,12 +4076,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                     ctx.lastTime = now;
                     ctx.lastLoaded = currentTotal;
                   }
-                  /* 并发分片交错上报时，慢的那路可能报出比当前更小的字节数。
-                     一律取单调最大值，否则进度条会肉眼可见地往回退 —— 比卡住
-                     不动更让人怀疑是不是坏了。 */
-                  if (currentTotal > (item.uploadedBytes || 0)) item.uploadedBytes = currentTotal;
-                  const pct = this.progressFromTransfer(currentTotal / ctx.fileSize);
-                  if (pct > (item.progress || 0)) item.progress = pct;
+                  item.uploadedBytes = currentTotal;
+                  item.progress = Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99));
                 }, this.estimateTimeout(formData.get("chunk")?.size || 0), item);
                 const resp = await pr;
                 this.assertTaskRunning(item, ctx.token);
@@ -4430,79 +4121,27 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           async chunkedUpload(item, token) {
             const file = item.file;
             const mode = item.targetMode || this.storageMode;
-            /* 先用兜底值起手，init 响应回来后立即换成服务端权威值 */
-            let chunkSize = this.resolveChunkSizeForMode(mode);
-            let totalChunks = Math.ceil(file.size / chunkSize);
+            const chunkSize = this.resolveChunkSizeForMode(mode);
+            const totalChunks = Math.ceil(file.size / chunkSize);
             if (!item.fileId) { item.statusText = "计算文件指纹..."; item.fileId = await this.computeFileId(file); }
-            /* 秒传预检：小文件额外算一次全量哈希，交给服务端查重 */
-            if (!item.fileHash && file.size <= INSTANT_HASH_MAX_BYTES) {
-              item.statusText = "计算校验值...";
-              item.fileHash = await this.computeFileHash(file);
-            }
             this.assertTaskRunning(item, token);
             const isResume = !!item.uploadId;
             if (!isResume) { item.progress = 0; item.uploadedBytes = 0; }
             item.statusText = isResume ? "恢复上传..." : "初始化任务...";
-            /* totalChunks: 0 是给后端的信号 —— 「我没有片数，请你下发」。
-               分片契约由后端单点决定，前端不再自己推导。 */
-            const initBody = {
-              fileName: file.name, fileSize: file.size, fileType: file.type,
-              totalChunks: 0, storageMode: mode, folderPath: this.folderPath,
-              shareOptions: this.buildShareOptions(),
-              fileId: item.fileId, resume: true, uploadId: item.uploadId || undefined,
-              fileHash: item.fileHash || "",
-            };
-            const postInit = (body) => fetch(`${this.baseURL}/api/chunked-upload/init`, {
+            const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
+              body: JSON.stringify({
+                fileName: file.name, fileSize: file.size, fileType: file.type,
+                totalChunks: totalChunks, storageMode: mode, folderPath: this.folderPath,
+                shareOptions: this.buildShareOptions(),
+                fileId: item.fileId, resume: true, uploadId: item.uploadId || undefined,
+              }),
               credentials: "include",
             });
-            let initRes = await postInit(initBody);
-            let initData = await initRes.json();
-            /* 兼容尚未升级的后端：它还强制要求 totalChunks 为正整数，且用固定
-               50/20MB 推导。遇到这类报错就带上本地兜底片数重试一次；其它错误
-               （短链冲突、配额等）照常抛出，不做无谓重试。 */
-            if (!initRes.ok && /totalChunks/i.test(String((initData && initData.error) || ""))) {
-              initRes = await postInit(Object.assign({}, initBody, { totalChunks }));
-              initData = await initRes.json();
-            }
+            const initData = await initRes.json();
             if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
-            /* 秒传命中：服务端已有完全相同的内容，一个字节都不用再传 */
-            if (initData && initData.instant === true && initData.file) {
-              const hit = initData.file;
-              const done = await this.finishInstantUpload(item, {
-                name: hit.name || file.name,
-                fileName: hit.name || file.name,
-                url: `${this.baseURL}${hit.url || `/file/${hit.key}`}`,
-                size: Number(hit.size) || file.size,
-                selected: false,
-              }, mode);
-              if (done) return;
-              /* 索引指向的文件已被删除：抹掉哈希重新 init 走正常上传。
-                 必须换掉哈希再试，否则会一直命中同一条失效索引。 */
-              initRes = await postInit(Object.assign({}, initBody, { fileHash: "" }));
-              initData = await initRes.json();
-              if (!initRes.ok) throw new Error(initData.error || "初始化分片失败");
-            }
             this.assertTaskRunning(item, token);
-            /* 换成服务端权威分片计划 */
-            const plan = this.applyServerChunkPlan(initData);
-            if (plan) {
-              chunkSize = plan.chunkSize;
-              totalChunks = plan.totalChunks || Math.ceil(file.size / chunkSize);
-            }
-            if (Number(initData.totalChunks) > 0) totalChunks = Number(initData.totalChunks);
-            /* 分片大小若与本地续存记录不一致，旧的分片索引一律作废 ——
-               否则会把「按 50MB 切的第 3 片」当成「按 8MB 切的第 3 片」跳过，
-               直接产出损坏文件。 */
-            if (item.chunkDone && item.chunkDone.length && item.chunkSizeAtResume && item.chunkSizeAtResume !== chunkSize) {
-              item.chunkDone = [];
-              item.parts = null;
-              item.uploadedBytes = 0;
-              item.progress = 0;
-            }
-            item.chunkSizeAtResume = chunkSize;
             const uploadId = initData.uploadId || item.uploadId;
             const serverResumed = initData && initData.resumed === true;
             const isFreshTask = !item.uploadId || uploadId !== item.uploadId;
@@ -4523,97 +4162,40 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
             if (doneSet.size) {
               item.uploadedBytes = uploadedBase;
-              item.progress = this.progressFromTransfer(uploadedBase / file.size);
-              /* 明确区分两种"不用重传"：服务端续传是接着上次传，秒传是一字节都不用传 */
-              item.statusText = serverResumed
-                ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片`
-                : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`;
+              item.progress = Math.min(99, Math.round((uploadedBase / file.size) * 99));
+              item.statusText = serverResumed ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片` : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`;
             }
             const lastTime = Date.now();
             const lastLoaded = uploadedBase;
             item.statusText = "上传中";
             this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
-            /* 分片并发只对 R2 原生 multipart 开。
-               非 R2 分支在 complete 阶段要把整个文件读进内存拼装
-               （MAX_IN_MEMORY_ASSEMBLY=40MB），再叠加分片并发就是双倍内存
-               峰值，会顶爆 isolate。R2 没有这一步，所以只有它吃得下并发。
-               并发额度本身由服务端 KV 开关下发，默认 1（关闭），出问题改 KV
-               即可回滚，不必重新部署。 */
-            const backendIsR2 = (this.serverChunkPlan && this.serverChunkPlan.chunkBackend) === "r2";
-            const granted = (this.serverChunkPlan && this.serverChunkPlan.maxChunkConcurrency) || 1;
-            const poolN = backendIsR2 ? Math.max(1, Math.min(granted, CHUNK_SLOT_BUDGET)) : 1;
-
-            const pending = [];
-            for (let i = 0; i < totalChunks; i++) if (!doneSet.has(i)) pending.push(i);
-            let resumeWriteAt = 0;
-            const flushResume = (force) => {
-              const now = Date.now();
-              /* 每片都写 localStorage 太重（大文件几百片），节流到 500ms */
-              if (!force && now - resumeWriteAt < 500) return;
-              resumeWriteAt = now;
-              this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
-            };
-
-            const inflight = new Map();
-            const runChunk = async (i) => {
+            for (let i = 0; i < totalChunks; i++) {
+              if (doneSet.has(i)) continue;
+              /* 每个分片开传前再校验一次：暂停/重试后不再往下发新分片 */
+              this.assertTaskRunning(item, token);
               const start = i * chunkSize;
               const end = Math.min(start + chunkSize, file.size);
+              const chunk = file.slice(start, end);
+              const chunkBytes = end - start;
               const fd = new FormData();
-              fd.append("chunk", file.slice(start, end));
+              fd.append("chunk", chunk);
               fd.append("uploadId", uploadId);
               fd.append("chunkIndex", i);
-              await this.acquireChunkSlot(item, token);
-              try {
-                this.assertTaskRunning(item, token);
-                /* 每个分片用独立的 ctx：并发时若共用一份 lastTime/lastLoaded，
-                   两路进度会互相踩，速度显示乱跳 */
-                const resp = await this.uploadChunkWithRetry(item, fd, i, {
-                  uploadedBase, lastTime: Date.now(), lastLoaded: uploadedBase,
-                  fileSize: file.size, token,
-                });
-                return { i, resp, bytes: end - start };
-              } finally {
-                this.releaseChunkSlot();
-              }
-            };
-
-            while (pending.length || inflight.size) {
-              /* 每轮开传前再校验一次：暂停/重试后不再往下发新分片 */
+              const chunkResp = await this.uploadChunkWithRetry(item, fd, i, { uploadedBase, lastTime, lastLoaded, fileSize: file.size, token });
               this.assertTaskRunning(item, token);
-              while (pending.length && inflight.size < poolN) {
-                const i = pending.shift();
-                /* 吃掉 rejection，避免并发分片失败时产生 unhandled rejection，
-                   同时让其余在飞分片有机会正常收尾 */
-                inflight.set(i, runChunk(i).then(
-                  (r) => ({ ok: true, ...r }),
-                  (err) => ({ ok: false, i, err })
-                ));
-              }
-              if (!inflight.size) break;
-              const settled = await Promise.race(inflight.values());
-              inflight.delete(settled.i);
-              /* 失败立刻抛出，交给调度层按现有语义处理（可续传 / 自动重试） */
-              if (!settled.ok) throw settled.err;
-              this.assertTaskRunning(item, token);
-              if (settled.resp && typeof settled.resp.etag === "string" && Number.isInteger(settled.resp.partNumber)) {
-                collectedParts.push({ partNumber: settled.resp.partNumber, etag: settled.resp.etag });
-              }
-              /* 只在分片「完成」时记账：并发下若按实时进度累加，两路交错会
-                 让进度条来回倒退 */
-              uploadedBase += settled.bytes;
+              if (chunkResp && typeof chunkResp.etag === "string" && Number.isInteger(chunkResp.partNumber)) collectedParts.push({ partNumber: chunkResp.partNumber, etag: chunkResp.etag });
+              uploadedBase += chunkBytes;
               item.uploadedBytes = uploadedBase;
-              doneSet.add(settled.i);
+              doneSet.add(i);
               item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
               item.parts = collectedParts.slice();
-              flushResume(false);
+              this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
             }
-            flushResume(true);
             this.assertTaskRunning(item, token);
             item.status = "processing";
             item.statusText = "校验与合并中...";
             item.speed = "";
             item.progress = 96;
-            this.startMergeProgressTicker(item);
             let completeData = null;
             const maxCompleteAttempts = 3;
             for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
@@ -4647,7 +4229,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
           retryUpload(file, fromScratch = false) {
             file.targetMode = this.resolveStorageForFile(file.size);
-            file.autoRetries = 0;
             file.status = "waiting";
             file.statusText = fromScratch ? "重新上传" : "等待续传";
             file.speed = "";
@@ -4674,7 +4255,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (!failed.length) return;
             failed.forEach((f) => {
               f.targetMode = f.targetMode || this.resolveStorageForFile(f.size);
-              f.autoRetries = 0;
               f.status = "waiting";
               f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
               f.error = null;
@@ -4696,7 +4276,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (file.status === "success" || file.cancelRequested) return;
             file.want = "run";
             file.error = null;
-            file.autoRetries = 0;
             file.status = "waiting";
             file.statusText = file.chunkDone && file.chunkDone.length ? `续传（已完成 ${file.chunkDone.length} 个分片）` : "等待续传";
             this.invalidateTaskRun(file);
@@ -4714,7 +4293,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             targets.forEach((f) => {
               f.want = "run";
               f.error = null;
-              f.autoRetries = 0;
               f.status = "waiting";
               f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
               this.invalidateTaskRun(f);
@@ -4732,24 +4310,22 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
           clearUploadQueue() {
             for (const f of this.uploadingFiles) {
-              this.stopMergeProgressTicker(f);
               f.cancelRequested = true;
               f.want = "pause";
               this.invalidateTaskRun(f);
-              this.releasePreview(f);
+              if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
             }
             if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
             this.uploadingFiles = [];
             this.requestUploadScheduling();
           },
           async cancelUpload(file) {
-            this.stopMergeProgressTicker(file);
             file.cancelRequested = true;
             file.want = "pause";
             this.invalidateTaskRun(file);
             if (file.uploadId) this.abortServerUpload(file.uploadId);
             if (file.fileId) this.clearResumeState(file.fileId);
-            this.releasePreview(file);
+            if (file.preview) { try { URL.revokeObjectURL(file.preview); } catch (_) {} }
             this.uploadingFiles = this.uploadingFiles.filter((f) => f !== file);
             this.requestUploadScheduling();
           },
@@ -5411,47 +4987,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           window.addEventListener("drop", this.globalDragGuard);
           this.resultMenuCloseHandler = () => this.closeResultMenus();
           document.addEventListener("click", this.resultMenuCloseHandler);
-
-          /* ===== 上传任务的防御网 =====
-             上传是长任务，刷新、切后台、断网随时可能发生。以前这三种情况
-             都让在飞任务凭空消失，只能依赖服务端那份 fileId → uploadId 的
-             续传映射碰运气接上。这里补三道兜底。 */
-          this.beforeUnloadHandler = (e) => {
-            if (!this.hasActiveUploads()) return undefined;
-            e.preventDefault();
-            e.returnValue = "";
-            return "";
-          };
-          window.addEventListener("beforeunload", this.beforeUnloadHandler);
-
-          this.visibilityHandler = () => {
-            if (document.visibilityState !== "hidden") return;
-            /* 切后台：把当前进度落盘。移动端浏览器会直接杀掉后台标签页，
-               不落盘就什么都没了。 */
-            for (const f of this.uploadingFiles) {
-              if (f.status !== "uploading" && f.status !== "processing") continue;
-              if (!f.fileId || !f.uploadId) continue;
-              this.writeResumeState(f.fileId, {
-                uploadId: f.uploadId,
-                doneIndices: f.chunkDone || [],
-                parts: f.parts || [],
-                fileName: f.name,
-                size: f.size,
-                mode: f.targetMode,
-                chunkSize: f.chunkSizeAtResume || 0,
-              });
-            }
-          };
-          document.addEventListener("visibilitychange", this.visibilityHandler);
-
-          this.onlineHandler = () => {
-            if (!navigator.onLine) return;
-            const failed = this.uploadingFiles.filter((f) => f.status === "error");
-            if (!failed.length) return;
-            this.showToast(`网络已恢复，正在重试 ${failed.length} 个失败任务`, "info");
-            this.retryAllFailed();
-          };
-          window.addEventListener("online", this.onlineHandler);
         },
         beforeUnmount() {
           if (this._dlgKeyHandler) {
@@ -5473,7 +5008,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           for (const f of this.uploadingFiles) {
             f.cancelRequested = true;
             try { f.xhr && f.xhr.abort(); } catch (_) {}
-            this.releasePreview(f);
+            if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
           }
           if (this.nodeResolveTimer) clearTimeout(this.nodeResolveTimer);
           if (this.globalPasteHandler) document.removeEventListener("paste", this.globalPasteHandler);
@@ -5481,18 +5016,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           if (this.globalDragGuard) {
             window.removeEventListener("dragover", this.globalDragGuard);
             window.removeEventListener("drop", this.globalDragGuard);
-          }
-          if (this.beforeUnloadHandler) {
-            window.removeEventListener("beforeunload", this.beforeUnloadHandler);
-            this.beforeUnloadHandler = null;
-          }
-          if (this.visibilityHandler) {
-            document.removeEventListener("visibilitychange", this.visibilityHandler);
-            this.visibilityHandler = null;
-          }
-          if (this.onlineHandler) {
-            window.removeEventListener("online", this.onlineHandler);
-            this.onlineHandler = null;
           }
         },
       });

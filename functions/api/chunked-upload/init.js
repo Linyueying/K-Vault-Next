@@ -70,7 +70,7 @@
  *   this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV
  * ================================================================
  */
-import { checkAuthentication, getOwnerId } from '../../utils/auth.js';
+import { checkAuthentication } from '../../utils/auth.js';
 import { shouldWriteTelegramMetadata } from '../../utils/telegram.js';
 import {
   findShareSlugOwner,
@@ -79,7 +79,7 @@ import {
   validateShareOptions,
 } from '../../utils/share-options.js';
 import {
-  resolveChunkSizeForFile,
+  resolveChunkSizeForBackend,
   MAX_IN_MEMORY_ASSEMBLY,
   MAX_FILE_SIZE_R2,
   MAX_TOTAL_CHUNKS,
@@ -92,8 +92,6 @@ import {
   listUploadedChunkIndices,
   listUploadedParts,
   resumeMapKey,
-  readInstantIndex,
-  normalizeFileHash,
 } from '../../utils/chunk-state.js';
 
 // ============================================
@@ -142,21 +140,6 @@ const MAX_PENDING_PER_USER = 20;
 
 // 用户状态 KV（user-recent / user-multiparts / user-daily）TTL
 const USER_STATE_TTL = 86400 * 2; // 2 天
-
-// ============================================
-// 分片级并发（灰度开关）
-// ============================================
-// 单个上传任务内允许同时上传的分片数硬上限。
-// 2 是内存天花板倒推的结果：单片 ≤40MB × 2 路 = 80MB，
-// 在 128MB 共享 isolate 内留 48MB 余量。再往上必触发 Error 1102。
-const MAX_CHUNK_CONCURRENCY = 2;
-
-// 默认关闭并发（保守值）。确认线上稳定后，把 KV 里的
-// config:maxChunkConcurrency 置为 2 即可开启，无需重新部署。
-const DEFAULT_CHUNK_CONCURRENCY = 1;
-
-// 运维开关键：出问题把它删掉或设为 1 就能立即回滚
-const CHUNK_CONCURRENCY_CONFIG_KEY = 'config:maxChunkConcurrency';
 
 const VALID_STORAGE_MODES = [
   'telegram',
@@ -215,13 +198,10 @@ export async function onRequestPost(context) {
       //    uploadId —— 前端已知的任务 ID（同一次会话内重试时直接带上）
       fileId,
       uploadId: requestedUploadId,
-      //    fileHash —— 全量 SHA-256（仅小文件才算），用于秒传查重
-      fileHash,
     } = body || {};
 
     const normalizedFileId = normalizeFileId(fileId);
     const normalizedResumeId = normalizeUploadId(requestedUploadId);
-    const normalizedFileHash = normalizeFileHash(fileHash);
 
     const folderPath = normalizeFolderPath(body?.folderPath || body?.folder || '');
 
@@ -246,18 +226,11 @@ export async function onRequestPost(context) {
       );
     }
 
-    // totalChunks 现在是【可选】字段：
-    //   传了   → 必须与后端权威 chunkSize 推出的片数一致（兼容旧前端）
-    //   不传/0 → 视为「请求后端下发」，由后端按文件体积回算并回传
-    //
-    // 分片契约改为后端单点下发：此前前端按 mode === 'r2' 自行推导分片大小、
-    // 后端按 chunkBackend === 'r2' 推导，两者一旦不一致（例如部署环境没绑
-    // R2、但前端以为有），整条分片上传链路必抛 CHUNK_COUNT_MISMATCH。
-    // 现在前端拿到 init 响应里的 chunkSize / totalChunks 直接切片即可。
-    const rawTotalChunks = Number(totalChunks);
-    const clientTotalChunks =
-      Number.isInteger(rawTotalChunks) && rawTotalChunks > 0 ? rawTotalChunks : null;
-    if (clientTotalChunks !== null && clientTotalChunks > MAX_TOTAL_CHUNKS) {
+    const normalizedTotalChunks = Number(totalChunks);
+    if (!Number.isInteger(normalizedTotalChunks) || normalizedTotalChunks <= 0) {
+      return jsonResponse({ error: 'totalChunks 必须为正整数' }, 400);
+    }
+    if (normalizedTotalChunks > MAX_TOTAL_CHUNKS) {
       return jsonResponse(
         { error: `totalChunks 超过上限 (${MAX_TOTAL_CHUNKS})` },
         400
@@ -333,70 +306,33 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 6. 分片暂存后端 → 分片大小 → 分片数（后端单点权威推导）
+    // 6. 【P0 修复】先确定分片暂存后端，再据此推导 chunkSize
+    //    与 totalChunks 校验
     //
-    //    分片大小由两个因素决定：
-    //      1. 分片暂存后端（R2 原生 multipart / KV），见 resolveChunkBackend
-    //      2. 文件体积（自适应分档），见 resolveChunkSizeForFile
+    //    分片大小必须由"分片暂存后端"决定，而不是全局 CHUNK_SIZE。
+    //    否则前端非 R2 分支（20MB/片）与后端期望（50MB/片）对不上，
+    //    所有非 R2 分片上传会 100% 返回 CHUNK_COUNT_MISMATCH。
     //
-    //    推导结果直接回传给前端，前端用响应里的 chunkSize / totalChunks
-    //    切片即可，不再自行推导。totalChunks 只在「客户端显式传了」时
-    //    才做一致性校验，用于兼容旧前端与发现真实 bug。
+    //    规则（前后端必须完全一致）：
+    //      - chunkBackend === 'r2' → 50MB
+    //      - chunkBackend === 'kv' → 20MB（KV 单值上限 25MB）
     // ============================================
     const chunkBackend = resolveChunkBackend(env);
-    const chunkSize = resolveChunkSizeForFile(
-      chunkBackend === 'r2',
-      normalizedFileSize
-    );
+    const chunkSize = resolveChunkSizeForBackend(chunkBackend === 'r2');
 
     const expectedTotalChunks = Math.ceil(normalizedFileSize / chunkSize);
-    if (expectedTotalChunks > MAX_TOTAL_CHUNKS) {
+    if (normalizedTotalChunks !== expectedTotalChunks) {
       return jsonResponse(
         {
           error:
-            `文件分片数超限：${expectedTotalChunks} 片，上限 ${MAX_TOTAL_CHUNKS} 片` +
-            `（fileSize=${normalizedFileSize}, chunkSize=${chunkSize}）`,
-          code: 'CHUNK_COUNT_EXCEEDED',
-        },
-        400
-      );
-    }
-    if (clientTotalChunks !== null && clientTotalChunks !== expectedTotalChunks) {
-      return jsonResponse(
-        {
-          error:
-            `totalChunks 与 fileSize 不一致：声明 ${clientTotalChunks}，` +
+            `totalChunks 与 fileSize 不一致：声明 ${normalizedTotalChunks}，` +
             `期望 ${expectedTotalChunks}（fileSize=${normalizedFileSize}, ` +
             `chunkSize=${chunkSize}, chunkBackend=${chunkBackend}）`,
-          code: 'CHUNK_COUNT_MISMATCH',
-        },
-        400
-      );
-    }
-    const normalizedTotalChunks = expectedTotalChunks;
-
-    // ============================================
-    // 6.2 【秒传】内容级去重
-    //
-    //    同一个文件已经传过，就没有理由再传一遍字节。命中时直接返回已有
-    //    文件的访问信息，前端一字节都不用发。
-    //
-    //    放在续传与配额检查之前是有意的：秒传不创建任何后端资源、不占用
-    //    并发与每日配额，不该被这些限制挡住。
-    //
-    //    与续传的 resume-map 是两套完全独立的键空间，语义也不同：
-    //      resume-map —— 文件指纹 → 未完成的 uploadId（接着传）
-    //      instant    —— 内容哈希 → 已完成的文件（不用传）
-    // ============================================
-    if (normalizedFileHash) {
-      const instant = await tryInstantUpload(
-        env,
-        ownerId,
-        normalizedFileHash,
-        normalizedFileSize
-      );
-      if (instant) return instant;
-    }
+        code: 'CHUNK_COUNT_MISMATCH',
+      },
+      400
+    );
+  }
 
     // ============================================
     // 6.5 【服务端级断点续传】尝试复用未过期的上传任务
@@ -520,8 +456,6 @@ export async function onRequestPost(context) {
       chunkBackend,
       // 文件指纹：服务端续传靠它把"下一次上传"映射到"上一次任务"
       fileId: normalizedFileId || undefined,
-      // 全量内容哈希（仅小文件有）：complete 阶段据此写入秒传索引
-      fileHash: normalizedFileHash || undefined,
       uploadedChunks: [],
       chunkSizes: {},
       r2Multipart,
@@ -586,16 +520,12 @@ export async function onRequestPost(context) {
       (err) => console.error('writeResumeMap failed:', err)
     );
 
-    // 分片级并发额度由服务端下发（可在 KV 里改，无需重新部署）
-    const maxChunkConcurrency = await resolveMaxChunkConcurrency(env);
-
     return jsonResponse({
       success: true,
       uploadId,
       chunkSize,
       totalChunks: normalizedTotalChunks,
       chunkBackend,
-      maxChunkConcurrency,
       r2Multipart: !!r2Multipart,
       resumed: false,
       uploadedChunks: [],
@@ -670,7 +600,6 @@ export async function onRequestGet(context) {
       storageMode: taskData.storageMode,
       folderPath: taskData.folderPath,
       chunkBackend: taskData.chunkBackend,
-      maxChunkConcurrency: await resolveMaxChunkConcurrency(env),
       uploadedChunks,
       // R2 原生 multipart 的 etag 清单：前端拿到就能直接 complete，
       // 不必为了凑齐 parts 重传已经进 R2 的分片。
@@ -841,7 +770,6 @@ async function tryResumeTask(env, ownerId, req) {
     chunkSize: taskData.chunkSize,
     totalChunks: taskData.totalChunks,
     chunkBackend: taskData.chunkBackend,
-    maxChunkConcurrency: await resolveMaxChunkConcurrency(env),
     r2Multipart: !!taskData.r2Multipart,
     resumed: true,
     uploadedChunks,
@@ -857,64 +785,19 @@ async function tryResumeTask(env, ownerId, req) {
   });
 }
 
-/**
- * 尝试秒传：命中已上传过的相同内容就直接返回，一个字节都不用传。
- *
- * 索引结构：instant:<ownerId>:<sha256> → { key, url, fileName, size, mime,
- * storageMode, uploadedAt }，30 天自动过期，不需要清理任务。
- *
- * 孤儿风险：索引指向的文件可能已被用户删除。这里只做体积二次确认（廉价且
- * 能挡住索引写脏），真正的存活校验交给前端 —— 它拿到 URL 后会自己 HEAD
- * 一次，非 200 就清掉本地缓存并降级成正常上传。后端不为此额外发一次请求。
- *
- * @returns {Promise<Response|null>} 命中返回响应，未命中返回 null
- */
-async function tryInstantUpload(env, ownerId, fileHash, fileSize) {
-  // 键构造与索引读取都在 utils/chunk-state.js，与 complete.js 的写入同源
-  const rec = await readInstantIndex(env, ownerId, fileHash, fileSize);
-  if (!rec) return null;
+function getOwnerId(auth) {
+  const raw =
+    auth?.userId ??
+    auth?.user?.id ??
+    auth?.user?.email ??
+    auth?.email ??
+    (typeof auth?.user === 'string' ? auth.user : null) ??
+    null;
 
-  return jsonResponse({
-    success: true,
-    instant: true,
-    uploadId: null,
-    chunkSize: 0,
-    totalChunks: 0,
-    file: {
-      name: rec.fileName || '',
-      size: rec.size,
-      mime: rec.mime || 'application/octet-stream',
-      key: rec.key,
-      url: rec.url || `/file/${rec.key}`,
-      storageMode: rec.storageMode || '',
-      uploadedAt: rec.uploadedAt || 0,
-    },
-  });
-}
+  if (raw === null || raw === undefined) return null;
 
-/**
- * 分片级并发额度（单个上传任务内可以同时飞几个分片）。
- *
- * 为什么默认 1（即关闭）：
- *   Cloudflare isolate 内存上限 128MB，且【被并发请求共享】。分片并发的
- *   瞬时内存 ≈ 并发数 × 单片大小。单片上限已被 resolveChunkSizeForFile
- *   压到 40MB，2 路并发 ≈ 80MB，留 48MB 余量；但这是理论值，真实 isolate
- *   还要承担 complete 阶段的拼装与静态资源请求。因此默认保守关闭。
- *
- * 为什么从 KV 读而不是写死：
- *   一旦线上出现 Error 1102（内存超限），改 KV 值即可一键回滚到 1，
- *   不必改代码、不必重新部署 —— 这是本开关存在的全部意义。
- *
- * @param {object} env
- * @returns {Promise<number>} 1 ~ MAX_CHUNK_CONCURRENCY
- */
-async function resolveMaxChunkConcurrency(env) {
-  const raw = await env.img_url
-    .get(CHUNK_CONCURRENCY_CONFIG_KEY)
-    .catch(() => null);
-  const n = Number(raw);
-  if (Number.isInteger(n) && n >= 1 && n <= MAX_CHUNK_CONCURRENCY) return n;
-  return DEFAULT_CHUNK_CONCURRENCY;
+  const value = String(raw).trim();
+  return value || null;
 }
 
 function resolveChunkBackend(env) {

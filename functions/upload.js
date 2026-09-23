@@ -1,9 +1,4 @@
-import { checkAuthentication, isAuthRequired, getOwnerId } from "./utils/auth.js";
-import {
-  readInstantIndex,
-  writeInstantIndex,
-  normalizeFileHash,
-} from "./utils/chunk-state.js";
+import { checkAuthentication, isAuthRequired } from "./utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "./utils/guest.js";
 import { createS3Client } from "./utils/s3client.js";
 import { uploadToDiscord } from "./utils/discord.js";
@@ -104,11 +99,6 @@ export async function onRequestPost(context) {
       return errorResponse(uploadValidation.message, uploadValidation.status);
     }
 
-    // 秒传只对明确拿到身份的用户开放：索引按 ownerId 隔离，访客没有 ownerId，
-    // 拿不到就不查（宁可少一次秒传，也不能让不同访客共用同一份索引）。
-    const instantFileHashRaw =
-      isAdmin && !isApiTokenRequest ? normalizeFileHash(formData.get("fileHash")) : "";
-
     if (hasShareOptions(shareOptions)) {
       const shareOptionError = validateShareOptions(shareOptions);
       if (shareOptionError) {
@@ -125,40 +115,6 @@ export async function onRequestPost(context) {
         return errorResponse(
           "当前 Telegram 元数据写入已关闭（TELEGRAM_METADATA_MODE=off 或 TELEGRAM_SKIP_METADATA=1），无法设置有效期 / 密码 / 下载次数 / 短链。请改用其他存储后端，或恢复元数据写入。",
           409
-        );
-      }
-    }
-
-    // ============================================
-    // 秒传：同一个文件已经传过就没必要再传一遍字节。
-    //
-    // 直传是最高频的重复场景（同一张截图、同一份素材反复传），所以这里
-    // 也接上秒传，而不是只给分片链路用。命中时直接返回已有文件的直链，
-    // 不消耗存储、不占用后端上传配额。
-    //
-    // 只对明确拿到身份的用户生效：访客没有 ownerId，索引按用户隔离，
-    // 拿不到就不查（宁可少一次秒传，也不能让不同访客共用同一份索引）。
-    // ============================================
-    let instantOwnerId = null;
-    let instantFileHash = "";
-    if (instantFileHashRaw) {
-      instantOwnerId = getOwnerId(
-        isAuthRequired(env) ? await checkAuthentication(context) : { userId: "local" }
-      );
-      instantFileHash = instantOwnerId ? instantFileHashRaw : "";
-    }
-
-    if (instantOwnerId && instantFileHash) {
-      const instant = await readInstantIndex(
-        env,
-        instantOwnerId,
-        instantFileHash,
-        uploadFile.size
-      );
-      if (instant) {
-        return new Response(
-          JSON.stringify([{ src: instant.url, instant: true }]),
-          { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
     }
@@ -211,26 +167,6 @@ export async function onRequestPost(context) {
         const status = result.status;
         if (status >= 200 && status < 300) {
           await incrementGuestCount(request, env);
-        }
-      }
-      // 直传成功后登记秒传索引，让下一次传同一个文件可以直接命中。
-      // 用 clone() 读响应体，原 Response 仍然可以正常返回给客户端。
-      if (result.ok && instantOwnerId && instantFileHash) {
-        const payload = await result
-          .clone()
-          .json()
-          .catch(() => null);
-        const src = Array.isArray(payload) ? payload[0]?.src : payload?.src;
-        const fileKey =
-          typeof src === "string" && src.startsWith("/file/") ? src.slice(6) : "";
-        if (fileKey) {
-          await writeInstantIndex(env, instantOwnerId, {
-            fileHash: instantFileHash,
-            fileName,
-            fileSize: uploadFile.size,
-            fileType: uploadFile.type || "application/octet-stream",
-            storageMode,
-          }, fileKey);
         }
       }
       if (result.ok && hasShareOptions(shareOptions)) {

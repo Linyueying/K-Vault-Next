@@ -207,7 +207,6 @@
 
       .toolbar-row {
         grid-column: 1 / -1;
-        min-width: 0;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -225,7 +224,6 @@
         align-items: center;
         gap: 10px;
         flex-wrap: wrap;
-        min-width: 0;
       }
 
       .status-pill {
@@ -505,28 +503,6 @@
         padding: 4px 0 2px;
       }
 
-      /* 上传进度条：用 transform 驱动，不碰 width，避免每帧重排 */
-      .file-queue-prog {
-        margin-top: 6px;
-        height: 4px;
-        border-radius: 999px;
-        background: rgba(148, 163, 184, 0.2);
-        overflow: hidden;
-      }
-      .file-queue-prog > i {
-        display: block;
-        height: 100%;
-        width: 100%;
-        transform: scaleX(0);
-        transform-origin: left center;
-        border-radius: 999px;
-        background: linear-gradient(90deg, #38bdf8, #0284c7);
-        transition: transform 0.3s ease;
-      }
-      .file-queue-size.is-error {
-        color: #dc2626;
-      }
-
       input,
       button {
         border: 1px solid var(--wf-border);
@@ -757,9 +733,7 @@
 
       @media (max-width: 980px) {
         .layout {
-          /* 必须用 minmax(0, 1fr)：裸 1fr 的隐含下限是 auto(min-content)，
-             会被宽内容(状态胶囊/按钮组)撑破容器，导致移动端横向溢出 */
-          grid-template-columns: minmax(0, 1fr);
+          grid-template-columns: 1fr;
         }
 
         .span-2 {
@@ -1212,142 +1186,6 @@
           }
         }
 
-        /* ============================================================
-           文件上传（并发 + 进度 + 重试 + 可取消）
-           ------------------------------------------------------------
-           原来是纯串行 for 循环：几十个文件要一个一个等，中途没有任何进度
-           反馈，一个失败就整批中断，且完全没有超时保护（网络挂起就永远卡
-           在「正在上传第 N 个」）。
-           这里改成一个 2 路并发的小池子，逐个文件独立上报进度与失败，
-           单个文件失败不影响其余文件。
-           ============================================================ */
-        var UPLOAD_CONCURRENCY = 2;
-        var UPLOAD_MAX_RETRY = 3;
-        var uploadCancelFlag = false;
-        var uploadRunning = false;
-        var uploadProgressWrap = null;
-
-        function ensureProgressWrap() {
-          if (uploadProgressWrap) return uploadProgressWrap;
-          uploadProgressWrap = document.createElement("div");
-          uploadProgressWrap.className = "file-queue-wrap";
-          var head = document.createElement("div");
-          head.className = "file-queue-head";
-          var title = document.createElement("div");
-          title.className = "file-queue-title";
-          title.textContent = "上传进度";
-          head.appendChild(title);
-          var list = document.createElement("ul");
-          list.className = "file-queue-list";
-          uploadProgressWrap.appendChild(head);
-          uploadProgressWrap.appendChild(list);
-          fileQueueWrap.parentNode.insertBefore(uploadProgressWrap, fileQueueWrap.nextSibling);
-          return uploadProgressWrap;
-        }
-
-        function makeProgressRow(file) {
-          var row = {};
-          var li = document.createElement("li");
-          li.className = "file-queue-item";
-
-          var icon = document.createElement("span");
-          icon.className = "file-queue-icon";
-          var iconNode = document.createElement("i");
-          iconNode.className = resolveFileIconClass(file);
-          icon.appendChild(iconNode);
-
-          var meta = document.createElement("div");
-          meta.className = "file-queue-meta";
-          var name = document.createElement("div");
-          name.className = "file-queue-name";
-          name.textContent = String(file.name || "未命名文件");
-          var state = document.createElement("div");
-          state.className = "file-queue-size";
-          state.textContent = formatFileSize(file.size || 0) + " · 等待中";
-          var prog = document.createElement("div");
-          prog.className = "file-queue-prog";
-          var bar = document.createElement("i");
-          prog.appendChild(bar);
-          meta.appendChild(name);
-          meta.appendChild(state);
-          meta.appendChild(prog);
-
-          li.appendChild(icon);
-          li.appendChild(meta);
-
-          row.file = file;
-          row.el = li;
-          row.state = state;
-          row.bar = bar;
-          row.xhr = null;
-          return row;
-        }
-
-        function setRowProgress(row, ratio) {
-          var r = Math.max(0, Math.min(1, Number(ratio) || 0));
-          row.bar.style.transform = "scaleX(" + r + ")";
-        }
-
-        function setRowStatus(row, text, isError) {
-          row.state.textContent = formatFileSize(row.file.size || 0) + " · " + text;
-          row.state.classList.toggle("is-error", isError === true);
-        }
-
-        function runUploadRow(row, folderPath, failed) {
-          return new Promise(function (resolve) {
-            var attempt = 0;
-            var go = function () {
-              if (uploadCancelFlag) { setRowStatus(row, "已取消", false); resolve(); return; }
-              var xhr = new XMLHttpRequest();
-              row.xhr = xhr;
-              xhr.open("POST", "./upload");
-              xhr.withCredentials = true;
-              /* 超时按体积估算（2 秒/MB，下限 30 秒）。
-                 没有超时的话，网络一旦挂起就会永远停在「正在上传」。 */
-              xhr.timeout = Math.max(30000, Math.round(30000 + (row.file.size / (1024 * 1024)) * 2000));
-              xhr.upload.onprogress = function (e) {
-                if (e.lengthComputable) setRowProgress(row, e.loaded / e.total);
-              };
-              xhr.onload = function () {
-                var payload = null;
-                try { payload = JSON.parse(xhr.responseText); } catch { payload = null; }
-                var first = Array.isArray(payload) ? payload[0] : payload;
-                var src = first && first.src ? String(first.src) : "";
-                if (xhr.status >= 200 && xhr.status < 300 && src) {
-                  setRowProgress(row, 1);
-                  setRowStatus(row, first.instant === true ? "秒传完成" : "上传成功", false);
-                  pushResult("文件上传成功", "ok", toAbsoluteUrl(src));
-                  resolve();
-                  return;
-                }
-                var msg = (first && (first.error || first.message)) || ("上传失败（" + xhr.status + "）");
-                retryOrFail(msg);
-              };
-              var retryOrFail = function (msg) {
-                attempt += 1;
-                if (attempt < UPLOAD_MAX_RETRY && !uploadCancelFlag) {
-                  setRowStatus(row, "重试 " + attempt + "/" + (UPLOAD_MAX_RETRY - 1) + "...", false);
-                  setTimeout(go, 800 * Math.pow(2, attempt - 1));
-                  return;
-                }
-                setRowStatus(row, msg, true);
-                failed.push(row.file.name);
-                resolve();
-              };
-              xhr.onerror = function () { retryOrFail("网络错误"); };
-              xhr.ontimeout = function () { retryOrFail("上传超时"); };
-              xhr.onabort = function () { setRowStatus(row, "已取消", false); resolve(); };
-
-              var form = new FormData();
-              form.append("file", row.file);
-              form.append("storageMode", "webdav");
-              form.append("folderPath", folderPath);
-              xhr.send(form);
-            };
-            go();
-          });
-        }
-
         async function uploadFiles() {
           var files = getSelectedFiles();
           if (!files.length) {
@@ -1355,72 +1193,29 @@
             return;
           }
 
-          /* 已在上传中：这一下按「取消」处理 */
-          if (uploadRunning) {
-            uploadCancelFlag = true;
-            setStatus("正在取消...", null);
-            return;
-          }
-
-          var folderPath = normalizeFolderPath(folderPathInput.value);
-          uploadCancelFlag = false;
-          uploadRunning = true;
-
-          var rows = files.map(makeProgressRow);
-          var wrap = ensureProgressWrap();
-          var listEl = wrap.querySelector(".file-queue-list");
-          listEl.innerHTML = "";
-          rows.forEach(function (row) { listEl.appendChild(row.el); });
-          wrap.style.display = "block";
-
-          var originalLabel = uploadFilesBtn.textContent;
-          uploadFilesBtn.textContent = "取消上传";
-          uploadFilesBtn.classList.add("is-cancel");
-
-          var failed = [];
-          var cursor = 0;
-          var active = 0;
-          var doneCount = 0;
-
+          uploadFilesBtn.disabled = true;
           try {
-            await new Promise(function (resolve) {
-              var pump = function () {
-                while (active < UPLOAD_CONCURRENCY && cursor < rows.length && !uploadCancelFlag) {
-                  var row = rows[cursor];
-                  cursor += 1;
-                  active += 1;
-                  runUploadRow(row, folderPath, failed).then(function () {
-                    active -= 1;
-                    doneCount += 1;
-                    setStatus("已完成 " + doneCount + " / " + rows.length + " 个文件", null);
-                    pump();
-                  });
-                }
-                if (active === 0 && (cursor >= rows.length || uploadCancelFlag)) resolve();
-              };
-              pump();
-            });
-          } finally {
-            uploadRunning = false;
-            uploadFilesBtn.disabled = false;
-            uploadFilesBtn.textContent = originalLabel;
-            uploadFilesBtn.classList.remove("is-cancel");
-          }
-
-          var succeeded = rows.length - failed.length;
-          if (uploadCancelFlag) {
-            for (var i = cursor; i < rows.length; i += 1) {
-              if (rows[i].xhr) { try { rows[i].xhr.abort(); } catch {} }
+            var folderPath = normalizeFolderPath(folderPathInput.value);
+            for (var i = 0; i < files.length; i += 1) {
+              setStatus("正在上传第 " + (i + 1) + " / " + files.length + " 个文件...", null);
+              var form = new FormData();
+              form.append("file", files[i]);
+              form.append("storageMode", "webdav");
+              form.append("folderPath", folderPath);
+              var payload = await request("./upload", { method: "POST", body: form });
+              var first = Array.isArray(payload) ? payload[0] : payload;
+              var src = first && first.src ? String(first.src) : "";
+              if (src) {
+                pushResult("文件上传成功", "ok", toAbsoluteUrl(src));
+              } else {
+                pushResult("文件上传成功，但未返回直链。", "ok");
+              }
             }
-            setStatus("已取消上传，完成 " + doneCount + " / " + rows.length + " 个。", false);
-            return;
+            clearSelectedFiles();
+            setStatus("全部文件上传完成。", true);
+          } finally {
+            uploadFilesBtn.disabled = false;
           }
-          if (failed.length) {
-            setStatus(succeeded + " 个上传完成，" + failed.length + " 个失败：" + failed[0], false);
-            return;
-          }
-          clearSelectedFiles();
-          setStatus("全部 " + rows.length + " 个文件上传完成。", true);
         }
 
         async function uploadFromUrl() {
