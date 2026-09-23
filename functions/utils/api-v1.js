@@ -1,3 +1,5 @@
+import { redactSecrets } from './redact.js';
+
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
   'Cache-Control': 'no-store',
@@ -25,7 +27,7 @@ export function apiError(code, message, status = 400, extra = {}, headers = {}) 
       success: false,
       error: {
         code,
-        message,
+        message: redactSecrets(message),
         ...extra,
       },
     }),

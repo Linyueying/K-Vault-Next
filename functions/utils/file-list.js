@@ -119,7 +119,20 @@ export function normalizeKey(key) {
  * @param env - Pages 环境（需绑定 `img_url`）。
  * @param prefix - 可选前缀过滤。
  */
+// 短 TTL 缓存：翻页 / 多接口同时列举时，避免对同一前缀反复全量扫描 KV 命名空间
+// （每次 list() 调用都计费，全量列举成本随文件数线性增长）。
+// 代价：上传后最多 LIST_CACHE_TTL_MS 内才会出现在列表中；上传响应本身已返回新文件，
+// 且列表并非强一致场景，2 秒窗口的轻微陈旧在文件库场景可接受。
+const LIST_CACHE_TTL_MS = 2000;
+const listCache = new Map(); // prefix -> { ts, keys }
+
 export async function listAllKeys(env, prefix = '') {
+  const cacheKey = prefix || '';
+  const cached = listCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < LIST_CACHE_TTL_MS) {
+    return cached.keys;
+  }
+
   const allKeys = [];
   let cursor = undefined;
   let guard = 0;
@@ -131,6 +144,7 @@ export async function listAllKeys(env, prefix = '') {
     guard += 1;
   } while (cursor && guard < 10000);
 
+  listCache.set(cacheKey, { ts: Date.now(), keys: allKeys });
   return allKeys;
 }
 

@@ -3,6 +3,7 @@ import {
   isAuthRequired 
 } from '../../utils/auth.js';
 import { apiError } from '../../utils/api-v1.js';
+import { redactSecrets } from '../../utils/redact.js';
 import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
 
 /**
@@ -28,7 +29,7 @@ async function errorHandling(context) {
     } catch (err) {
       // 仅服务端记录细节，绝不把 err.message / err.stack 回显给客户端，
       // 避免向匿名访客泄露源码路径、内部状态与上游报错。
-      console.error('[manage] unhandled error', err);
+      console.error('[manage] unhandled error', redactSecrets(err?.message ?? String(err)));
       return new Response(
         JSON.stringify({ error: 'Internal Server Error' }),
         { status: 500, headers: { 'Content-Type': 'application/json;charset=UTF-8' } }

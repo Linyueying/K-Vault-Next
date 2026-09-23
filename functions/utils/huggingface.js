@@ -3,6 +3,8 @@
  * 使用 HF Hub API 上传/下载/删除文件
  */
 
+import { validateRedirectLocation } from './ssrf-guard.js';
+
 const HF_BASE_URL = 'https://huggingface.co';
 
 function stripWrappingQuotes(value) {
@@ -394,10 +396,35 @@ export async function getHuggingFaceFile(pathInRepo, env, options = {}) {
         headers['Range'] = options.range;
     }
 
-    return fetch(url, {
-        headers,
-        redirect: 'follow'
-    });
+    // 服务端代理 fetch：禁止自动跟随重定向（否则可能被上游 302 诱导到
+    // 内网 / 元数据地址造成 SSRF）。改为手动校验每一跳目标主机后再跟随。
+    return fetchWithSafeRedirect(url, headers);
+}
+
+/**
+ * 手动跟随重定向，并对每一跳的 Location 重新跑 SSRF 校验。
+ * 复用 ssrf-guard 的 validateRedirectLocation（校验私有 / 环回 / 元数据地址与端口）。
+ */
+async function fetchWithSafeRedirect(url, headers, redirectBudget = 5) {
+    const response = await fetch(url, { headers, redirect: 'manual' });
+
+    // 非重定向（含 200/206/4xx/5xx）直接透传给调用方。
+    if (response.status < 300 || response.status >= 400) {
+        return response;
+    }
+    if (redirectBudget <= 0) {
+        return new Response('Too many redirects.', { status: 502 });
+    }
+
+    const location = response.headers.get('Location');
+    const check = validateRedirectLocation(location, url);
+    if (!check.ok) {
+        return new Response(
+            JSON.stringify({ error: check.message || 'Blocked redirect to untrusted host.' }),
+            { status: 502, headers: { 'Content-Type': 'application/json' } }
+        );
+    }
+    return fetchWithSafeRedirect(check.url.href, headers, redirectBudget - 1);
 }
 
 /**

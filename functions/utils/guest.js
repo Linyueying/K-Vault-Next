@@ -6,15 +6,16 @@
  * 见 ./runtime-config.js
  */
 import { getGuestConfigResolved } from './runtime-config.js';
+import { getClientIp } from './ratelimit.js';
 
 /**
- * 获取客户端 IP
+ * 获取客户端 IP。
+ * 复用 ratelimit 的 getClientIp：优先 Cloudflare 注入的 CF-Connecting-IP
+ * （在 CF 边缘不可伪造），仅在非 CF 环境（本地 / 直连源站）回退到 X-Forwarded-For。
+ * 去掉原先可被客户端伪造的 X-Real-IP 回退，避免访客每日限额计数键被伪造绕过。
  */
 function getClientIP(request) {
-    return request.headers.get('CF-Connecting-IP')
-        || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
-        || request.headers.get('X-Real-IP')
-        || '0.0.0.0';
+    return getClientIp(request);
 }
 
 /**
