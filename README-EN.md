@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="K-Vault Logo" width="140">
+<img src="logo.png" alt="K-Vault-Next Logo" width="140">
 
 # K-Vault-Next
 
@@ -15,6 +15,82 @@
 ![GitHub license](https://img.shields.io/github/license/Linyueying/K-Vault-Next?style=flat-square)
 
 </div>
+
+---
+
+Files land in the storage backend you pick, metadata goes into Cloudflare KV, and you get direct links, previews, folder management, share controls, text pastes, API tokens and a machine-callable API on top.
+
+**There is exactly one deployment form**: Cloudflare Pages (static pages in the repo root plus Pages Functions under `functions/`). No build step, no Docker, no server to operate, **zero runtime dependencies**, and zero cost inside the free quota.
+
+This repository is derived from [katelya77/K-Vault](https://github.com/katelya77/K-Vault). It keeps the backend capabilities and then rewrites the frontend, hardens authentication, upgrades chunked uploads and drops the Docker self-hosting path. See the next section for the full diff.
+
+---
+
+## How this differs from katelya77/K-Vault
+
+### In one line
+
+Upstream is a general-purpose file host with **both Cloudflare Pages and Docker** targets. K-Vault-Next is a trimmed, hardened fork that **keeps Cloudflare Pages only** — it trades away self-hosting flexibility and spends the effort on that single path instead.
+
+### Overview
+
+| | katelya77/K-Vault | K-Vault-Next |
+| :--- | :--- | :--- |
+| Deployment | Cloudflare Pages **+ single Docker image** | **Cloudflare Pages only** |
+| Runtime dependencies | `@sentry/tracing`, `@cloudflare/pages-plugin-sentry`, … | **none** (only `wrangler` as a dev dependency) |
+| Telemetry | Sentry built in, disabled via `disable_telemetry` | **no telemetry code at all** |
+| Pages | 6 | **8** (adds `/paste.html` and `/share.html`) |
+| Frontend CSS | written per page | **`design-system.css` as the single source of truth** + Apple HIG motion system |
+| Variable naming | two spellings per setting; docs suggested "set both" | **unified read layer, any spelling works, set it once** |
+| Changing config | edit variables → redeploy | three groups are **editable in the dashboard, written to KV, live immediately** |
+| Max file (R2) | 100MB (chunked) | **10GB** (R2 native multipart) |
+| Short link | `/s/:slug` 302s straight to the file | `/s/:slug` → **share landing page**; previews do not count, downloads do |
+| Admin dashboard | file management + allow/deny list | folder tree, favourites, rename, batch move, usage monitoring, share management |
+| Content moderation | `ModerateContentApiKey` | **removed** (no third-party moderation calls) |
+| Allow / deny list | `WhiteList_Mode` | **removed** |
+| Frontend build output | previously shipped `frontend/` (Vite/Vue) and `_nuxt/` | **removed**; single-file HTML in the repo root is the only entry point |
+| Tests / CI | mocha, Docker smoke tests, storage regression script | server-side tests removed; config validators and style guards under `scripts/` remain |
+
+### What Next removes
+
+- **The entire Docker / self-hosting track**: the `server/` Node runtime, `docker-compose.yml`, `Dockerfile`, `README-DOCKER.md`, the GHCR image pipeline and the accompanying server tests.
+- **Docker-only environment variables**: `DATA_DIR`, `DB_PATH`, `CHUNK_DIR`, `PORT`, `WEB_PORT`, `CONFIG_ENCRYPTION_KEY`, `SESSION_SECRET`, `SETTINGS_STORE`, `SETTINGS_REDIS_*`, `UPLOAD_MAX_SIZE`, `UPLOAD_SMALL_FILE_THRESHOLD`, `CHUNK_SIZE`, `DEFAULT_STORAGE_TYPE`.
+- **Sentry telemetry** — dependencies and instrumentation are gone, so `disable_telemetry` no longer exists either.
+- **Content moderation and allow/deny lists** — `ModerateContentApiKey`, `WhiteList_Mode` and their code paths.
+
+> If what you need is "run it on a VPS, swap backends freely, store config in Redis", use upstream's Docker build. This repository deliberately does **not** do that.
+
+### What Next adds
+
+| Area | Change |
+| :--- | :--- |
+| Frontend consistency | `design-system.css`: design tokens, shared components, 37 keyframes and the Vue transition families live in one place; pages only carry local increments |
+| Motion & accessibility | Apple HIG easing/duration tokens, staggered first-paint choreography; `prefers-reduced-motion`, `prefers-reduced-transparency` and `html[data-perf="low"]` tiering |
+| Environment variables | `functions/utils/env-config.js` — one read layer, so `TG_Bot_Token` and `TG_BOT_TOKEN` both work |
+| Runtime config | `config:guest` / `config:cors` / `config:upload` editable in the dashboard, written to KV, live without a redeploy |
+| Chunked upload | R2 native multipart; per-file ceiling raised from 100MB to **10GB**; staging target (`auto` / `r2` / `kv`) switchable in the dashboard |
+| Routing | `functions/file/[[path]].js` handles arbitrary-depth file paths |
+| Sharing | `/s/:slug` → `/share.html?s=:slug` landing page; expiry / password / download-count limit / custom slug, settable from both UI and API; a "share management" panel in the dashboard |
+| Text paste | new `/paste.html` plus a `paste` scope, with language tagging, expiry and password |
+| Admin dashboard | folder tree, favourites, rename, batch move, KV/R2 usage monitoring, token policies (`allowedStorages`, `folderPrefix`, `rateLimit`, …) |
+| Upload scheduling | a "storage node" drawer on the home page: smart routing (files over a threshold switch backends) plus optional parallel uploads (Telegram pool and chunk pool kept separate) |
+| Security | fail-closed admin surface, unified rate limiting, login brute-force protection, stack-trace redaction, SSRF guard on URL imports, vendored third-party assets |
+| Docs | `docs/openapi.yaml` (machine-readable API) and `docs/agent-integration.md` (agent integration guide) |
+
+### Upload limits compared
+
+| Backend | upstream K-Vault | K-Vault-Next | Note |
+| :--- | :--- | :--- | :--- |
+| Telegram (Pages web upload) | 20MB | 20MB | same; both relay through Worker memory |
+| Telegram (Docker web upload) | 50MB | — | Next has no Docker target |
+| Cloudflare R2 | 100MB (chunked) | **10GB** | Next uses R2 native multipart |
+| S3-compatible | 100MB (chunked) | 40MB | Next has no S3 chunking; assembled in Worker memory |
+| WebDAV | not documented | 40MB | assembled in Worker memory |
+| GitHub | not documented | 40MB (20MB in `contents` mode) | assembled in Worker memory |
+| HuggingFace | 35MB (plain) / 50GB (LFS) | 35MB | Next does not use the LFS path |
+| Discord | 25MB (no boost) / 50–100MB (L2+) | 25MB | Next takes the conservative value |
+
+> Honest note: Next is not strictly stronger across the board. R2 jumps a long way, but S3, WebDAV and GitHub are *lower* than upstream's figures because they have no chunked path here.
 
 ---
 
@@ -35,32 +111,13 @@
 
 ---
 
-## What it does
-
-Files land in the storage backend you pick, metadata goes into Cloudflare KV, and you get direct links, previews, folder management, API tokens and a machine-callable API on top.
-
-**There is exactly one deployment form**: Cloudflare Pages (static pages in the repo root plus Pages Functions under `functions/`). No build step, no Docker, no server to operate, and zero cost inside the free quota.
-
-- **Seven storage backends**, switched from a single upload entry point; Telegram is the default
-- **Three upload paths**: direct upload, upload-from-URL (with SSRF protection), and chunked upload (up to 10GB over R2 native multipart)
-- **Smart routing**: in `auto` mode small files go to the default backend and files over a threshold switch to a backend you choose (R2 by default); the threshold and target are configurable on the home page
-- **Admin dashboard**: search / sort / filter, folder tree, favourites, rename, batch move and delete, KV & R2 usage monitoring, API token management
-- **Text paste (Pastebin)** with language tagging, expiry and access password
-- **File preview** for images, audio, video, PDF, Office, Markdown, JSON, CSV, archives, email, source text, 3D / CAD and more
-- **Short share links** at `/s/:slug`, combined with expiry / password / download-count limits
-- **API v1 with API tokens**, fully isolated from the browser session, scope-based authorization, idempotent retries
-- **Optional guest uploads** with per-file size and daily count limits
-- **Fail-closed admin surface**: with no admin credentials configured, management endpoints return 503 instead of opening up to the internet
-- **No telemetry**: nothing phones home
-
----
-
 ## Pages
 
 | Page | Path | What it is |
 | :--- | :--- | :--- |
-| Home / upload | `/` | Drag-and-drop, paste and batch upload; upload-from-URL; chunked upload; smart routing; upload folder tree; upload history; direct / Markdown / HTML / BBCode link formats |
-| Admin | `/admin.html` | File and folder management, favourites, usage monitoring, API token management |
+| Home / upload | `/` | Drag-and-drop, paste and batch upload; upload-from-URL; chunked upload; smart routing; upload folder tree; upload history; direct / Markdown / HTML / BBCode link formats; per-item share config |
+| Admin | `/admin.html` | File and folder management, favourites, rename, batch move/delete, KV & R2 usage monitoring, API token management, share management, runtime settings |
+| Share | `/share.html` | Landing page for `/s/:slug`; preview and download, password gate, expiry reasons |
 | Text paste | `/paste.html` | Create / list / view / delete pastes, with expiry and password |
 | Gallery | `/gallery.html` | Image browsing, search, batch copy / download / delete |
 | Preview | `/preview.html` | Multi-format preview; password-protected files prompt for a password |
@@ -69,47 +126,119 @@ Files land in the storage backend you pick, metadata goes into Cloudflare KV, an
 
 ---
 
-## Deployment
+## Setting environment variables correctly
 
-### 0. Prerequisites
+This is where most deployments go wrong. Read it in order.
+
+### Three different kinds of "config"
+
+Cloudflare Pages has three kinds of configuration, and they behave completely differently:
+
+| Kind | Where you set it | Redeploy needed? | Examples |
+| :--- | :--- | :--- | :--- |
+| **Binding** | Settings → **Functions** → KV namespace bindings / R2 bucket bindings | **Yes** | `img_url`, `R2_BUCKET` |
+| **Environment variable** | Settings → **Environment variables** | **Yes** | `BASIC_USER`, `TG_Bot_Token`, … |
+| **Runtime config (in KV)** | `/admin.html` → settings panel | **No** — live immediately | guest uploads, CORS, chunk staging backend |
+
+**The three classic mistakes**:
+
+1. **Filling a binding in as an environment variable.** KV and R2 are *bindings*, not variables. Setting `img_url = something` under Environment variables does **nothing**; bind it under Settings → **Functions**.
+2. **Forgetting to redeploy.** Bindings and variables are injected at deploy time. After changing them, go to Deployments → latest → **Retry deployment** (or push a new commit). A running deployment never picks up new values on its own.
+3. **Expecting Pages to read `.env`.** The `.env.example` in this repo is a checklist of *what* to configure, not a config file. Cloudflare Pages **does not read** `.env`. (Local `wrangler` does — see below.)
+
+### Minimum viable setup: five steps
+
+| # | Action | Name / variable | Value |
+| :-- | :--- | :--- | :--- |
+| 1 | Bind KV | **name must be `img_url`** | a KV namespace you create |
+| 2 | Bind R2 (strongly recommended) | **name must be `R2_BUCKET`** | an R2 bucket you create |
+| 3 | Environment variable | `BASIC_USER` | your dashboard username |
+| 4 | Environment variable | `BASIC_PASS` | your dashboard password |
+| 5 | Environment variable | credentials for one storage backend (Telegram is easiest: `TG_Bot_Token` + `TG_Chat_ID`) | — |
+
+> **Set `BASIC_USER` and `BASIC_PASS` for any public deployment.** Without them, `/api/manage/**` and `/api/admin/**` return `503 ADMIN_AUTH_NOT_CONFIGURED` and the dashboard is unusable — fail-closed, never open to the internet.
+
+**Step 6 (only if you bound R2)**: configure R2 lifecycle rules, or abandoned chunks from half-finished uploads will sit in your bucket forever. See [step 5](#5-r2-lifecycle-rules-required-once-r2-is-bound).
+
+### You do not need to worry about variable casing
+
+Cloudflare Pages environment variables are **case-sensitive**. Historically the same setting existed under two spellings (`TG_Bot_Token` and `TG_BOT_TOKEN`), and different modules each read only one of them — so you could fill in the upper-case alias exactly as documented and have the main upload path silently ignore it, with no error at all. Older docs could only advise "set both", i.e. enter every value twice.
+
+Now the backend has a single read layer, `functions/utils/env-config.js`, which declares the accepted spellings for each logical variable and takes the first non-empty one:
+
+| Logical variable | Spellings recognised (in priority order) |
+| :--- | :--- |
+| `TG_BOT_TOKEN` | `TG_Bot_Token` → `TG_BOT_TOKEN` |
+| `TG_CHAT_ID` | `TG_Chat_ID` → `TG_CHAT_ID` |
+| `TG_UPLOAD_NOTIFY` | `TG_UPLOAD_NOTIFY` → `TELEGRAM_UPLOAD_NOTIFY` |
+| `TELEGRAM_WEBHOOK_SECRET` | `TELEGRAM_WEBHOOK_SECRET` → `TG_WEBHOOK_SECRET` |
+| `FILE_URL_SECRET` | `FILE_URL_SECRET` → `TG_FILE_URL_SECRET` |
+| `WEBDAV_BEARER_TOKEN` | `WEBDAV_BEARER_TOKEN` → `WEBDAV_TOKEN` |
+
+**Pick one spelling and set it once — "set both" is no longer needed.** Variables not listed here are read verbatim.
+
+### Variables you never need to set at deploy time
+
+These three groups are editable in `/admin.html` → settings panel and take effect **immediately, with no redeploy**. They are stored in KV (`config:guest` / `config:cors` / `config:upload`), and the read order is **KV override > environment variable**.
+
+| Group | Contents | Environment variables (baseline only) |
+| :--- | :--- | :--- |
+| Guest uploads | enabled, max file size, daily limit | `GUEST_UPLOAD`, `GUEST_MAX_FILE_SIZE`, `GUEST_DAILY_LIMIT` |
+| CORS | API v1 origin allow-list | `API_CORS_ORIGINS` |
+| Chunk staging | `auto` / `r2` / `kv` | `CHUNK_BACKEND` |
+
+Environment variables act as a **baseline** here: they apply only until the group has been saved once from the dashboard. After that KV wins. A "reset" button in the dashboard deletes the KV key and drops you back to the environment baseline.
+
+> This is a real improvement over upstream, where every setting is env-only and every change costs a redeploy.
+
+### Full walkthrough
+
+#### 0. Prerequisites
 
 - A Cloudflare account
 - A fork of this repository (or deploy straight from your machine with `npm run pages:deploy`)
 - Credentials for at least one storage backend — Telegram is the easiest: a bot token plus a chat ID
 
-> **Set `BASIC_USER` and `BASIC_PASS` for any public deployment.** Without them, `/api/manage/**` and `/api/admin/**` return `503 ADMIN_AUTH_NOT_CONFIGURED` and the dashboard is unusable.
-
-### 1. Create the Pages project
+#### 1. Create the Pages project
 
 Cloudflare Dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**, then pick your repository.
 
 | Setting | Value |
 | :--- | :--- |
 | Framework preset | `None` |
+| Root directory | empty (repo root) |
+| Install command | empty |
 | **Build command** | **leave empty** |
 | **Build output directory** | **leave empty** |
+| Deploy command | empty |
 
-There is no build step — the repo root is already the static site plus `functions/`. Filling these in breaks the deployment.
+There is no build step — the repo root is already the static site plus `functions/`. Filling these in breaks the deployment. In particular, do **not** put `npx wrangler deploy` (a Workers command) or `npm run build` here; you will hit errors like `The detected framework ("Hono") cannot be automatically configured`.
 
-### 2. Bind KV (required)
+#### 2. Bind KV (required)
 
-KV holds file metadata, sessions, tokens and chunked-upload tasks. **The binding name must be `img_url`**; anything else and nothing works.
+KV holds file metadata, sessions, tokens, chunked-upload tasks and runtime config. **The binding name must be `img_url`**; anything else and nothing works.
 
 Dashboard → **Workers & Pages → KV** → create a namespace → back to the Pages project → **Settings → Functions → KV namespace bindings** → Variable name `img_url`, select the namespace you just created.
 
-### 3. Bind R2 (strongly recommended)
+#### 3. Bind R2 (strongly recommended)
 
-R2 is the only backend with native multipart support for large files and the only one that does not need KV as chunk staging. **The binding name must be `R2_BUCKET`.**
+R2 is the only backend with native multipart support for large files, and the only one that needs no KV chunk staging. **The binding name must be `R2_BUCKET`.**
 
 Dashboard → **R2** → create a bucket → back to the Pages project → **Settings → Functions → R2 bucket bindings** → Variable name `R2_BUCKET`.
 
 Without it, files above 40MB cannot be uploaded at all, and chunk staging falls back to KV (chunk size drops from 50MB to 20MB).
 
-### 4. Set environment variables
+#### 4. Set environment variables
 
-Add them under **Settings → Environment variables**. At minimum you need the admin credentials plus one storage backend; the full list is in the next section. Changes only take effect after a **redeploy**.
+Settings → **Environment variables** → Add variables.
 
-### 5. R2 lifecycle rules (required once R2 is bound)
+- For secrets (passwords, tokens, keys), press **Encrypt** to store them as secrets — after saving they cannot be viewed again.
+- Production and Preview environments are configured separately.
+- Changes only take effect after a **redeploy**.
+
+**Minimum: admin credentials plus one storage backend.** Full list below.
+
+#### 5. R2 lifecycle rules (required once R2 is bound)
 
 R2 console → your bucket → **Settings → Object Lifecycle Rules**, add two rules:
 
@@ -120,14 +249,16 @@ R2 console → your bucket → **Settings → Object Lifecycle Rules**, add two 
 
 **Why this matters**: if someone abandons a large upload halfway, the staged chunks sit in your bucket forever. The only cleanup in code is a lazy sweep triggered when the same user starts another upload, which never covers users who simply never come back.
 
-### 6. Local development
+#### 6. Local development
 
 ```bash
 npm install
 npm start          # wrangler pages dev, already passes --kv img_url --r2=R2_BUCKET
 ```
 
-Then open `http://localhost:8080`. The local credentials are `admin` / `123` (hard-coded in the `start` script).
+Then open `http://localhost:8080`. The local credentials are `admin` / `123` (hard-coded in the `start` script's `--binding` flags, not environment variables).
+
+> Local runs use `wrangler`, which **does** read `.env` / `.dev.vars` — the opposite of Pages in production.
 
 To deploy from your machine:
 
@@ -142,7 +273,7 @@ npm run pages:r2:doctor                              # print a wrangler.jsonc
 node scripts/cloudflare-pages-r2-doctor.js --check   # validate an existing one
 ```
 
-### 7. Verify
+#### 7. Verify
 
 - Open `/` and upload a small file, then check that you get a direct link
 - Open `/admin.html` and sign in with the credentials you configured
@@ -152,12 +283,12 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # validate an existing one
 
 ## Environment variables
 
-### Admin credentials
+### Admin credentials (required for public deployments)
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `BASIC_USER` | Admin username | none (**required**) |
-| `BASIC_PASS` | Admin password | none (**required**) |
+| Variable | Description | Default | Redeploy needed |
+| :--- | :--- | :--- | :---: |
+| `BASIC_USER` | Admin username | none (**required**) | ✅ |
+| `BASIC_PASS` | Admin password | none (**required**) | ✅ |
 
 Both must be set before the management endpoints open up. Cookie sessions and `Authorization: Basic` are both accepted. The session cookie is always named `k_vault_session` and cannot be renamed.
 
@@ -168,50 +299,49 @@ The default backend is **Telegram**. When `storageMode` matches nothing configur
 | Backend | Required variables | Optional variables | Max file size |
 | :--- | :--- | :--- | :--- |
 | **Telegram** | `TG_Bot_Token`, `TG_Chat_ID` | `CUSTOM_BOT_API_URL`, `TG_UPLOAD_NOTIFY`, `TELEGRAM_METADATA_MODE`, `TELEGRAM_LINK_MODE`, `PUBLIC_BASE_URL` | 20MB |
-| **R2** | `R2_BUCKET` (a binding, not a variable) | — | 10GB |
+| **R2** | `R2_BUCKET` (a **binding**, not a variable) | — | 10GB |
 | **S3-compatible** | `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET` | `S3_REGION` (default `us-east-1`) | 40MB |
 | **Discord** | `DISCORD_BOT_TOKEN` + `DISCORD_CHANNEL_ID`, **or** `DISCORD_WEBHOOK_URL` | — | 25MB |
 | **HuggingFace** | `HF_TOKEN`, `HF_REPO` | — | 35MB |
-| **WebDAV** | `WEBDAV_BASE_URL` plus (`WEBDAV_USERNAME`/`WEBDAV_PASSWORD`) or `WEBDAV_BEARER_TOKEN` | `WEBDAV_ROOT_PATH`, `WEBDAV_TOKEN` | 40MB |
+| **WebDAV** | `WEBDAV_BASE_URL` plus (`WEBDAV_USERNAME`/`WEBDAV_PASSWORD`) or `WEBDAV_BEARER_TOKEN` | `WEBDAV_ROOT_PATH` | 40MB |
 | **GitHub** | `GITHUB_REPO`, `GITHUB_TOKEN` | `GITHUB_MODE` (`releases`/`contents`), `GITHUB_PREFIX`, `GITHUB_RELEASE_TAG`, `GITHUB_BRANCH`, `GITHUB_API_BASE` | 40MB (20MB in `contents` mode) |
 
 Details worth knowing:
 
-- **Telegram uses the mixed-case names `TG_Bot_Token` / `TG_Chat_ID`.** The upper-case aliases `TG_BOT_TOKEN` / `TG_CHAT_ID` are only recognised additionally by the API v1 capability probe and the import endpoint, so setting both is safest.
 - **Discord** prefers the bot token and only falls back to the webhook.
 - **HuggingFace** expects a **dataset** repository (`owner/name`), not a model repository.
 - **WebDAV** prefers `WEBDAV_BEARER_TOKEN` over `WEBDAV_TOKEN`; both work.
 
 ### Upload and sharing
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `CHUNK_BACKEND` | Where chunks are staged: `auto` (R2 when available) / `r2` / `kv` | `auto` |
-| `PUBLIC_BASE_URL` | Site origin used to build absolute direct links | request origin |
-| `FILE_URL_SECRET` | HMAC secret for signed direct links | falls back to `TG_FILE_URL_SECRET` → `TG_Bot_Token` → built-in value |
-| `GUEST_UPLOAD` | Allow uploads without logging in (set `true`) | disabled |
-| `GUEST_MAX_FILE_SIZE` | Per-file size limit for guests, in bytes | 5242880 (5MB) |
-| `GUEST_DAILY_LIMIT` | Daily upload count per guest, counted by IP + date | 10 |
-| `MINIMIZE_KV_WRITES` | When `true`, Telegram uses signed links and skips KV metadata writes (dashboard listing and deletion stop working for those files) | disabled |
+| Variable | Description | Default | Redeploy needed |
+| :--- | :--- | :--- | :---: |
+| `CHUNK_BACKEND` | Where chunks are staged: `auto` (R2 when available) / `r2` / `kv` | `auto` | ❌ dashboard |
+| `PUBLIC_BASE_URL` | Site origin used to build absolute direct links | request origin | ✅ |
+| `FILE_URL_SECRET` | HMAC secret for signed direct links (`TG_FILE_URL_SECRET` also recognised) | falls back to `TG_FILE_URL_SECRET` → `TG_Bot_Token` → built-in value | ✅ |
+| `GUEST_UPLOAD` | Allow uploads without logging in (set `true`) | disabled | ❌ dashboard |
+| `GUEST_MAX_FILE_SIZE` | Per-file size limit for guests, in bytes | 5242880 (5MB) | ❌ dashboard |
+| `GUEST_DAILY_LIMIT` | Daily upload count per guest, counted by IP + date | 10 | ❌ dashboard |
+| `MINIMIZE_KV_WRITES` | When `true`, Telegram uses signed links and skips KV metadata writes (dashboard listing and deletion stop working for those files) | disabled | ✅ |
 
 ### Telegram specifics
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
 | `CUSTOM_BOT_API_URL` | Self-hosted Bot API server, replaces the official one | `https://api.telegram.org` |
-| `TG_UPLOAD_NOTIFY` | Send a notification message after a successful upload | `true` (`TELEGRAM_UPLOAD_NOTIFY` is an alias) |
+| `TG_UPLOAD_NOTIFY` | Send a notification message after a successful upload (`TELEGRAM_UPLOAD_NOTIFY` is an alias) | `true` |
 | `TELEGRAM_METADATA_MODE` | `off` / `none` / `minimal` disable KV metadata writes, `on` / `full` enable them | enabled |
 | `TELEGRAM_SKIP_METADATA` | Fallback switch when `TELEGRAM_METADATA_MODE` is unset | disabled |
 | `TELEGRAM_LINK_MODE` | Set to `signed` to force signed direct links | disabled |
-| `TELEGRAM_WEBHOOK_SECRET` | Telegram webhook verification secret | none (**when unset the webhook performs no verification**; `TG_WEBHOOK_SECRET` is an alias) |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram webhook verification secret (`TG_WEBHOOK_SECRET` is an alias) | none — **when unset the webhook performs no verification** |
 
 ### API
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `API_CORS_ORIGINS` | CORS allow-list for API v1, comma separated; `*` allows any origin; empty sends no CORS headers | empty |
+| Variable | Description | Default | Redeploy needed |
+| :--- | :--- | :--- | :---: |
+| `API_CORS_ORIGINS` | CORS allow-list for API v1, comma separated; `*` allows any origin; empty sends no CORS headers | empty | ❌ dashboard |
 
-The full checklist lives in [`.env.example`](.env.example). Note that Cloudflare Pages **does not read** `.env` files — it is a reference list only, and the real values go in the dashboard or `wrangler`.
+Full checklist: [`.env.example`](.env.example). Remember that Cloudflare Pages **does not read** `.env` — it is a reference list only, and the real values go in the dashboard or `wrangler`.
 
 ---
 
@@ -272,18 +402,25 @@ Protected files behave like this: expired or over the download limit returns `41
 
 ```text
 ├── index.html admin.html paste.html gallery.html
-├── preview.html webdav.html login.html
+├── preview.html webdav.html login.html share.html
+├── design-system.css                     # design system: single source of truth
 ├── theme.css theme.js mobile-refactor.css
 ├── functions/                            # Cloudflare Pages Functions backend
 │   ├── api/
 │   │   ├── auth/ manage/ admin/ v1/      # auth / management / tokens / API v1
 │   │   ├── chunked-upload/               # init / chunk / complete
+│   │   ├── share-info.js                 # public read-only share info
 │   │   └── status.js upload-from-url.js telegram/webhook.js
-│   ├── file/[[path]].js                  # direct links (multi-segment, password, block/whitelist)
+│   ├── file/[[path]].js                  # direct links (multi-segment, password)
 │   ├── file-info/[[path]].js             # file metadata
-│   ├── s/[slug].js                       # short share links
+│   ├── s/[slug].js                       # short share links → 302 to /share.html
 │   └── utils/                            # storage adapters and shared helpers
+│       ├── env-config.js                 # unified env read layer (casing / aliases)
+│       ├── runtime-config.js             # KV override > env runtime config
+│       └── ratelimit.js redact.js ssrf-guard.js …
 ├── scripts/                              # wrangler config generator / validator
+│   ├── cloudflare-pages-r2-doctor.js
+│   └── check_style.py check_tokens.py strip_css.py   # style consistency guards
 ├── docs/                                 # OpenAPI, integration guide, full config reference
 └── .env.example                          # variable checklist (Pages does not read it)
 ```
@@ -298,7 +435,7 @@ Protected files behave like this: expired or over the download limit returns `41
 | [`docs/openapi.yaml`](docs/openapi.yaml) | machine-readable API v1 definition |
 | [`docs/agent-integration.md`](docs/agent-integration.md) | agent / script integration guide |
 | [`docs/cloudflare-pages-r2.md`](docs/cloudflare-pages-r2.md) | troubleshooting Cloudflare Pages R2 bindings |
-| [`PROJECT_INTRO.md`](PROJECT_INTRO.md) | project positioning and architecture |
+| [`PROJECT_INTRO.md`](PROJECT_INTRO.md) | project positioning, architecture and upstream differences |
 
 ---
 
@@ -306,12 +443,12 @@ Protected files behave like this: expired or over the download limit returns `41
 
 The backend originates from **K-Vault** — thanks to its author and community:
 
-- katelya77/K-Vault — the source of the backend capabilities
+- [katelya77/K-Vault](https://github.com/katelya77/K-Vault) — the source of the backend capabilities
 - Telegraph-Image — early reference for the Serverless image-bed shape
 - CloudFlare-ImgBed — an excellent open-source project in the same space
 - The Linux.do community for feedback
 
-On top of upstream this project rewrote the frontend, hardened authentication, upgraded chunked uploads, and added multi-segment path routing.
+On top of upstream this project rewrote and unified the frontend, hardened authentication, upgraded chunked uploads, added multi-segment path routing and rebuilt the sharing system — and removed the Docker self-hosting path. Upstream is still actively developed; if you need Docker, use upstream directly.
 
 ## License
 
