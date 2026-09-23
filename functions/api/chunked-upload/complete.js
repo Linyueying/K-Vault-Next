@@ -67,6 +67,7 @@
  *   2) 全局未完成 multipart upload 1 天后 abort
  * ================================================================
  */
+import { envValue } from '../../utils/env-config.js';
 import { checkAuthentication } from '../../utils/auth.js';
 import { createS3Client } from '../../utils/s3client.js';
 import { uploadToDiscord } from '../../utils/discord.js';
@@ -1129,13 +1130,13 @@ async function rollbackUploadedFile(uploadedFileInfo, env) {
       }
 
       case 'telegram':
-        if (uploadedFileInfo.messageId && env.TG_Chat_ID) {
+        if (uploadedFileInfo.messageId && envValue(env, 'TG_CHAT_ID')) {
           const url = buildTelegramBotApiUrl(env, 'deleteMessage');
           const resp = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              chat_id: env.TG_Chat_ID,
+              chat_id: envValue(env, 'TG_CHAT_ID'),
               message_id: uploadedFileInfo.messageId,
             }),
           });
@@ -1234,7 +1235,7 @@ async function rollbackUploadedFile(uploadedFileInfo, env) {
 
 async function uploadToTelegram(file, env) {
   const formData = new FormData();
-  formData.append('chat_id', env.TG_Chat_ID);
+  formData.append('chat_id', envValue(env, 'TG_CHAT_ID'));
 
   const { method: apiEndpoint, field } = getTelegramUploadMethodAndField(
     file.type
@@ -1251,7 +1252,7 @@ async function uploadToTelegram(file, env) {
     if (!response.ok || !data.ok) {
       if (apiEndpoint === 'sendAudio') {
         const docFormData = new FormData();
-        docFormData.append('chat_id', env.TG_Chat_ID);
+        docFormData.append('chat_id', envValue(env, 'TG_CHAT_ID'));
         docFormData.append('document', file);
 
         const docResponse = await fetch(

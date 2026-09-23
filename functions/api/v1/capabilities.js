@@ -1,3 +1,4 @@
+import { envValue } from '../../utils/env-config.js';
 import { apiSuccess } from '../../utils/api-v1.js';
 
 /**
@@ -13,7 +14,7 @@ const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB (Pages hard limit)
 export function detectConfiguredStorages(env) {
   const storages = [];
 
-  if ((env.TG_BOT_TOKEN || '').trim() && ((env.TG_CHAT_ID || '').trim() || (env.TG_Chat_ID || '').trim())) {
+  if ((envValue(env, 'TG_BOT_TOKEN') || '').trim() && ((envValue(env, 'TG_CHAT_ID') || '').trim() || (envValue(env, 'TG_CHAT_ID') || '').trim())) {
     storages.push('telegram');
   }
   if (env.R2_BUCKET) {
@@ -28,7 +29,7 @@ export function detectConfiguredStorages(env) {
   if ((env.HF_TOKEN || '').trim() && (env.HF_REPO || '').trim()) {
     storages.push('huggingface');
   }
-  if ((env.WEBDAV_BASE_URL || '').trim() && ((env.WEBDAV_BEARER_TOKEN || '').trim() || (env.WEBDAV_USERNAME || '').trim())) {
+  if ((env.WEBDAV_BASE_URL || '').trim() && (envValue(env, 'WEBDAV_BEARER_TOKEN') || (env.WEBDAV_USERNAME || '').trim())) {
     storages.push('webdav');
   }
   if ((env.GITHUB_REPO || '').trim() && (env.GITHUB_TOKEN || '').trim()) {

@@ -86,7 +86,9 @@ Dashboard → **R2** → 创建存储桶 → 回到 Pages 项目 → **Settings 
 
 ### 4. 配置环境变量
 
-在 **Settings → Environment variables** 里添加，至少要有管理员账密 + 一个存储后端。完整清单见下一章。改完需要**重新部署**才生效。
+在 **Settings → Environment variables** 里添加，**最小集只有两样：管理员账密 + 一个存储后端**。完整清单见下一章。
+
+环境变量改完需要**重新部署**才生效；但标记为「后台可设置」的那些（CORS、分片后端、访客上传策略）可以在管理后台随时改、**即时生效**，部署时根本不用填。
 
 ### 5. R2 生命周期规则（绑了 R2 就必须配）
 
@@ -156,7 +158,8 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 
 配置细节：
 
-- **Telegram 主用变量名是混合大小写的 `TG_Bot_Token` / `TG_Chat_ID`**。大写别名 `TG_BOT_TOKEN` / `TG_CHAT_ID` 只在 API v1 的能力探测与导入接口里额外识别，建议两个都写上。
+- **变量名大小写不用纠结**：`TG_Bot_Token` / `TG_BOT_TOKEN`、`TG_Chat_ID` / `TG_CHAT_ID` 这类写法**任意一种都会被自动识别**，填一个即可，**不需要再「两个都写上」**。同类别名还有：`TELEGRAM_WEBHOOK_SECRET` / `TG_WEBHOOK_SECRET`、`TG_UPLOAD_NOTIFY` / `TELEGRAM_UPLOAD_NOTIFY`、`FILE_URL_SECRET` / `TG_FILE_URL_SECRET`、`WEBDAV_BEARER_TOKEN` / `WEBDAV_TOKEN`。
+- **部分变量可在管理后台改，部署时无需预置**：`API_CORS_ORIGINS`、`CHUNK_BACKEND`、访客上传策略（`GUEST_UPLOAD` / `GUEST_MAX_FILE_SIZE` / `GUEST_DAILY_LIMIT`）在后台「设置」里改完即时生效，不必改环境变量重新部署。
 - **Discord** 优先用 Bot Token，失败才回退 Webhook。
 - **HuggingFace** 的 `HF_REPO` 是 **dataset** 仓库（`owner/name`），不是 model 仓库。
 - **WebDAV** 中 `WEBDAV_BEARER_TOKEN` 优先于 `WEBDAV_TOKEN`，两者都支持。
@@ -165,9 +168,9 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 
 | 变量 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `CHUNK_BACKEND` | 分片暂存位置：`auto`（有 R2 就用 R2）/ `r2` / `kv` | `auto` |
+| `CHUNK_BACKEND` | 分片暂存位置：`auto`（有 R2 就用 R2）/ `r2` / `kv`（也可后台设置） | `auto` |
 | `PUBLIC_BASE_URL` | 生成绝对直链用的站点地址 | 请求 origin |
-| `FILE_URL_SECRET` | 签名直链的 HMAC 密钥 | 依次回落 `TG_FILE_URL_SECRET` → `TG_Bot_Token` → 内置值 |
+| `FILE_URL_SECRET` | 签名直链的 HMAC 密钥（`TG_FILE_URL_SECRET` 自动识别） | 依次回落 `TG_FILE_URL_SECRET` → `TG_Bot_Token` → 内置值 |
 | `GUEST_UPLOAD` | 是否允许未登录访客上传（`true` 开启） | 关闭 |
 | `GUEST_MAX_FILE_SIZE` | 访客单文件大小上限（字节） | 5242880（5MB） |
 | `GUEST_DAILY_LIMIT` | 访客每日上传次数（按 IP + 日期计） | 10 |
@@ -178,19 +181,21 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 | 变量 | 说明 | 默认值 |
 | :--- | :--- | :--- |
 | `CUSTOM_BOT_API_URL` | 自部署 Bot API 服务器地址，替换官方地址 | `https://api.telegram.org` |
-| `TG_UPLOAD_NOTIFY` | 上传成功后是否发通知消息 | `true`（`TELEGRAM_UPLOAD_NOTIFY` 为别名） |
+| `TG_UPLOAD_NOTIFY` | 上传成功后是否发通知消息（`TELEGRAM_UPLOAD_NOTIFY` 自动识别） | `true` |
 | `TELEGRAM_METADATA_MODE` | `off` / `none` / `minimal` 关闭 KV 元数据写入，`on` / `full` 开启 | 开启 |
 | `TELEGRAM_SKIP_METADATA` | 未设 `TELEGRAM_METADATA_MODE` 时的替代开关 | 关闭 |
 | `TELEGRAM_LINK_MODE` | 设为 `signed` 强制签名直链 | 关闭 |
-| `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 校验密钥 | 无（**未设置时 webhook 不做任何校验**，`TG_WEBHOOK_SECRET` 为别名） |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 校验密钥（`TG_WEBHOOK_SECRET` 自动识别） | 无（**未设置时 webhook 不做任何校验**） |
 
 ### API
 
 | 变量 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `API_CORS_ORIGINS` | API v1 的 CORS 白名单，逗号分隔；`*` 表示任意来源；留空不发 CORS 头 | 空 |
+| `API_CORS_ORIGINS` | API v1 的 CORS 白名单，逗号分隔；`*` 表示任意来源；留空不发 CORS 头（**建议后台设置，即时生效**） | 空 |
 
-完整清单见 [`.env.example`](.env.example)。注意 Cloudflare Pages **不读** `.env` 文件，那只是变量清单参考，实际值要在 Dashboard 或 `wrangler` 里配。
+完整清单见 [`.env.example`](.env.example)，已按「必填最小集 → 存储后端 7 选 1 → 可选开关 → 后台可设置」分组，照着填要用的那一段即可。
+
+注意 Cloudflare Pages **不读** `.env` 文件，那只是变量清单参考，实际值要在 Dashboard 或 `wrangler` 里配。
 
 ---
 

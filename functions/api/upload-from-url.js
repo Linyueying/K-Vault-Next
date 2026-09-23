@@ -1,3 +1,4 @@
+import { envValue } from '../utils/env-config.js';
 import { createS3Client } from "../utils/s3client.js";
 import { uploadToDiscord } from "../utils/discord.js";
 import { hasHuggingFaceConfig, uploadToHuggingFace } from "../utils/huggingface.js";
@@ -615,7 +616,7 @@ async function uploadToTelegram(arrayBuffer, fileName, fileExtension, contentTyp
   const file = new File([blob], fileName, { type: contentType });
 
   const formData = new FormData();
-  formData.append("chat_id", env.TG_Chat_ID);
+  formData.append("chat_id", envValue(env, 'TG_CHAT_ID'));
 
   const { method: apiEndpoint, field } = getTelegramUploadMethodAndField(contentType);
   formData.append(field, file);
@@ -637,7 +638,7 @@ async function uploadToTelegram(arrayBuffer, fileName, fileExtension, contentTyp
   if (!response.ok) {
     if (apiEndpoint === "sendAudio") {
       const docFormData = new FormData();
-      docFormData.append("chat_id", env.TG_Chat_ID);
+      docFormData.append("chat_id", envValue(env, 'TG_CHAT_ID'));
       docFormData.append("document", file);
 
       const docResponse = await fetch(buildTelegramBotApiUrl(env, "sendDocument"), {
@@ -692,7 +693,7 @@ async function processTelegramSuccess(responseData, fileName, fileExtension, mim
   try {
     const noticeResult = await sendTelegramUploadNotice(
       {
-        chatId: env.TG_Chat_ID,
+        chatId: envValue(env, 'TG_CHAT_ID'),
         replyToMessageId: messageId || undefined,
         directLink,
         fileId,

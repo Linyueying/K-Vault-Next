@@ -1,3 +1,4 @@
+import { envValue } from '../utils/env-config.js';
 import { createS3Client } from '../utils/s3client.js';
 import { checkDiscordConnection } from '../utils/discord.js';
 import { checkHuggingFaceConnection, hasHuggingFaceConfig } from '../utils/huggingface.js';
@@ -43,7 +44,7 @@ export async function onRequestGet(context) {
   const isAdmin = Boolean(auth?.authenticated) && isAuthRequired(env);
 
   const configuredMap = {
-    telegram: Boolean(env.TG_Bot_Token && env.TG_Chat_ID),
+    telegram: Boolean(envValue(env, 'TG_BOT_TOKEN') && envValue(env, 'TG_CHAT_ID')),
     kv: Boolean(env.img_url),
     r2: Boolean(env.R2_BUCKET),
     s3: Boolean(env.S3_ENDPOINT && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY && env.S3_BUCKET),
@@ -100,7 +101,7 @@ export async function onRequestGet(context) {
 
   const checks = [];
 
-  if (env.TG_Bot_Token && env.TG_Chat_ID) {
+  if (envValue(env, 'TG_BOT_TOKEN') && envValue(env, 'TG_CHAT_ID')) {
     status.telegram.configured = true;
     checks.push(
       fetch(buildTelegramBotApiUrl(env, 'getMe'))

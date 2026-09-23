@@ -1,3 +1,4 @@
+import { envValue } from './utils/env-config.js';
 import { checkAuthentication, isAuthRequired } from "./utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "./utils/guest.js";
 import { getClientIp, fixedWindowRateLimit } from "./utils/ratelimit.js";
@@ -402,7 +403,7 @@ async function uploadToTelegramStorage(
   folderPath = ""
 ) {
   const telegramFormData = new FormData();
-  telegramFormData.append("chat_id", env.TG_Chat_ID);
+  telegramFormData.append("chat_id", envValue(env, 'TG_CHAT_ID'));
 
   const { method: apiEndpoint, field } = getTelegramUploadMethodAndField(uploadFile.type);
   telegramFormData.append(field, uploadFile);
@@ -457,7 +458,7 @@ async function uploadToTelegramStorage(
   try {
     const noticeResult = await sendTelegramUploadNotice(
       {
-        chatId: env.TG_Chat_ID,
+        chatId: envValue(env, 'TG_CHAT_ID'),
         replyToMessageId: messageId || undefined,
         directLink,
         fileId,

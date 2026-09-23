@@ -1,4 +1,6 @@
-﻿function normalizeBaseUrl(raw) {
+﻿import { envValue } from './env-config.js';
+
+function normalizeBaseUrl(raw) {
   if (!raw) return '';
   try {
     return new URL(String(raw)).toString().replace(/\/+$/, '');
@@ -66,7 +68,7 @@ export function getWebDAVConfig(env = {}) {
     baseUrl: normalizeBaseUrl(env.WEBDAV_BASE_URL),
     username: String(env.WEBDAV_USERNAME || '').trim(),
     password: String(env.WEBDAV_PASSWORD || ''),
-    bearerToken: normalizeToken(env.WEBDAV_BEARER_TOKEN || env.WEBDAV_TOKEN || ''),
+    bearerToken: normalizeToken(envValue(env, 'WEBDAV_BEARER_TOKEN')),
     rootPath: normalizePath(env.WEBDAV_ROOT_PATH || ''),
   };
 }

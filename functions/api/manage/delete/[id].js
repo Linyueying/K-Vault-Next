@@ -1,4 +1,5 @@
 ﻿import { createS3Client } from '../../../utils/s3client.js';
+import { envValue } from '../../../utils/env-config.js';
 import { deleteDiscordMessage } from '../../../utils/discord.js';
 import { deleteHuggingFaceFile } from '../../../utils/huggingface.js';
 import { deleteWebDAVFile } from '../../../utils/webdav.js';
@@ -204,7 +205,7 @@ export async function onRequest(context) {
 }
 
 async function deleteTelegramMessage(messageId, env) {
-  if (!messageId || !env.TG_Bot_Token || !env.TG_Chat_ID) {
+  if (!messageId || !envValue(env, 'TG_BOT_TOKEN') || !envValue(env, 'TG_CHAT_ID')) {
     return false;
   }
 
@@ -213,7 +214,7 @@ async function deleteTelegramMessage(messageId, env) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: env.TG_Chat_ID,
+        chat_id: envValue(env, 'TG_CHAT_ID'),
         message_id: messageId,
       }),
     });

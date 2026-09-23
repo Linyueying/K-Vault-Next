@@ -1,3 +1,4 @@
+import { envValue } from '../../utils/env-config.js';
 import {
   buildTelegramDirectLink,
   createSignedTelegramFileId,
@@ -21,11 +22,11 @@ export async function onRequestGet(context) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  if (!env.TG_Bot_Token) {
+  if (!envValue(env, 'TG_BOT_TOKEN')) {
     return jsonResponse({ ok: false, error: 'TG_Bot_Token is not configured.' }, 500);
   }
 
-  const expectedSecret = env.TG_WEBHOOK_SECRET || env.TELEGRAM_WEBHOOK_SECRET;
+  const expectedSecret = envValue(env, 'TELEGRAM_WEBHOOK_SECRET');
   if (expectedSecret) {
     const headerSecret = request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
     if (headerSecret !== expectedSecret) {

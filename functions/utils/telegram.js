@@ -1,3 +1,4 @@
+import { envValue } from './env-config.js';
 const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
 
 const MIME_EXTENSION_MAP = {
@@ -47,13 +48,13 @@ export function getTelegramApiBase(env) {
 export function buildTelegramBotApiUrl(env, method) {
   const base = getTelegramApiBase(env);
   const normalizedMethod = String(method || "").replace(/^\/+/, "");
-  return `${base}/bot${env.TG_Bot_Token}/${normalizedMethod}`;
+  return `${base}/bot${envValue(env, 'TG_BOT_TOKEN')}/${normalizedMethod}`;
 }
 
 export function buildTelegramFileUrl(env, filePath) {
   const base = getTelegramApiBase(env);
   const normalizedPath = String(filePath || "").replace(/^\/+/, "");
-  return `${base}/file/bot${env.TG_Bot_Token}/${normalizedPath}`;
+  return `${base}/file/bot${envValue(env, 'TG_BOT_TOKEN')}/${normalizedPath}`;
 }
 
 export function getTelegramUploadMethodAndField(contentType = "") {
@@ -228,10 +229,7 @@ function isFlagEnabled(rawValue, defaultValue) {
 }
 
 export function shouldNotifyTelegramUpload(env) {
-  return isFlagEnabled(
-    env?.TG_UPLOAD_NOTIFY ?? env?.TELEGRAM_UPLOAD_NOTIFY,
-    true
-  );
+  return isFlagEnabled(envValue(env, 'TG_UPLOAD_NOTIFY'), true);
 }
 
 export function buildTelegramDirectLink(env, directId, fallbackOrigin = "") {
@@ -288,8 +286,8 @@ export async function sendTelegramUploadNotice(
     return { ok: false, skipped: true, reason: "disabled" };
   }
 
-  const targetChatId = chatId || env?.TG_Chat_ID;
-  if (!targetChatId || !env?.TG_Bot_Token) {
+  const targetChatId = chatId || envValue(env, 'TG_CHAT_ID');
+  if (!targetChatId || !envValue(env, 'TG_BOT_TOKEN')) {
     return { ok: false, skipped: true, reason: "missing-config" };
   }
 
@@ -333,9 +331,9 @@ export async function sendTelegramUploadNotice(
 
 function getFileLinkSecrets(env) {
   const candidates = [
-    env?.FILE_URL_SECRET,
-    env?.TG_FILE_URL_SECRET,
-    env?.TG_Bot_Token,
+    // envValue 已覆盖 FILE_URL_SECRET 的兼容名 TG_FILE_URL_SECRET
+    envValue(env, 'FILE_URL_SECRET'),
+    envValue(env, 'TG_BOT_TOKEN'),
     "k-vault-default-secret",
     // Legacy fallback keeps previously signed links valid.
     "tgbed-default-secret",

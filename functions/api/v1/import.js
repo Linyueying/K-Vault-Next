@@ -1,3 +1,4 @@
+import { envValue } from '../../utils/env-config.js';
 import { createS3Client } from '../../utils/s3client.js';
 import { uploadToDiscord } from '../../utils/discord.js';
 import { hasHuggingFaceConfig, uploadToHuggingFace } from '../../utils/huggingface.js';
@@ -208,7 +209,7 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
   const { method: apiEndpoint, field } = getTelegramUploadMethodAndField(mime);
 
   const formData = new FormData();
-  formData.append('chat_id', env.TG_Chat_ID || env.TG_CHAT_ID);
+  formData.append('chat_id', envValue(env, 'TG_CHAT_ID') || envValue(env, 'TG_CHAT_ID'));
   formData.append(field, file);
 
   let response = await fetch(buildTelegramBotApiUrl(env, apiEndpoint), { method: 'POST', body: formData });
@@ -216,7 +217,7 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
 
   if (!response.ok && apiEndpoint === 'sendAudio') {
     const docFormData = new FormData();
-    docFormData.append('chat_id', env.TG_Chat_ID || env.TG_CHAT_ID);
+    docFormData.append('chat_id', envValue(env, 'TG_CHAT_ID') || envValue(env, 'TG_CHAT_ID'));
     docFormData.append('document', file);
     response = await fetch(buildTelegramBotApiUrl(env, 'sendDocument'), { method: 'POST', body: docFormData });
     data = await response.json().catch(() => ({}));
@@ -256,7 +257,7 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
 
   try {
     await sendTelegramUploadNotice({
-      chatId: env.TG_Chat_ID || env.TG_CHAT_ID,
+      chatId: envValue(env, 'TG_CHAT_ID') || envValue(env, 'TG_CHAT_ID'),
       replyToMessageId: messageId || undefined,
       directLink: buildTelegramDirectLink(env, directId, ''),
       fileId: telegramFileId,
