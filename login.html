@@ -7,79 +7,12 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/design-system.css">
   <link rel="stylesheet" href="/theme.css">
   <script src="/theme.js?v=20260305"></script>
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
   <style>
-    /* ===== 与 index.html 统一的设计令牌 ===== */
-    :root {
-      --primary: #0284c7;
-      --primary-rgb: 2, 132, 199;
-      --primary-light: #38bdf8;
-      --primary-dark: #0369a1;
-      --primary-surface: #e0f2fe;
-
-      --bg-body: #f0f7ff;
-      --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
-                     radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
-                     #f0f7ff;
-
-      --glass-surface: rgba(255, 255, 255, 0.84);
-      --glass-elevated: rgba(255, 255, 255, 0.95);
-      --glass-subtle: rgba(255, 255, 255, 0.65);
-      --glass-border: rgba(255, 255, 255, 0.95);
-      --glass-border-ice: rgba(186, 230, 253, 0.75);
-      --glass-specular: rgba(255, 255, 255, 0.95);
-
-      --text-main: #0f172a;
-      --text-sub: #334155;
-      --text-muted: #64748b;
-
-      --shadow-soft: 0 8px 24px -4px rgba(2, 132, 199, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.03);
-      --shadow-elevated: 0 16px 36px -6px rgba(2, 132, 199, 0.16), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
-
-      --radius-sm: 10px;
-      --radius-md: 14px;
-      --radius-lg: 22px;
-      --radius-pill: 9999px;
-
-      --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
-      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-      --transition: all 0.22s var(--ease-fluid);
-
-      /* 旧变量名别名，保证既有样式引用继续可用 */
-      --primary-color: var(--primary);
-      --accent-color: var(--primary-surface);
-      --card-bg: var(--glass-surface);
-      --shadow: var(--shadow-soft);
-    }
-
-    html[data-theme="dark"] {
-      --primary: #38bdf8;
-      --primary-rgb: 56, 189, 248;
-      --primary-light: #7dd3fc;
-      --primary-dark: #0284c7;
-      --primary-surface: rgba(2, 132, 199, 0.18);
-
-      --bg-body: #070d19;
-      --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
-                     radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
-                     #070d19;
-
-      --glass-surface: rgba(15, 27, 49, 0.85);
-      --glass-elevated: rgba(20, 36, 66, 0.95);
-      --glass-subtle: rgba(15, 27, 49, 0.6);
-      --glass-border: rgba(255, 255, 255, 0.14);
-      --glass-border-ice: rgba(56, 189, 248, 0.25);
-      --glass-specular: rgba(255, 255, 255, 0.2);
-
-      --text-main: #f8fafc;
-      --text-sub: #cbd5e1;
-      --text-muted: #94a3b8;
-
-      --shadow-soft: 0 10px 30px -6px rgba(0, 0, 0, 0.55);
-      --shadow-elevated: 0 18px 45px -6px rgba(0, 0, 0, 0.7);
-    }
+    /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
 
     * {
       box-sizing: border-box;
@@ -109,7 +42,7 @@
     .login-container {
       width: 100%;
       max-width: 420px;
-      animation: fadeInUp 0.5s ease-out;
+      animation: riseInSm 0.44s var(--ease-fluid);
     }
 
     .login-card {
@@ -258,14 +191,16 @@
     .login-btn {
       width: 100%;
       padding: 16px;
-      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
       border: none;
       border-radius: var(--radius-md);
       color: white;
       font-size: 1.1em;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: transform var(--dur-base) var(--ease-fluid),
+                  box-shadow var(--dur-base) var(--ease-apple),
+                  opacity var(--dur-base) var(--ease-apple);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -296,6 +231,8 @@
 
     .login-btn:active {
       transform: translateY(0);
+      transition-duration: 0.09s;
+      transition-timing-function: var(--ease-press);
     }
 
     .login-btn:disabled {
@@ -304,18 +241,6 @@
       transform: none;
     }
 
-    .login-btn .spinner {
-      width: 20px;
-      height: 20px;
-      border: 2px solid rgba(255,255,255,0.3);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
 
     .error-message {
       background: #fef2f2;
@@ -349,17 +274,7 @@
       text-decoration: underline;
     }
 
-    /* 动画 */
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(30px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
+    /* 入场编排：riseInSm / riseIn 等关键帧统一由 design-system.css 提供 */
 
     /* 响应式 */
     @media (max-width: 768px) {
@@ -644,7 +559,7 @@
       const btn = document.getElementById('loginBtn');
       if (loading) {
         btn.disabled = true;
-        btn.innerHTML = '<div class="spinner"></div><span>登录中...</span>';
+        btn.innerHTML = '<div class="spinner spinner--sm spinner--on-primary"></div><span>登录中...</span>';
       } else {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-sign-in-alt"></i><span>登 录</span>';

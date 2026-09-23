@@ -7,41 +7,12 @@
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/logo.png">
 <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="/design-system.css">
 <link rel="stylesheet" href="/theme.css">
 <script src="/theme.js?v=20260305"></script>
 <style>
-[v-cloak]{display:none!important}
+/* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css */
 
-:root{
-  --primary:#0284c7;--primary-rgb:2,132,199;--primary-light:#38bdf8;--primary-dark:#0369a1;--primary-surface:#e0f2fe;
-  --bg-body:#f0f7ff;
-  --bg-gradient:radial-gradient(at 8% 8%,#e0f2fe 0px,transparent 45%),radial-gradient(at 92% 92%,#bae6fd 0px,transparent 48%),#f0f7ff;
-  --glass-surface:rgba(255,255,255,.84);
-  --glass-elevated:rgba(255,255,255,.95);
-  --glass-subtle:rgba(255,255,255,.65);
-  --glass-border:rgba(255,255,255,.95);
-  --glass-border-ice:rgba(186,230,253,.75);
-  --text-main:#0f172a;--text-sub:#334155;--text-muted:#64748b;
-  --shadow-soft:0 8px 24px -4px rgba(2,132,199,.08),0 2px 8px -2px rgba(0,0,0,.03);
-  --shadow-elevated:0 16px 36px -6px rgba(2,132,199,.16),0 4px 12px -2px rgba(0,0,0,.04);
-  --radius-sm:10px;--radius-md:14px;--radius-lg:22px;--radius-pill:9999px;
-  --ease-fluid:cubic-bezier(.16,1,.3,1);
-  --transition:all .22s var(--ease-fluid);
-}
-
-html[data-theme="dark"]{
-  --primary:#38bdf8;--primary-rgb:56,189,248;--primary-light:#7dd3fc;--primary-dark:#0284c7;--primary-surface:rgba(2,132,199,.18);
-  --bg-body:#070d19;
-  --bg-gradient:radial-gradient(at 10% 10%,rgba(2,132,199,.18) 0px,transparent 50%),radial-gradient(at 90% 90%,rgba(14,165,233,.12) 0px,transparent 50%),#070d19;
-  --glass-surface:rgba(15,27,49,.85);
-  --glass-elevated:rgba(20,36,66,.95);
-  --glass-subtle:rgba(15,27,49,.6);
-  --glass-border:rgba(255,255,255,.14);
-  --glass-border-ice:rgba(56,189,248,.25);
-  --text-main:#f8fafc;--text-sub:#cbd5e1;--text-muted:#94a3b8;
-  --shadow-soft:0 10px 30px -6px rgba(0,0,0,.55);
-  --shadow-elevated:0 18px 45px -6px rgba(0,0,0,.7);
-}
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{
@@ -87,47 +58,40 @@ button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit
 .paste-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px;align-items:start}
 @media (max-width:900px){.paste-layout{grid-template-columns:1fr}}
 
-.liquid-card{
-  background:var(--glass-surface);backdrop-filter:blur(18px);
-  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
-  box-shadow:var(--shadow-soft);padding:20px;
+/* .liquid-card 基础实现来自 design-system.css 的 .card，这里只追加页面内边距 */
+.liquid-card{padding:20px}
+
+/* ===== 首屏入场编排（与 index / admin / webdav 同一套 riseIn / riseInSm） ===== */
+.micro-topbar{animation:riseInSm .44s var(--ease-fluid) backwards}
+.loading-block,.empty-state,.paste-layout > section{
+  animation:riseIn .52s var(--ease-fluid) backwards;
 }
+.paste-layout > section:nth-child(1){animation-delay:.04s}
+.paste-layout > section:nth-child(2){animation-delay:.09s}
+.paste-layout > section:nth-child(n+3){animation-delay:.14s}
+/* 列表项逐个错峰落下 */
+.paste-list > *{animation:riseInSm .4s var(--ease-fluid) backwards}
+.paste-list > *:nth-child(1){animation-delay:.02s}
+.paste-list > *:nth-child(2){animation-delay:.05s}
+.paste-list > *:nth-child(3){animation-delay:.08s}
+.paste-list > *:nth-child(4){animation-delay:.11s}
+.paste-list > *:nth-child(n+5){animation-delay:.14s}
 .card-title{display:flex;align-items:center;gap:9px;font-weight:800;font-size:.95rem;margin-bottom:4px}
 .card-title i{color:var(--primary)}
 .card-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6}
 
 .field{margin-bottom:14px}
-.field > label{display:block;font-size:.76rem;font-weight:700;color:var(--text-sub);margin-bottom:6px}
-.input,.select,.textarea{
-  width:100%;font-size:.86rem;padding:10px 12px;border-radius:var(--radius-sm);
-  border:1px solid var(--glass-border-ice);background:var(--glass-subtle);
-  color:var(--text-main);outline:none;transition:var(--transition);
-}
+/* 只做增量：字号比 design-system 默认略大，保证本页标签可读性 */
+.field > label{font-size:.78rem;margin-bottom:6px}
+/* 表单控件的实现统一来自 design-system.css，这里只留页面级增量：
+   textarea 用等宽字体（贴代码场景） */
 .textarea{
   min-height:200px;resize:vertical;
   font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   font-size:.8rem;line-height:1.6;
 }
-.input:focus,.select:focus,.textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.field-help{font-size:.7rem;color:var(--text-muted);margin-top:5px}
 
-.btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:7px;
-  font-size:.84rem;font-weight:700;padding:10px 18px;border-radius:var(--radius-sm);
-  border:1px solid var(--glass-border-ice);background:var(--glass-subtle);
-  color:var(--text-sub);cursor:pointer;transition:var(--transition);
-}
-.btn:hover{border-color:var(--primary);color:var(--primary)}
-.btn:disabled{opacity:.55;cursor:not-allowed}
-.btn-primary{
-  background:linear-gradient(135deg,var(--primary),var(--primary-light));
-  color:#fff;border-color:transparent;box-shadow:0 6px 16px -6px rgba(var(--primary-rgb),.6);
-}
-.btn-primary:hover{color:#fff;filter:brightness(1.04)}
-.btn-danger{color:#ef4444;border-color:rgba(239,68,68,.3)}
-.btn-danger:hover{color:#fff;background:#ef4444;border-color:#ef4444}
-.btn-block{width:100%}
 .btn-row{display:flex;gap:10px;flex-wrap:wrap}
 
 /* ===== 列表 ===== */
@@ -164,10 +128,6 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
 .icon-btn:hover{color:var(--primary);border-color:var(--primary)}
 .icon-btn.danger:hover{color:#fff;background:#ef4444;border-color:#ef4444}
 
-.empty-state{
-  text-align:center;padding:38px 18px;color:var(--text-muted);font-size:.82rem;
-}
-.empty-state i{font-size:1.7rem;display:block;margin-bottom:10px;opacity:.5}
 
 /* ===== 查看弹窗 ===== */
 .modal-backdrop{
@@ -198,16 +158,6 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
 .gate-desc{font-size:.78rem;color:var(--text-muted);margin-bottom:14px}
 .gate-error{font-size:.75rem;color:#ef4444;margin-top:8px}
 
-/* ===== Toast ===== */
-.toast-wrap{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px;align-items:center}
-.toast{
-  font-size:.8rem;font-weight:600;padding:9px 16px;border-radius:var(--radius-pill);
-  background:var(--glass-elevated);border:1px solid var(--glass-border-ice);
-  box-shadow:var(--shadow-elevated);animation:toastIn .22s var(--ease-fluid);
-}
-.toast.error{border-color:rgba(239,68,68,.4);color:#ef4444}
-.toast.success{border-color:rgba(34,197,94,.4);color:#16a34a}
-@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 
 .loading-block{text-align:center;padding:26px;color:var(--text-muted);font-size:.8rem}
 </style>
@@ -247,7 +197,7 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
     <i class="fas fa-lock"></i>
     <div>需要登录后才能使用文本粘贴。</div>
     <div class="btn-row" style="justify-content:center;margin-top:14px">
-      <a class="btn btn-primary" href="./login.html?redirect=%2Fpaste.html"><i class="fas fa-right-to-bracket"></i>前往登录</a>
+      <a class="btn btn--primary" href="./login.html?redirect=%2Fpaste.html"><i class="fas fa-right-to-bracket"></i>前往登录</a>
     </div>
   </div>
 
@@ -295,7 +245,7 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
       </div>
 
       <div class="btn-row">
-        <button class="btn btn-primary btn-block" :disabled="submitting" @click="createPaste">
+        <button class="btn btn--primary btn--block" :disabled="submitting" @click="createPaste">
           <i class="fas" :class="submitting ? 'fa-circle-notch fa-spin' : 'fa-paper-plane'"></i>
           {{ submitting ? '创建中…' : '创建粘贴' }}
         </button>
@@ -346,7 +296,7 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
       </div>
 
       <div v-if="cursor" class="btn-row" style="margin-top:14px">
-        <button class="btn btn-block" :disabled="listLoading" @click="loadList(false)">
+        <button class="btn btn--block" :disabled="listLoading" @click="loadList(false)">
           <i class="fas" :class="listLoading ? 'fa-circle-notch fa-spin' : 'fa-chevron-down'"></i>加载更多
         </button>
       </div>
@@ -376,7 +326,7 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
           <div class="gate-desc">该粘贴已设置访问密码，请输入后查看。</div>
           <div style="display:flex;gap:8px;max-width:340px;margin:0 auto">
             <input class="input" type="password" v-model="viewPassword" @keyup.enter="submitViewPassword" placeholder="访问密码" />
-            <button class="btn btn-primary" @click="submitViewPassword">查看</button>
+            <button class="btn btn--primary" @click="submitViewPassword">查看</button>
           </div>
           <div class="gate-error" v-if="viewError">{{ viewError }}</div>
         </div>
@@ -392,12 +342,12 @@ html[data-theme="dark"] .chip-warn{color:#fbbf24}
       <div class="modal-foot" v-if="viewPaste && !viewLoading">
         <button class="btn" @click="copyText(viewPaste.content, '内容已复制')"><i class="fas fa-copy"></i>复制内容</button>
         <button class="btn" @click="copyId(viewId)"><i class="fas fa-hashtag"></i>复制 ID</button>
-        <button class="btn btn-danger" @click="removePaste(viewPaste)"><i class="fas fa-trash"></i>删除</button>
+        <button class="btn btn--danger" @click="removePaste(viewPaste)"><i class="fas fa-trash"></i>删除</button>
       </div>
     </div>
   </div>
 
-  <div class="toast-wrap">
+  <div class="toast-stack">
     <div class="toast" :class="toast.type" v-for="toast in toasts" :key="toast.id">{{ toast.text }}</div>
   </div>
 

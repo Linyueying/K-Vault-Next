@@ -8,57 +8,9 @@
 <meta name="robots" content="noindex, nofollow, noarchive">
 <title>文件分享 · K-Vault</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/design-system.css">
 <style>
-  :root {
-    --primary: #0284c7;
-    --primary-rgb: 2, 132, 199;
-    --primary-light: #38bdf8;
-    --primary-dark: #0369a1;
-
-    --bg-body: #f0f7ff;
-    --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
-                   radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
-                   #f0f7ff;
-
-    --surface-1: rgba(255, 255, 255, 0.86);
-    --surface-2: rgba(255, 255, 255, 0.95);
-    --glass-border: rgba(255, 255, 255, 0.95);
-    --glass-border-ice: rgba(186, 230, 253, 0.75);
-
-    --text-main: #0f172a;
-    --text-sub: #334155;
-    --text-muted: #64748b;
-
-    --radius-sm: 10px;
-    --radius-md: 14px;
-    --radius-lg: 22px;
-    --radius-pill: 9999px;
-
-    --success: #059669;
-    --warn: #d97706;
-    --danger: #dc2626;
-
-    --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
-    --shadow-lift: 0 18px 46px rgba(15, 23, 42, 0.14);
-    --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
-    --transition: all 0.22s var(--ease-fluid);
-  }
-
-  html[data-theme="dark"] {
-    --bg-body: #0b1120;
-    --bg-gradient: radial-gradient(at 8% 8%, #0f2942 0px, transparent 45%),
-                   radial-gradient(at 92% 92%, #10243c 0px, transparent 48%),
-                   #0b1120;
-    --surface-1: rgba(23, 32, 51, 0.86);
-    --surface-2: rgba(30, 41, 59, 0.95);
-    --glass-border: rgba(51, 65, 85, 0.9);
-    --glass-border-ice: rgba(30, 58, 95, 0.85);
-    --text-main: #e2e8f0;
-    --text-sub: #cbd5e1;
-    --text-muted: #94a3b8;
-    --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.4);
-    --shadow-lift: 0 18px 46px rgba(0, 0, 0, 0.55);
-  }
+  /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
 
   * { box-sizing: border-box; }
 
@@ -133,15 +85,6 @@
   .stage.center { display: flex; align-items: center; justify-content: center; }
 
   /* ===== 加载态 ===== */
-  .spinner {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    border: 3px solid rgba(var(--primary-rgb), 0.18);
-    border-top-color: var(--primary);
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text {
     margin-top: 14px;
     font-size: 0.84rem;
@@ -154,16 +97,26 @@
     padding: 60px 20px;
   }
 
-  /* ===== 卡片 ===== */
+  /* ===== 卡片 =====
+     基础实现（背景/描边/圆角/阴影/顶部高光）来自 design-system.css 的 .card，
+     这里只保留分享页特有的裁剪增量，用于裁掉预览区的溢出内容 */
   .card {
-    background: var(--surface-1);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-soft);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
     overflow: hidden;
   }
+
+  /* ===== 首屏入场编排（与 index / admin / paste / webdav 同一套 riseIn / riseInSm / scaleIn） ===== */
+  .topbar { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+  .stage > .card,
+  .state-box,
+  .password-gate { animation: riseIn 0.52s var(--ease-fluid) 0.04s backwards; }
+  .file-head { animation: riseInSm 0.44s var(--ease-fluid) 0.1s backwards; }
+  .badges { animation: riseInSm 0.44s var(--ease-fluid) 0.14s backwards; }
+  .badge { animation: pop 0.3s var(--ease-spring) backwards; }
+  .badge:nth-child(2) { animation-delay: 0.18s; }
+  .badge:nth-child(3) { animation-delay: 0.22s; }
+  .badge:nth-child(n + 4) { animation-delay: 0.26s; }
+  .actions { animation: riseInSm 0.44s var(--ease-fluid) 0.18s backwards; }
+  .preview-block { animation: riseInSm 0.44s var(--ease-fluid) 0.06s backwards; }
 
   /* ===== 失效 / 未找到态 ===== */
   .state-box {
@@ -324,35 +277,8 @@
     gap: 10px;
     padding: 0 22px 22px;
   }
-  .btn {
-    flex: 1;
-    font-family: inherit;
-    font-size: 0.88rem;
-    font-weight: 600;
-    padding: 12px 16px;
-    border-radius: var(--radius-md);
-    border: 1px solid transparent;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    text-decoration: none;
-    transition: var(--transition);
-  }
-  .btn-primary {
-    color: #fff;
-    background: linear-gradient(135deg, var(--primary-light), var(--primary));
-    box-shadow: 0 8px 20px rgba(var(--primary-rgb), 0.28);
-  }
-  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 26px rgba(var(--primary-rgb), 0.36); }
-  .btn-ghost {
-    color: var(--text-sub);
-    background: var(--surface-2);
-    border-color: var(--glass-border-ice);
-  }
-  .btn-ghost:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
-  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  /* 分享页操作区按钮等分占满一行（共享 .btn 不带 flex，这里补页面增量） */
+  .actions .btn { flex: 1; }
 
   /* ===== 预览区 ===== */
   .preview-block { border-top: 1px solid var(--glass-border-ice); }
@@ -372,34 +298,6 @@
     line-height: 1.7;
   }
 
-  /* ===== Toast ===== */
-  .toasts {
-    position: fixed;
-    left: 50%;
-    bottom: 26px;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 60;
-    pointer-events: none;
-  }
-  .toast {
-    padding: 10px 18px;
-    border-radius: var(--radius-pill);
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: #fff;
-    background: rgba(15, 23, 42, 0.9);
-    box-shadow: var(--shadow-lift);
-    animation: toastIn 0.24s var(--ease-fluid);
-  }
-  .toast.success { background: rgba(5, 150, 105, 0.94); }
-  .toast.error { background: rgba(220, 38, 38, 0.94); }
-  @keyframes toastIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
 
   @media (max-width: 560px) {
     .actions { flex-direction: column; }
@@ -485,11 +383,11 @@
         </div>
 
         <div class="actions">
-          <button class="btn btn-ghost" type="button" @click="togglePreview" :disabled="previewLoading">
+          <button class="btn btn--ghost" type="button" @click="togglePreview" :disabled="previewLoading">
             <span v-text="previewLoading ? '加载中…' : (showPreview ? '收起预览' : '👁 预览')"></span>
           </button>
           <a
-            class="btn btn-primary"
+            class="btn btn--primary"
             :href="downloadUrl"
             :download="info.fileName"
             @click="onDownloadClick"
@@ -512,7 +410,7 @@
       </div>
     </div>
 
-    <div class="toasts">
+    <div class="toast-stack">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type" v-text="t.text"></div>
     </div>
   </main>

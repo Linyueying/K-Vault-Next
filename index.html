@@ -7,117 +7,10 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="apple-touch-icon" href="/logo.png">
     <link rel="shortcut icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/design-system.css" />
     <style>
-      /* =========================================================
-         一云 · Design Tokens
-         ========================================================= */
-      [v-cloak] { display: none !important; }
-
-      :root {
-        /* 品牌色 */
-        --primary: #0284c7;
-        --primary-rgb: 2, 132, 199;
-        --primary-light: #38bdf8;
-        --primary-dark: #0369a1;
-        --primary-surface: #e0f2fe;
-
-        /* 语义色 */
-        --c-danger: #e11d48;
-        --c-danger-soft: rgba(225, 29, 72, 0.1);
-        --c-warn: #f59e0b;
-        --c-success: #10b981;
-        --c-info: #0284c7;
-
-        /* 背景与玻璃层 */
-        --bg-body: #f0f7ff;
-        --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
-                       radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
-                       #f0f7ff;
-        --glass-surface: rgba(255, 255, 255, 0.84);
-        --glass-elevated: rgba(255, 255, 255, 0.95);
-        --glass-subtle: rgba(255, 255, 255, 0.65);
-        --glass-border: rgba(255, 255, 255, 0.95);
-        --glass-border-ice: rgba(186, 230, 253, 0.75);
-        --glass-specular: rgba(255, 255, 255, 0.95);
-
-        /* 文本 */
-        --text-main: #0f172a;
-        --text-sub: #334155;
-        --text-muted: #64748b;
-
-        /* 阴影 */
-        --shadow-soft: 0 8px 24px -4px rgba(2, 132, 199, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.03);
-        --shadow-elevated: 0 16px 36px -6px rgba(2, 132, 199, 0.16), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
-        --glow-primary: 0 3px 10px rgba(var(--primary-rgb), 0.26);
-
-        /* 圆角：只 5 档 */
-        --r-xs: 8px;
-        --r-sm: 12px;
-        --r-md: 16px;
-        --r-lg: 22px;
-        --r-pill: 9999px;
-
-        /* 间距：只用 4 的倍数 */
-        --sp-1: 4px;
-        --sp-2: 8px;
-        --sp-3: 12px;
-        --sp-4: 16px;
-        --sp-5: 20px;
-        --sp-6: 24px;
-
-        /* 字号：6 档 */
-        --fs-xs: 0.68rem;
-        --fs-sm: 0.78rem;
-        --fs-md: 0.88rem;
-        --fs-lg: 1rem;
-        --fs-xl: 1.15rem;
-        --fs-2xl: 1.35rem;
-
-        /* 控件高度 */
-        --h-ctrl-sm: 30px;
-        --h-ctrl: 36px;
-        --h-ctrl-lg: 44px;
-
-        /* ================================================
-           动效 —— Apple 风格缓动体系
-           ================================================ */
-        --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);     /* 页面级大转场（iOS sheet） */
-        --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);      /* expo-out：元素入场 */
-        --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* 回弹：开关 / 弹窗 */
-        --ease-press: cubic-bezier(0.4, 0, 0.2, 1);       /* 按压反馈 */
-        --dur-fast: 0.16s;
-        --dur-base: 0.24s;
-        --dur-slow: 0.34s;
-        --dur-enter: 0.5s;
-        --transition: all var(--dur-base) var(--ease-fluid);
-
-        /* 节点状态过渡（识别延迟 → 平滑收敛） */
-        --dur-resolve: 0.62s;
-      }
-
-      html[data-theme="dark"] {
-        --primary: #38bdf8;
-        --primary-rgb: 56, 189, 248;
-        --primary-light: #7dd3fc;
-        --primary-dark: #0284c7;
-        --primary-surface: rgba(2, 132, 199, 0.18);
-        --bg-body: #070d19;
-        --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
-                       radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
-                       #070d19;
-        --glass-surface: rgba(15, 27, 49, 0.85);
-        --glass-elevated: rgba(20, 36, 66, 0.95);
-        --glass-subtle: rgba(15, 27, 49, 0.6);
-        --glass-border: rgba(255, 255, 255, 0.14);
-        --glass-border-ice: rgba(56, 189, 248, 0.25);
-        --glass-specular: rgba(255, 255, 255, 0.2);
-        --text-main: #f8fafc;
-        --text-sub: #cbd5e1;
-        --text-muted: #94a3b8;
-        --shadow-soft: 0 10px 30px -6px rgba(0, 0, 0, 0.55);
-        --shadow-elevated: 0 18px 45px -6px rgba(0, 0, 0, 0.7);
-      }
+      /* 设计令牌 / 基础组件 / 动效关键帧 / Vue 过渡族 已统一到 /design-system.css（单一事实来源）。
+         本文件只保留 index 页特有的样式，不再重复定义任何全站通用规则。 */
 
       /* =========================================================
          Reset & Base
@@ -145,106 +38,6 @@
       .ambient-orb { position: absolute; border-radius: 50%; opacity: 0.48; }
       .orb-1 { top: -10%; left: 5%; width: 420px; height: 420px; background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(56, 189, 248, 0.10) 40%, transparent 72%); animation: orbFloat 18s var(--ease-apple) infinite alternate; }
       .orb-2 { bottom: 5%; right: -5%; width: 460px; height: 460px; background: radial-gradient(circle, rgba(14, 165, 233, 0.22) 0%, rgba(14, 165, 233, 0.06) 42%, transparent 72%); animation: orbFloat 22s var(--ease-apple) -6s infinite alternate-reverse; }
-
-      /* =========================================================
-         通用卡片
-         ========================================================= */
-      .card {
-        background: var(--glass-surface);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--shadow-soft);
-        border-radius: var(--r-lg);
-        transition: background-color 0.45s var(--ease-apple),
-                    border-color 0.45s var(--ease-apple),
-                    box-shadow 0.45s var(--ease-apple),
-                    transform 0.45s var(--ease-fluid);
-        position: relative;
-      }
-      .card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, var(--glass-specular), transparent);
-        border-radius: var(--r-lg) var(--r-lg) 0 0;
-        pointer-events: none;
-      }
-      .card--inset { border-radius: var(--r-md); box-shadow: none; }
-      .card--inset::before { display: none; }
-      .card__header {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: var(--sp-2); padding: var(--sp-4);
-      }
-      .card__body { padding: 0 var(--sp-4) var(--sp-4); }
-
-      /* =========================================================
-         通用按钮：3 种形态 + 尺寸
-         ========================================================= */
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--sp-2);
-        height: var(--h-ctrl);
-        padding: 0 var(--sp-4);
-        border-radius: var(--r-pill);
-        border: 1px solid var(--glass-border);
-        background: var(--glass-surface);
-        color: var(--text-sub);
-        font: inherit;
-        font-size: var(--fs-sm);
-        font-weight: 600;
-        letter-spacing: -0.005em;
-        cursor: pointer;
-        white-space: nowrap;
-        text-decoration: none;
-        transition: var(--transition);
-        -webkit-tap-highlight-color: transparent;
-        will-change: transform;
-      }
-      .btn i { font-size: 0.76rem; }
-      .btn:hover:not(:disabled) { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.42); background: rgba(var(--primary-rgb), 0.06); transform: translateY(-1px); }
-      .btn:active:not(:disabled) { transform: scale(0.955); transition-duration: 0.09s; transition-timing-function: var(--ease-press); }
-      .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
-
-      .btn--primary {
-        border-color: transparent;
-        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-        color: #fff;
-        box-shadow: var(--glow-primary);
-      }
-      .btn--primary:hover:not(:disabled) { color: #fff; box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36); }
-      .btn--primary:disabled { background: rgba(100, 116, 139, 0.16); color: var(--text-muted); box-shadow: none; }
-
-      .btn--danger { color: var(--c-danger); border-color: rgba(244, 63, 94, 0.3); }
-      .btn--danger:hover:not(:disabled) { color: var(--c-danger); background: var(--c-danger-soft); border-color: rgba(244, 63, 94, 0.5); }
-
-      .btn--ghost { border-color: transparent; background: transparent; }
-      .btn--ghost:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
-
-      .btn--icon { width: var(--h-ctrl); padding: 0; border-radius: 50%; }
-      .btn--icon.btn--sm { width: var(--h-ctrl-sm); }
-      .btn--sm { height: var(--h-ctrl-sm); font-size: var(--fs-xs); padding: 0 var(--sp-3); }
-      .btn--sm i { font-size: var(--fs-xs); }
-
-      /* 文字按钮：无底、无边框，用于导航栏等轻量场景 */
-      .text-btn {
-        border: none; background: none; padding: var(--sp-1) var(--sp-1);
-        font: inherit; font-size: var(--fs-md); font-weight: 590;
-        letter-spacing: -0.005em; color: var(--primary);
-        cursor: pointer; white-space: nowrap;
-        transition: opacity var(--dur-fast), transform 0.1s var(--ease-press), color var(--dur-fast);
-      }
-      .text-btn:active { opacity: 0.45; transform: scale(0.94); }
-      .text-btn--strong { font-weight: 700; }
-      .text-btn--danger { color: var(--c-danger); }
-      .text-btn--danger.armed {
-        color: #fff; background: var(--c-danger);
-        border-radius: var(--r-xs); padding: var(--sp-1) var(--sp-3);
-        animation: pop 0.28s var(--ease-apple);
-      }
 
       /* =========================================================
          通用列表行
@@ -317,67 +110,6 @@
         margin-top: 2px; flex-wrap: wrap;
       }
       .row__actions { display: flex; align-items: center; gap: 2px; flex: none; position: relative; }
-      /* 行内操作按钮进出场：退出选择模式时要有回场动画，而不是突然出现。
-         关键点：离场按钮必须脱离文档流（绝对定位 + 垂直居中）。
-         切选择模式时「操作按钮离场 + 勾选圈入场」会短暂同框，
-         若离场按钮仍占流宽，左侧文件名会被先挤过去、随后按钮消失又被弹回 ——
-         移动端窄行尤其明显，这就是用户说的「文件名抽搐」。
-         绝对定位让离场按钮不再参与布局，文件名宽度恒定、只随勾选圈平滑补间。 */
-      .rowAct-enter-active { animation: actionIn 0.32s var(--ease-spring) both; }
-      .rowAct-leave-active {
-        position: absolute; top: 0; bottom: 0; right: var(--sp-4);
-        display: flex; align-items: center;
-        animation: actionOut 0.18s var(--ease-press) both;
-        pointer-events: none;
-      }
-
-      /* 选择模式圆圈 */
-      .check {
-        flex: none;
-        width: 22px; height: 22px;
-        border-radius: 50%;
-        border: 1.5px solid rgba(100, 116, 139, 0.45);
-        display: inline-flex; align-items: center; justify-content: center;
-        font-size: 0.6rem; color: transparent;
-        transition: background var(--dur-base) var(--ease-spring),
-                    border-color var(--dur-base) var(--ease-spring),
-                    color var(--dur-base) var(--ease-spring),
-                    transform var(--dur-base) var(--ease-spring);
-      }
-      .check.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-      /* 勾选时对勾再来一次小回弹，强化「选中」确认感 */
-      .check.on i { animation: pop 0.32s var(--ease-spring); }
-      /* 圆圈进出场。
-         关键：不能只让圆圈自己淡入/回弹 —— 它在 flex 里占着 22px 宽 + 一格 gap。
-         如果这 34px 是「瞬间占位」，后面的缩略图 / 文件名 / 操作按钮就会被硬生生
-         挤到右边，那正是「没有动画的横向位移」。
-         所以改成「宽 + 负 margin + 边框宽」三者一起补间：
-           进入：宽 0 → 22px，同时 margin-right 由 -gap → 0，
-                 (宽 + margin) 也就是它带来的额外间距，从 0 平滑撑到 22 + gap，
-                 缩略图等行内内容跟着一起滑过去；
-           离开：反向收回到 0，内容平滑滑回，不再「啪」地弹回。 */
-      .check-enter-from {
-        width: 0; margin-right: calc(-1 * var(--row-gap));
-        border-width: 0; opacity: 0; transform: scale(0.4);
-      }
-      .check-enter-active {
-        transition: width var(--dur-base) var(--ease-fluid),
-                    margin-right var(--dur-base) var(--ease-fluid),
-                    border-width var(--dur-base) var(--ease-fluid),
-                    opacity 0.2s ease,
-                    transform 0.3s var(--ease-spring);
-      }
-      .check-leave-active {
-        transition: width 0.2s var(--ease-press),
-                    margin-right 0.2s var(--ease-press),
-                    border-width 0.2s var(--ease-press),
-                    opacity 0.16s var(--ease-press),
-                    transform 0.2s var(--ease-press);
-      }
-      .check-leave-to {
-        width: 0; margin-right: calc(-1 * var(--row-gap));
-        border-width: 0; opacity: 0; transform: scale(0.5);
-      }
 
       /* 小徽标 */
       .badge {
@@ -414,32 +146,6 @@
         font-feature-settings: "tnum" 1;
       }
 
-      /* =========================================================
-         通用表单输入
-         ========================================================= */
-      .input, .select {
-        width: 100%;
-        padding: var(--sp-2) var(--sp-3);
-        border-radius: var(--r-sm);
-        border: 1px solid var(--glass-border);
-        background: var(--glass-surface);
-        color: var(--text-main);
-        font: inherit;
-        font-size: var(--fs-md);
-        outline: none;
-        transition: border-color var(--dur-base) var(--ease-apple),
-                    box-shadow var(--dur-base) var(--ease-apple),
-                    background-color var(--dur-base) var(--ease-apple);
-      }
-      .input:focus, .select:focus {
-        border-color: var(--primary);
-        box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
-      }
-      .input::placeholder { color: var(--text-muted); }
-      .input:disabled, .select:disabled { opacity: 0.5; cursor: not-allowed; }
-
-      .field { display: flex; flex-direction: column; gap: var(--sp-1); }
-      .field > label { font-size: var(--fs-xs); font-weight: 700; color: var(--text-sub); }
 
       /* =========================================================
          通用弹窗（两种形态）
@@ -610,19 +316,6 @@
       .dlg--warn   .dlg__icon { background: rgba(245, 158, 11, 0.14); color: var(--c-warn); }
       .dlg--success .dlg__icon { background: rgba(16, 185, 129, 0.14); color: var(--c-success); }
 
-      /* 危险操作：确认按钮用实心红，强化阻断感 */
-      .btn--danger-solid {
-        background: linear-gradient(135deg, var(--c-danger), #be123c);
-        color: #fff; border-color: transparent;
-        box-shadow: 0 4px 14px rgba(225, 29, 72, 0.32);
-      }
-      .btn--danger-solid:hover:not(:disabled) {
-        background: linear-gradient(135deg, #f43f5e, #e11d48);
-        color: #fff; border-color: transparent;
-        transform: translateY(-1px);
-        box-shadow: 0 6px 18px rgba(225, 29, 72, 0.4);
-      }
-      .btn--danger-solid:active:not(:disabled) { transform: scale(0.96); }
 
       @media (max-width: 680px) {
         .dlg--dialog, .modal--dialog.dlg {
@@ -780,11 +473,6 @@
       .upload-zone__icon.is-settling,
       .status-pill__pulse.is-settling { animation: settleBreathe 1.1s var(--ease-apple) infinite; }
 
-      @keyframes settleBreathe {
-        0%   { transform: scale(1);    opacity: 1; }
-        45%  { transform: scale(0.94); opacity: 0.72; }
-        100% { transform: scale(1);    opacity: 1; }
-      }
 
       .morph-enter-active { transition: opacity 0.34s var(--ease-apple), transform 0.46s var(--ease-spring), filter 0.34s var(--ease-apple); }
       .morph-leave-active { transition: opacity 0.2s var(--ease-press), transform 0.26s var(--ease-press), filter 0.2s var(--ease-press); }
@@ -908,10 +596,6 @@
 .taskAct-leave-active { position: absolute; top: 0; right: 0; margin: 0;
   animation: actionOut 0.16s var(--ease-press) both; }
 .taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
-
-/* 进度条 */
-.progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 3px; overflow: hidden; }
-.progress__val { height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0); border-radius: var(--r-pill); background: linear-gradient(90deg, var(--primary-light), var(--primary)); transition: transform 0.4s var(--ease-fluid), background 0.3s var(--ease-apple); will-change: transform; }
 
 /* 结果列表内的分享徽标 */
 .share-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 6px; background: rgba(16, 185, 129, 0.12); color: #059669; font-weight: 600; font-size: 0.65rem; }
@@ -1210,16 +894,6 @@ html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color:
 .segmented button { flex: 1; min-width: 32px; padding: 5px 11px; border-radius: 6px; font-size: var(--fs-sm); }
 .view-toggle button { width: 40px; height: 32px; border-radius: 6px; font-size: 0.76rem; display: inline-flex; align-items: center; justify-content: center; }
 
-/* 开关 */
-.switch { position: relative; width: 44px; height: 26px; flex: none; cursor: pointer; display: inline-block; }
-.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.switch__track { position: absolute; inset: 0; border-radius: 13px; background: rgba(148, 163, 184, 0.38); transition: background 0.34s var(--ease-apple); }
-html[data-theme="dark"] .switch__track { background: rgba(148, 163, 184, 0.28); }
-.switch__thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24); transition: transform 0.38s var(--ease-spring), width 0.2s var(--ease-press); }
-.switch:active .switch__thumb { width: 24px; }
-.switch input:checked + .switch__track { background: var(--primary); }
-.switch input:checked + .switch__track + .switch__thumb { transform: translateX(18px); }
-.switch input:checked:active + .switch__track + .switch__thumb { transform: translateX(14px); }
 
 /* 未配置标签 */
 .unconfigured { align-self: flex-start; font-size: var(--fs-xs); font-weight: 700; padding: 2px 7px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); color: var(--text-muted); display: inline-block; margin-top: 4px; }
@@ -1436,166 +1110,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       .download-panel__meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: var(--fs-xs); color: var(--text-muted); }
       .download-panel__meta .speed { color: var(--primary); font-weight: 600; }
 
-      /* =========================================================
-         Toast
-         ========================================================= */
-      .toast {
-        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        padding: 9px var(--sp-5);
-        border-radius: var(--r-pill);
-        background: var(--glass-elevated);
-        border: 1.5px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-elevated);
-        z-index: 9999;
-        font-size: var(--fs-md); font-weight: 600;
-        display: flex; align-items: center; gap: 9px;
-      }
-      .toast.error { border-color: rgba(239, 68, 68, 0.4); color: #dc2626; }
-      .toast.success { color: var(--primary-dark); }
 
-      /* =========================================================
-         Animations —— Apple 风格关键帧
-         ========================================================= */
-      @keyframes riseIn {
-        from { opacity: 0; transform: translate3d(0, 16px, 0) scale(0.985); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-      }
-      @keyframes riseInSm {
-        from { opacity: 0; transform: translate3d(0, 10px, 0); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-      @keyframes scaleIn {
-        from { opacity: 0; transform: scale(0.92) translate3d(0, 10px, 0); }
-        to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
-      }
-      @keyframes sheetIn {
-        from { opacity: 0.35; transform: translate3d(0, 100%, 0); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-      @keyframes dialogIn {
-        from { opacity: 0; transform: scale(0.86) translate3d(0, 16px, 0); }
-        60%  { opacity: 1; }
-        to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
-      }
-      @keyframes maskIn { from { opacity: 0; } to { opacity: 1; } }
-
-      /* 上下文菜单入场：用 keyframes 而非 enter-from/enter-to 的 class 互换。
-         原因：菜单是在同一帧内「插入 DOM + 切换 class」，浏览器来不及建立
-         起始状态，过渡会被整帧跳过（实测 transform 直接从 matrix(0.9…) 跳到 none）。
-         keyframes 由合成器自行插值，不受这次 class 竞态影响。
-         transform-origin 已按 .menu / .menu--up / .menu--left 各自设置。 */
-      @keyframes menuIn {
-        from { opacity: 0; transform: scale(0.86) translate3d(0, -8px, 0); }
-        to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
-      }
-      @keyframes menuOut {
-        from { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
-        to   { opacity: 0; transform: scale(0.9) translate3d(0, -6px, 0); }
-      }
-      /* 行内操作按钮（复制/更多）：进出都要有动画，避免「直接没掉」 */
-      @keyframes actionIn {
-        from { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-      }
-      @keyframes actionOut {
-        from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-        to   { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
-      }
-
-      @keyframes toastIn {
-        from { opacity: 0; transform: translate3d(-50%, -22px, 0) scale(0.9); }
-        to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
-      }
-      @keyframes panelIn {
-        from { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.94); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-      }
-      @keyframes dockIn {
-        from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
-        to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
-      }
-      @keyframes pop {
-        from { transform: scale(0.72); opacity: 0; }
-        to   { transform: scale(1);    opacity: 1; }
-      }
-      /* 交付结果文件名入场：随整行 taskIn 之后错峰上浮淡入（克制、不抢戏）。
-         用 backwards 填充模式 —— 动画结束后回落到无 transform 的常态，
-         不长期占用合成层（结果列表可能很多行，避免 will-change 拖累滚动性能）。 */
-      @keyframes titleIn {
-        from { opacity: 0; transform: translate3d(0, 6px, 0); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-      @keyframes shakeIn {
-        0%   { opacity: 0; transform: translateX(0); }
-        18%  { opacity: 1; transform: translateX(-6px); }
-        36%  { transform: translateX(5px); }
-        54%  { transform: translateX(-4px); }
-        72%  { transform: translateX(3px); }
-        100% { transform: translateX(0); }
-      }
-      @keyframes pulseRing {
-        0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-        70%  { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-      }
-      @keyframes orbFloat {
-        from { transform: translate3d(0, 0, 0) scale(1); }
-        to   { transform: translate3d(28px, -32px, 0) scale(1.08); }
-      }
-      @keyframes floatSoft {
-        from { transform: translateY(0); }
-        to   { transform: translateY(-6px); }
-      }
-      @keyframes bounceDown {
-        0%, 100% { transform: translateY(0); }
-        50%      { transform: translateY(3px); }
-      }
-      /* 目录树子节点展开 / 收起：子树高度是未知的，不能写死 max-height。
-         用 grid-template-rows 0fr → 1fr 过渡，浏览器会自动插值到内容真实高度，
-         同时叠加透明度与轻微下移，让「长出/缩回」有重量感。 */
-      @keyframes treeGrowIn {
-        from { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -4px, 0); }
-        to   { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-      @keyframes treeGrowOut {
-        from { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
-        to   { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -3px, 0); }
-      }
-      /* 文件数量徽标：出现时有轻微的弹入，避免数字「啪」地跳出来 */
-      @keyframes countIn {
-        from { opacity: 0; transform: scale(0.6) translate3d(-4px, 0, 0); }
-        60%  { opacity: 1; transform: scale(1.1) translate3d(0, 0, 0); }
-        to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
-      }
-      @keyframes countOut {
-        from { opacity: 1; transform: scale(1); }
-        to   { opacity: 0; transform: scale(0.6); }
-      }
-      /* 上传任务状态文案（上传中 / 已暂停 / 已失败…）在同一行上原位换字，不做动画。
-         原因：文案长度一变就跑缩放动画，会把 <span> 自己的行盒变胖、带动整行重排，
-         整条任务卡高度跟着抖 —— 看起来就是「弹一下」。纯换字反而最稳。 */
-      /* 上传任务整卡进出（入队 / 完成后自动清理）：
-         只做透明度与位移，入场用 expo-out、出场用压感曲线，都带 0s 的延迟收敛。
-         刻意不用 --ease-spring —— 回弹曲线会让卡片「过冲再收回来」，
-         与上面按钮的平移叠在一起就是用户说的那种抽动。 */
-      @keyframes taskIn {
-        from { opacity: 0; transform: translate3d(-10px, 0, 0); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-      @keyframes taskOut {
-        from { opacity: 1; transform: translate3d(0, 0, 0); }
-        to   { opacity: 0; transform: translate3d(-12px, 0, 0); }
-      }
-      /* 设置行整体插入 / 移除（如开启并行上传后长出的两行）：
-         高度用 grid-template-rows 插值，配合透明度与位移，形成「长出来」的感觉。 */
-      @keyframes rowExpandIn {
-        from { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -6px, 0); }
-        to   { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-      @keyframes rowExpandOut {
-        from { grid-template-rows: 1fr; opacity: 1; transform: translate3d(0, 0, 0); }
-        to   { grid-template-rows: 0fr; opacity: 0; transform: translate3d(0, -4px, 0); }
-      }
 
       /* =========================================================
          Apple 风格动效 · 应用层
@@ -1629,141 +1144,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
 
       #app:not(.is-booted) .share-result   { animation: scaleIn 0.46s var(--ease-spring) backwards; }
 
-      /* =========================================================
-         Vue 过渡族 —— 补齐出场（leave）动画
-         ========================================================= */
-      .fade-enter-active { transition: opacity 0.24s var(--ease-apple); }
-      .fade-leave-active { transition: opacity 0.18s var(--ease-press); }
-      .fade-enter-from,
-      .fade-leave-to     { opacity: 0; }
-
-      .pop-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.26s var(--ease-spring); }
-      .pop-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
-      .pop-enter-from,
-      .pop-leave-to     { opacity: 0; transform: scale(0.92) translateY(-6px); }
-
-      .rise-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
-      .rise-leave-active { transition: opacity 0.18s var(--ease-press), transform 0.24s var(--ease-press); }
-      .rise-enter-from,
-      .rise-leave-to     { opacity: 0; transform: translate3d(0, 14px, 0); }
-
-      /* ---------------------------------------------------------
-         抽屉页签 · 方向感知转场（非线性）
-         ---------------------------------------------------------
-         前进（存储节点 → 上传目录 → 本地历史 → 系统导航）：
-           新页自右侧滑入并微微放大，旧页向左退场；
-         后退：方向完全镜像。
-         位移统一走 expo-out（--ease-fluid），先快后缓地「落位」，
-         再叠加一点点缩放与模糊营造纵深，而不是硬切。
-         --------------------------------------------------------- */
-      .pane-forward-enter-active,
-      .pane-back-enter-active {
-        transition: opacity 0.3s var(--ease-apple),
-                    transform 0.46s var(--ease-fluid),
-                    filter 0.3s var(--ease-apple);
-        will-change: transform, opacity, filter;
-      }
-      .pane-forward-leave-active,
-      .pane-back-leave-active {
-        transition: opacity 0.18s var(--ease-press),
-                    transform 0.24s var(--ease-press),
-                    filter 0.18s var(--ease-press);
-      }
-      .pane-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); filter: blur(6px); }
-      .pane-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); filter: blur(6px); }
-      .pane-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); filter: blur(6px); }
-      .pane-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); filter: blur(6px); }
-
-      /* 页签内容轻量错峰：让整页「长」出来，而不是整块弹现。
-         时长刻意压在 0.46s 内，避免 enter-active 被移除时动画被截断。 */
-      .pane-forward-enter-active > *,
-      .pane-back-enter-active > * {
-        animation: paneItemIn 0.34s var(--ease-fluid) backwards;
-      }
-      .pane-forward-enter-active > *:nth-child(1),
-      .pane-back-enter-active > *:nth-child(1) { animation-delay: 0.01s; }
-      .pane-forward-enter-active > *:nth-child(2),
-      .pane-back-enter-active > *:nth-child(2) { animation-delay: 0.03s; }
-      .pane-forward-enter-active > *:nth-child(3),
-      .pane-back-enter-active > *:nth-child(3) { animation-delay: 0.05s; }
-      .pane-forward-enter-active > *:nth-child(4),
-      .pane-back-enter-active > *:nth-child(4) { animation-delay: 0.07s; }
-      .pane-forward-enter-active > *:nth-child(n + 5),
-      .pane-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
-
-      @keyframes paneItemIn {
-        from { opacity: 0; transform: translate3d(0, 8px, 0); }
-        to   { opacity: 1; transform: translate3d(0, 0, 0); }
-      }
-
-      /* 低端设备：去掉模糊，只保留位移与透明度 */
-      html[data-perf="low"] .pane-forward-enter-from,
-      html[data-perf="low"] .pane-forward-leave-to,
-      html[data-perf="low"] .pane-back-enter-from,
-      html[data-perf="low"] .pane-back-leave-to { filter: none; }
-
-      .drop-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
-      .drop-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
-      .drop-enter-from,
-      .drop-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0); }
-
-      .sheet-enter-active, .sheet-leave-active,
-      .dialog-enter-active, .dialog-leave-active {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }
-      .sheet-enter-active { transition: opacity 0.3s var(--ease-apple); }
-      .sheet-leave-active { transition: opacity 0.22s var(--ease-apple); }
-      .sheet-enter-active .modal { transition: transform 0.46s var(--ease-apple); }
-      .sheet-leave-active .modal { transition: transform 0.26s var(--ease-press), opacity 0.22s var(--ease-press); }
-      .sheet-enter-from,
-      .sheet-leave-to { opacity: 0; }
-      .sheet-enter-from .modal { transform: translate3d(0, 100%, 0); }
-      .sheet-leave-to   .modal { transform: translate3d(0, 100%, 0); opacity: 0; }
-
-      .dialog-enter-active { transition: opacity 0.26s var(--ease-apple); }
-      .dialog-leave-active { transition: opacity 0.18s var(--ease-press); }
-      .dialog-enter-active .modal { transition: transform 0.44s var(--ease-spring); }
-      .dialog-leave-active .modal { transition: transform 0.22s var(--ease-press), opacity 0.18s var(--ease-press); }
-      .dialog-enter-from,
-      .dialog-leave-to { opacity: 0; }
-      .dialog-enter-from .modal { transform: scale(0.88) translate3d(0, 14px, 0); }
-      .dialog-leave-to   .modal { transform: scale(0.92) translate3d(0, 10px, 0); opacity: 0; }
-
-      /* 上传队列整卡进出。
-         离场元素必须脱离文档流：否则它会在 160ms 里继续占着原来的高度，
-         下方的任务行得等它淡完才「跳」上来；一旦同一 tick 里又有新任务入队
-         （过渡期间被推迟插入的那种），layout 会在两套占位之间来回跳。
-         用 keyframes（taskIn / taskOut）而非 class 互换来触发动画，
-         合成器自行插值，不受「插入 DOM + 切换 class」的竞态影响。
-         .list 是 transition-group 的包裹层，必须 position: relative，
-         否则 .list-leave-active 的 position: absolute 会锚到更外层的定位祖先。 */
-      .list { position: relative; }
-      .list-enter-active { animation: taskIn 0.28s var(--ease-fluid) both; }
-      .list-leave-active {
-        animation: taskOut 0.18s var(--ease-press) both;
-        position: absolute; left: 0; right: 0;
-        width: 100%; pointer-events: none;
-      }
-      .list-move         { transition: transform 0.32s var(--ease-apple); }
-
-      .bar-enter-active { transition: opacity 0.24s var(--ease-apple), transform 0.34s var(--ease-spring); }
-      .bar-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
-      .bar-enter-from,
-      .bar-leave-to     { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.98); }
-
-      /* 交付结果标题栏控件组（选择/清空 ↔ 全选/完成）切换：错峰淡入淡出，
-         避免两组按钮「啪」地互替，符合 Apple 列表操作栏连贯、克制的反馈 */
-      .ctrl-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.28s var(--ease-spring); }
-      .ctrl-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
-      .ctrl-enter-from   { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.96); }
-      .ctrl-leave-to     { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
-
-      .toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
-      .toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
-      .toast-enter-from,
-      .toast-leave-to     { opacity: 0; transform: translate3d(-50%, -22px, 0) scale(0.9); }
-      .toast-leave-to     { transform: translate3d(-50%, -14px, 0) scale(0.94); }
 
       .summary, .settings-list, .tree-panel, .list--card, .menu,
       .dock, .hist-stats, .folder-current {
@@ -1773,53 +1153,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                     color 0.45s var(--ease-apple);
       }
 
-      /* =========================================================
-         性能分级：低端设备降级
-         ========================================================= */
-      html[data-perf="low"] .card,
-      html[data-perf="low"] .menu,
-      html[data-perf="low"] .dock,
-      html[data-perf="low"] .selection-bar,
-      html[data-perf="low"] .modal,
-      html[data-perf="low"] .modal-mask {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }
-      html[data-perf="low"] .ambient-orb { animation: none; }
 
-      /* 灵动引擎关闭（= 低性能模式）：模糊全撤、动画全停。
-         用通配兜底，避免遗漏 .sheet-enter-active 这类过渡类上的 backdrop-filter；
-         duration 压到 0.01ms 而非 none，可保留 fill-mode 的最终状态，元素不会停在半途。 */
-      html[data-perf="low"] *,
-      html[data-perf="low"] *::before,
-      html[data-perf="low"] *::after {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-        will-change: auto !important;
-      }
-
-      /* 模糊停用后，玻璃层必须改为不透明，否则背景光晕会透上来压低文字对比度 */
-      html[data-perf="low"] {
-        --glass-surface: #ffffff;
-        --glass-elevated: #ffffff;
-        --glass-subtle: #f8fafc;
-        --glass-border: rgba(15, 23, 42, 0.1);
-      }
-      html[data-theme="dark"][data-perf="low"] {
-        --glass-surface: #0f1b31;
-        --glass-elevated: #142442;
-        --glass-subtle: #0d1626;
-      }
-
-      @media (prefers-reduced-transparency: reduce) {
-        .card, .menu, .dock, .selection-bar, .modal, .modal-mask {
-          backdrop-filter: none !important;
-          -webkit-backdrop-filter: none !important;
-        }
-      }
 
       /* =========================================================
          Responsive
@@ -1840,18 +1174,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         .target-badge { min-width: 88px; }
       }
 
-      /* =========================================================
-         无障碍：尊重系统「减弱动态效果」
-         ========================================================= */
-      @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-          scroll-behavior: auto !important;
-          will-change: auto !important;
-        }
-      }
     </style>
   </head>
   <body>
@@ -2773,13 +2095,15 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         </div>
       </transition>
 
-      <!-- Toast -->
-      <transition name="toast" mode="out-in">
-        <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0" :key="toastKey">
-          <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
-          <span>{{ toasts[toasts.length - 1].message }}</span>
-        </div>
-      </transition>
+      <!-- Toast：统一结构 —— .toast-stack 容器 + .toast 单条（样式来自 design-system.css） -->
+      <div class="toast-stack">
+        <transition name="toast" mode="out-in">
+          <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0" :key="toastKey">
+            <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
+            <span>{{ toasts[toasts.length - 1].message }}</span>
+          </div>
+        </transition>
+      </div>
     </div>
 
     <script src="/vendor/vue.global.prod.min.js"></script>

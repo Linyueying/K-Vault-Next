@@ -8,17 +8,9 @@ html[data-theme="light"] {
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --primary-color: #9aa9ff;
-  --primary-light: #b5bdf8;
-  --primary-dark: #768cff;
-  --primary: #9aa9ff;
-  --accent-color: #8d9dd8;
-  --accent: #8d9dd8;
-  --bg-gradient: linear-gradient(140deg, #111a2d 0%, #0b1120 55%, #070b16 100%);
+  /* 品牌色 / 玻璃层 / 阴影统一取自 design-system.css；
+     本文件只保留旧页面类名（.el-* 等）的暗色兜底。 */
   --bg: var(--bg-gradient);
-  --card-bg: rgba(15, 23, 39, 0.9);
-  --shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-  --shadow-hover: 0 14px 32px rgba(0, 0, 0, 0.45);
 }
 
 html[data-theme="dark"] body {
@@ -55,7 +47,6 @@ html[data-theme="dark"] .upload-item,
 html[data-theme="dark"] .result-item,
 html[data-theme="dark"] .history-item,
 html[data-theme="dark"] .stats,
-html[data-theme="dark"] .toast,
 html[data-theme="dark"] .search-card .el-input__inner,
 html[data-theme="dark"] .el-input__inner,
 html[data-theme="dark"] .url-input-container input,

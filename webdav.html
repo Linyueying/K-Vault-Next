@@ -7,85 +7,25 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/design-system.css" />
     <link rel="stylesheet" href="/theme.css" />
     <script src="/theme.js?v=20260305"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
     <style>
-      /* ===== 与 index.html 统一的设计令牌 ===== */
+      /* 设计令牌统一取自 /design-system.css；这里只保留本页的 --wf-* 快捷别名 */
       :root {
-        --primary: #0284c7;
-        --primary-rgb: 2, 132, 199;
-        --primary-light: #38bdf8;
-        --primary-dark: #0369a1;
-        --primary-surface: #e0f2fe;
-
-        --bg-body: #f0f7ff;
-        --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
-                       radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
-                       #f0f7ff;
-
-        --glass-surface: rgba(255, 255, 255, 0.84);
-        --glass-elevated: rgba(255, 255, 255, 0.95);
-        --glass-subtle: rgba(255, 255, 255, 0.65);
-        --glass-border: rgba(255, 255, 255, 0.95);
-        --glass-border-ice: rgba(186, 230, 253, 0.75);
-        --glass-specular: rgba(255, 255, 255, 0.95);
-
-        --text-main: #0f172a;
-        --text-sub: #334155;
-        --text-muted: #64748b;
-
-        --shadow-soft: 0 8px 24px -4px rgba(2, 132, 199, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.03);
-        --shadow-elevated: 0 16px 36px -6px rgba(2, 132, 199, 0.16), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
-
-        --radius-sm: 10px;
-        --radius-md: 14px;
-        --radius-lg: 22px;
-        --radius-pill: 9999px;
-
-        --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
-        --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-        --transition: all 0.22s var(--ease-fluid);
-
-        /* 页面局部令牌：映射到统一体系，保持既有引用可用 */
         --wf-surface: var(--glass-surface);
         --wf-border: var(--glass-border);
         --wf-shadow: var(--shadow-elevated);
         --wf-shadow-soft: var(--shadow-soft);
         --wf-primary: var(--primary);
-        --wf-primary-soft: rgba(2, 132, 199, 0.13);
+        --wf-primary-soft: rgba(var(--primary-rgb), 0.13);
       }
-
       html[data-theme="dark"] {
-        --primary: #38bdf8;
-        --primary-rgb: 56, 189, 248;
-        --primary-light: #7dd3fc;
-        --primary-dark: #0284c7;
-        --primary-surface: rgba(2, 132, 199, 0.18);
-
-        --bg-body: #070d19;
-        --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
-                       radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
-                       #070d19;
-
-        --glass-surface: rgba(15, 27, 49, 0.85);
-        --glass-elevated: rgba(20, 36, 66, 0.95);
-        --glass-subtle: rgba(15, 27, 49, 0.6);
-        --glass-border: rgba(255, 255, 255, 0.14);
-        --glass-border-ice: rgba(56, 189, 248, 0.25);
-        --glass-specular: rgba(255, 255, 255, 0.2);
-
-        --text-main: #f8fafc;
-        --text-sub: #cbd5e1;
-        --text-muted: #94a3b8;
-
-        --shadow-soft: 0 10px 30px -6px rgba(0, 0, 0, 0.55);
-        --shadow-elevated: 0 18px 45px -6px rgba(0, 0, 0, 0.7);
-
         --wf-surface: var(--glass-surface);
         --wf-border: var(--glass-border);
         --wf-primary: var(--primary);
-        --wf-primary-soft: rgba(56, 189, 248, 0.2);
+        --wf-primary-soft: rgba(var(--primary-rgb), 0.2);
       }
 
       * {
@@ -165,22 +105,10 @@
         background: rgba(255, 255, 255, 0.92);
       }
 
+      /* 本页按钮统一复用 design-system.css 的 .btn 实现，这里只留形态增量 */
       .action-link,
       .action-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        border: 1px solid var(--wf-border);
-        border-radius: var(--radius-pill);
-        padding: 9px 13px;
         min-height: 40px;
-        background: var(--wf-surface);
-        color: inherit;
-        text-decoration: none;
-        cursor: pointer;
-        transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-        font-weight: 600;
       }
 
       .action-link:hover,
@@ -188,7 +116,6 @@
         border-color: rgba(2, 132, 199, 0.4);
         background: var(--wf-primary-soft);
         box-shadow: var(--wf-shadow-soft);
-        transform: translateY(-1px);
       }
 
       .action-link.active {
@@ -263,13 +190,9 @@
         background: #f56c6c;
       }
 
+      /* .card 的基础实现来自 design-system.css，这里只保留本页内边距与 hover 增量 */
       .card {
-        border: 1px solid var(--wf-border);
-        background: var(--wf-surface);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--wf-shadow-soft);
         padding: 16px;
-        transition: box-shadow 0.2s ease;
       }
 
       .card:hover {
@@ -355,16 +278,10 @@
         border: 0;
       }
 
+      /* 基础形态来自 design-system 的 .btn，这里只保留本页强调描边与投影 */
       .file-choose-btn {
-        border-radius: var(--radius-pill);
-        border: 1px solid rgba(2, 132, 199, 0.36);
-        background: rgba(255, 255, 255, 0.9);
         min-height: 42px;
-        padding: 9px 14px;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        white-space: nowrap;
+        border-color: rgba(2, 132, 199, 0.36);
         box-shadow: 0 4px 12px rgba(2, 132, 199, 0.14);
       }
 
@@ -531,21 +448,6 @@
         border-color: rgba(2, 132, 199, 0.45);
       }
 
-      .btn-primary {
-        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
-        border-color: transparent;
-        color: #fff;
-      }
-
-      .btn-primary:hover {
-        border-color: transparent;
-      }
-
-      .btn-danger {
-        background: linear-gradient(135deg, #f56c6c 0%, #f89b9b 100%);
-        border-color: transparent;
-        color: #fff;
-      }
 
       .result-tools {
         display: flex;
@@ -728,6 +630,19 @@
         grid-column: 1 / -1;
       }
 
+      /* ===== 入场编排 =====
+         本页此前没有任何动效，统一接上 design-system.css 的 riseIn / riseInSm，
+         与 index 的「整页长出来」观感保持一致。 */
+      .page > .header { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      .page .card     { animation: riseIn 0.52s var(--ease-fluid) backwards; }
+      .page .card:nth-child(1) { animation-delay: 0.02s; }
+      .page .card:nth-child(2) { animation-delay: 0.06s; }
+      .page .card:nth-child(3) { animation-delay: 0.10s; }
+      .page .card:nth-child(n + 4) { animation-delay: 0.14s; }
+      .result-item    { animation: riseInSm 0.4s var(--ease-fluid) backwards; }
+      .status-line    { animation: riseInSm 0.36s var(--ease-fluid) backwards; }
+      .hint           { animation: riseInSm 0.36s var(--ease-fluid) backwards; }
+
       @media (max-width: 980px) {
         .layout {
           grid-template-columns: 1fr;
@@ -801,12 +716,12 @@
           <span>WebDAV 上传中心</span>
         </h1>
         <div class="header-actions">
-          <a class="action-link" href="./"><i class="fas fa-home"></i><span>首页</span></a>
-          <a class="action-link" href="./gallery.html"><i class="fas fa-images"></i><span>图片浏览</span></a>
-          <a class="action-link" href="./admin.html"><i class="fas fa-folder-tree"></i><span>管理后台</span></a>
-          <a class="action-link" href="./paste.html"><i class="fas fa-paste"></i><span>文本粘贴</span></a>
-          <a class="action-link active" href="./webdav.html"><i class="fas fa-hard-drive"></i><span>WebDAV</span></a>
-          <button type="button" class="action-btn" data-theme-toggle aria-label="切换主题">
+          <a class="btn action-link" href="./"><i class="fas fa-home"></i><span>首页</span></a>
+          <a class="btn action-link" href="./gallery.html"><i class="fas fa-images"></i><span>图片浏览</span></a>
+          <a class="btn action-link" href="./admin.html"><i class="fas fa-folder-tree"></i><span>管理后台</span></a>
+          <a class="btn action-link" href="./paste.html"><i class="fas fa-paste"></i><span>文本粘贴</span></a>
+          <a class="btn action-link active" href="./webdav.html"><i class="fas fa-hard-drive"></i><span>WebDAV</span></a>
+          <button type="button" class="btn action-btn" data-theme-toggle aria-label="切换主题">
             <i class="fas fa-moon" data-theme-icon></i>
             <span data-theme-label>夜间</span>
           </button>
@@ -827,7 +742,7 @@
           </div>
           <div class="toolbar-right">
             <button id="copyAllBtn" type="button">复制全部链接</button>
-            <button id="clearResultBtn" type="button" class="btn-danger">清空记录</button>
+            <button id="clearResultBtn" type="button" class="btn btn--danger">清空记录</button>
           </div>
         </article>
 
@@ -866,7 +781,7 @@
           <div class="upload-file-row">
             <div class="file-picker" id="filePickerBox" role="button" tabindex="0" aria-label="选择或拖拽文件">
               <input id="fileInput" class="file-input-native" type="file" multiple />
-              <button id="chooseFileBtn" type="button" class="file-choose-btn">
+              <button id="chooseFileBtn" type="button" class="btn file-choose-btn">
                 <i class="fas fa-folder-open"></i>
                 <span>选择文件</span>
               </button>
@@ -876,7 +791,7 @@
               </div>
               <span id="fileCountBadge" class="file-count-badge">0 个</span>
             </div>
-            <button id="uploadFilesBtn" type="button" class="btn-primary">开始上传</button>
+            <button id="uploadFilesBtn" type="button" class="btn btn--primary">开始上传</button>
           </div>
           <div id="fileQueueWrap" class="file-queue-wrap" style="display:none;">
             <div class="file-queue-head">
@@ -896,7 +811,7 @@
           </div>
           <div class="row">
             <input id="urlInput" type="text" placeholder="https://example.com/file.zip" />
-            <button id="uploadUrlBtn" type="button" class="btn-primary">上传 URL</button>
+            <button id="uploadUrlBtn" type="button" class="btn btn--primary">上传 URL</button>
           </div>
         </article>
 

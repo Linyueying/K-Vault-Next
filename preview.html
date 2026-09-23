@@ -7,72 +7,12 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/design-system.css">
   <link rel="stylesheet" href="/theme.css">
   <style>
-    /* ===== 与 index.html 统一的设计令牌 ===== */
-    :root {
-      --primary: #0284c7;
-      --primary-rgb: 2, 132, 199;
-      --primary-light: #38bdf8;
-      --primary-dark: #0369a1;
-      --primary-surface: #e0f2fe;
-
-      --bg-body: #f0f7ff;
-      --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
-                     radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
-                     #f0f7ff;
-
-      --glass-surface: rgba(255, 255, 255, 0.84);
-      --glass-subtle: rgba(255, 255, 255, 0.65);
-      --glass-border: rgba(255, 255, 255, 0.95);
-      --glass-border-ice: rgba(186, 230, 253, 0.75);
-
-      --text-main: #0f172a;
-      --text-sub: #334155;
-      --text-muted: #64748b;
-
-      --radius-sm: 10px;
-      --radius-md: 14px;
-      --radius-lg: 22px;
-      --radius-pill: 9999px;
-      --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);
-      --transition: all 0.22s var(--ease-fluid);
-
-      /* 页面原有变量改为引用统一令牌，保持既有引用可用 */
-      --bg: var(--bg-body);
-      --panel: #ffffff;
-      --text: #17212b;
-      --muted: #667085;
-      --line: #dde3ea;
-      --brand: var(--primary);
-      --brand-dark: var(--primary-dark);
-      --danger: #b42318;
-      --code-bg: #101828;
-      --code-text: #e6edf3;
-      --shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
-    }
-
+    /* 预览页 legacy 变量名（--bg / --panel / --brand …）的暗色取值；
+       品牌色 / 玻璃层 / 圆角 / 间距 / 缓动等通用令牌统一取自 /design-system.css。 */
     html[data-theme="dark"] {
-      --primary: #38bdf8;
-      --primary-rgb: 56, 189, 248;
-      --primary-light: #7dd3fc;
-      --primary-dark: #0284c7;
-      --primary-surface: rgba(2, 132, 199, 0.18);
-
-      --bg-body: #070d19;
-      --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
-                     radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
-                     #070d19;
-
-      --glass-surface: rgba(15, 27, 49, 0.85);
-      --glass-subtle: rgba(15, 27, 49, 0.6);
-      --glass-border: rgba(255, 255, 255, 0.14);
-      --glass-border-ice: rgba(56, 189, 248, 0.25);
-
-      --text-main: #f8fafc;
-      --text-sub: #cbd5e1;
-      --text-muted: #94a3b8;
-
       --bg: var(--bg-body);
       --panel: rgba(15, 27, 49, 0.85);
       --text: #f8fafc;
@@ -111,6 +51,14 @@
       flex-direction: column;
     }
 
+    /* ===== 首屏入场编排（与 index / admin / paste / share / webdav 同一套 riseIn / riseInSm） ===== */
+    .topbar { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+    .file-panel { animation: riseIn 0.52s var(--ease-fluid) 0.04s backwards; }
+    .viewer-wrap { animation: riseIn 0.52s var(--ease-fluid) 0.09s backwards; }
+    .pill { animation: pop 0.3s var(--ease-spring) backwards; }
+    .pill:nth-child(2) { animation-delay: 0.12s; }
+    .pill:nth-child(3) { animation-delay: 0.16s; }
+
     .topbar {
       display: flex;
       align-items: center;
@@ -146,38 +94,6 @@
       justify-content: flex-end;
     }
 
-    .btn {
-      appearance: none;
-      border: 1px solid var(--line);
-      background: #fff;
-      color: var(--text);
-      min-height: 36px;
-      padding: 7px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      white-space: nowrap;
-    }
-
-    .btn:hover {
-      border-color: #b8c2cc;
-      background: #f8fafc;
-    }
-
-    .btn.primary {
-      background: var(--brand);
-      color: #fff;
-      border-color: var(--brand);
-    }
-
-    .btn.primary:hover {
-      background: var(--brand-dark);
-      border-color: var(--brand-dark);
-    }
 
     .file-panel {
       display: grid;
@@ -421,21 +337,6 @@
       font-size: 20px;
     }
 
-    .spinner {
-      width: 34px;
-      height: 34px;
-      border: 3px solid #d8dee7;
-      border-top-color: var(--brand);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin: 0 auto 14px;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
 
     body.embed {
       background: #070b12;
@@ -517,11 +418,6 @@
       white-space: nowrap;
     }
 
-    .btn {
-      border-radius: 7px;
-      font-weight: 650;
-      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
-    }
 
     .file-panel {
       border-radius: 8px;
@@ -983,20 +879,6 @@
       background: rgba(255, 255, 255, 0.88);
     }
 
-    .btn {
-      border-radius: 8px;
-      box-shadow: none;
-    }
-
-    .btn.primary {
-      background: var(--brand);
-      border-color: var(--brand);
-    }
-
-    .btn.primary:hover {
-      background: var(--brand-dark);
-      border-color: var(--brand-dark);
-    }
 
     .file-panel,
     .viewer,
@@ -1367,7 +1249,7 @@
       <div class="actions">
         <button class="btn" type="button" id="copyBtn">复制直链</button>
         <button class="btn" type="button" id="openBtn">新标签打开</button>
-        <button class="btn primary" type="button" id="downloadBtn">下载文件</button>
+        <button class="btn btn--primary" type="button" id="downloadBtn">下载文件</button>
       </div>
     </header>
 

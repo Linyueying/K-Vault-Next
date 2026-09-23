@@ -1,0 +1,1008 @@
+/* ==========================================================================
+   一云 · Design System  (design-system.css)
+   --------------------------------------------------------------------------
+   全站「单一事实来源」：设计令牌 / 基础组件 / 动效关键帧 / Vue 过渡族 / 无障碍降级。
+
+   基线：index.html（所有分歧一律以 index.html 为准）。
+   引入顺序：design-system.css → theme.css（旧暗色兼容层）→ 页面内联 <style>。
+
+   用法：所有页面在 <head> 里最早引入本文件，然后删除自己内联里重复的
+        令牌块 / 组件块 / 关键帧块，避免两份定义打架。
+   ========================================================================== */
+
+/* ==========================================================================
+   1. Design Tokens —— 设计令牌
+   ========================================================================== */
+:root {
+  /* 品牌色 */
+  --primary: #0284c7;
+  --primary-rgb: 2, 132, 199;
+  --primary-light: #38bdf8;
+  --primary-dark: #0369a1;
+  --primary-surface: #e0f2fe;
+
+  /* 语义色 */
+  --c-danger: #e11d48;
+  --c-danger-soft: rgba(225, 29, 72, 0.1);
+  --c-warn: #f59e0b;
+  --c-success: #10b981;
+  --c-info: #0284c7;
+  --c-danger-strong: #ef4444;
+  --c-success-text: #15803d;
+
+  /* 背景与玻璃层 */
+  --bg-body: #f0f7ff;
+  --bg-gradient: radial-gradient(at 8% 8%, #e0f2fe 0px, transparent 45%),
+                 radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
+                 #f0f7ff;
+  --glass-surface: rgba(255, 255, 255, 0.84);
+  --glass-elevated: rgba(255, 255, 255, 0.95);
+  --glass-subtle: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.95);
+  --glass-border-ice: rgba(186, 230, 253, 0.75);
+  --glass-specular: rgba(255, 255, 255, 0.95);
+
+  /* 文本 */
+  --text-main: #0f172a;
+  --text-sub: #334155;
+  --text-muted: #64748b;
+
+  /* 阴影 */
+  --shadow-soft: 0 8px 24px -4px rgba(2, 132, 199, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.03);
+  --shadow-elevated: 0 16px 36px -6px rgba(2, 132, 199, 0.16), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  --glow-primary: 0 3px 10px rgba(var(--primary-rgb), 0.26);
+
+  /* 圆角：只 5 档 */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-pill: 9999px;
+
+  /* 间距：只用 4 的倍数 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  /* 字号：6 档 */
+  --fs-xs: 0.68rem;
+  --fs-sm: 0.78rem;
+  --fs-md: 0.88rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.15rem;
+  --fs-2xl: 1.35rem;
+
+  /* 控件高度 */
+  --h-ctrl-sm: 30px;
+  --h-ctrl: 36px;
+  --h-ctrl-lg: 44px;
+
+  /* ================================================
+     动效 —— Apple 风格缓动体系
+     ================================================ */
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);     /* 页面级大转场（iOS sheet） */
+  --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);      /* expo-out：元素入场 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* 回弹：开关 / 弹窗 */
+  --ease-press: cubic-bezier(0.4, 0, 0.2, 1);       /* 按压反馈 */
+  --dur-fast: 0.16s;
+  --dur-base: 0.24s;
+  --dur-slow: 0.34s;
+  --dur-enter: 0.5s;
+  --transition: all var(--dur-base) var(--ease-fluid);
+
+  /* 节点状态过渡（识别延迟 → 平滑收敛） */
+  --dur-resolve: 0.62s;
+
+  /* 字体 */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB',
+               'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ------------------------------------------------
+     兼容别名：旧页面仍在使用的历史命名，统一指向新令牌。
+     新代码请直接用左边的规范名。
+     ------------------------------------------------ */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-pill: var(--r-pill);
+
+  --primary-color: var(--primary);
+  --primary-text: var(--primary-dark);
+  --accent-color: var(--primary-surface);
+  --accent: var(--primary-surface);
+  --card-bg: var(--glass-surface);
+  --surface-1: var(--glass-surface);
+  --surface-2: var(--glass-elevated);
+  --shadow: var(--shadow-soft);
+  --shadow-hover: var(--shadow-elevated);
+  --shadow-lift: var(--shadow-elevated);
+
+  --success: var(--c-success);
+  --warn: var(--c-warn);
+  --danger: var(--c-danger);
+}
+
+html[data-theme="dark"] {
+  --primary: #38bdf8;
+  --primary-rgb: 56, 189, 248;
+  --primary-light: #7dd3fc;
+  --primary-dark: #0284c7;
+  --primary-surface: rgba(2, 132, 199, 0.18);
+  --bg-body: #070d19;
+  --bg-gradient: radial-gradient(at 10% 10%, rgba(2, 132, 199, 0.18) 0px, transparent 50%),
+                 radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+                 #070d19;
+  --glass-surface: rgba(15, 27, 49, 0.85);
+  --glass-elevated: rgba(20, 36, 66, 0.95);
+  --glass-subtle: rgba(15, 27, 49, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-border-ice: rgba(56, 189, 248, 0.25);
+  --glass-specular: rgba(255, 255, 255, 0.2);
+  --text-main: #f8fafc;
+  --text-sub: #cbd5e1;
+  --text-muted: #94a3b8;
+  --c-success-text: #4ade80;
+  --shadow-soft: 0 10px 30px -6px rgba(0, 0, 0, 0.55);
+  --shadow-elevated: 0 18px 45px -6px rgba(0, 0, 0, 0.7);
+}
+
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+/* ==========================================================================
+   2. Reset & Base —— 只放全站一致、不会改变既有排版的部分
+      （刻意不做 margin/padding 全局清零：preview 等富文本页依赖浏览器默认间距）
+   ========================================================================== */
+[v-cloak] { display: none !important; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.55s var(--ease-apple), color 0.55s var(--ease-apple);
+}
+
+/* ==========================================================================
+   3. 通用卡片
+   ========================================================================== */
+/* .liquid-card 是 .card 的历史别名（admin/gallery/paste 曾用），合并为同一实现 */
+.card,
+.liquid-card {
+  background: var(--glass-surface);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+  border-radius: var(--r-lg);
+  transition: background-color 0.45s var(--ease-apple),
+              border-color 0.45s var(--ease-apple),
+              box-shadow 0.45s var(--ease-apple),
+              transform 0.45s var(--ease-fluid);
+  position: relative;
+}
+.card::before,
+.liquid-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--glass-specular), transparent);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  pointer-events: none;
+}
+.card--inset { border-radius: var(--r-md); box-shadow: none; }
+.card--inset::before { display: none; }
+.card__header,
+.liquid-card__header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-2); padding: var(--sp-4);
+}
+.card__body,
+.liquid-card__body { padding: 0 var(--sp-4) var(--sp-4); }
+
+/* ==========================================================================
+   4. 通用按钮：统一 BEM 修饰符（--primary / --danger / --ghost / --icon / --sm / --block）
+      形态：实心主按钮 = --primary，危险 = --danger，次要/描边 = 默认，无框 = --ghost
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: var(--h-ctrl);
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-surface);
+  color: var(--text-sub);
+  font: inherit;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: var(--transition);
+  -webkit-tap-highlight-color: transparent;
+  will-change: transform;
+}
+.btn i { font-size: 0.76rem; }
+.btn:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: rgba(var(--primary-rgb), 0.42);
+  background: rgba(var(--primary-rgb), 0.06);
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.955);
+  transition-duration: 0.09s;
+  transition-timing-function: var(--ease-press);
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.btn--primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: var(--glow-primary);
+}
+.btn--primary:hover:not(:disabled) { color: #fff; box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36); }
+.btn--primary:disabled { background: rgba(100, 116, 139, 0.16); color: var(--text-muted); box-shadow: none; }
+
+.btn--danger { color: var(--c-danger); border-color: rgba(244, 63, 94, 0.3); }
+.btn--danger:hover:not(:disabled) {
+  color: var(--c-danger);
+  background: var(--c-danger-soft);
+  border-color: rgba(244, 63, 94, 0.5);
+}
+
+.btn--ghost { border-color: transparent; background: transparent; }
+.btn--ghost:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
+
+.btn--icon { width: var(--h-ctrl); padding: 0; border-radius: 50%; }
+.btn--icon.btn--sm { width: var(--h-ctrl-sm); }
+.btn--sm { height: var(--h-ctrl-sm); font-size: var(--fs-xs); padding: 0 var(--sp-3); }
+.btn--sm i { font-size: var(--fs-xs); }
+.btn--lg { height: var(--h-ctrl-lg); font-size: var(--fs-md); padding: 0 var(--sp-5); }
+.btn--block { width: 100%; }
+
+/* 文字按钮：无底、无边框，用于导航栏等轻量场景 */
+.text-btn {
+  border: none; background: none; padding: var(--sp-1) var(--sp-1);
+  font: inherit; font-size: var(--fs-md); font-weight: 590;
+  letter-spacing: -0.005em; color: var(--primary);
+  cursor: pointer; white-space: nowrap;
+  transition: opacity var(--dur-fast), transform 0.1s var(--ease-press), color var(--dur-fast);
+}
+.text-btn:active { opacity: 0.45; transform: scale(0.94); }
+.text-btn--strong { font-weight: 700; }
+.text-btn--danger { color: var(--c-danger); }
+.text-btn--danger.armed {
+  color: #fff; background: var(--c-danger);
+  border-radius: var(--r-xs); padding: var(--sp-1) var(--sp-3);
+  animation: pop 0.28s var(--ease-apple);
+}
+
+/* 兼容别名：旧页面用的单连字符写法 / 无修饰符写法，统一指向上面的实现。
+   新代码请一律用 .btn--primary 这类双连字符写法。 */
+.btn-primary,
+.btn.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: var(--glow-primary);
+}
+.btn-primary:hover:not(:disabled),
+.btn.primary:hover:not(:disabled) {
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36);
+}
+.btn-primary:disabled,
+.btn.primary:disabled { background: rgba(100, 116, 139, 0.16); color: var(--text-muted); box-shadow: none; }
+
+.btn-danger, .btn.danger { color: var(--c-danger); border-color: rgba(244, 63, 94, 0.3); }
+.btn-danger:hover:not(:disabled),
+.btn.danger:hover:not(:disabled) {
+  color: var(--c-danger);
+  background: var(--c-danger-soft);
+  border-color: rgba(244, 63, 94, 0.5);
+}
+
+.btn--ghost, .btn.ghost { border-color: transparent; background: transparent; }
+.btn--ghost:hover:not(:disabled),
+.btn.ghost:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
+
+.btn-block, .btn.block { width: 100%; }
+
+/* 危险操作的确认按钮：实心红，强化阻断感（以 index.html 的实现为基准，
+   admin.html 原先用 #ef4444→#b91c1c 的渐变，已统一到语义色 --c-danger） */
+.btn--danger-solid {
+  background: linear-gradient(135deg, var(--c-danger), #be123c);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.32);
+}
+.btn--danger-solid:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  color: #fff;
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(225, 29, 72, 0.4);
+}
+.btn--danger-solid:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 0.09s;
+  transition-timing-function: var(--ease-press);
+}
+
+/* ==========================================================================
+   5. 表单控件
+   ========================================================================== */
+.input, .select, .textarea {
+  width: 100%;
+  height: var(--h-ctrl);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--glass-border-ice);
+  background: var(--glass-subtle);
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--fs-md);
+  transition: border-color var(--dur-base) var(--ease-apple),
+              box-shadow var(--dur-base) var(--ease-apple),
+              background var(--dur-base) var(--ease-apple);
+}
+.textarea { height: auto; min-height: 88px; padding: var(--sp-2) var(--sp-3); line-height: 1.6; resize: vertical; }
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+}
+.input::placeholder, .textarea::placeholder { color: var(--text-muted); }
+.input:disabled, .select:disabled, .textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.field > label { font-size: var(--fs-xs); font-weight: 700; color: var(--text-sub); }
+.field__hint,
+.field-hint,
+.field-help { font-size: 0.7rem; color: var(--text-muted); line-height: 1.5; }
+
+/* ==========================================================================
+   6. 开关 —— 全站唯一实现（44×26，回弹 + 按压拉伸）
+   ========================================================================== */
+.switch {
+  position: relative;
+  width: 44px; height: 26px;
+  flex: none;
+  cursor: pointer;
+  display: inline-block;
+  -webkit-tap-highlight-color: transparent;
+}
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch__track {
+  position: absolute; inset: 0;
+  border-radius: 13px;
+  background: rgba(148, 163, 184, 0.38);
+  transition: background 0.34s var(--ease-apple);
+}
+html[data-theme="dark"] .switch__track { background: rgba(148, 163, 184, 0.28); }
+.switch__thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+  transition: transform 0.38s var(--ease-spring), width 0.2s var(--ease-press);
+}
+.switch:active .switch__thumb { width: 24px; }
+.switch input:checked + .switch__track { background: var(--primary); }
+.switch input:checked + .switch__track + .switch__thumb { transform: translateX(18px); }
+.switch input:checked:active + .switch__track + .switch__thumb { transform: translateX(14px); }
+.switch input:focus-visible + .switch__track { box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.25); }
+
+/* ==========================================================================
+   7. 加载指示器 —— 全站唯一实现（34px，--sm 20px，--lg 44px）
+   ========================================================================== */
+.spinner {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(var(--primary-rgb), 0.18);
+  border-top-color: var(--primary);
+  animation: spin 0.8s linear infinite;
+}
+.spinner--sm { width: 20px; height: 20px; border-width: 2px; }
+.spinner--lg { width: 44px; height: 44px; animation-duration: 0.9s; }
+.spinner--on-primary {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+}
+/* 兼容别名 */
+.spinner-ring { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(var(--primary-rgb), 0.18); border-top-color: var(--primary); animation: spin 0.8s linear infinite; margin: 0 auto; }
+
+/* ==========================================================================
+   8. Toast —— 全站唯一实现（顶部居中、胶囊、玻璃拟态）
+      .toast-stack 是容器（多条时纵向堆叠），.toast 是单条。
+   ========================================================================== */
+.toast-stack {
+  position: fixed;
+  top: calc(20px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  pointer-events: none;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px var(--sp-5);
+  border-radius: var(--r-pill);
+  background: var(--glass-elevated);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.4;
+  max-width: 100%;
+  animation: toastIn 0.26s var(--ease-spring) backwards;
+}
+.toast i { font-size: 0.9rem; flex: none; }
+
+/* 语义色（同时支持 .toast--success 与旧写法 .toast.success） */
+.toast--success, .toast.success { color: var(--primary-dark); border-color: rgba(var(--primary-rgb), 0.4); }
+.toast--success i, .toast.success i { color: var(--primary); }
+
+.toast--error, .toast.error { color: #dc2626; border-color: rgba(239, 68, 68, 0.4); }
+.toast--error i, .toast.error i { color: #ef4444; }
+
+.toast--warn, .toast.warn { color: #b45309; border-color: rgba(245, 158, 11, 0.45); }
+.toast--warn i, .toast.warn i { color: var(--c-warn); }
+
+.toast--info, .toast.info { color: var(--primary-dark); border-color: rgba(var(--primary-rgb), 0.35); }
+.toast--info i, .toast.info i { color: var(--primary); }
+
+html[data-theme="dark"] .toast--error,
+html[data-theme="dark"] .toast.error { color: #fca5a5; }
+html[data-theme="dark"] .toast--success,
+html[data-theme="dark"] .toast.success { color: var(--primary-light); }
+html[data-theme="dark"] .toast--warn,
+html[data-theme="dark"] .toast.warn { color: #fbbf24; }
+html[data-theme="dark"] .toast--info,
+html[data-theme="dark"] .toast.info { color: var(--primary-light); }
+
+@media (max-width: 680px) {
+  .toast { padding: 9px var(--sp-4); font-size: var(--fs-sm); }
+}
+
+/* ==========================================================================
+   9. 空状态
+   ========================================================================== */
+.empty-state {
+  padding: 56px var(--sp-5);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+}
+.empty-state i {
+  font-size: 2.4rem;
+  opacity: 0.35;
+  animation: floatSoft 3.4s var(--ease-apple) infinite alternate;
+}
+.empty-state .btn { margin-top: 2px; }
+.empty-state--sm { padding: var(--sp-6) var(--sp-4); }
+.empty-state--sm i { font-size: 1.7rem; }
+/* 兼容别名 */
+.result-empty {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* ==========================================================================
+   10. 选择圈 / 进度条
+   ========================================================================== */
+.check {
+  position: relative;
+  flex: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(100, 116, 139, 0.45);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: transparent;
+  transition: background var(--dur-base) var(--ease-spring),
+              border-color var(--dur-base) var(--ease-spring),
+              color var(--dur-base) var(--ease-spring),
+              transform var(--dur-base) var(--ease-spring);
+}
+/* 44px 隐形热区：移动端更好点 */
+.check::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 44px; height: 44px;
+  transform: translate(-50%, -50%);
+}
+.check i { transform: scale(0.5); transition: transform var(--dur-base) var(--ease-spring); pointer-events: none; }
+.check.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.check.on i { transform: scale(1); animation: pop 0.32s var(--ease-spring); }
+.check:hover { border-color: var(--primary); }
+.check:active { transform: scale(0.9); }
+.check input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
+
+.progress {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: rgba(148, 163, 184, 0.2);
+  margin-top: 3px;
+  overflow: hidden;
+}
+.progress__val {
+  height: 100%; width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--primary-light), var(--primary));
+  transition: transform 0.4s var(--ease-fluid), background 0.3s var(--ease-apple);
+  will-change: transform;
+}
+.progress--lg { height: 8px; margin-top: var(--sp-2); }
+
+/* ==========================================================================
+   11. 关键帧 —— Apple 风格（全站共用，禁止页面再单独定义同名关键帧）
+   ========================================================================== */
+@keyframes riseIn {
+  from { opacity: 0; transform: translate3d(0, 16px, 0) scale(0.985); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes riseInSm {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92) translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+}
+@keyframes sheetIn {
+  from { opacity: 0.35; transform: translate3d(0, 100%, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes dialogIn {
+  from { opacity: 0; transform: scale(0.86) translate3d(0, 16px, 0); }
+  60%  { opacity: 1; }
+  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+}
+@keyframes maskIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* 上下文菜单：用 keyframes 而非 class 互换 —— 菜单是「插入 DOM + 切 class」
+   同帧发生，浏览器来不及建立起始状态，过渡会被整帧跳过。 */
+@keyframes menuIn {
+  from { opacity: 0; transform: scale(0.86) translate3d(0, -8px, 0); }
+  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+}
+@keyframes menuOut {
+  from { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+  to   { opacity: 0; transform: scale(0.9) translate3d(0, -6px, 0); }
+}
+/* 行内操作按钮（复制/更多）：进出都要有动画，避免「直接没掉」 */
+@keyframes actionIn {
+  from { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes actionOut {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to   { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.94); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes dockIn {
+  from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
+  to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
+}
+@keyframes pop {
+  from { transform: scale(0.72); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+/* 文件名/标题入场：随整行错峰上浮淡入（克制、不抢戏）。
+   backwards 填充：动画结束后回落到无 transform 常态，不长期占用合成层。 */
+@keyframes titleIn {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes shakeIn {
+  0%   { opacity: 0; transform: translateX(0); }
+  20%  { opacity: 1; transform: translateX(-7px); }
+  40%  { transform: translateX(6px); }
+  60%  { transform: translateX(-4px); }
+  80%  { transform: translateX(2px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+@keyframes orbFloat {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(28px, -34px, 0) scale(1.08); }
+}
+@keyframes floatSoft {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -8px, 0); }
+}
+@keyframes bounceDown {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(0, 5px, 0); }
+}
+@keyframes settleBreathe {
+  0%   { transform: scale(1);    opacity: 1; }
+  45%  { transform: scale(0.94); opacity: 0.72; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 高度类展开/收起（grid-template-rows 真插值，配合 .tree-children / .row-expand） */
+@keyframes treeGrowIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
+@keyframes treeGrowOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
+@keyframes rowExpandIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
+@keyframes rowExpandOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
+
+/* 数字/计数切换 */
+@keyframes countIn  { from { opacity: 0; transform: scale(0.6) translate3d(0, -6px, 0); } to { opacity: 1; transform: scale(1) translate3d(0, 0, 0); } }
+@keyframes countOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.6) translate3d(0, 6px, 0); } }
+
+/* 上传队列整卡进出 */
+@keyframes taskIn  { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.98); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+@keyframes taskOut { from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } to { opacity: 0; transform: translate3d(0, -10px, 0) scale(0.98); } }
+
+/* 页签内容错峰 */
+@keyframes dropIn {
+  from { opacity: 0; transform: translate3d(0, -12px, 0) scale(0.97); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes paneItemIn { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+
+/* 兼容别名：旧页面用过的名字，统一在这里收口（新代码请用上面的规范名）。
+   dockRise 保留独立取值：画廊页的 dock 只上浮 26px，
+   而全站 dockIn 是 96px 的「从屏幕外升起」，两者语义不同。 */
+@keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeInUp  { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+@keyframes fadeUp    { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+@keyframes slideDown { from { opacity: 0; transform: translate3d(0, -14px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+@keyframes dockRise  { from { opacity: 0; transform: translate3d(-50%, 26px, 0) scale(0.96); } to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); } }
+
+/* ==========================================================================
+   12. 入场编排 —— 首屏元素错峰浮现（替代各页面手写的 boot 规则）
+       .boot-rise / .boot-rise-sm / .boot-scale + --boot-delay 自定义延迟
+   ========================================================================== */
+.boot-rise    { animation: riseIn 0.52s var(--ease-fluid) backwards; }
+.boot-rise-sm { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+.boot-scale   { animation: scaleIn 0.46s var(--ease-spring) backwards; }
+.boot-dock    { animation: dockIn 0.72s var(--ease-fluid) 0.1s backwards; }
+[class*="boot-"] { animation-delay: var(--boot-delay, 0s); }
+
+/* ==========================================================================
+   13. Vue 过渡族 —— 进出场都补齐，禁止页面再单独定义同名过渡
+   ========================================================================== */
+.fade-enter-active { transition: opacity 0.24s var(--ease-apple); }
+.fade-leave-active { transition: opacity 0.18s var(--ease-press); }
+.fade-enter-from,
+.fade-leave-to     { opacity: 0; }
+
+.pop-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.26s var(--ease-spring); }
+.pop-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
+.pop-enter-from,
+.pop-leave-to     { opacity: 0; transform: scale(0.92) translateY(-6px); }
+
+.rise-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
+.rise-leave-active { transition: opacity 0.18s var(--ease-press), transform 0.24s var(--ease-press); }
+.rise-enter-from,
+.rise-leave-to     { opacity: 0; transform: translate3d(0, 14px, 0); }
+
+.drop-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
+.drop-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+.drop-enter-from,
+.drop-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0); }
+
+.bar-enter-active { transition: opacity 0.24s var(--ease-apple), transform 0.34s var(--ease-spring); }
+.bar-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+.bar-enter-from,
+.bar-leave-to     { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.98); }
+
+/* 控件组互换（选择/清空 ↔ 全选/完成）：错峰淡入淡出，避免「啪」地互替 */
+.ctrl-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.28s var(--ease-spring); }
+.ctrl-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
+.ctrl-enter-from   { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.96); }
+.ctrl-leave-to     { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
+
+/* Toast：单条（顶部居中，容器自身带 translateX(-50%)） */
+.toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
+.toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+.toast-enter-from   { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9); }
+.toast-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0) scale(0.94); }
+
+/* 列表项（transition-group）：离场必须脱离文档流，否则剩余项要等它淡完才「跳」上来 */
+.list { position: relative; }
+.list-enter-active { animation: taskIn 0.28s var(--ease-fluid) both; }
+.list-leave-active {
+  animation: taskOut 0.18s var(--ease-press) both;
+  position: absolute; left: 0; right: 0;
+  width: 100%; pointer-events: none;
+}
+.list-move { transition: transform 0.32s var(--ease-apple); }
+
+/* 上下文菜单 */
+.menu-enter-active { animation: menuIn 0.3s var(--ease-spring) both; transform-origin: inherit; }
+.menu-leave-active { animation: menuOut 0.18s var(--ease-press) both; transform-origin: inherit; }
+.menu-enter-from,
+.menu-leave-to { opacity: 1; }
+
+/* 行内操作按钮：离场必须绝对定位，否则离场按钮仍占流宽 → 文件名被挤（移动端「抽搐」） */
+.rowAct-enter-active { animation: actionIn 0.32s var(--ease-spring) both; }
+.rowAct-leave-active {
+  position: absolute; top: 0; bottom: 0; right: var(--sp-4);
+  display: flex; align-items: center;
+  animation: actionOut 0.18s var(--ease-press) both;
+  pointer-events: none;
+}
+.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
+.taskAct-leave-active {
+  position: absolute; top: 0; right: 0; margin: 0;
+  animation: actionOut 0.16s var(--ease-press) both;
+}
+.taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
+
+/* 选择圈：宽 + 负 margin + 边框宽 一起补间，避免行内内容被硬挤 */
+.check-enter-from {
+  width: 0; margin-right: calc(-1 * var(--row-gap, var(--sp-3)));
+  border-width: 0; opacity: 0; transform: scale(0.4);
+}
+.check-enter-active {
+  transition: width var(--dur-base) var(--ease-fluid),
+              margin-right var(--dur-base) var(--ease-fluid),
+              border-width var(--dur-base) var(--ease-fluid),
+              opacity 0.2s ease,
+              transform 0.3s var(--ease-spring);
+}
+.check-leave-active {
+  transition: width 0.2s var(--ease-press),
+              margin-right 0.2s var(--ease-press),
+              border-width 0.2s var(--ease-press),
+              opacity 0.16s var(--ease-press),
+              transform 0.2s var(--ease-press);
+}
+.check-leave-to {
+  width: 0; margin-right: calc(-1 * var(--row-gap, var(--sp-3)));
+  border-width: 0; opacity: 0; transform: scale(0.5);
+}
+
+/* 高度展开（grid-template-rows 真插值 + transition-duration 作为 Vue 的时长信号） */
+.tree-children { display: grid; grid-template-rows: 1fr; min-height: 0; }
+.tree-children > * { min-height: 0; overflow: hidden; }
+.tree-children-enter-active {
+  animation: treeGrowIn 0.42s var(--ease-fluid) both;
+  transition: opacity 0.42s var(--ease-fluid), grid-template-rows 0.42s var(--ease-fluid);
+}
+.tree-children-leave-active {
+  animation: treeGrowOut 0.26s var(--ease-press) both;
+  transition: opacity 0.26s var(--ease-press), grid-template-rows 0.26s var(--ease-press);
+}
+.tree-children-enter-from,
+.tree-children-leave-to { opacity: 1; }
+
+.row-expand { display: grid; grid-template-rows: 1fr; min-height: 0; }
+.row-expand > * { min-height: 0; overflow: hidden; }
+.rowExpand-enter-active {
+  animation: rowExpandIn 0.42s var(--ease-fluid) both;
+  transition: opacity 0.42s var(--ease-fluid), grid-template-rows 0.42s var(--ease-fluid);
+}
+.rowExpand-leave-active {
+  animation: rowExpandOut 0.24s var(--ease-press) both;
+  transition: opacity 0.24s var(--ease-press), grid-template-rows 0.24s var(--ease-press);
+}
+.rowExpand-enter-from,
+.rowExpand-leave-to { opacity: 1; }
+
+.count-enter-active { animation: countIn 0.34s var(--ease-spring) both; }
+.count-leave-active { animation: countOut 0.18s var(--ease-press) both; }
+
+/* 抽屉页签 · 方向感知转场 */
+.pane-forward-enter-active,
+.pane-back-enter-active {
+  transition: opacity 0.3s var(--ease-apple),
+              transform 0.46s var(--ease-fluid),
+              filter 0.3s var(--ease-apple);
+  will-change: transform, opacity, filter;
+}
+.pane-forward-leave-active,
+.pane-back-leave-active {
+  transition: opacity 0.18s var(--ease-press),
+              transform 0.24s var(--ease-press),
+              filter 0.18s var(--ease-press);
+}
+.pane-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); filter: blur(6px); }
+.pane-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); filter: blur(6px); }
+.pane-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); filter: blur(6px); }
+.pane-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); filter: blur(6px); }
+.pane-forward-enter-active > *,
+.pane-back-enter-active > * { animation: paneItemIn 0.34s var(--ease-fluid) backwards; }
+.pane-forward-enter-active > *:nth-child(1),
+.pane-back-enter-active > *:nth-child(1) { animation-delay: 0.01s; }
+.pane-forward-enter-active > *:nth-child(2),
+.pane-back-enter-active > *:nth-child(2) { animation-delay: 0.03s; }
+.pane-forward-enter-active > *:nth-child(3),
+.pane-back-enter-active > *:nth-child(3) { animation-delay: 0.05s; }
+.pane-forward-enter-active > *:nth-child(4),
+.pane-back-enter-active > *:nth-child(4) { animation-delay: 0.07s; }
+.pane-forward-enter-active > *:nth-child(n + 5),
+.pane-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
+
+/* admin 后台的视图切换叫 .view-*，与 .pane-* 是同一套方向感知转场，
+   统一在这里定义（离场元素绝对定位，避免两页同时占位把容器撑高）。 */
+.view-forward-enter-active,
+.view-back-enter-active {
+  transition: opacity 0.3s var(--ease-apple),
+              transform 0.46s var(--ease-fluid),
+              filter 0.3s var(--ease-apple);
+  will-change: transform, opacity, filter;
+}
+.view-forward-leave-active,
+.view-back-leave-active {
+  transition: opacity 0.18s var(--ease-press),
+              transform 0.24s var(--ease-press),
+              filter 0.18s var(--ease-press);
+  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
+}
+.view-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); filter: blur(6px); }
+.view-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); filter: blur(6px); }
+.view-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); filter: blur(6px); }
+.view-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); filter: blur(6px); }
+.view-forward-enter-active > *,
+.view-back-enter-active > * { animation: paneItemIn 0.34s var(--ease-fluid) backwards; }
+.view-forward-enter-active > *:nth-child(1),
+.view-back-enter-active > *:nth-child(1) { animation-delay: 0.01s; }
+.view-forward-enter-active > *:nth-child(2),
+.view-back-enter-active > *:nth-child(2) { animation-delay: 0.03s; }
+.view-forward-enter-active > *:nth-child(3),
+.view-back-enter-active > *:nth-child(3) { animation-delay: 0.05s; }
+.view-forward-enter-active > *:nth-child(4),
+.view-back-enter-active > *:nth-child(4) { animation-delay: 0.07s; }
+.view-forward-enter-active > *:nth-child(n + 5),
+.view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
+
+html[data-perf="low"] .view-forward-enter-from,
+html[data-perf="low"] .view-forward-leave-to,
+html[data-perf="low"] .view-back-enter-from,
+html[data-perf="low"] .view-back-leave-to { filter: none; }
+
+/* Sheet / Dialog */
+.sheet-enter-active, .sheet-leave-active,
+.dialog-enter-active, .dialog-leave-active {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.sheet-enter-active { transition: opacity 0.3s var(--ease-apple); }
+.sheet-leave-active { transition: opacity 0.22s var(--ease-apple); }
+.sheet-enter-active .modal { transition: transform 0.46s var(--ease-apple); }
+.sheet-leave-active .modal { transition: transform 0.26s var(--ease-press), opacity 0.22s var(--ease-press); }
+.sheet-enter-from,
+.sheet-leave-to { opacity: 0; }
+.sheet-enter-from .modal { transform: translate3d(0, 100%, 0); }
+.sheet-leave-to   .modal { transform: translate3d(0, 100%, 0); opacity: 0; }
+
+.dialog-enter-active { transition: opacity 0.26s var(--ease-apple); }
+.dialog-leave-active { transition: opacity 0.18s var(--ease-press); }
+.dialog-enter-active .modal,
+.dialog-enter-active .dialog-panel { transition: transform 0.44s var(--ease-spring); }
+.dialog-leave-active .modal,
+.dialog-leave-active .dialog-panel { transition: transform 0.22s var(--ease-press), opacity 0.18s var(--ease-press); }
+.dialog-enter-from,
+.dialog-leave-to { opacity: 0; }
+.dialog-enter-from .modal,
+.dialog-enter-from .dialog-panel { transform: scale(0.88) translate3d(0, 14px, 0); }
+.dialog-leave-to   .modal,
+.dialog-leave-to   .dialog-panel { transform: scale(0.92) translate3d(0, 10px, 0); opacity: 0; }
+
+/* 主题切换时，玻璃容器平滑换色而不是硬切 */
+.card, .liquid-card, .menu, .dock, .selection-bar, .modal, .modal-mask {
+  transition: background-color 0.45s var(--ease-apple),
+              border-color 0.45s var(--ease-apple),
+              box-shadow 0.45s var(--ease-apple),
+              color 0.45s var(--ease-apple);
+}
+
+/* ==========================================================================
+   14. 性能分级 & 无障碍降级
+   ========================================================================== */
+/* 低端设备：去掉模糊 */
+html[data-perf="low"] .card,
+html[data-perf="low"] .menu,
+html[data-perf="low"] .dock,
+html[data-perf="low"] .selection-bar,
+html[data-perf="low"] .modal,
+html[data-perf="low"] .modal-mask {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+html[data-perf="low"] .ambient-orb { animation: none; }
+html[data-perf="low"] .pane-forward-enter-from,
+html[data-perf="low"] .pane-forward-leave-to,
+html[data-perf="low"] .pane-back-enter-from,
+html[data-perf="low"] .pane-back-leave-to { filter: none; }
+
+/* 灵动引擎关闭：模糊全撤、动画全停。
+   duration 压到 0.01ms 而非 none，可保留 fill-mode 的最终状态，元素不会停在半途。 */
+html[data-perf="low"] *,
+html[data-perf="low"] *::before,
+html[data-perf="low"] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  will-change: auto !important;
+}
+/* 模糊停用后，玻璃层必须改为不透明，否则背景光晕会透上来压低文字对比度 */
+html[data-perf="low"] {
+  --glass-surface: #ffffff;
+  --glass-elevated: #ffffff;
+  --glass-subtle: #f8fafc;
+  --glass-border: rgba(15, 23, 42, 0.1);
+}
+html[data-theme="dark"][data-perf="low"] {
+  --glass-surface: #0f1b31;
+  --glass-elevated: #142442;
+  --glass-subtle: #0d1626;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .card, .menu, .dock, .selection-bar, .modal, .modal-mask {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+/* 尊重系统「减弱动态效果」 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+    will-change: auto !important;
+  }
+}

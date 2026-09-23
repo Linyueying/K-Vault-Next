@@ -302,6 +302,7 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 ```text
 ├── index.html admin.html paste.html gallery.html
 ├── preview.html webdav.html login.html share.html
+├── design-system.css                     # 设计系统：全站唯一的事实来源（令牌/组件/动效）
 ├── theme.css theme.js mobile-refactor.css
 ├── functions/                            # Cloudflare Pages Functions 后端
 │   ├── api/
@@ -314,8 +315,35 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 │   ├── s/[slug].js                       # 短分享链 → 302 到 /share.html
 │   └── utils/                            # 存储适配器与公共工具（含 share-options.js）
 ├── scripts/                              # wrangler 配置生成 / 校验工具
+│   └── check_style.py check_tokens.py strip_css.py   # 样式一致性守卫
 ├── docs/                                 # OpenAPI、接入指南、完整配置参考
 └── .env.example                          # 变量清单（Pages 不读此文件）
+```
+
+---
+
+## 设计系统（design-system.css）
+
+所有页面共用一份 `design-system.css`，它是**令牌、通用组件、动效关键帧、Vue 过渡族的唯一事实来源**，
+页面级 `<style>` 里只允许出现「本页特有的增量」，不允许重复定义共享实现。
+
+| 类别 | 内容 |
+| --- | --- |
+| 设计令牌 | 品牌色 / 语义色 / 玻璃质感 / 文字 / 阴影 / 圆角 / 间距 / 字号 / 控件高度 / 缓动（4 档）/ 时长（5 档） |
+| 通用组件 | `.card`（`.liquid-card` 为历史别名）、`.btn--primary / --danger / --ghost / --icon / --sm / --lg / --block`、`.text-btn`、`.input / .select / .textarea / .field`、`.switch`、`.spinner`、`.toast-stack / .toast`、`.empty-state`、`.check`、`.progress` |
+| 动效 | 37 个关键帧（`riseIn` / `riseInSm` / `scaleIn` / `dockIn` / `pop` / `sheetIn` / `dialogIn` / `maskIn` …）+ 入场编排 `.boot-rise` 系列 |
+| 过渡族 | `fade / pop / rise / drop / bar / ctrl / toast / list / menu / sheet / dialog / view-forward / view-back` … |
+| 无障碍 | `prefers-reduced-motion`、`prefers-reduced-transparency`、`html[data-perf="low"]` 低端设备降级 |
+
+改动约定：
+
+- 新组件优先写进 `design-system.css`，不要在各页面里各写一份。
+- 旧写法 `.btn-primary` / `.btn-danger` / `.btn-ghost` / `.btn-block` 仍作为兼容别名保留，新代码请用 `--` 双连字符写法。
+- 改完跑一次守卫脚本，确保没有回归：
+
+```bash
+python3 scripts/check_style.py     # 括号平衡 / 禁止页面内定义 @keyframes / 必须引入设计系统
+python3 scripts/check_tokens.py    # 所有 var(--x) 与 animation 名称都能解析到定义
 ```
 
 ---

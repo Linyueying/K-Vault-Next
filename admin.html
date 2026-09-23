@@ -9,56 +9,24 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="/design-system.css">
 <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-<style>[v-cloak]{display:none!important}
+<style>
 /* =========================================================
-设计变量 —— 与前端 index 完全对齐的语义化 Token
-并把 index 的 Apple 风格缓动体系（非线性动效）整套移植过来
-========================================================= */
+   admin 局部令牌覆盖
+   ---------------------------------------------------------
+   基础令牌 / 通用组件 / 动效关键帧 / Vue 过渡族全部取自 design-system.css，
+   与 index 是同一套实现，本文件不再重复定义。
+   后台以可读性优先，只覆盖下面几项：
+     · 字号下限提到 12px（低于此值中文几乎不可读）
+     · 次要文字色与语义文字色加深，保证 WCAG AA 对比度
+   ========================================================= */
 :root{
-  --primary:#0284c7;--primary-rgb:2,132,199;--primary-light:#38bdf8;--primary-dark:#0369a1;--primary-surface:#e0f2fe;
-  --c-danger:#e11d48;--c-danger-soft:rgba(225,29,72,.1);--c-danger-strong:#ef4444;--c-warn:#f59e0b;--c-success:#10b981;--c-info:#0284c7;
-  --bg-body:#f0f7ff;
-  --bg-gradient:radial-gradient(at 8% 8%,#e0f2fe 0px,transparent 45%),radial-gradient(at 92% 92%,#bae6fd 0px,transparent 48%),#f0f7ff;
-  --glass-surface:rgba(255,255,255,.84);--glass-elevated:rgba(255,255,255,.95);--glass-subtle:rgba(255,255,255,.65);
-  --glass-border:rgba(255,255,255,.95);--glass-border-ice:rgba(186,230,253,.75);--glass-specular:rgba(255,255,255,.95);
-  --text-main:#0f172a;--text-sub:#334155;--text-muted:#475569;
-  /* 语义文字色：与图形装饰色分开，保证 WCAG AA 对比度 */
+  --text-muted:#475569;
+  --fs-xs:.75rem;--fs-sm:.8125rem;
   --primary-text:#0369a1;--c-success-text:#15803d;
-  --shadow-soft:0 8px 24px -4px rgba(2,132,199,.08),0 2px 8px -2px rgba(0,0,0,.03);
-  --shadow-elevated:0 16px 36px -6px rgba(2,132,199,.16),0 4px 12px -2px rgba(0,0,0,.04);
-  --glow-primary:0 3px 10px rgba(var(--primary-rgb),.26);
-  --r-xs:8px;--r-sm:12px;--r-md:16px;--r-lg:22px;--r-pill:9999px;
-  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;
-  /* 字号下限提到 12px：低于此值中文几乎不可读 */
-  --fs-xs:.75rem;--fs-sm:.8125rem;--fs-md:.88rem;--fs-lg:1rem;--fs-xl:1.15rem;--fs-2xl:1.35rem;
-  --h-ctrl-sm:30px;--h-ctrl:36px;--h-ctrl-lg:44px;
-
-  /* ================================================
-     动效 —— Apple 风格缓动体系（移植自 index）
-     ================================================ */
-  --ease-apple:cubic-bezier(.32,.72,0,1);      /* 页面级大转场（iOS sheet） */
-  --ease-fluid:cubic-bezier(.16,1,.3,1);       /* expo-out：元素入场 */
-  --ease-spring:cubic-bezier(.34,1.56,.64,1);  /* 回弹：开关 / 弹窗 */
-  --ease-press:cubic-bezier(.4,0,.2,1);        /* 按压反馈 */
-  --dur-fast:.16s;--dur-base:.24s;--dur-slow:.34s;--dur-enter:.5s;
-  --transition:all var(--dur-base) var(--ease-fluid);
-  /* 节点状态过渡（识别延迟 → 平滑收敛） */
-  --dur-resolve:.62s;
 }
-html[data-theme="dark"]{
-  --primary:#38bdf8;--primary-rgb:56,189,248;--primary-light:#7dd3fc;--primary-dark:#0284c7;--primary-surface:rgba(2,132,199,.18);
-  --bg-body:#070d19;
-  --bg-gradient:radial-gradient(at 10% 10%,rgba(2,132,199,.18) 0px,transparent 50%),radial-gradient(at 90% 90%,rgba(14,165,233,.12) 0px,transparent 50%),#070d19;
-  --glass-surface:rgba(15,27,49,.85);--glass-elevated:rgba(20,36,66,.95);--glass-subtle:rgba(15,27,49,.6);
-  --glass-border:rgba(255,255,255,.14);--glass-border-ice:rgba(56,189,248,.25);--glass-specular:rgba(255,255,255,.2);
-  --text-main:#f8fafc;--text-sub:#cbd5e1;--text-muted:#a3b1c6;
-  --primary-text:#7dd3fc;--c-success-text:#4ade80;
-  --shadow-soft:0 10px 30px -6px rgba(0,0,0,.55);--shadow-elevated:0 18px 45px -6px rgba(0,0,0,.7);
-}
-/* 让滚动条、原生 select 下拉、表单控件跟随主题（否则深色下仍是白底） */
-html[data-theme="light"]{color-scheme:light}
-html[data-theme="dark"]{color-scheme:dark}
+html[data-theme="dark"]{--text-muted:#a3b1c6;--primary-text:#7dd3fc;--c-success-text:#4ade80}
 /* =========================================================
 Reset & Base
 ========================================================= */
@@ -68,8 +36,6 @@ a{color:inherit}
 /* 等宽数字 */
 .mono,strong.k,code{font-family:'JetBrains Mono',monospace}
 /* 小工具类 */
-.btn--danger-solid{border-color:transparent;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff}
-.btn--danger-solid:hover:not(:disabled){color:#fff;box-shadow:0 5px 14px rgba(239,68,68,.36)}
 .no-margin{margin:0}
 .mt-sm{margin-top:6px}
 .mb-sm{margin-bottom:10px}
@@ -91,26 +57,6 @@ a{color:inherit}
 .ambient-orb{position:absolute;border-radius:50%;opacity:.48}
 .orb-1{top:-10%;left:5%;width:420px;height:420px;background:radial-gradient(circle,rgba(56,189,248,.35) 0%,rgba(56,189,248,.1) 40%,transparent 72%);animation:orbFloat 18s var(--ease-apple) infinite alternate}
 .orb-2{bottom:5%;right:-5%;width:460px;height:460px;background:radial-gradient(circle,rgba(14,165,233,.22) 0%,rgba(14,165,233,.06) 42%,transparent 72%);animation:orbFloat 22s var(--ease-apple) -6s infinite alternate-reverse}
-/* =========================================================
-液态玻璃卡片（与 index .card 对齐）
-========================================================= */
-.liquid-card{background:var(--glass-surface);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid var(--glass-border);box-shadow:var(--shadow-soft);border-radius:var(--r-lg);transition:background-color .45s var(--ease-apple),border-color .45s var(--ease-apple),box-shadow .45s var(--ease-apple),transform .45s var(--ease-fluid);position:relative;}
-.liquid-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;border-radius:var(--r-lg) var(--r-lg) 0 0;background:linear-gradient(90deg,transparent,var(--glass-specular),transparent);pointer-events:none;}
-/* =========================================================
-通用按钮体系（与 index .btn 对齐）
-========================================================= */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);height:var(--h-ctrl);padding:0 var(--sp-4);border-radius:var(--r-pill);border:1px solid var(--glass-border);background:var(--glass-surface);color:var(--text-sub);font:inherit;font-size:var(--fs-sm);font-weight:600;letter-spacing:-.005em;cursor:pointer;white-space:nowrap;text-decoration:none;transition:var(--transition);-webkit-tap-highlight-color:transparent;will-change:transform;}
-.btn i{font-size:.76rem}
-.btn:hover:not(:disabled){color:var(--primary);border-color:rgba(var(--primary-rgb),.42);background:rgba(var(--primary-rgb),.06);transform:translateY(-1px)}
-.btn:active:not(:disabled){transform:scale(.955);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
-.btn--primary{border-color:transparent;background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;box-shadow:var(--glow-primary)}
-.btn--primary:hover:not(:disabled){color:#fff;box-shadow:0 5px 14px rgba(var(--primary-rgb),.36)}
-.btn--primary:disabled{background:rgba(100,116,139,.16);color:var(--text-muted);box-shadow:none}
-.btn--danger{color:var(--c-danger);border-color:rgba(244,63,94,.3)}
-.btn--danger:hover:not(:disabled){color:var(--c-danger);background:var(--c-danger-soft);border-color:rgba(244,63,94,.5)}
-.btn--sm{height:var(--h-ctrl-sm);font-size:var(--fs-xs);padding:0 var(--sp-3)}
-.btn--sm i{font-size:var(--fs-xs)}
 /* =========================================================
 App 布局
 ========================================================= */
@@ -213,16 +159,6 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .filter-switch-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px var(--sp-3);border-radius:11px;border:1px solid var(--glass-border);background:var(--glass-surface);}
 .filter-switch-row .switch-text{display:flex;align-items:center;gap:9px;font-size:.83rem;font-weight:600;min-width:0}
 .filter-switch-row .switch-text i{color:var(--primary);font-size:var(--fs-sm)}
-/* 开关（对齐 index .switch —— 带回弹 + 拉伸的非线性手感） */
-.switch{position:relative;width:44px;height:26px;flex:none;cursor:pointer;display:inline-block}
-.switch input{position:absolute;opacity:0;width:0;height:0}
-.switch__track{position:absolute;inset:0;border-radius:13px;background:rgba(148,163,184,.38);transition:background .34s var(--ease-apple)}
-html[data-theme="dark"] .switch__track{background:rgba(148,163,184,.28)}
-.switch__thumb{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.24);transition:transform .38s var(--ease-spring),width .2s var(--ease-press)}
-.switch:active .switch__thumb{width:24px}
-.switch input:checked + .switch__track{background:var(--primary)}
-.switch input:checked + .switch__track + .switch__thumb{transform:translateX(18px)}
-.switch input:checked:active + .switch__track + .switch__thumb{transform:translateX(14px)}
 /* 下拉菜单容器 */
 .dropdown-wrap{position:relative}
 .tool-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);font-size:var(--fs-sm);font-weight:600;font-family:inherit;cursor:pointer;transition:var(--transition);white-space:nowrap;}
@@ -273,13 +209,6 @@ html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 .kv-usage-total.muted{color:var(--text-muted)}
 .kv-usage-meta{display:flex;justify-content:space-between;margin-top:7px;font-size:var(--fs-xs);color:var(--text-muted);flex-wrap:wrap;gap:6px}
 .kv-usage-meta strong{color:var(--text-main);font-family:'JetBrains Mono',monospace}
-.kv-usage-footer{font-size:var(--fs-xs);color:var(--text-muted);text-align:center;padding-top:2px}
-/* 进度条（对齐 index .progress —— scaleX 而非 width，纯合成层动画） */
-.progress{height:4px;border-radius:var(--r-pill);background:rgba(148,163,184,.2);margin-top:6px;overflow:hidden}
-.progress__val{height:100%;width:100%;transform-origin:left center;transform:scaleX(0);border-radius:var(--r-pill);background:linear-gradient(90deg,var(--primary-light),var(--primary));transition:transform .4s var(--ease-fluid),background .3s var(--ease-apple);will-change:transform}
-.progress__val.warn{background:linear-gradient(90deg,#f59e0b,#f97316)}
-.progress__val.danger{background:linear-gradient(90deg,#ef4444,#b91c1c)}
-.progress--lg{height:8px;margin-top:var(--sp-2)}
 .kv-ops-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:10px}
 .kv-op-item{padding:9px 11px;border-radius:var(--r-xs);background:var(--glass-surface);border:1px solid var(--glass-border-ice)}
 .kv-op-head{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);font-weight:700;margin-bottom:7px}
@@ -384,16 +313,6 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .act.danger:hover{background:var(--c-danger-soft);color:var(--c-danger-strong)}
 .act:disabled{opacity:.3;cursor:not-allowed}
 .act:disabled:hover{background:transparent;color:var(--text-muted);transform:none}
-/* 圆形勾选（对齐 index .check —— 回弹缩放） */
-.check{position:relative;flex:none;width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(100,116,139,.45);background:rgba(255,255,255,.72);display:inline-flex;align-items:center;justify-content:center;font-size:.62rem;color:transparent;cursor:pointer;transition:background .26s var(--ease-spring),border-color .26s var(--ease-spring),color .26s var(--ease-spring);}
-html[data-theme="dark"] .check{background:rgba(255,255,255,.08);border-color:rgba(148,163,184,.42)}
-.check::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
-.check i{transform:scale(.5);transition:transform var(--dur-base) var(--ease-spring);pointer-events:none}
-.check.on{background:var(--primary);border-color:var(--primary);color:#fff}
-.check.on i{transform:scale(1)}
-.check:hover{border-color:var(--primary)}
-.check:active{transform:scale(.9)}
-.check input{position:absolute;opacity:0;width:0;height:0;margin:0;pointer-events:none}
 /* 卡片内浮动勾选 */
 .card-check{position:absolute;top:10px;left:10px;z-index:4}
 .act.liked{color:#b45309}
@@ -401,11 +320,6 @@ html[data-theme="dark"] .check{background:rgba(255,255,255,.08);border-color:rgb
 .act-wrap{position:relative;display:inline-flex;flex:none}
 .act-menu{min-width:172px;padding:var(--sp-1)}
 .act-menu .dropdown-item{padding:10px var(--sp-3);border-radius:var(--r-sm);font-size:.83rem}
-.act-menu .dropdown-item i:first-child{width:18px;font-size:.85rem}
-/* 空状态 */
-.empty-state{padding:56px var(--sp-5);text-align:center;color:var(--text-muted);font-size:var(--fs-sm);display:flex;flex-direction:column;align-items:center;gap:var(--sp-3)}
-.empty-state i{font-size:2.4rem;opacity:.35;animation:floatSoft 3.4s var(--ease-apple) infinite alternate}
-.empty-state .btn{margin-top:2px}
 /* 分页 */
 .pager{display:flex;align-items:center;justify-content:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:6px}
 .pager-pages{display:flex;gap:5px;align-items:center}
@@ -460,14 +374,9 @@ API Token 管理面板
 .settings-switch-text{display:flex;flex-direction:column;gap:3px;min-width:0}
 .settings-switch-text strong{font-size:.84rem;font-weight:800;color:var(--text-main)}
 .settings-switch-text span{font-size:var(--fs-xs);color:var(--text-muted);line-height:1.55}
-.switch{position:relative;flex:none;width:46px;height:26px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:rgba(100,116,139,.2);cursor:pointer;padding:0;transition:background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
-.switch.on{background:var(--primary);border-color:var(--primary)}
-.switch-knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.2);transition:transform .32s var(--ease-spring)}
-.switch.on .switch-knob{transform:translateX(20px)}
 .input-with-unit{position:relative;display:flex;align-items:center;gap:8px}
 .input-with-unit .token-input{flex:1;min-width:0}
 .input-with-unit .unit{flex:none;font-size:var(--fs-xs);font-weight:700;color:var(--text-muted);white-space:nowrap}
-.field-hint{display:block;margin-top:5px;font-size:.7rem;color:var(--text-muted);line-height:1.5}
 .settings-note{display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:var(--r-md);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.28);font-size:var(--fs-xs);color:#92400e;line-height:1.6}
 html[data-theme="dark"] .settings-note{color:#fbbf24}
 .settings-note i{margin-top:2px;flex:none}
@@ -484,7 +393,7 @@ html[data-theme="dark"] .settings-note{color:#fbbf24}
 .token-chip.active{background:var(--primary-surface);border-color:var(--primary);color:var(--primary-dark)}
 html[data-theme="dark"] .token-chip.active{color:var(--primary-light)}
 .token-chip i{animation:pop .28s var(--ease-apple) backwards}
-.token-list{display:flex;flex-direction:column;gap:9px;max-height:340px;overflow:auto;padding-right:2px}
+.token-list{display:flex;flex-direction:column;gap:9px;max-height:340px;overflow:auto;padding-right:2px;position:relative}
 /* 列表行逐个「长」出来，而不是整块弹现 */
 .token-list>.token-row{animation:riseInSm .44s var(--ease-fluid) backwards}
 .token-list>.token-row:nth-child(1){animation-delay:.02s}
@@ -570,93 +479,11 @@ html[data-theme="dark"] .move-item.active{background:linear-gradient(135deg,rgba
 Toast —— 顶部堆叠，支持「撤销」动作按钮
 （原单条 fixed 版本在出现撤销提示时会遮挡上一条，改为容器堆叠）
 ========================================================= */
-.toast-stack{position:fixed;top:calc(var(--sp-5) + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:calc(100vw - 32px);pointer-events:none}
-.toast{position:relative;pointer-events:auto;padding:9px var(--sp-5);border-radius:var(--r-pill);background:var(--glass-elevated);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);font-size:var(--fs-md);font-weight:600;display:flex;align-items:center;gap:9px;max-width:100%;}
-.toast>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.toast.error{border-color:rgba(239,68,68,.45);color:#b91c1c}
-html[data-theme="dark"] .toast.error{color:#fca5a5}
-.toast.success{color:var(--primary-text)}
-.toast.info{color:var(--text-sub)}
-.toast.undo{border-color:rgba(var(--primary-rgb),.4);color:var(--text-main)}
 .toast__action{margin-left:2px;padding:5px 15px;border-radius:var(--r-pill);border:1px solid rgba(var(--primary-rgb),.42);background:rgba(var(--primary-rgb),.1);color:var(--primary-text);font-family:inherit;font-size:var(--fs-xs);font-weight:800;cursor:pointer;transition:background .2s var(--ease-apple),transform .24s var(--ease-spring);flex:none}
 .toast__action:hover{background:rgba(var(--primary-rgb),.2)}
 .toast__action:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
 /* =========================================================
-加载骨架
-========================================================= */
-.spinner-ring{width:34px;height:34px;border-radius:50%;border:3px solid rgba(var(--primary-rgb),.18);border-top-color:var(--primary);animation:spin .8s linear infinite;margin:0 auto}
-/* =========================================================
-Animations —— Apple 风格关键帧（整套移植自 index）
-========================================================= */
-@keyframes riseIn{
-  from{opacity:0;transform:translate3d(0,16px,0) scale(.985);}
-  to{opacity:1;transform:translate3d(0,0,0) scale(1);}
-}
-@keyframes riseInSm{
-  from{opacity:0;transform:translate3d(0,10px,0);}
-  to{opacity:1;transform:translate3d(0,0,0);}
-}
-@keyframes scaleIn{
-  from{opacity:0;transform:scale(.92) translate3d(0,10px,0);}
-  to{opacity:1;transform:scale(1) translate3d(0,0,0);}
-}
-@keyframes dialogIn{
-  from{opacity:0;transform:scale(.86) translate3d(0,16px,0);}
-  60%{opacity:1;}
-  to{opacity:1;transform:scale(1) translate3d(0,0,0);}
-}
-@keyframes maskIn{from{opacity:0}to{opacity:1}}
-@keyframes toastIn{
-  from{opacity:0;transform:translate3d(0,-22px,0) scale(.9);}
-  to{opacity:1;transform:translate3d(0,0,0) scale(1);}
-}
-@keyframes panelIn{
-  from{opacity:0;transform:translate3d(0,18px,0) scale(.94);}
-  to{opacity:1;transform:translate3d(0,0,0) scale(1);}
-}
-@keyframes dockIn{
-  from{opacity:0;transform:translate3d(-50%,96px,0) scale(.88);}
-  to{opacity:1;transform:translate3d(-50%,0,0) scale(1);}
-}
-@keyframes pop{
-  from{transform:scale(.72);opacity:0;}
-  to{transform:scale(1);opacity:1;}
-}
-@keyframes shakeIn{
-  0%{opacity:0;transform:translateX(0);}
-  18%{opacity:1;transform:translateX(-6px);}
-  36%{transform:translateX(5px);}
-  54%{transform:translateX(-4px);}
-  72%{transform:translateX(3px);}
-  100%{transform:translateX(0);}
-}
-@keyframes pulseRing{
-  0%{box-shadow:0 0 0 0 rgba(16,185,129,.5);}
-  70%{box-shadow:0 0 0 7px rgba(16,185,129,0);}
-  100%{box-shadow:0 0 0 0 rgba(16,185,129,0);}
-}
-@keyframes orbFloat{
-  from{transform:translate3d(0,0,0) scale(1);}
-  to{transform:translate3d(28px,-32px,0) scale(1.08);}
-}
-@keyframes floatSoft{
-  from{transform:translateY(0);}
-  to{transform:translateY(-6px);}
-}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes dropIn{
-  from{opacity:0;transform:translate3d(0,-12px,0) scale(.97);}
-  to{opacity:1;transform:translate3d(0,0,0) scale(1);}
-}
-/* 节点识别 · 收敛动效（移植自 index .settleBreathe） */
-@keyframes settleBreathe{
-  0%{transform:scale(1);opacity:1;}
-  45%{transform:scale(.94);opacity:.72;}
-  100%{transform:scale(1);opacity:1;}
-}
-
-/* =========================================================
-Apple 风格动效 · 应用层（首屏错峰入场 —— 移植自 index）
+Apple 风格动效 · 应用层（首屏错峰入场）
 ========================================================= */
 #app:not(.is-booted) .micro-topbar   {animation:riseInSm .5s var(--ease-fluid) .02s backwards;}
 #app:not(.is-booted) .toolbar-card   {animation:riseIn .62s var(--ease-fluid) .06s backwards;}
@@ -720,93 +547,12 @@ Apple 风格动效 · 应用层（首屏错峰入场 —— 移植自 index）
 .kv-ops-grid .kv-op-item:nth-child(4){animation-delay:.12s}
 .folder-tree-empty i,.kv-usage-empty i{animation:floatSoft 3.4s var(--ease-apple) infinite alternate}
 
-/* =========================================================
-Vue 过渡族 —— 补齐出场（leave）动画
-========================================================= */
-.fade-enter-active{transition:opacity .24s var(--ease-apple);}
-.fade-leave-active{transition:opacity .18s var(--ease-press);}
-.fade-enter-from,.fade-leave-to{opacity:0;}
-
-.pop-enter-active{transition:opacity .2s var(--ease-apple),transform .26s var(--ease-spring);}
-.pop-leave-active{transition:opacity .14s var(--ease-press),transform .18s var(--ease-press);}
-.pop-enter-from,.pop-leave-to{opacity:0;transform:scale(.92) translateY(-6px);}
-
-.rise-enter-active{transition:opacity .26s var(--ease-apple),transform .34s var(--ease-fluid);}
-.rise-leave-active{transition:opacity .18s var(--ease-press),transform .24s var(--ease-press);}
-.rise-enter-from,.rise-leave-to{opacity:0;transform:translate3d(0,14px,0);}
-
-/* ---------------------------------------------------------
-   方向感知转场（非线性）—— 移植自 index .pane-forward / back
-   --------------------------------------------------------- */
-.view-forward-enter-active,
-.view-back-enter-active{
-  transition:opacity .3s var(--ease-apple),transform .46s var(--ease-fluid),filter .3s var(--ease-apple);
-  will-change:transform,opacity,filter;
-}
-.view-forward-leave-active,
-.view-back-leave-active{
-  transition:opacity .18s var(--ease-press),transform .24s var(--ease-press),filter .18s var(--ease-press);
-  position:absolute;left:0;right:0;top:0;pointer-events:none;
-}
-.view-forward-enter-from{opacity:0;transform:translate3d(32px,0,0) scale(.982);filter:blur(6px);}
-.view-forward-leave-to  {opacity:0;transform:translate3d(-24px,0,0) scale(.986);filter:blur(6px);}
-.view-back-enter-from   {opacity:0;transform:translate3d(-32px,0,0) scale(.982);filter:blur(6px);}
-.view-back-leave-to     {opacity:0;transform:translate3d(24px,0,0) scale(.986);filter:blur(6px);}
+/* Vue 过渡族、首屏错峰入场、方向感知转场（.view-*）统一由 design-system.css 提供 */
 .view-stage{position:relative;display:flex;flex-direction:column;gap:var(--sp-3);width:100%;align-items:stretch}
-.view-forward-enter-active > *,
-.view-back-enter-active > *{animation:paneItemIn .34s var(--ease-fluid) backwards;}
-.view-forward-enter-active > *:nth-child(1),
-.view-back-enter-active > *:nth-child(1){animation-delay:.01s;}
-.view-forward-enter-active > *:nth-child(2),
-.view-back-enter-active > *:nth-child(2){animation-delay:.03s;}
-.view-forward-enter-active > *:nth-child(3),
-.view-back-enter-active > *:nth-child(3){animation-delay:.05s;}
-.view-forward-enter-active > *:nth-child(4),
-.view-back-enter-active > *:nth-child(4){animation-delay:.07s;}
-.view-forward-enter-active > *:nth-child(n+5),
-.view-back-enter-active > *:nth-child(n+5){animation-delay:.09s;}
-@keyframes paneItemIn{
-  from{opacity:0;transform:translate3d(0,8px,0);}
-  to{opacity:1;transform:translate3d(0,0,0);}
-}
-html[data-perf="low"] .view-forward-enter-from,
-html[data-perf="low"] .view-forward-leave-to,
-html[data-perf="low"] .view-back-enter-from,
-html[data-perf="low"] .view-back-leave-to{filter:none;}
 
-.drop-enter-active{transition:opacity .26s var(--ease-apple),transform .34s var(--ease-fluid);}
-.drop-leave-active{transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);}
-.drop-enter-from,.drop-leave-to{opacity:0;transform:translate3d(0,-14px,0);}
 
-/* 弹层面板：由内层元素承担位移，遮罩只做透明度（同 index） */
-.dialog-enter-active{transition:opacity .26s var(--ease-apple);}
-.dialog-leave-active{transition:opacity .18s var(--ease-press);}
-.dialog-enter-active .dialog-panel{transition:transform .44s var(--ease-spring);}
-.dialog-leave-active .dialog-panel{transition:transform .22s var(--ease-press),opacity .18s var(--ease-press);}
-.dialog-enter-from,.dialog-leave-to{opacity:0;}
-.dialog-enter-from .dialog-panel{transform:scale(.88) translate3d(0,14px,0);}
-.dialog-leave-to   .dialog-panel{transform:scale(.92) translate3d(0,10px,0);opacity:0;}
-.dialog-enter-active,.dialog-leave-active{backdrop-filter:none !important;-webkit-backdrop-filter:none !important;}
 
-.list-enter-active{transition:opacity .3s var(--ease-apple),transform .38s var(--ease-fluid);}
-.list-leave-active{transition:opacity .18s var(--ease-press),transform .22s var(--ease-press);position:relative;pointer-events:none;}
-.list-enter-from,.list-leave-to{opacity:0;transform:translate3d(0,12px,0);}
-.list-leave-to{transform:translate3d(0,-8px,0);}
-.list-move{transition:transform .34s var(--ease-apple);}
 
-.bar-enter-active{transition:opacity .24s var(--ease-apple),transform .34s var(--ease-spring);}
-.bar-leave-active{transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);}
-.bar-enter-from,.bar-leave-to{opacity:0;transform:translate3d(0,18px,0) scale(.98);}
-
-.menu-enter-active{transition:opacity .22s var(--ease-apple),transform .28s var(--ease-spring);}
-.menu-leave-active{transition:opacity .14s var(--ease-press),transform .14s var(--ease-press);}
-.menu-enter-from,.menu-leave-to{opacity:0;transform:scale(.9) translateY(-4px);}
-
-/* Toast：顶部带回弹落下（容器已居中，元素自身不再带 -50% 位移） */
-.toast-enter-active{transition:opacity .26s var(--ease-apple),transform .42s var(--ease-spring);}
-.toast-leave-active{transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);}
-.toast-enter-from,.toast-leave-to{opacity:0;transform:translate3d(0,-22px,0) scale(.9);}
-.toast-leave-to{transform:translate3d(0,-14px,0) scale(.94);}
 
 .summary,.settings-list,.tree-panel,.list--card,.menu,
 .toolbar-card,.folders-panel,.crumbs-bar,.liquid-card,.batch-dock,
@@ -1696,11 +1442,13 @@ html[data-perf="low"] .ambient-orb{animation:none}
               <strong>允许未登录访客上传</strong>
               <span>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</span>
             </div>
-            <button class="switch" :class="{on: guestForm.enabled}" role="switch"
-                    :aria-checked="String(guestForm.enabled)"
-                    @click="guestForm.enabled = !guestForm.enabled">
-              <span class="switch-knob"></span>
-            </button>
+            <!-- 统一用 index 的 .switch 结构（label + 隐藏 input + track + thumb） -->
+            <label class="switch">
+              <input type="checkbox" v-model="guestForm.enabled" role="switch"
+                     :aria-checked="String(guestForm.enabled)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
           </div>
 
           <div class="token-grid" v-if="guestForm.enabled">
