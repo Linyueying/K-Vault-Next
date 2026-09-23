@@ -18,7 +18,7 @@ export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === 'OPTIONS') {
-    return handleApiPreflight(request, env);
+    return await handleApiPreflight(request, env);
   }
 
   if (!env?.img_url) {

@@ -63,7 +63,7 @@ export async function onRequest(context) {
 
   // Preflight: always 204, never requires a Bearer token (requirement #3).
   if (request.method === 'OPTIONS') {
-    return handleApiPreflight(request, env);
+    return await handleApiPreflight(request, env);
   }
 
   if (!env?.img_url) {
@@ -74,7 +74,7 @@ export async function onRequest(context) {
     );
   }
 
-  const corsHeaders = resolveCorsHeaders(request, env);
+  const corsHeaders = await resolveCorsHeaders(request, env);
 
   const requiredScope = resolveRequiredScope(request);
 

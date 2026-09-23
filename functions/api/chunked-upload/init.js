@@ -72,6 +72,7 @@
  */
 import { checkAuthentication } from '../../utils/auth.js';
 import { shouldWriteTelegramMetadata } from '../../utils/telegram.js';
+import { getUploadConfigResolved } from '../../utils/runtime-config.js';
 import {
   findShareSlugOwner,
   hasShareOptions,
@@ -317,7 +318,7 @@ export async function onRequestPost(context) {
     //      - chunkBackend === 'r2' → 50MB
     //      - chunkBackend === 'kv' → 20MB（KV 单值上限 25MB）
     // ============================================
-    const chunkBackend = resolveChunkBackend(env);
+    const chunkBackend = await resolveChunkBackend(env);
     const chunkSize = resolveChunkSizeForBackend(chunkBackend === 'r2');
 
     const expectedTotalChunks = Math.ceil(normalizedFileSize / chunkSize);
@@ -800,10 +801,15 @@ function getOwnerId(auth) {
   return value || null;
 }
 
-function resolveChunkBackend(env) {
-  const mode = String(env.CHUNK_BACKEND || 'auto').toLowerCase();
-  if (mode === 'kv') return 'kv';
-  if (mode === 'r2') return env.R2_BUCKET ? 'r2' : 'kv';
+/**
+ * 分片暂存后端：auto / r2 / kv。
+ * 取值来自「运行时配置（KV）> 环境变量 CHUNK_BACKEND」，
+ * 后台改完即刻生效，无需重新部署。
+ */
+async function resolveChunkBackend(env) {
+  const { chunkBackend } = await getUploadConfigResolved(env);
+  if (chunkBackend === 'kv') return 'kv';
+  if (chunkBackend === 'r2') return env.R2_BUCKET ? 'r2' : 'kv';
   return env.R2_BUCKET ? 'r2' : 'kv';
 }
 
