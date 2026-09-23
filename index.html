@@ -306,16 +306,33 @@
         font-size: var(--fs-md); font-weight: 600; line-height: 1.3;
         letter-spacing: -0.01em;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        /* 入场：随整行 taskIn 错峰淡入上浮；backwards 让结束后回到无 transform 常态，
+           避免长期持有合成层。颜色过渡用于下方「选中态」染色反馈。 */
+        animation: titleIn 0.34s var(--ease-apple) 0.04s backwards;
+        transition: color var(--dur-base) var(--ease-apple);
       }
+      /* 选中态：文件名随整行一起染上主题色，呼应 iOS 列表选中的「染色」反馈 */
+      .row.is-selected .row__title { color: var(--primary); }
+      html[data-theme="dark"] .row.is-selected .row__title { color: var(--primary-light); }
       .row__sub {
         display: flex; align-items: center; gap: var(--sp-2);
         font-size: var(--fs-xs); color: var(--text-muted);
         margin-top: 2px; flex-wrap: wrap;
       }
       .row__actions { display: flex; align-items: center; gap: 2px; flex: none; position: relative; }
-      /* 行内操作按钮进出场：退出选择模式时要有回场动画，而不是突然出现 */
+      /* 行内操作按钮进出场：退出选择模式时要有回场动画，而不是突然出现。
+         关键点：离场按钮必须脱离文档流（绝对定位 + 垂直居中）。
+         切选择模式时「操作按钮离场 + 勾选圈入场」会短暂同框，
+         若离场按钮仍占流宽，左侧文件名会被先挤过去、随后按钮消失又被弹回 ——
+         移动端窄行尤其明显，这就是用户说的「文件名抽搐」。
+         绝对定位让离场按钮不再参与布局，文件名宽度恒定、只随勾选圈平滑补间。 */
       .rowAct-enter-active { animation: actionIn 0.32s var(--ease-spring) both; }
-      .rowAct-leave-active { animation: actionOut 0.18s var(--ease-press) both; }
+      .rowAct-leave-active {
+        position: absolute; top: 0; bottom: 0; right: var(--sp-4);
+        display: flex; align-items: center;
+        animation: actionOut 0.18s var(--ease-press) both;
+        pointer-events: none;
+      }
 
       /* 选择模式圆圈 */
       .check {
@@ -1504,6 +1521,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         from { transform: scale(0.72); opacity: 0; }
         to   { transform: scale(1);    opacity: 1; }
       }
+      /* 交付结果文件名入场：随整行 taskIn 之后错峰上浮淡入（克制、不抢戏）。
+         用 backwards 填充模式 —— 动画结束后回落到无 transform 的常态，
+         不长期占用合成层（结果列表可能很多行，避免 will-change 拖累滚动性能）。 */
+      @keyframes titleIn {
+        from { opacity: 0; transform: translate3d(0, 6px, 0); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0); }
+      }
       @keyframes shakeIn {
         0%   { opacity: 0; transform: translateX(0); }
         18%  { opacity: 1; transform: translateX(-6px); }
@@ -1730,6 +1754,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       .bar-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
       .bar-enter-from,
       .bar-leave-to     { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.98); }
+
+      /* 交付结果标题栏控件组（选择/清空 ↔ 全选/完成）切换：错峰淡入淡出，
+         避免两组按钮「啪」地互替，符合 Apple 列表操作栏连贯、克制的反馈 */
+      .ctrl-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.28s var(--ease-spring); }
+      .ctrl-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
+      .ctrl-enter-from   { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.96); }
+      .ctrl-leave-to     { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
 
       .toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
       .toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
@@ -2033,14 +2064,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               <span class="badge">{{ uploadedFiles.length }}</span>
             </span>
             <div class="result-actions">
-              <template v-if="resultSelectMode">
-                <button class="text-btn" @click="selectAll">{{ isAllSelected ? '全不选' : '全选' }}</button>
-                <button class="text-btn text-btn--strong" @click="toggleSelectMode">完成</button>
-              </template>
-              <template v-else>
-                <button class="text-btn text-btn--strong" @click="toggleSelectMode">选择</button>
-                <button class="text-btn text-btn--danger" :class="{ armed: clearArmed }" @click="handleClearResults">{{ clearArmed ? '确认清空' : '清空' }}</button>
-              </template>
+              <transition name="ctrl" mode="out-in">
+                <div class="result-actions__group" :key="resultSelectMode ? 'sel' : 'normal'" style="display:flex; align-items:center; gap: var(--sp-4);">
+                  <template v-if="resultSelectMode">
+                    <button class="text-btn" @click="selectAll">{{ isAllSelected ? '全不选' : '全选' }}</button>
+                    <button class="text-btn text-btn--strong" @click="toggleSelectMode">完成</button>
+                  </template>
+                  <template v-else>
+                    <button class="text-btn text-btn--strong" @click="toggleSelectMode">选择</button>
+                    <button class="text-btn text-btn--danger" :class="{ armed: clearArmed }" @click="handleClearResults">{{ clearArmed ? '确认清空' : '清空' }}</button>
+                  </template>
+                </div>
+              </transition>
             </div>
           </div>
 
