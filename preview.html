@@ -3390,10 +3390,28 @@
         }
       }
 
+      /* 下载地址：在文件 URL 上追加 `dl=1`。
+         file 路由只有在看到 `dl=1` 时才把 Content-Disposition 从 inline
+         改成 attachment（见 functions/file/[[path]].js 的 isExplicitDownload）。
+         不追加时响应头是 inline —— 浏览器会「内联打开」而不是下载，
+         表现为点「下载」又回到了预览。与 index.html / admin.html / share.html 同一约定。 */
+      function buildDownloadUrl(url) {
+        if (!url) return url;
+        try {
+          const u = new URL(url, window.location.origin);
+          if (u.searchParams.get("dl") === "1") return url;
+          u.searchParams.set("dl", "1");
+          return u.toString();
+        } catch {
+          return url + (url.includes("?") ? "&" : "?") + "dl=1";
+        }
+      }
+
       function downloadFile() {
         if (!state.fileUrl) return;
         const link = document.createElement("a");
-        link.href = state.authUrl || state.fileUrl;
+        /* authUrl 是带鉴权参数的地址，也要走同一个追加逻辑 */
+        link.href = buildDownloadUrl(state.authUrl || state.fileUrl);
         link.download = state.fileName || "download";
         document.body.appendChild(link);
         link.click();

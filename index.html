@@ -4957,14 +4957,36 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const url = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
             return !!this.downloadingUrls[url];
           },
-          triggerDownload(url, fileName) {
-            if (!url) return;
+          /* 下载地址：在文件 URL 上追加 `dl=1`。
+             file 路由只有在看到 `dl=1` 时才把 Content-Disposition 从 inline
+             改成 attachment（见 functions/file/[[path]].js 的 isExplicitDownload）。
+             不追加这个参数时响应头是 inline —— 浏览器会「内联打开」而不是下载，
+             表现为点「下载」却跳进了预览页（docx 尤其明显，会外跳到 Office 预览）。
+             与 share.html 的 downloadUrl 保持同一约定：按「可能已有 query」拼接，
+             避免拼出 `?a=1?dl=1`。 */
+          buildDownloadUrl(url) {
+            if (!url) return url;
+            try {
+              const u = new URL(url, window.location.origin);
+              if (u.searchParams.get("dl") === "1") return url;
+              u.searchParams.set("dl", "1");
+              return u.toString();
+            } catch (e) {
+              /* 非法 URL 或非 http(s) 的边角情况：退回手工拼接，不阻断下载 */
+              return url + (url.includes("?") ? "&" : "?") + "dl=1";
+            }
+          },
+          triggerDownload(rawUrl, fileName) {
+            if (!rawUrl) return;
+            const url = this.buildDownloadUrl(rawUrl);
             if (this.downloadingUrls[url]) { this.showToast('下载已开始，请查看浏览器下载栏', 'info'); return; }
             this.downloadingUrls[url] = true;
+            /* 用带 dl=1 的地址做存在性探测：HEAD 命中同一个路由，
+               这样「已删除」的判断与真正下载的是同一个资源。 */
             fetch(url, { method: 'HEAD', credentials: 'include' })
               .then(res => {
                 if (res.status === 404 || res.status === 410) {
-                  this.markHistoryAsMissing(url);
+                  this.markHistoryAsMissing(rawUrl);
                   this.showToast(`[${fileName || '文件'}] 已被删除（${res.status}）`, 'error');
                   delete this.downloadingUrls[url];
                   return;
@@ -4996,7 +5018,21 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const url = this.getCleanFileUrl(file);
             const ext = name.split(".").pop().toLowerCase();
             if (["jpg", "jpeg", "png", "webp", "gif", "svg"].includes(ext)) { this.previewData = { type: "native-image", url, fileName: name }; return; }
-            if (["mp4", "webm", "mp3", "wav", "pdf"].includes(ext)) { this.previewData = { type: "iframe", iframeUrl: `${LOCAL_PREVIEW_PAGE}?url=${encodeURIComponent(url)}&title=${encodeURIComponent(name)}&embed=1`, url, fileName: name }; return; }
+            /* 站内预览页的 iframe 地址。所有非图片格式都走这里，
+               由 preview.html 依据扩展名自行选择渲染器。 */
+            const iframeUrl = `${LOCAL_PREVIEW_PAGE}?url=${encodeURIComponent(url)}&title=${encodeURIComponent(name)}&embed=1`;
+            if (["mp4", "webm", "mp3", "wav", "pdf"].includes(ext)) { this.previewData = { type: "iframe", iframeUrl, url, fileName: name }; return; }
+            /* Office 系列（docx/xlsx/pptx 及兼容格式）同样在站内弹层里预览。
+               之前这些格式不在白名单里，会掉进 downloadFile —— 于是「预览」和
+               「下载」变成同一条路：都只是打开文件直链，再被增强预览接管。
+               现在预览留在站内弹层，下载则明确走 buildDownloadUrl 的 dl=1 附件流。 */
+            if (["docx", "doc", "docm", "dotx", "dotm", "dot", "rtf", "odt",
+                 "xlsx", "xls", "xlsm", "xlsb", "xlt", "xltm", "ods", "fods",
+                 "pptx", "ppt", "pptm", "ppsx", "ppsm", "potx", "potm", "odp"].includes(ext)) {
+              this.previewData = { type: "iframe", iframeUrl, url, fileName: name };
+              return;
+            }
+            /* 其余未知格式仍退回下载：没有可用渲染器，站内预览只会给一片空白 */
             this.downloadFile(file);
           },
           closePreview() {

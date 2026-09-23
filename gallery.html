@@ -1634,9 +1634,26 @@
           }
         },
 
+        /* 下载地址：在文件 URL 上追加 `dl=1`。
+           file 路由只有在看到 `dl=1` 时才把 Content-Disposition 从 inline
+           改成 attachment（见 functions/file/[[path]].js 的 isExplicitDownload）。
+           不追加时响应头是 inline —— 浏览器会「内联打开」而不是下载。
+           与 index.html / admin.html / preview.html / share.html 保持同一约定。 */
+        buildDownloadUrl(url) {
+          if (!url) return url;
+          try {
+            const u = new URL(url, window.location.origin);
+            if (u.searchParams.get('dl') === '1') return url;
+            u.searchParams.set('dl', '1');
+            return u.toString();
+          } catch (e) {
+            return url + (url.includes('?') ? '&' : '?') + 'dl=1';
+          }
+        },
+
         downloadImage(img) {
           const link = document.createElement('a');
-          link.href = `/file/${img.name}`;
+          link.href = this.buildDownloadUrl(`/file/${img.name}`);
           link.download = img.metadata?.fileName || img.name;
           link.click();
         },

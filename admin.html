@@ -2615,8 +2615,27 @@ Vue.createApp({
     },
 
     /* ================= 下载（交给浏览器原生下载栏） ================= */
-    triggerDownload(url, fileName) {
-      if (!url) return;
+    /* 下载地址：在文件 URL 上追加 `dl=1`。
+       file 路由只有在看到 `dl=1` 时才把 Content-Disposition 从 inline
+       改成 attachment（见 functions/file/[[path]].js 的 isExplicitDownload）。
+       不追加时响应头是 inline —— 浏览器会「内联打开」而不是下载，
+       表现为点「下载」却跳进了预览页（docx 尤其明显，会外跳到 Office 预览）。
+       与 index.html / share.html 保持同一约定：按「可能已有 query」拼接。 */
+    buildDownloadUrl(url) {
+      if (!url) return url;
+      try {
+        const u = new URL(url, window.location.origin);
+        if (u.searchParams.get('dl') === '1') return url;
+        u.searchParams.set('dl', '1');
+        return u.toString();
+      } catch (e) {
+        /* 非法 URL 的边角情况：退回手工拼接，不阻断下载 */
+        return url + (url.includes('?') ? '&' : '?') + 'dl=1';
+      }
+    },
+    triggerDownload(rawUrl, fileName) {
+      if (!rawUrl) return;
+      const url = this.buildDownloadUrl(rawUrl);
       if (this.downloadingUrls[url]) {
         this.showToast('下载已开始，请查看浏览器下载栏', 'info');
         return;
