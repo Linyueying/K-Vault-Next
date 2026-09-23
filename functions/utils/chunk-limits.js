@@ -27,6 +27,55 @@ export function resolveChunkSizeForBackend(hasR2Backend) {
 }
 
 // ============================================================
+// 分片大小分档（按文件体积自适应）
+// ============================================================
+
+// 目标分片数：让分片数落在十几个的量级 —— 足够喂满并发、进度够平滑，
+// 又不至于把 512MB 文件切成上百个请求去消耗 Pages 请求配额。
+export const TARGET_CHUNK_COUNT = 16;
+
+// 分档后的单片上下限。上限 40MB 是被 isolate 内存倒推出来的硬约束：
+// 并发 2 路 × 40MB = 80MB，在 128MB 共享 isolate 里还留 48MB 余量。
+export const MIN_CHUNK_SIZE_ADAPTIVE = 8 * 1024 * 1024; // 8MB
+export const MAX_CHUNK_SIZE_ADAPTIVE = 40 * 1024 * 1024; // 40MB
+
+/**
+ * 按文件体积推导分片大小（自适应分档）。
+ *
+ * 为什么不再固定 50MB：
+ *   - 单片 50MB 时，一片失败就要重传 50MB，弱网下代价极高；
+ *   - 单片过大时 totalChunks 很少（512MB 只有 11 片），进度条一跳就是 9%，
+ *     观感割裂，也喂不饱分片级并发；
+ *   - 但仍必须保证 totalChunks ≤ MAX_TOTAL_CHUNKS(256)，否则 init 直接拒绝。
+ *
+ * 分档结果（R2 后端）：
+ *   20MB  → 8MB  × 3 片
+ *   512MB → 32MB × 16 片
+ *   1GB   → 40MB × 26 片
+ *   10GB  → 40MB × 256 片（正好卡在上限内）
+ *
+ * ⚠️ 非 R2（KV 暂存）分支不做分档：KV 单值上限 25MB，且后续 complete
+ *    阶段要在内存里一次性拼装整个文件（≤40MB），分片再小也没有收益，
+ *    反而徒增请求数。
+ *
+ * @param {boolean} hasR2Backend 是否可用 R2 作为分片暂存后端
+ * @param {number} fileSize 文件字节数
+ * @returns {number} 分片字节大小
+ */
+export function resolveChunkSizeForFile(hasR2Backend, fileSize) {
+  if (!hasR2Backend) return CHUNK_SIZE_KV;
+
+  const size = Number(fileSize) || 0;
+  if (size <= 0) return MIN_CHUNK_SIZE_ADAPTIVE;
+
+  const ideal = Math.ceil(size / TARGET_CHUNK_COUNT);
+  return Math.min(
+    MAX_CHUNK_SIZE_ADAPTIVE,
+    Math.max(MIN_CHUNK_SIZE_ADAPTIVE, ideal)
+  );
+}
+
+// ============================================================
 // 全局上限
 // ============================================================
 

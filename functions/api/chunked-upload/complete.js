@@ -102,6 +102,7 @@ import {
   listUploadedParts,
   deletePartStates,
   deleteResumeMap,
+  writeInstantIndex,
 } from '../../utils/chunk-state.js';
 import {
   MAX_IN_MEMORY_ASSEMBLY,
@@ -776,6 +777,14 @@ export async function onRequestPost(context) {
     await removePendingMultipart(env, ownerId, uploadId).catch((e) => {
       console.error('removePendingMultipart on success failed:', e);
     });
+
+    // ============================================
+    // 9.5 登记秒传索引
+    //    只有带全量内容哈希的文件才会写 —— 大文件不算哈希，也就进不了索引。
+    //    这是刻意取舍：算 1GB 文件的全量哈希要么爆内存要么卡死主线程，
+    //    为它换来的「偶尔能秒传」不值。写入失败不影响本次结果。
+    // ============================================
+    await writeInstantIndex(env, ownerId, taskData, responseFileKey);
 
     // 防御性兜底（正常情况下第 7 步已清空）
     uploadedFileInfo = null;

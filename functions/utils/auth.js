@@ -170,3 +170,27 @@ export async function checkAuthentication(context) {
 
   return { authenticated: false };
 }
+/**
+ * 从鉴权结果推导稳定的用户标识，用于按用户隔离各类 KV 索引。
+ *
+ * 只在能明确拿到身份时返回非空值 —— 返回 null 时调用方应当拒绝写入/查询
+ * 用户级索引，而不是退回 'admin' 之类的兜底值（那会让所有用户共享同一份
+ * 索引，既串数据又会让秒传误命中别人的文件）。
+ *
+ * @param {object|null} auth checkAuthentication 的返回值
+ * @returns {string|null}
+ */
+export function getOwnerId(auth) {
+  const raw =
+    auth?.userId ??
+    auth?.user?.id ??
+    auth?.user?.email ??
+    auth?.email ??
+    (typeof auth?.user === "string" ? auth.user : null) ??
+    null;
+
+  if (raw === null || raw === undefined) return null;
+
+  const value = String(raw).trim();
+  return value || null;
+}
