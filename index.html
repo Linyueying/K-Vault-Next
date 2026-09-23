@@ -828,7 +828,7 @@
 .task { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--glass-subtle); border: 1px solid var(--glass-border); margin-bottom: var(--sp-2); }
 .task__thumb { width: 42px; height: 42px; border-radius: var(--r-xs); object-fit: cover; background: var(--glass-surface); border: 1px solid var(--glass-border-ice); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--primary); flex-shrink: 0; }
 
-.task__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.task__info { --task-gap: 2px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--task-gap); }
 .task__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
 .task__name {
   flex: 1; min-width: 0;
@@ -846,14 +846,34 @@
 /* 长文件名展开到 4 行 */
 .task__name.is-open { -webkit-line-clamp: 4; max-height: calc(1.3em * 4); }
 .task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
-.task__speed-slot {
-  display: inline-block; min-width: 5.2em; text-align: right;
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  /* 速率恢复成设计体系里那抹「高级的淡蓝色」（浅色 #38bdf8 / 深色 #7dd3fc），
-     之前重构时误把颜色去掉、退化成了灰色 --text-muted */
-  color: var(--primary-light); font-weight: 600;
+/* 速率 / 错误：独占一行，不参与上一行的 flex 换行。
+   之前这两项直接塞在 .task__meta 里用 v-if 增删，一旦挤到换行，
+   那一行会「啪」地多出来、整张卡片高度瞬间跳一下，且没有任何过渡。
+   现在它们待在这一行里，收起时高度为 0、出现时平滑展开：
+   高度（max-height）+ 位移（margin）+ 透明度 + 轻微上滑一起补间，
+   卡片被撑开的过程跟着一起平滑，不再硬跳。
+   margin-top 用负的 --task-gap 抵消 flex gap，收起时不留缝。 */
+.task__subline {
+  max-height: 0; opacity: 0; overflow: hidden;
+  margin-top: calc(-1 * var(--task-gap));
+  font-size: var(--fs-xs); line-height: 1.45;
+  /* 用 iOS sheet 那条曲线（--ease-apple）而不是 expo-out：
+     expo-out 会把 80% 的位移压在前 1/3 时间里，18px 的高度变化不到 100ms 就走完了，
+     看起来很「闪」。apple 曲线起步更缓、中段推进、尾部平滑贴住，
+     高度变化能均匀铺满整个时长，撑开的过程看得见。 */
+  transition: max-height 0.34s var(--ease-apple),
+              margin-top 0.34s var(--ease-apple),
+              opacity 0.3s var(--ease-apple);
 }
-.task__speed-slot:empty { min-width: 0; }
+.task__subline.is-on { max-height: 1.5em; margin-top: 0; opacity: 1; }
+.task__subline-inner { display: inline-block; transform: translateY(-4px);
+  transition: transform 0.34s var(--ease-apple); }
+.task__subline.is-on .task__subline-inner { transform: translateY(0); }
+/* 速率恢复成设计体系里那抹「高级的淡蓝色」（浅色 #38bdf8 / 深色 #7dd3fc） */
+.task__speed { color: var(--primary-light); font-weight: 600;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.task__err { display: inline-block; max-width: 100%; vertical-align: bottom;
+  color: var(--c-danger); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task__nowrap { white-space: nowrap; }
 /* 操作按钮槽：宽度固定为「3 个按钮」的宽度。
    暂停（1 个按钮）与已暂停 / 失败（3 个按钮）之间切换时，
@@ -1950,12 +1970,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           <i :class="getStorageIcon(file.targetMode)"></i><span>{{ storageLabel(file.targetMode) }}</span>
         </span>
       </div>
-      <!-- 操作行：速度 / 错误 / 状态文案，一行之内交叉换字，永不换行加高 -->
+      <!-- 操作行：文件大小与状态文案固定在上一行（两者长度稳定，不会因暂停/继续而换行加高） -->
       <div class="task__meta">
         <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-        <span class="task__speed-slot" v-if="file.speed">• {{ file.speed }}</span>
-        <span class="task__nowrap" v-if="file.error" :title="file.error" style="color: var(--c-danger);">• {{ file.error }}</span>
         <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
+      </div>
+      <!-- 速率 / 错误行：独占一行。收起时高度为 0，出现时平滑展开 + 淡入，
+           整张卡片的高度随之一起过渡，不再瞬间被撑开。 -->
+      <div class="task__subline" :class="{ 'is-on': !!(file.speed || file.error) }">
+        <span class="task__subline-inner">
+          <span v-if="file.speed" class="task__speed">• {{ file.speed }}</span>
+          <span v-else-if="file.error" class="task__err" :title="file.error">• {{ file.error }}</span>
+        </span>
       </div>
       <div class="progress" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
         <div class="progress__val" :style="{ transform: 'scaleX(' + ((file.progress || 0) / 100) + ')' }"></div>
@@ -3152,7 +3178,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           /* ===== 工具方法 ===== */
           formatSpeed(bps) {
             /* 位数固定（xx.x KB/s 起步，最宽 3 位数字 + 单位），
-               .task__speed-slot 的宽度定死了，速度刷新时不会把同行文字推走 */
+               速率独占一行且用等宽数字，每秒刷新时不会左右抖动 */
             if (!bps || bps <= 0) return "0 KB/s";
             if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + " MB/s";
             return (bps / 1024).toFixed(0) + " KB/s";
@@ -4255,6 +4281,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             item.status = "paused";
             item.statusText = "已暂停";
             item.error = null;
+            /* 顺手清掉速率：速率行（.task__subline）是按 speed 的有无来收起的。
+               之前只依赖 abort 回调里的 handleUploadError 去清，
+               一旦 abort 回调没来（请求已收尾），速率行就会僵在展开态。 */
+            item.speed = "";
           },
           scheduleQueueCleanup() {
             if (this.queueCleanupTimer) return;
