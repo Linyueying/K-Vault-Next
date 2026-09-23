@@ -347,18 +347,18 @@
         border-width: 0; opacity: 0; transform: scale(0.4);
       }
       .check-enter-active {
-        transition: width var(--dur-base) var(--ease-apple),
-                    margin-right var(--dur-base) var(--ease-apple),
-                    border-width var(--dur-base) var(--ease-apple),
-                    opacity 0.22s ease,
-                    transform 0.34s var(--ease-spring);
+        transition: width var(--dur-base) var(--ease-fluid),
+                    margin-right var(--dur-base) var(--ease-fluid),
+                    border-width var(--dur-base) var(--ease-fluid),
+                    opacity 0.2s ease,
+                    transform 0.3s var(--ease-spring);
       }
       .check-leave-active {
-        transition: width 0.22s var(--ease-apple),
-                    margin-right 0.22s var(--ease-apple),
-                    border-width 0.22s var(--ease-apple),
-                    opacity 0.18s var(--ease-apple),
-                    transform 0.22s var(--ease-apple);
+        transition: width 0.2s var(--ease-press),
+                    margin-right 0.2s var(--ease-press),
+                    border-width 0.2s var(--ease-press),
+                    opacity 0.16s var(--ease-press),
+                    transform 0.2s var(--ease-press);
       }
       .check-leave-to {
         width: 0; margin-right: calc(-1 * var(--row-gap));
@@ -875,55 +875,25 @@
 .task__err { display: inline-block; max-width: 100%; vertical-align: bottom;
   color: var(--c-danger); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task__nowrap { white-space: nowrap; }
-/* 恢复出来的任务：提示需要重选文件，用琥珀色与普通状态文案区分开 */
-.task__meta--need { color: var(--c-warn, #f59e0b); font-weight: 600; }
-/* 「继续」按钮在需要重选文件时做一次呼吸提示，否则用户根本不知道该点它 */
-.btn--icon.is-callout { color: var(--primary); background: rgba(var(--primary-rgb), 0.12);
-  animation: calloutPulse 1.8s var(--ease-apple) infinite; }
-@keyframes calloutPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--primary-rgb), 0.35); }
-  50% { box-shadow: 0 0 0 5px rgba(var(--primary-rgb), 0); }
-}
-/* 队列恢复提示条 */
-.queue-note {
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-2);
-  border-radius: var(--r-sm);
-  background: rgba(var(--primary-rgb), 0.1);
-  border: 1px solid var(--glass-border-ice);
-  color: var(--text-sub); font-size: var(--fs-xs); line-height: 1.45;
-}
-.queue-note > i { color: var(--primary); flex-shrink: 0; }
-.queue-note > span { flex: 1; min-width: 0; }
-.queue-note .text-btn { flex-shrink: 0; }
 /* 操作按钮槽：宽度固定为「3 个按钮」的宽度。
    暂停（1 个按钮）与已暂停 / 失败（3 个按钮）之间切换时，
    容器宽度如果跟着变，左边的文件名就会被推来推去 —— 这是抽动的主因之一。 */
 .task__actions {
   display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1);
-  flex-shrink: 0;
-  /* 宽度按「3 个按钮」算死：1 个按钮（暂停）与 3 个按钮（继续/重传/取消）之间切换时，
-     容器宽度若跟着内容走，切换瞬间就会把左侧文件名推来推去。
-     3*36 + 2*4(gap) = 116px，与 .btn--icon 的尺寸绑定。 */
-  width: 116px;
+  flex-shrink: 0; min-width: 116px;
 }
 /* 操作按钮在「暂停 / 已暂停 / 出错」三组之间整体切换。
    关键：离场元素必须脱离文档流。
    否则在出入场交叉的那 160ms 里，容器里会短暂同时存在「1 暂停 + 3 续传」
    共 4 个按钮，把后面的任务行横向挤开、又缩回去 —— 就是那股弹动。
    绝对定位让离场按钮不再参与布局，容器宽度恒定。 */
-.taskAct { position: relative; flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
-/* 离场按钮绝对定位：切换瞬间「1 暂停 + 3 续传」不会同时占位。
-   right: 0 会让 1 个 → 3 个时那个按钮横跨整行飞过来（真实可见的横移），
-   所以按槽位落位：相对入场按钮右移「两个槽位」= 2*(36+gap) = 80px，
-   它就停在原来那个位置上原地淡出，右侧 3 个按钮再依次长出来。 */
-.taskAct-leave-active { position: absolute; top: 0; right: -80px; margin: 0;
+.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
+/* 离场按钮绝对定位：切换瞬间「1 暂停 + 3 续传」不会同时占位，
+   容器宽度恒定，左侧文件名不再被推来推去。容器高度恰等于按钮高，
+   故 top:0 即垂直居中。 */
+.taskAct-leave-active { position: absolute; top: 0; right: 0; margin: 0;
   animation: actionOut 0.16s var(--ease-press) both; }
-/* 入场分两级：先淡入占领（0→0.14s），后交叉（0.14s→0.3s）。
-   之前是一条 0.26s/--ease-fluid，80% 的位移压在前 1/3 时间里，
-   「暂停 → 继续」时 1 个按钮变 3 个几乎是一瞬间完成，看起来很硬。
-   拆成两级后，按钮是「看得见地一个一个长出来」，配合卡片高度过渡更顺。 */
-.taskAct-enter-active { animation: actionIn 0.3s var(--ease-apple) both; }
+.taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
 
 /* 进度条 */
 .progress { height: 4px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); margin-top: 3px; overflow: hidden; }
@@ -1509,15 +1479,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         to   { opacity: 0; transform: scale(0.9) translate3d(0, -6px, 0); }
       }
       /* 行内操作按钮（复制/更多）：进出都要有动画，避免「直接没掉」 */
-      /* 操作按钮入场：两级推进。
-         0 → 55% 先「长出来」（位移走完 84%、缩放到 0.97），
-         55% → 100% 再收尾贴合。
-         这样「暂停（1 个）→ 已暂停（3 个）」时，三个按钮是依次、看得见地
-         挤进来，而不是一瞬间整组出现。 */
       @keyframes actionIn {
-        0%   { opacity: 0; transform: translate3d(12px, 0, 0) scale(0.86); }
-        55%  { opacity: 1; transform: translate3d(2px, 0, 0) scale(0.99); }
-        100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+        from { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+        to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
       }
       @keyframes actionOut {
         from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
@@ -1991,15 +1955,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
     </div>
   </div>
 
-  <!-- 恢复提示：告知这是「页面被回收后找回来的未完成任务」 -->
-  <transition name="rise">
-  <div class="queue-note" v-if="restoredQueueCount > 0">
-    <i class="fas fa-clock-rotate-left"></i>
-    <span>已找回 {{ restoredQueueCount }} 个未完成的上传，点「继续」选择同一个文件即可断点续传</span>
-    <button class="text-btn" @click="dismissRestoredQueueNote">知道了</button>
-  </div>
-  </transition>
-
   <transition-group name="list" tag="div" class="list">
   <div class="task" v-for="file in uploadingFiles" :key="file.uid || file.id">
     <img v-if="file.preview" :src="file.preview" class="task__thumb" />
@@ -2018,9 +1973,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       <!-- 操作行：文件大小与状态文案固定在上一行（两者长度稳定，不会因暂停/继续而换行加高） -->
       <div class="task__meta">
         <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-        <span class="task__nowrap" :class="{ 'task__meta--need': needsFileRebind(file) }">
-          • <template v-if="needsFileRebind(file)">需重新选择文件才能续传</template><template v-else>{{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></template>
-        </span>
+        <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
       </div>
       <!-- 速率 / 错误行：独占一行。收起时高度为 0，出现时平滑展开 + 淡入，
            整张卡片的高度随之一起过渡，不再瞬间被撑开。 -->
@@ -2049,7 +2002,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'"
           key="pause" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
         <template v-if="file.status === 'paused'">
-          <button key="resume" class="btn btn--ghost btn--icon" :class="{ 'is-callout': needsFileRebind(file) }" @click="resumeUpload(file)" :title="needsFileRebind(file) ? '重新选择文件并继续' : '继续上传'"><i class="fas fa-play"></i></button>
+          <button key="resume" class="btn btn--ghost btn--icon" @click="resumeUpload(file)" title="继续上传"><i class="fas fa-play"></i></button>
           <button key="paused-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
           <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
         </template>
@@ -2922,16 +2875,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             urlToUpload: "",
             urlUploading: false,
             uploadingFiles: [],
-            /* 上传队列会话的存储键与有效期（见 loadQueueSession / persistQueueSession） */
-            queueSessionKey: "uploadQueueSession",
-            queueSessionMaxAge: 24 * 60 * 60 * 1000,
-            /* 本次会话从 localStorage 恢复出来的未完成任务数（用于队列顶部提示条） */
-            restoredQueueCount: 0,
             /* 长文件名展开态：单独存，不混入上传任务对象，避免每展开一次
                就触发整条列表的依赖重收集与重渲染。 */
             expandedTaskNames: {},
-            /* 交付结果也从本地恢复：上传成功后用户常常要离开页面/切 App
-               去复制链接，回来时结果列表还在，避免「东西传完了却找不到了」。 */
             uploadedFiles: [],
             uploadHistory: [],
             linkFormat: "url",
@@ -4107,7 +4053,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                 const fileObj = { name: resolvedName, fileName: resolvedName, url: `${this.baseURL}${item.src}`, size: Number(item.size) || 0, selected: false };
                 this.applyShareResult(fileObj, item);
                 this.uploadedFiles.unshift(fileObj);
-                this.persistResults();
                 this.addToHistory(fileObj, targetMode);
                 const routeTip = this.storageMode === "auto" ? `（已分流至 ${this.storageLabel(targetMode)}）` : "";
                 this.showToast(`URL 转存成功${routeTip}`, "success");
@@ -4301,19 +4246,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             item.uploadedBytes = item.size;
             item.speed = "";
             item.error = null;
-            this.touchQueueSession();
-            this.scheduleExitPauseTimer(item);
-          },
-          /* 单条任务全部完成后不要立刻把队列判空：
-             手机上是「切到相册 → 选下一个文件」这种节奏，2.5s 的清理窗口太短，
-             队列一闪就没了。这里把窗口放宽到 6s，让「上传中 → 已完成 → 清空」
-             有一个看得见的停顿，而不是「一下子变成一个了」。 */
-          scheduleExitPauseTimer(item) {
-            if (this.queueExitTimer) clearTimeout(this.queueExitTimer);
-            this.queueExitTimer = setTimeout(() => {
-              this.queueExitTimer = null;
-              this.scheduleQueueCleanup();
-            }, 3000);
+            this.scheduleQueueCleanup();
           },
           handleUploadError(item, err, token) {
             const msg = String((err && err.message) || "上传失败");
@@ -4352,133 +4285,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                之前只依赖 abort 回调里的 handleUploadError 去清，
                一旦 abort 回调没来（请求已收尾），速率行就会僵在展开态。 */
             item.speed = "";
-            this.touchQueueSession();
           },
-
-          /* ===== 上传队列会话持久化 =====
-             故障现场：停在「已暂停 (10%)」的上传，切到相册 / 切后台让页面被回收后
-             再回来，整条队列凭空消失，而文件并没有传完，用户只看到「一下子变成一个了」。
-
-             根因有两层：
-             1) 队列只活在内存里，`uploadingFiles` 既没落盘、mounted 时也没恢复；
-             2) 更隐蔽的一点 —— 恢复上传必须靠 `uploadId + chunkDone + parts`
-                这三样服务端断点信息（见 chunkedUpload）。它们原本也只在内存里，
-                页面一没，即便把任务行画回去，点「继续」也只能从 0 重传。
-
-             所以这里连同断点状态一起存，`file`（File 对象）不存、也存不了；
-             恢复出来的任务一律是 paused 态，等用户点「继续」时重新选择文件，
-             再用存的 uploadId 向服务端续传 —— 既不丢进度，也不用引入 IndexedDB。 */
-          /* 注意：常量必须放在 data() 里，不能写成 methods 同级属性。
-             Vue 3 的组件选项对象里只有 data()/methods/computed 等固定字段会被处理，
-             随手加的 `queueSessionKey: "..."` 既不会进 data 也不会进 proxy，
-             this.queueSessionKey 取到 undefined —— getItem(undefined) 恒为 null，
-             恢复逻辑会静默失效（这个坑真踩过一次）。 */
-          persistQueueSession() {
-            try {
-              const items = (this.uploadingFiles || [])
-                /* 只留「中断型」任务：已完成的会自行清理，失败/阻断的没续传价值 */
-                .filter((f) => f.status === "paused")
-                .map((f) => ({
-                  uid: f.uid, name: f.name, size: f.size,
-                  targetMode: f.targetMode || "", uploadId: f.uploadId || null,
-                  fileId: f.fileId || "", chunkDone: Array.isArray(f.chunkDone) ? f.chunkDone.slice() : [],
-                  parts: Array.isArray(f.parts) ? f.parts.slice() : null,
-                  progress: Number(f.progress) || 0, uploadedBytes: Number(f.uploadedBytes) || 0,
-                }));
-              if (!items.length) {
-                /* 队列里没有中断任务时不能直接 remove —— 页面卸载（pagehide /
-                   beforeUnmount）也会走到这里，此刻内存里本就是空的，
-                   一删就把上一次写下的断点抹掉了，恢复必然失效。
-                   只清「确已过期」的会话，其余留给时间戳判断。 */
-                const stale = this.isQueueSessionStale();
-                if (stale) { try { localStorage.removeItem(this.queueSessionKey); } catch (_) {} }
-                return;
-              }
-              localStorage.setItem(this.queueSessionKey, JSON.stringify({ ts: Date.now(), items }));
-            } catch (e) {
-              /* 容量不足（本地历史占满了配额）时降级：只保留断点信息，仍能续传 */
-              try {
-                const items = (this.uploadingFiles || [])
-                  .filter((f) => f.status === "paused")
-                  .map((f) => ({ uid: f.uid, name: f.name, size: f.size, targetMode: f.targetMode || "", uploadId: f.uploadId || null, progress: Number(f.progress) || 0 }));
-                localStorage.setItem(this.queueSessionKey, JSON.stringify({ ts: Date.now(), items }));
-              } catch (_) {}
-            }
-          },
-          /* 落盘前判断已存的会话是否过期：只有真过期的才允许被清掉 */
-          isQueueSessionStale() {
-            try {
-              const raw = localStorage.getItem(this.queueSessionKey);
-              if (!raw) return true;
-              const data = JSON.parse(raw);
-              return Date.now() - (Number(data && data.ts) || 0) > this.queueSessionMaxAge;
-            } catch (e) { return true; }
-          },
-          /* 节流落盘：进度回调每 400ms 触发一次，不能每次都写 localStorage */
-          touchQueueSession() {
-            if (this._queuePersistTimer) return;
-            this._queuePersistTimer = setTimeout(() => {
-              this._queuePersistTimer = null;
-              this.persistQueueSession();
-            }, 800);
-          },
-          loadQueueSession() {
-            try {
-              const raw = localStorage.getItem(this.queueSessionKey);
-              if (!raw) return;
-              const data = JSON.parse(raw);
-              if (!data || !Array.isArray(data.items)) return;
-              if (Date.now() - (Number(data.ts) || 0) > this.queueSessionMaxAge) {
-                localStorage.removeItem(this.queueSessionKey);
-                return;
-              }
-              data.items.forEach((it, i) => {
-                if (!it || !it.name) return;
-                const size = Number(it.size) || 0;
-                const progress = Math.min(99, Math.max(0, Number(it.progress) || 0));
-                this.uploadingFiles.push({
-                  uid: it.uid || `r${Date.now().toString(36)}${i}`,
-                  name: it.name, size, file: null, targetMode: it.targetMode || this.storageMode,
-                  status: "paused", statusText: "已暂停（待恢复）",
-                  speed: "", uploadedBytes: Number(it.uploadedBytes) || Math.round(size * progress / 100),
-                  preview: null, progress, error: null,
-                  uploadId: it.uploadId || null, chunkDone: Array.isArray(it.chunkDone) ? it.chunkDone : [],
-                  fileId: it.fileId || "", parts: Array.isArray(it.parts) ? it.parts : null,
-                  want: "pause", runToken: 0, xhr: null, cancelRequested: false,
-                  restored: true,
-                });
-              });
-              if (this.uploadingFiles.length) {
-                this.restoredQueueCount = this.uploadingFiles.length;
-                this.showToast(`已恢复 ${this.restoredQueueCount} 个未完成的上传任务，点「继续」选择文件即可断点续传`, "success");
-              }
-            } catch (e) {}
-          },
-          /* 恢复出来的任务没有 File 对象，续传前须由用户重新选择同一个文件 */
-          needsFileRebind(file) {
-            if (!file || !file.restored) return false;
-            const has = !!(file.uploadId || (file.chunkDone && file.chunkDone.length) || (file.parts && file.parts.length));
-            return !has || !file.file;
-          },
-          rebindTaskFile(file) {
-            if (!window.showOpenFilePicker) { this.showToast("当前浏览器不支持继续选择文件，请重新选择后上传", "error"); return; }
-            window.showOpenFilePicker({ multiple: false }).then(async (handles) => {
-              const h = handles && handles[0];
-              if (!h) return;
-              const picked = await h.getFile();
-              if (Number(picked.size) !== Number(file.size)) {
-                this.showToast(`所选文件大小与「${file.name}」不一致，可能不是同一个文件`, "error");
-                return;
-              }
-              file.file = picked;
-              file.restored = false;
-              file.statusText = file.chunkDone && file.chunkDone.length ? "已就绪，点继续续传" : "已就绪，点继续上传";
-              this.showToast("文件已重新关联，点「继续」即可断点续传", "success");
-              this.persistQueueSession();
-            }).catch(() => {});
-          },
-          /* 队列恢复提示条被「知道了」关掉后，本次会话不要再弹 */
-          dismissRestoredQueueNote() { this.restoredQueueCount = 0; },
           scheduleQueueCleanup() {
             if (this.queueCleanupTimer) return;
             this.queueCleanupTimer = setTimeout(() => {
@@ -4487,8 +4294,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                 if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
               }
               this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
-              this.touchQueueSession();
-            }, 6000);
+            }, 2500);
           },
           async uploadOne(item, token) {
             const mode = item.targetMode || this.storageMode;
@@ -4525,7 +4331,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               }
               item.uploadedBytes = loaded;
               item.progress = Math.min(99, Math.round((loaded / total) * 100));
-              this.touchQueueSession();
             }, 0, item);
             if (item.runToken !== token) throw new Error("__ABORTED__");
             if (Array.isArray(data) && data[0]?.error) throw new Error(data[0]?.error || "上传未成功");
@@ -4533,7 +4338,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
             this.applyShareResult(uploadedObj, data[0]);
             this.uploadedFiles.unshift(uploadedObj);
-            this.persistResults();
             this.addToHistory(uploadedObj, mode);
           },
           extractDoneChunks(initData) {
@@ -4601,7 +4405,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   }
                   item.uploadedBytes = currentTotal;
                   item.progress = Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99));
-                  this.touchQueueSession();
                 }, this.estimateTimeout(formData.get("chunk")?.size || 0), item);
                 const resp = await pr;
                 this.assertTaskRunning(item, ctx.token);
@@ -4693,7 +4496,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const lastLoaded = uploadedBase;
             item.statusText = "上传中";
             this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
-            this.touchQueueSession();
             for (let i = 0; i < totalChunks; i++) {
               if (doneSet.has(i)) continue;
               /* 每个分片开传前再校验一次：暂停/重试后不再往下发新分片 */
@@ -4715,7 +4517,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
               item.parts = collectedParts.slice();
               this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
-            this.touchQueueSession();
             }
             this.assertTaskRunning(item, token);
             item.status = "processing";
@@ -4750,7 +4551,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
             this.applyShareResult(uploadedObj, completeData);
             this.uploadedFiles.unshift(uploadedObj);
-            this.persistResults();
             this.addToHistory(uploadedObj, mode);
           },
           /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
@@ -4805,9 +4605,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           resumeUpload(file) {
             if (!file) return;
             if (file.status === "success" || file.cancelRequested) return;
-            /* 刷新 / 切后台被回收后恢复出来的任务没有 File 对象：
-               先去系统文件选择器把同一个文件关联回来，再走正常续传。 */
-            if (this.needsFileRebind(file)) { this.rebindTaskFile(file); return; }
             file.want = "run";
             file.error = null;
             file.status = "waiting";
@@ -4824,21 +4621,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           resumeAllUploads() {
             const targets = this.uploadingFiles.filter((f) => f.status === "paused" && !f.cancelRequested);
             if (!targets.length) return;
-            const needFiles = targets.filter((f) => this.needsFileRebind(f));
-            const runnable = targets.filter((f) => !this.needsFileRebind(f));
-            runnable.forEach((f) => {
+            targets.forEach((f) => {
               f.want = "run";
               f.error = null;
               f.status = "waiting";
               f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
               this.invalidateTaskRun(f);
             });
-            if (runnable.length) this.restartUploadNow();
-            /* 恢复出来的任务需要逐个重选文件：只自动拉起第一个，避免一次性弹出多个选择器 */
-            if (needFiles.length) {
-              this.showToast(`${needFiles.length} 个任务需要重新选择文件后才能续传，请逐个处理`, "error");
-              this.rebindTaskFile(needFiles[0]);
-            }
+            this.restartUploadNow();
           },
           abortServerUpload(uploadId) {
             if (!uploadId) return;
@@ -5122,8 +4912,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.showToast(`已复制 ${count} 个链接`, "success");
           },
           selectAll() { const target = !this.isAllSelected; this.uploadedFiles.forEach((f) => (f.selected = target)); },
-          clearResults() { this.uploadedFiles = []; this.persistResults(); },
-          removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); this.persistResults(); },
+          clearResults() { this.uploadedFiles = []; },
+          removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); },
           toggleSelectMode() {
             this.resultSelectMode = !this.resultSelectMode;
             this.resultMenuFor = null;
@@ -5144,7 +4934,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const count = this.selectedCount;
             if (!count) return;
             this.uploadedFiles = this.uploadedFiles.filter((f) => !f.selected);
-            this.persistResults();
             this.showToast(`已移除 ${count} 项`, "success");
           },
           handleClearResults() {
@@ -5222,45 +5011,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
 
           /* ===== 历史管理 ===== */
-          /* ===== 交付结果的本地恢复 =====
-             上传成功后用户经常要离开页面去复制链接 / 切到别的 App，
-             回来时页面可能已被系统回收。结果列表原本只在内存里，回来就空了，
-             表现为「东西传完了却找不到了」。这里按 URL 去重落盘，最多留 50 条。 */
-          persistResults() {
+          persistHistory() {
             try {
-              const list = (this.uploadedFiles || []).slice(0, 50).map((it) => ({
-                name: it.name || "", fileName: it.fileName || it.name || "",
-                url: this.getCleanFileUrl(it), size: Number(it.size) || 0, selected: false,
-                shareSlug: it.shareSlug || "", sharePath: it.sharePath || "",
-                shareExpiresAt: Number(it.shareExpiresAt) || 0,
-                shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
-                shareProtected: Boolean(it.shareProtected),
-              }));
-              if (!list.length) return;
-              localStorage.setItem("uploadedFiles", JSON.stringify(list));
-            } catch (e) {}
-          },
-          loadResults() {
-            try {
-              const raw = localStorage.getItem("uploadedFiles");
-              if (!raw) return;
-              const arr = JSON.parse(raw);
-              if (!Array.isArray(arr)) return;
-              const seen = new Set();
-              this.uploadedFiles = arr
-                .filter((it) => it && (it.url || it.name))
-                .filter((it) => { const u = String(it.url || ""); if (!u || seen.has(u)) return false; seen.add(u); return true; })
-                .map((it) => ({
-                  name: it.name || "", fileName: it.fileName || it.name || "未命名文件",
-                  url: it.url || "", size: Number(it.size) || 0, selected: false,
-                  shareSlug: it.shareSlug || "", sharePath: it.sharePath || "",
-                  shareExpiresAt: Number(it.shareExpiresAt) || 0,
-                  shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
-                  shareProtected: Boolean(it.shareProtected),
-                }));
-            } catch (e) { this.uploadedFiles = []; }
-          },
-          persistHistory() {            try {
               const serialized = this.uploadHistory.map((it) => ({
                 id: it.id, name: it.name, fileName: it.fileName, url: it.url,
                 size: it.size, storageMode: it.storageMode, folderPath: it.folderPath,
@@ -5427,7 +5179,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               });
               added++;
             });
-            if (added) this.persistResults();
             if (added) this.showToast(`已加入 ${added} 条到交付结果`, "success");
             else this.showToast("所选记录已存在于结果列表中");
           },
@@ -5538,22 +5289,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             }));
           },
         },
-        watch: {
-          uploadedFiles: {
-            handler() {
-              if (!this._resultsPersistTimer) {
-                this._resultsPersistTimer = setTimeout(() => {
-                  this._resultsPersistTimer = null;
-                  this.persistResults();
-                }, 600);
-              }
-            },
-            deep: true,
-          },
-        },
-          async mounted() {
-            /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
-            this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
+        async mounted() {
+          /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
+          this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
           window.addEventListener("keydown", this._dlgKeyHandler, true);
           try {
             const cores = navigator.hardwareConcurrency || 8;
@@ -5575,8 +5313,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (ex) this.expandedFolders = JSON.parse(ex) || {};
             try { localStorage.removeItem("imageCompressSettings"); } catch (e) {}
             this.loadHistory();
-            this.loadResults();
-            this.loadQueueSession();
           } catch (e) {}
 
           this.beginNodeSettle();
@@ -5604,13 +5340,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           window.addEventListener("drop", this.globalDragGuard);
           this.resultMenuCloseHandler = () => this.closeResultMenus();
           document.addEventListener("click", this.resultMenuCloseHandler);
-
-          /* 页面被切走 / 回收前把队列会话与结果落盘。
-             pagehide 与 visibilitychange 一起挂：iOS 上单靠 pagehide 有时来不及。 */
-          this._pageHideHandler = () => { this.persistQueueSession(); this.persistResults(); };
-          window.addEventListener("pagehide", this._pageHideHandler);
-          this._visHandler = () => { if (document.visibilityState === "hidden") this._pageHideHandler(); };
-          document.addEventListener("visibilitychange", this._visHandler);
         },
         beforeUnmount() {
           if (this._dlgKeyHandler) {
@@ -5629,14 +5358,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           this.uploadEpoch++;
           if (this.uploadDrainTimer) { clearTimeout(this.uploadDrainTimer); this.uploadDrainTimer = null; }
           if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
-          if (this.queueExitTimer) { clearTimeout(this.queueExitTimer); this.queueExitTimer = null; }
-          if (this._queuePersistTimer) { clearTimeout(this._queuePersistTimer); this._queuePersistTimer = null; }
-          if (this._resultsPersistTimer) { clearTimeout(this._resultsPersistTimer); this._resultsPersistTimer = null; }
-          /* 卸载前先把「暂停中断」的任务落盘，比 pagehide 更可靠 */
-          this.persistQueueSession();
-          this.persistResults();
-          if (this._pageHideHandler) window.removeEventListener("pagehide", this._pageHideHandler);
-          if (this._visHandler) document.removeEventListener("visibilitychange", this._visHandler);
           for (const f of this.uploadingFiles) {
             f.cancelRequested = true;
             try { f.xhr && f.xhr.abort(); } catch (_) {}
