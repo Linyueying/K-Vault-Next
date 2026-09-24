@@ -25,15 +25,24 @@ npx wrangler pages dev ./ \
   --port 8099 --persist-to /tmp/kvdata \
   --binding BASIC_USER=admin --binding BASIC_PASS=123
 
-# 4. 改完必跑四道守卫
+# 4. 改完必跑四道静态守卫
 python3 scripts/check_style.py
 python3 scripts/check_tokens.py
 python3 scripts/check_functions.py
 python3 scripts/check_shared.py     # 跨页共享层：防「一次改动只生效一页」的漂移复发
 
-# 5. 推
+# 5. 改动涉及前端渲染时，再跑运行时冒烟
+python3 -m http.server 8788 --bind 127.0.0.1 &
+node scripts/verify/smoke.mjs       # 8 页 × 双视口：JS 报错 / 死选择器 / 主题切换
+#   （需要 playwright-core，见 scripts/verify/README.md）
+
+# 6. 推
 git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
 ```
+
+> 静态守卫查源码；`scripts/verify/` 查真实渲染。两者都过才算验证完。
+> 清理 CSS 时**额外**先跑 `node scripts/verify/dead-selectors.mjs <选择器>`，
+> 再改完用 `visual-snapshot` + `visual-diff` 证明零差异 —— 见 [3.4](#34-浏览器验证)。
 
 > PAT 由用户每次会话单独提供，**绝不写进任何文件、绝不提交、绝不回显在回复正文里**。
 > 用法见 [第 5 节](#5-git-操作与推送)。
@@ -214,14 +223,68 @@ curl -s -u admin:123 http://localhost:8099/api/status | python3 -m json.tool
 
 ### 3.4 浏览器验证
 
-需要看真实渲染、量 `getComputedStyle`、抓截图时用 `agent-browser` skill。
+**两个层次，都要用**：
+
+| 场景 | 工具 |
+| :--- | :--- |
+| 看一眼真实渲染、抓张截图 | `agent-browser` skill |
+| **要跑成可重复的检查、要出结论** | `scripts/verify/*.mjs`（见下） |
+
+#### 3.4.1 `scripts/verify/` —— 运行时验证脚本
+
+**别再往 `/tmp` 里写一次性脚本了。** 历史上就是这么干的，结果是：每次做同类改造
+都要重写一遍，而且本次因此**漏掉一次误删**（详见 [3.4.2](#342-删-css-前的铁律先跑-dead-selectorsmjs)）。
+现在这些脚本都收在仓库里，配套说明见 `scripts/verify/README.md`。
+
+```bash
+# 前置
+python3 -m http.server 8788 --bind 127.0.0.1 &
+npm i -D playwright-core        # 或用全局的；脚本会自动找
+
+# ① 8 页冒烟（改完前端必跑）
+node scripts/verify/smoke.mjs
+
+# ② 删 CSS 之前先问「这个选择器真死吗」
+node scripts/verify/dead-selectors.mjs .header-content .toolbar
+
+# ③ 重构前后比对（证明"没改变渲染结果"）
+node scripts/verify/visual-snapshot.mjs /tmp/before.json
+#   ... 改 CSS ...
+node scripts/verify/visual-snapshot.mjs /tmp/after.json
+node scripts/verify/visual-diff.mjs /tmp/before.json /tmp/after.json
+```
+
+三个脚本各自解决一类问题：
+
+- **`smoke.mjs`** —— 8 页 × 双视口，查 JS 报错 / 死选择器节点 / 主题切换
+- **`dead-selectors.mjs`** —— 运行时 `querySelectorAll` 计数，给出「死·可删」/「在用·勿删」
+- **`visual-snapshot.mjs` + `visual-diff.mjs`** —— 520 项计算样式快照比对
+
+#### 3.4.2 删 CSS 前的铁律：先跑 `dead-selectors.mjs`
+
+**判一个选择器是不是死的，必须两条都过：**
+
+1. 全量 HTML/JS 的 `class` 属性做**精确 token 匹配**（静态）
+2. 真实浏览器里 `querySelectorAll` 的匹配数（运行时）
+
+**不能靠 grep 下结论。** 两个反例：
+
+- `grep 'class="[^"]*\bcard\b'` 会把 `photo-card` / `state-card` 算成 `.card` 在用
+- 反过来，`class="toolbar-card"` 会让人误以为 `.toolbar` 存在
+
+**真实事故**：清理 `mobile-refactor.css` 时，第一遍静态判断误删了 `.header-title` /
+`.header-actions` —— 看着像没人用，其实 `webdav.html` 里各有一个
+（`<h1 class="header-title">` / `<div class="header-actions">`）。跑一下
+`dead-selectors.mjs .header-title` 会立刻显示 `webdav: 1`。**删之前跑一次，能省一次回滚。**
+
+#### 3.4.3 `agent-browser` 的已知故障
 
 ```bash
 agent-browser open http://localhost:8099/
 agent-browser screenshot /tmp/shot.png
 ```
 
-**已知故障与恢复**：daemon 有时会挂住，报 `CDP command timed out: Target.setDiscoverTargets` / `Target.getTargets`。恢复方式：
+daemon 有时会挂住，报 `CDP command timed out: Target.setDiscoverTargets` / `Target.getTargets`。恢复：
 
 ```bash
 agent-browser close --all
@@ -231,6 +294,12 @@ rm -rf /tmp/org.chromium.Chromium.*
 ⚠️ **不要用 `pkill -f chrome`** —— 模式太宽会把自己的命令链一起 SIGTERM 掉（表现为输出为空、命令链静默中断）。
 
 **量计算样式时注意**：`getComputedStyle` 拿到的是**计算值**，和源码写的可能不同。例如 flex 容器里的 `inline-block` 子元素，计算结果是 `block`（CSS Display §2.7 blockification）—— 这是正常的，`transform` 依然生效，不要误判成回归。
+
+> ⚠️ **另一个必踩的坑**：`getPropertyValue()` 只接受 **kebab-case**。
+> `cs.getPropertyValue('borderRadius')` 会**静默返回空串**（不是报错！）。
+> 用它写视觉比对，会让所有属性都变空、比对永远显示「0 差异」——一个完美的假阴性。
+> **用 `cs.borderRadius` 直接读**，或用 `getPropertyValue('border-radius')`。
+> `visual-snapshot.mjs` 已修此 bug 并加了「空值超 50% 即报错」的自检。
 
 ---
 
@@ -615,6 +684,9 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 | :--- | :--- |
 | 本地起全栈 | `npx wrangler pages dev ./ --kv "img_url" --r2=R2_BUCKET --compatibility-date=2026-05-03 --port 8099 --persist-to /tmp/kvdata --binding BASIC_USER=admin --binding BASIC_PASS=123` |
 | 跑守卫 | `python3 scripts/check_style.py && python3 scripts/check_tokens.py && python3 scripts/check_functions.py && python3 scripts/check_shared.py` |
+| 8 页冒烟（运行时） | `node scripts/verify/smoke.mjs`（先起 `python3 -m http.server 8788`） |
+| **删 CSS 前查选择器是否真死** | `node scripts/verify/dead-selectors.mjs .xxx .yyy` |
+| **重构前后证明零差异** | `node scripts/verify/visual-snapshot.mjs a.json` → 改 → `... b.json` → `node scripts/verify/visual-diff.mjs a.json b.json` |
 | 查跨页是否还各写各的 | `python3 scripts/check_shared.py` |
 | 加一个跨页能力 | 写进 `app-core.js` → 挂 `window.KVault` → 各页调用点切过去 |
 | 加一个共享组件 | 写进 `design-system.css` → 页面只留尺寸/布局增量 |
@@ -649,3 +721,11 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 10. **排查闪烁要枚举祖先链**，元凶常在祖先上。
 11. **用户说「你改之前是好的」时，先查自己的 diff。**
 12. **验证要端到端** —— `curl` 真实接口、跑真实上传、量真实计算样式，不要只看改了没改。
+13. **删 CSS 之前先跑 `dead-selectors.mjs`** —— 判死要「静态精确匹配 + 运行时计数」两条都过，
+    不能靠 grep。此次清理就因漏了这步误删过 `.header-title`。
+14. **「0 差异」必须先自证工具是活的** —— 往页面里注入一个必然生效的改动
+    （如 `.card{border-radius:7px!important}`），确认比对**能检出**，再相信它的「0 差异」。
+    本次 `getPropertyValue('borderRadius')` 静默返回空串，导致比对永远显示 0 差异，
+    差点把一个假阴性当成交付证据。
+15. **验证脚本要留在仓库里，不要写 `/tmp`** —— 一次性脚本下次还得重写，
+    而且过程中攒下的经验（坑、判据）会一起丢掉。现在的归宿是 `scripts/verify/`。

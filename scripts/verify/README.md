@@ -1,0 +1,121 @@
+# scripts/verify/ —— 浏览器验证脚本
+
+`scripts/check_*.py` 那四道守卫是**静态**检查（读源码）。这里的是**运行时**检查：
+真的开浏览器、真的渲染、真的读计算样式。静态检查查不出的东西（选择器是否真死、
+重构有没有改变渲染结果）由它们兜底。
+
+## 为什么这些脚本值得留在仓库里
+
+历史上它们是写在 `/tmp` 里的一次性脚本，任务做完就没了。结果是每次做同类改造
+（清理死 CSS、统一组件）都要从零再写一遍——而且**这次就因此漏掉了一次误删**。
+
+## 前置：起服务 + 装依赖
+
+```bash
+# 1) 静态服务（仓库根目录）
+python3 -m http.server 8788 --bind 127.0.0.1 &
+
+# 2) playwright-core（任选其一）
+npm i -D playwright-core          # 装进本仓库
+npm i -g playwright-core          # 或装成全局
+# 找不到时脚本会打印所有试过的路径，可用 PW_CORE=/path/to/playwright-core 指定
+
+# 3) Chromium（一般已有；没有的话）
+npx playwright install chromium
+# 或用 CHROME_PATH=/path/to/chrome 指定
+```
+
+端口不是 8788 时：`BASE=http://127.0.0.1:8099 node scripts/verify/xxx.mjs`
+
+## 三个脚本
+
+### `smoke.mjs` —— 8 页冒烟测试（改完前端必跑）
+
+```bash
+node scripts/verify/smoke.mjs
+```
+
+每页在桌面(1440×900)/移动(390×844)两种视口下检查：
+
+- **JS 报错**（`pageerror`）必须为 0
+- **死选择器节点**必须为 0（`DEAD_SELECTORS` 里那批已确认全站不存在的类）
+- **主题切换**可用（能改 `data-theme`）
+
+退出码 0 = 全过。
+
+### `dead-selectors.mjs` —— 删 CSS 之前必须先跑（防误删）
+
+```bash
+node scripts/verify/dead-selectors.mjs .header-content .nav-links .toolbar
+# 不带参数时用内置的 DEFAULT_SELECTORS
+```
+
+输出每个选择器在每页的运行时匹配数，并给出「死 · 可删」/「在用(N) 勿删」的判定。
+
+> **这个脚本的由来**：清理 `mobile-refactor.css` 时，第一遍静态判断误删了
+> `.header-title` / `.header-actions` —— grep 看着像没人用，其实 `webdav.html` 里
+> 有一个。跑这个脚本会立刻显示 `webdav: 1`，一眼就知道不能删。
+>
+> **判据是两条，缺一不可**：
+> 1. 全量 HTML/JS 的 `class` 属性做**精确 token 匹配**（静态，防 grep 子串误判）
+> 2. 真实浏览器 `querySelectorAll` 的匹配数（运行时，本脚本）
+>
+> 两个都说 0 才算真死。`grep 'class="[^"]*\bcard\b'` 会把 `photo-card` 算进去，
+> 又会把 `class="toolbar-card"` 误认为 `.toolbar` 存在——别用 grep 下结论。
+
+### `visual-snapshot.mjs` + `visual-diff.mjs` —— 重构前后比对（安全证明）
+
+```bash
+# 改之前
+node scripts/verify/visual-snapshot.mjs /tmp/before.json
+# ... 改 CSS ...
+# 改之后
+node scripts/verify/visual-snapshot.mjs /tmp/after.json
+# 比对
+node scripts/verify/visual-diff.mjs /tmp/before.json /tmp/after.json
+```
+
+拍的不是截图，而是**关键元素的计算样式**（5 视口 × 8 页 × 13 元素 × 23 属性 = 520 项）。
+比截图严格：肉眼会漏 1px，字符串比对不会。
+
+`visual-diff.mjs` 退出码 0 = 完全一致，1 = 有差异（逐属性打印）。
+
+**用途**：证明「这轮重构是纯删死代码，没有改变任何渲染结果」。本次清理
+`mobile-refactor.css`（781 → 433 行）就是用它证明的。
+
+## 两个坑（都踩过，已在代码里修掉）
+
+**1. `getPropertyValue()` 只认 kebab-case。**
+
+```js
+cs.getPropertyValue('borderRadius')  // ""  ← 静默返回空串
+cs.getPropertyValue('border-radius') // "22px"
+cs.borderRadius                      // "22px" ← 用这个
+```
+
+踩坑后果：快照里**所有属性都是空串**，于是"改前 vs 改后"永远显示 **0 差异**——
+一个看起来完美、实际什么都没验的假阴性。现在脚本里用 `cs[name]` 直接读，
+并且加了**自检**：若超过 50% 的属性为空，直接报错退出（退出码 3），不产出不可信的快照。
+
+**2. 无限动画会让 `opacity` / `transform` 每次都不同。**
+
+本仓库有 `.orb-1`/`.orb-2` 的 `orbFloat`、`.status-pill__pulse` 的 `pulseRing` 等
+无限动画。它们让 `opacity` 在两次快照间漂移（实测 `0.975196` vs `0.975208`），
+产生假阳性。所以：
+
+- `PROPS` 里**刻意不含** `opacity` / `transform` / `filter`
+- 快照用 `reducedMotion: 'reduce'` 上下文（本仓库有对应的 `@media` 把动画压到 0.01ms）
+
+## 自检清单
+
+改完前端后：
+
+```bash
+python3 scripts/check_style.py && \
+python3 scripts/check_tokens.py && \
+python3 scripts/check_functions.py && \
+python3 scripts/check_shared.py && \
+node scripts/verify/smoke.mjs
+```
+
+清理/重构 CSS 时**额外**做：`dead-selectors.mjs` 确认可删 → 改 → `visual-snapshot` + `visual-diff` 确认零差异。

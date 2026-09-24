@@ -141,13 +141,16 @@ check_shared       PASS
 
 **新增**
 - `app-core.js` —— 跨页共享 JS 层
-- `scripts/check_shared.py` —— 共享层守卫
+- `scripts/check_shared.py` —— 共享层静态守卫（五道检查）
+- `scripts/verify/` —— 运行时验证脚本（`smoke` / `dead-selectors` / `visual-snapshot` + `visual-diff` + `README.md`）
+- `docs/unify-report.md` —— 本报告
 
 **修改**
 - 8 个 HTML（加载顺序 + 调用点切换）
-- `design-system.css`（`.modal` 上收）
-- `theme.js`（统一 key + `data-own-theme-toggle`）
-- `AI-OPERATIONS.md`（新增 3.5 共享层架构、四道守卫、铁律 6/7）
+- `design-system.css`（`.modal` 等上收）
+- `theme.css` / `theme.js`（删死分支）
+- `mobile-refactor.css`（781 → 433 行）
+- `AI-OPERATIONS.md`（3.4 运行时验证、3.5 共享层架构、3.6 mobile-refactor 分析、铁律 13/14/15）
 - `.gitignore`（忽略 `__pycache__`）
 
 ---
@@ -201,17 +204,32 @@ check_shared       PASS
 
 **保留**（血泪教训）：`.header-title` / `.header-actions` —— 第一遍清理时误删，因为我的初查只看了一个方向。是 `webdav.html` **确实在用**（`<h1 class="header-title">` / `<div class="header-actions">`），删了会让 webdav 头部布局崩掉。已在守卫 E 里把这两个类从"可删名单"移出，并留下注释说明原因。
 
-### 8.3 清理的安全证明：132 项计算样式快照逐一比对
+### 8.3 清理的安全证明：520 项计算样式快照逐一比对
 
 不靠"看着没变"，直接机器比对：
 
 ```
-清理前 → 拍照 132 项（4 页 × 3 视口 × 11 个关键元素 × 20 个 CSS 属性）
-清理后 → 再拍 132 项
+清理前 → 拍照 520 项（8 页 × 5 视口 × 13 个关键元素 × 23 个 CSS 属性）
+清理后 → 再拍 520 项
 比对结果：不一致 0 项
 ```
 
-**逐像素等价**，证明删掉的全是永远不会生效的死代码。
+**逐值等价**，证明删掉的全是永远不会生效的死代码。工具已固化在
+`scripts/verify/visual-snapshot.mjs` + `visual-diff.mjs`。
+
+> ⚠️ **这套工具本身出过一个假阴性，值得记一笔。**
+> 第一版用 `getComputedStyle(el).getPropertyValue('borderRadius')` 读属性 ——
+> 但这个 API **只认 kebab-case**（`'border-radius'`），传 camelCase 会**静默返回空串**。
+> 结果快照里所有属性都是空的，跟任何东西比对都显示"0 差异"。
+> 一个看起来完美、实际什么都没验的结论。
+>
+> **发现方式**：往页面里注入一个必然生效的改动（`.card{border-radius:7px!important}`），
+> 比对居然还是 0 差异 —— 这才暴露工具是坏的。
+>
+> **现在的防护**：改用 `cs.borderRadius` 直接读；并加了自检——若超过 50% 的属性为空，
+> 直接报错退出，不产出不可信的快照。
+>
+> **教训**：拿到"0 差异"这种漂亮结论时，先自证工具是活的。
 
 ### 8.4 顺带清掉 `theme.js` / `theme.css` 里的死分支
 
