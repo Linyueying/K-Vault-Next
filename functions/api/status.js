@@ -5,7 +5,7 @@ import { checkHuggingFaceConnection, hasHuggingFaceConfig } from '../utils/huggi
 import { checkWebDAVConnection, hasWebDAVConfig } from '../utils/webdav.js';
 import { checkGitHubConnection, hasGitHubConfig } from '../utils/github.js';
 import { getGuestConfig } from '../utils/guest.js';
-import { checkAuthentication } from '../utils/auth.js';
+import { checkAuthentication, isAuthRequired } from '../utils/auth.js';
 import { buildTelegramBotApiUrl, getTelegramApiBase } from '../utils/telegram.js';
 import {
   MAX_IN_MEMORY_ASSEMBLY,
@@ -39,9 +39,18 @@ export async function onRequestGet(context) {
   // `enabled`/`configured` pair stays public. The live connectivity probes and
   // the backend messages/details are diagnostics and are admin-only.
   const auth = await checkAuthentication(context);
-  // 仅当「要求认证」且用户真实登录时才视为管理员；未配置认证（开放实例）时
-  // 匿名访客不得读取管理诊断信息，避免把 internal 状态暴露给公网。
-  const isAdmin = Boolean(auth?.authenticated) && isAuthRequired(env);
+  // 谁能看管理诊断（连通性探测 / 桶名 / 错误详情）：
+  //   - 配置了认证（BASIC_USER + BASIC_PASS）的实例：必须是真实登录用户；
+  //   - 完全没配认证的「开放实例」：实例本身就是公开的，此时放行诊断，
+  //     否则连创建者自己都看不到 R2 的真实状态（表现为「R2 绑了却显示未配置/不可用」）。
+  //
+  // 注意 `checkAuthentication()` 在未配置认证时会返回
+  // `{ authenticated: true, reason: 'no-auth-required' }`，但这里的旧写法又 `&&`
+  // 了一次 `isAuthRequired(env)`（此时为 false），两者相与恒为 false —— 于是
+  // 开放实例下 isAdmin 永远为 false，R2 的 `connected` 探测代码永不执行，
+  // 前端 isEnabled(st.r2) 只能拿到 `connected:false` 的兜底值。
+  // 这正是「R2 已经绑好、之前一直正常，某次改动后突然不可用」的根因。
+  const isAdmin = isAuthRequired(env) ? Boolean(auth?.authenticated) : true;
 
   const configuredMap = {
     telegram: Boolean(envValue(env, 'TG_BOT_TOKEN') && envValue(env, 'TG_CHAT_ID')),

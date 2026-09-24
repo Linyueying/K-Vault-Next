@@ -437,7 +437,7 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 │       └── ratelimit.js redact.js ssrf-guard.js …
 ├── scripts/                              # wrangler 配置生成 / 校验工具
 │   ├── cloudflare-pages-r2-doctor.js
-│   └── check_style.py check_tokens.py strip_css.py   # 样式一致性守卫
+│   └── check_style.py check_tokens.py check_functions.py strip_css.py   # 一致性守卫
 ├── docs/                                 # OpenAPI、接入指南、完整配置参考
 └── .env.example                          # 变量清单（Pages 不读此文件）
 ```
@@ -463,9 +463,17 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 - 改完跑一次守卫脚本，确保没有回归：
 
 ```bash
-python3 scripts/check_style.py     # 括号平衡 / 禁止页面内定义 @keyframes / 必须引入设计系统
-python3 scripts/check_tokens.py    # 所有 var(--x) 与 animation 名称都能解析到定义
+python3 scripts/check_style.py       # 括号平衡 / 禁止页面内定义 @keyframes / 必须引入设计系统 / 引入图标库
+python3 scripts/check_tokens.py      # 所有 var(--x) 与 animation 名称都能解析到定义
+python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号（漏 import 会被抓出来）
 ```
+
+> `check_functions.py` 是为了拦住一类**语法检查抓不到**的事故：ESM 里调用了忘记 `import`
+> 的函数时，`node --check` 只查语法、不做标识符解析，所以不会报错；只有真正请求到那条
+> 分支时才会抛 `ReferenceError` 并返回 500。历史上 `functions/api/status.js` 曾漏 import
+> `isAuthRequired`，导致 `/api/status` 全量 500，前端拿不到后端状态、R2 被判定为「未配置」。
+> 现在这个脚本会在提交前把这类问题拦下来。若确有刻意为之的动态引用，在该行加
+> `// check_functions: ignore` 豁免。
 
 ---
 
