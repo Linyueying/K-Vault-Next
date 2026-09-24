@@ -364,6 +364,16 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .dialog-actions{display:flex;gap:var(--sp-2);justify-content:flex-end;flex-wrap:wrap;margin-top:var(--sp-1)}
 .dialog-actions.mt{margin-top:var(--sp-4)}
 .row-inline{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+/* 合集分享对话框：带标签的表单列。
+   .dialog-input.mb0 用于抹平 .dialog-input 自带的 margin-bottom，
+   让 .mb-sm 等外部间距类成为唯一的间距来源。 */
+.field-col{display:flex;flex-direction:column;gap:5px}
+.field-label{font-size:var(--fs-xs);font-weight:700;color:var(--text-sub)}
+/* 只作用于本文件里的 .dialog-input，不动全局 .mb0 的语义 */
+.dialog-input.mb0{margin-bottom:0}
+.dialog-error{padding:9px 13px;border-radius:var(--r-sm);font-size:.8rem;color:var(--c-danger);background:var(--c-danger-soft);border:1px solid rgba(239,68,68,.25);line-height:1.5;margin-bottom:10px}
+.bundle-result{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:var(--r-md);background:rgba(var(--primary-rgb),.07);border:1px solid rgba(var(--primary-rgb),.22);margin-bottom:10px}
+.bundle-result__head{display:flex;align-items:center;gap:7px;font-size:var(--fs-sm);font-weight:800;color:var(--primary)}
 /* =========================================================
 API Token 管理面板
 ========================================================= */
@@ -949,6 +959,9 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('copy')">
               <i class="fas fa-copy"></i><span>批量复制链接</span>
             </button>
+            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('bundle')">
+              <i class="fas fa-share-nodes"></i><span>创建合集分享</span>
+            </button>
             <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('move')">
               <i class="fas fa-folder-tree"></i><span>移动到目录</span>
             </button>
@@ -1378,6 +1391,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
     <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
     <div class="batch-dock__actions">
       <button class="dock-act" @click="batchCopy" title="复制链接"><i class="fas fa-copy"></i><span>复制</span></button>
+      <button class="dock-act" @click="openBundleShare()" title="创建合集分享"><i class="fas fa-share-nodes"></i><span>合集</span></button>
       <button class="dock-act" @click="openMove()" title="移动到目录"><i class="fas fa-folder-tree"></i><span>移动</span></button>
       <button class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
       <button class="dock-act danger" @click="batchDelete" title="批量删除"><i class="fas fa-trash"></i><span>删除</span></button>
@@ -1799,7 +1813,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       </div>
 
       <div class="row-inline mb-md">
-        <input class="dialog-input no-margin grow" v-model="newFolder" placeholder="新目录路径，如 相册/2026">
+        <input class="dialog-input mb0 grow" v-model="newFolder" placeholder="新目录路径，如 相册/2026">
         <button class="btn shrink0" @click="createAndMove">
           <i class="fas fa-folder-plus"></i> 新建并移动
         </button>
@@ -1809,6 +1823,87 @@ html[data-perf="low"] .ambient-orb{animation:none}
         <button class="btn" @click="moveVisible=false">取消</button>
         <button class="btn btn--primary" @click="confirmMove">
           <i class="fas fa-check"></i> 确认移动
+        </button>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ===== 创建合集分享对话框 =====
+       把选中的多个文件聚合成一个 /s/:slug 分享链接。
+       与「分享管理」面板的单文件分享是两套东西：那个管的是每个文件自己的
+       分享属性，这里建的是一个独立合集实体。 -->
+  <transition name="dialog">
+  <div class="overlay" v-if="bundleVisible" @click.self="closeBundleShare">
+    <div class="dialog-panel">
+      <h2 class="dialog-title">
+        <i class="fas fa-share-nodes"></i>
+        <span>创建合集分享</span>
+      </h2>
+      <div class="dialog-message">
+        已选 <strong>{{ bundleFileNames.length }}</strong> 个文件，将合并为一个分享链接。
+      </div>
+
+      <div class="dialog-message" style="font-size:.78rem;color:var(--text-muted);word-break:break-all">
+        {{ bundleNamesPreview }}
+      </div>
+
+      <div class="row-inline mb-sm">
+        <div class="field-col grow">
+          <label class="field-label">有效期</label>
+          <select class="dialog-input mb0" v-model.number="bundleForm.expiresIn">
+            <option :value="0">永久有效</option>
+            <option :value="3600">1 小时</option>
+            <option :value="86400">1 天</option>
+            <option :value="604800">7 天</option>
+            <option :value="2592000">30 天</option>
+            <option :value="31536000">365 天</option>
+          </select>
+        </div>
+        <div class="field-col grow">
+          <label class="field-label">下载次数上限</label>
+          <input class="dialog-input mb0" type="number" min="0"
+                 v-model="bundleForm.maxDownloads" placeholder="留空表示不限">
+        </div>
+      </div>
+
+      <div class="field-col mb-sm">
+        <label class="field-label">访问密码</label>
+        <input class="dialog-input mb0" type="password" autocomplete="new-password"
+               v-model="bundleForm.password" placeholder="留空表示不加密">
+      </div>
+
+      <div class="dialog-message" style="font-size:.76rem;color:var(--text-muted)">
+        <i class="fas fa-circle-info"></i>
+        短链由系统自动生成。合集内每个文件被下载时各计一次，与文件自身的分享配额相互独立。
+      </div>
+
+      <div class="dialog-error" v-if="bundleError">{{ bundleError }}</div>
+
+      <!-- 创建结果 -->
+      <div class="bundle-result" v-if="bundleResult">
+        <div class="bundle-result__head"><i class="fas fa-circle-check"></i> 合集已创建</div>
+        <div class="share-result__url" style="display:flex;align-items:center;gap:7px">
+          <code style="flex:1;min-width:0;word-break:break-all;font-size:.74rem">{{ bundleResult.url }}</code>
+          <button class="mini-icon-btn" @click="copyBundleUrl" title="复制链接">
+            <i class="fas fa-link"></i>
+          </button>
+        </div>
+        <div class="dialog-message" style="font-size:.78rem">
+          已收录 <strong>{{ bundleResult.fileCount }}</strong> 个文件。
+        </div>
+        <div class="dialog-message" v-if="bundleResult.missingNames.length"
+             style="font-size:.78rem;color:var(--c-danger)">
+          有 {{ bundleResult.missingNames.length }} 个文件已失效，未加入：{{ bundleResult.missingNames.join('、') }}
+        </div>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="btn" @click="closeBundleShare">{{ bundleResult ? '完成' : '取消' }}</button>
+        <!-- 结果出来后收起「创建合集」：此时再点只会又建一个合集链接，是误操作温床 -->
+        <button class="btn btn--primary" v-if="!bundleResult" :disabled="bundleBusy" @click="submitBundleShare">
+          <i class="fas" :class="bundleBusy ? 'fa-circle-notch fa-spin' : 'fa-share-nodes'"></i>
+          {{ bundleBusy ? '创建中…' : '创建合集' }}
         </button>
       </div>
     </div>
@@ -1908,6 +2003,19 @@ Vue.createApp({
     preview: null,
 
     moveVisible: false, moveFiles: [], moveTarget: '', moveSearch: '', newFolder: '',
+
+    /* 合集分享：把选中文件聚合成一个分享链接 */
+    bundleVisible: false,
+    bundleFiles: [],
+    bundleBusy: false,
+    bundleError: '',
+    bundleResult: null,
+    /**
+     * 「取消」是唯一的关闭动作。创建成功后再点它，关闭时顺手刷新分享管理，
+     * 避免把「刚建的合集在管理里看不到」当成没生效。
+     */
+    bundleWaitAndClose: false,
+    bundleForm: { expiresIn: 0, maxDownloads: '', password: '' },
 
     status: { telegram:{}, kv:{}, r2:{}, s3:{}, discord:{}, huggingface:{}, github:{} },
 
@@ -2156,6 +2264,18 @@ Vue.createApp({
       return a
         .filter(x => !kw || x.label.toLowerCase().includes(kw))
         .sort((x, y) => !x.path ? -1 : (!y.path ? 1 : x.path.localeCompare(y.path, 'zh-CN')));
+    },
+
+    /* ---------- 合集分享 ---------- */
+    bundleFileNames() {
+      return this.bundleFiles.map(f => f.fileName || f.name || f.id || '').filter(Boolean);
+    },
+    /* 文件名预览：超过 4 个就省略，避免对话框被长清单撑长。 */
+    bundleNamesPreview() {
+      const names = this.bundleFileNames;
+      if (!names.length) return '';
+      const head = names.slice(0, 4).join('、');
+      return names.length > 4 ? `${head} 等 ${names.length} 个文件` : head;
     },
 
     /* ---------- 图标 / 标签 ---------- */
@@ -2960,6 +3080,7 @@ Vue.createApp({
       else if (c === 'delete') this.batchDelete();
       else if (c === 'download') this.batchDownload();
       else if (c === 'move') this.openMove();
+      else if (c === 'bundle') this.openBundleShare();
     },
 
     handleTool(c) {
@@ -3347,6 +3468,112 @@ Vue.createApp({
     },
     openSharePage(s) {
       window.open(this.shareFullUrl(s), '_blank', 'noopener');
+    },
+
+    /* ================= 合集分享 ================= */
+    openBundleShare() {
+      const files = (arguments.length && Array.isArray(arguments[0]) ? arguments[0] : this.selectedFiles) || [];
+      if (!files.length) { this.showToast('请先选择文件', 'error'); return; }
+      /* 只有 1 个文件时没有「合集」的意义，明确劝阻而不是默默建出单文件合集 ——
+         那种合集会与文件自身的分享功能重复，且用户在分享管理里看不到。 */
+      if (files.length === 1) {
+        this.showToast('合集分享至少需要选择 2 个文件', 'error');
+        return;
+      }
+      this.bundleFiles = files.slice();
+      this.bundleBusy = false;
+      this.bundleError = '';
+      this.bundleResult = null;
+      this.bundleWaitAndClose = false;
+      this.bundleForm = { expiresIn: 0, maxDownloads: '', password: '' };
+      this.bundleVisible = true;
+      this.openMenu = null;
+    },
+    closeBundleShare() {
+      this.bundleVisible = false;
+      this.bundleFiles = [];
+      this.bundleError = '';
+      this.bundleResult = null;
+      /* 创建成功后关闭对话框即刷新列表：新建的合集要让用户在
+         「分享管理」里能看到，否则会以为没生效。 */
+      if (this.bundleWaitAndClose && this.sharePanelVisible) this.loadShares();
+      this.bundleWaitAndClose = false;
+    },
+    copyBundleUrl() {
+      if (!this.bundleResult || !this.bundleResult.url) return;
+      this.copyText(this.bundleResult.url);
+      this.showToast('合集链接已复制', 'success');
+    },
+    async submitBundleShare() {
+      const files = this.bundleFiles;
+      if (!files.length) { this.bundleError = '没有可分享的文件'; return; }
+
+      /* 文件 ID 的取法与「批量复制链接」保持一致：优先 id，回落到 name。
+         服务端会用 getRecordWithKey 兼容裸 ID 与带前缀两种形式。 */
+      const fileIds = files.map(f => String(f.id || f.name || '').trim()).filter(Boolean);
+      if (!fileIds.length) { this.bundleError = '无法识别所选文件，请刷新列表后重试。'; return; }
+
+      const form = this.bundleForm || {};
+      const maxRaw = String(form.maxDownloads == null ? '' : form.maxDownloads).trim();
+      const maxDownloads = maxRaw === '' ? 0 : Number(maxRaw);
+      if (maxRaw !== '' && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) {
+        this.bundleError = '下载次数上限必须是非负整数（0 表示不限）。';
+        return;
+      }
+
+      this.bundleBusy = true;
+      this.bundleError = '';
+      this.bundleResult = null;
+      try {
+        const res = await fetch('./api/manage/share-bundle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            action: 'create',
+            fileIds,
+            expiresIn: Number(form.expiresIn) || 0,
+            maxDownloads,
+            password: String(form.password || ''),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          const messages = Array.isArray(data.messages) ? data.messages : [];
+          this.bundleError = messages[0] || data.message || data.error || ('请求失败（HTTP ' + res.status + '）');
+          return;
+        }
+
+        const path = data.sharePath || '';
+        /* 把失效文件 ID 还原成文件名：用户看不懂 ID 代表哪一个文件。 */
+        const missingIds = Array.isArray(data.missing) ? data.missing : [];
+        const missingNames = missingIds.map(id => {
+          const hit = files.find(f => String(f.id || f.name || '').trim() === String(id));
+          return hit ? (hit.fileName || hit.name || id) : String(id);
+        });
+
+        this.bundleResult = {
+          url: path ? this.baseURL + path : '',
+          slug: data.slug || '',
+          fileCount: Number(data.fileCount) || 0,
+          missingNames,
+        };
+        /* 只有真正建出来才置位：否则用户点「取消」关掉一个失败的对话框时，
+           会莫名其妙多刷新一次分享管理。 */
+        this.bundleWaitAndClose = true;
+        this.bundleError = '';
+        this.showToast(
+          missingNames.length
+            ? '合集已创建，' + missingNames.length + ' 个文件未加入'
+            : '合集已创建（' + this.bundleResult.fileCount + ' 个文件）',
+          'success'
+        );
+      } catch (err) {
+        console.error('创建合集失败:', err);
+        this.bundleError = '网络错误，请稍后重试。';
+      } finally {
+        this.bundleBusy = false;
+      }
     },
 
     /* 原为 window.confirm，已统一到站内对话框 */

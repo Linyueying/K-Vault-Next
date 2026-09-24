@@ -62,6 +62,56 @@ node scripts/verify/guest-banner-login.mjs
 > `document.getElementById('app').__vue_app__._container._vnode.component.proxy`。
 > 后续要构造其它登录态/访客态前置条件时，照这个路径取 proxy。
 
+### `share-bundle.mjs` —— 合集分享全链路（必须跑在全栈上）
+
+```bash
+# 先按 AI-OPERATIONS.md §0 起本地全栈（--kv img_url --port 8099 --persist-to /tmp/kvdata）
+node scripts/verify/share-bundle.mjs
+```
+
+覆盖「一个链接带多个文件」从建到废的每一道门（41 项断言）：
+
+| 环节 | 断言要点 |
+| --- | --- |
+| 创建 | 空列表拒绝；非法有效期/次数拒绝（**不能静默忽略**）；正常创建返回 3 成员 |
+| 分享信息 | `bundle:true`；成员文件名正确；不返回 `passwordHash/Salt` |
+| 短链 | `/s/<slug>` 落到分享页且带 `b=?` |
+| 密码 | 未带密码 **401**；密码错误 **403**；两者都不许泄漏成员地址；正确放行 |
+| 计次/配额 | 下载后 `downloadCount +1`；超上限后 **410** |
+| 过期 | `expiresIn:1` 的合集到期后 **410** |
+| 撤销 | 分享信息 404、`/s/` 不再跳转、列表里消失 |
+| 文件级无回归 | 旧的 `?s=` 分享仍可建可读，且未被误标成合集 |
+
+> **这个脚本的由来**：合集后端写完、四道静态守卫全 PASS 之后，第一次跑真实链路
+> 就炸出两个静态检查看不见的洞：
+> 1. **短链从不自动生成** —— `buildBundleSlug` 被 import 了却从未调用，
+>    创建请求一律 500「合集短链标识无效」。前端界面上根本没有短链输入框
+>    （合集不暴露自定义短链），所以「留空」是正常路径，必须服务端自动分配。
+> 2. **合集配额是死代码** —— `incrementBundleDownloadCount` 定义了但全仓无调用点，
+>    `/file/...` 也完全不认 `?b=`。结果是 maxDownloads 只校验不记账：
+>    「上限 1 次」能下无限次。
+>
+> 两条都属于「四道守卫查语法、查共享层、查 token，但不查链路是否真的接通」。
+> 所以本脚本的定位是**链路完整性**，不是回归。
+
+**前置条件与坑**：
+
+- 需要 `node:sqlite`（Node 22+）。本地 wrangler 没有 telegram 出口，
+  `upload-from-url` 又被 SSRF 防护挡住回环地址，所以文件记录由
+  `_seed-kv.mjs` 直接写进 `--persist-to` 的 KV 库（形状与真实上传一致）。
+- **会话 cookie 带 `Secure; SameSite=Strict`**，在 `http://127.0.0.1` 上
+  Chromium 的网络栈不持久化它 —— 所以请求统一用**页面内的 fetch**
+  （非安全上下文豁免），不能用 `context.request`。
+- Pages 会把 `/share.html` 规范化成无扩展名的 `/share`，断言 URL 时两种形态都要认。
+- `fetch(redirect:'manual')` 拿到的是 opaque-redirect，读不到 `Location`；
+  要看跳转目标只能用 `page.goto()`。
+- 本地测不出「下载内容对不对」（上游不可达会 500）。配额闸门发生在取字节**之前**，
+  所以「超次数 410」可以验证；「首次下载 HTTP 500」属预期，断言写成
+  「未被配额拦截」而不是「下载成功」。
+- **上游 500 也计入配额**，这是刻意的：分享页已通过 `share-info` 确认过文件存在，
+  说明是真实访问尝试；不计数等于给出「反复请求让它 500」的绕过入口。
+  真正不计数的是 401/403/404/410（闸门拦下或路径不存在）。
+
 ### `dead-selectors.mjs` —— 删 CSS 之前必须先跑（防误删）
 
 ```bash
@@ -255,6 +305,13 @@ python3 scripts/check_functions.py && \
 python3 scripts/check_shared.py && \
 node scripts/verify/smoke.mjs
 ```
+
+改动涉及后端链路（分享 / 上传 / 下载计次）时**额外**跑：
+`node scripts/verify/share-bundle.mjs`（需本地全栈）。
+
+**新脚本的铁律：先证明它能捕捉故障。** 写完之后回退/注入一次对应 bug，
+确认脚本确实变红 —— 一个永远绿的测试等于没有测试。`share-bundle.mjs`
+就是靠这一步确认「slug 不生成」和「配额不计数」这两类故障都跑不掉。
 
 清理/重构 CSS 时**额外**做：`dead-selectors.mjs` 确认可删 → 改 → `visual-snapshot` + `visual-diff` 确认零差异。
 

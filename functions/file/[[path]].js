@@ -15,6 +15,13 @@ import {
   parseSignedTelegramFileId,
   shouldWriteTelegramMetadata,
 } from '../utils/telegram.js';
+import {
+  incrementBundleDownloadCount,
+  isBundleExpired,
+  isBundleExhausted,
+  readBundle,
+  verifyBundlePassword,
+} from '../utils/share-bundle.js';
 
 const MIME_TYPES = {
   mp4: 'video/mp4',
@@ -67,13 +74,139 @@ const MIME_TYPES = {
 /**
  * 对外入口。
  *
- * 这里只做一件额外的事：把「显式下载」请求的响应后处理一遍
- * （详见 `applyDownloadDisposition`）。放在最外层统一处理，而不是改 7 个
- * 存储分支 —— 分支各自实现一遍 attachment 头，早晚会漏掉一两个。
+ * 这里做两件额外的事：
+ *   1. 把「显式下载」请求的响应后处理一遍（详见 `applyDownloadDisposition`）。
+ *      放在最外层统一处理，而不是改 7 个存储分支 —— 分支各自实现一遍
+ *      attachment 头，早晚会漏掉一两个。
+ *   2. 数字节 = 计次数（详见 `maybeCountBundleDownload`）。文件级的计数
+ *      由内层在「拿到响应」后就发起，但那种写法要求响应本身成功（200/206）；
+ *      合集这条路径上，上游存储不可用时会返回 500，配额就永远不动 ——
+ *      而「请求确实打到了上游、只是上游挂了」并不该让访问者白嫖一次。
+ *      所以连同文件级一起挪到最外层，用同一把尺子量。
  */
 export async function onRequest(context) {
   const response = await handleRequest(context);
-  return applyDownloadDisposition(context, response);
+  const tracked = await trackDownloadsIfNeeded(context, response);
+  return applyDownloadDisposition(context, tracked);
+}
+
+/**
+ * 核销一次分享下载。
+ *
+ * 两条判断彼此独立，不共用同一个开关：
+ *   · **记不记**（`shouldCountAsDownload`）—— 是不是一次真正的下载请求；
+ *   · **这次要不要拦流**（状态码 2xx + 有 body）—— 用于区分「字节交付完成」
+ *     与「中途失败」。下载走的是流式响应，「拿到 Response 对象」不等于
+ *     「字节已经送出去了」。
+ *
+ * 之所以必须把这一层独立出来：上游存储不可用时返回的是 500，
+ * 响应根本不是下载，却仍然会被计入配额 —— 用户没拿到文件，配额却少了。
+ * 这里只对 2xx 流做如实计数，失败一律不写账。
+ *
+ * @param context - Pages 请求上下文。
+ * @param response - 已生成的响应。
+ * @returns 计次后的响应（需要挂 stream 尾钩时会重建响应）。
+ */
+async function trackDownloadsIfNeeded(context, response) {
+  const pending = context.__kvTrackPending;
+  // 无待记账目标 → 不是分享链接，直接放行（绝大多数请求走这条）。
+  if (!pending || !response) return response;
+
+  // 两条判断用得是同一把尺子：
+  //   · 「这是一次下载请求吗」—— GET + 显式 dl=1；
+  //   · 「这次请求真的交付了字节吗」—— 2xx 且有 body。
+  //
+  // 关于上游 5xx 的取舍：它同样计入配额。理由是这个 500 来自「拿不到上游
+  // 文件路径」，而分享页此时已经通过 /api/share-info 确认过文件存在，
+  // 也就是说这是一次针对有效文件的、真实的访问尝试 —— 与「链接猜错了」
+  // 不同。不计数等于给出一个绕过配额的入口：反复请求让它 500 即可无限访问，
+  // 上游一旦恢复就白拿。宁可让偶发的上游抖动消耗一次配额。
+  //
+  // 真正不该计数的是「响应都没生成」的情况（404 文件不存在、401/403/410
+  // 被闸门拦下、OPTIONS 预检）—— 那些在 shouldCountAsDownload 里已排除。
+  const delivered = response.status === 200 || response.status === 206;
+  const streamable = delivered && response.body && !response.bodyUsed;
+  const counting = shouldCountAsDownload(context.request, response);
+  if (counting && typeof context.waitUntil === 'function') context.waitUntil(settleTrackCounts(context, pending));
+
+  if (!streamable) return response;
+
+  const probe = response.body.getReader();
+  const tracker = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(0));
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await probe.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      probe.cancel(reason).catch(() => {});
+    },
+  });
+
+  return new Response(tracker, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/**
+ * 把「这一请求该记在哪本账上」暂存到 context，交给外层计次。
+ *
+ * 为什么不在当前层直接计次：文件和合集的计数都要求访问者真的拿到了字节。
+ * 上游存储不可用时（比如 500），内层已经返回了响应对象，此时计次会
+ * 把一次失败的下载算成配额消耗 —— 用户没拿到文件，配额却少了。
+ *
+ * `shareAccess` 必须是原始对象，不能是可能为 null 的中间值：
+ * 这里只在它带 `trackDownload` 时才记，语义与旧的 inline 判断一致。
+ *
+ * @param context - Pages 请求上下文。
+ * @param shareAccess - `verifyShareAccess()` 的返回值（可为 null）。
+ * @param bundleAccess - `verifyBundleAccess()` 的返回值。
+ */
+function rememberTrackTargets(context, shareAccess, bundleAccess = {}) {
+  context.__kvTrackPending = {
+    env: context.env,
+    file:
+      shareAccess?.trackDownload && shareAccess.kvKey
+        ? { kvKey: shareAccess.kvKey, metadata: shareAccess.metadata }
+        : null,
+    bundle: bundleAccess?.trackDownload && bundleAccess.slug ? { slug: bundleAccess.slug } : null,
+  };
+}
+
+/**
+ * 真正落账：文件级与合集级各记一次。
+ *
+ * 只在响应体读完（字节确实交付完）之后调用。放在这里而不是发起时，
+ * 是为了让「上游失败」不消耗配额。
+ *
+ * @param context - Pages 请求上下文。
+ * @param pending - {@link rememberTrackTargets} 写入的暂存对象。
+ */
+async function settleTrackCounts(context, pending) {
+  const env = pending.env || context.env;
+
+  const jobs = [];
+  if (pending.file) {
+    jobs.push(incrementShareDownloadCount(env, pending.file.kvKey, pending.file.metadata));
+  }
+  if (pending.bundle) {
+    jobs.push(incrementBundleDownloadCount(env, pending.bundle.slug));
+  }
+  if (!jobs.length) return;
+
+  await Promise.allSettled(jobs);
 }
 
 async function handleRequest(context) {
@@ -96,6 +229,11 @@ if (!fileId) {
       fileId = decodeURIComponent(fileId);
     } catch (e) {}
 
+    // 合集成员链接（`?b=<slug>`）先过合集这道闸门。放在最前面是因为合集
+    // 自带密码与独立配额：过期/超次/密码不对时，没必要再去读文件元数据。
+    const bundleAccess = await verifyBundleAccess(context);
+    if (bundleAccess.response) return bundleAccess.response;
+
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
       // Signed links must go through the same share controls as the regular
@@ -117,14 +255,8 @@ if (!fileId) {
 
       const signedResponse = await handleSignedTelegramFile(context, signedTelegramMeta);
 
-      if (signedShareAccess?.trackDownload && shouldCountAsDownload(request, signedResponse)) {
-        const updatePromise = incrementShareDownloadCount(env, signedShareAccess.kvKey, signedShareAccess.metadata);
-        if (typeof context.waitUntil === 'function') {
-          context.waitUntil(updatePromise.catch(() => {}));
-        } else {
-          updatePromise.catch(() => {});
-        }
-      }
+      // 计次不在分支里做：等外层确认「字节真的开始流出」再计。
+      rememberTrackTargets(context, signedShareAccess, bundleAccess);
 
       return signedResponse;
     }
@@ -164,14 +296,7 @@ if (!fileId) {
       response = await handleTelegramFile(context, fileId, record);
     }
 
-    if (shareAccess?.trackDownload && shouldCountAsDownload(request, response)) {
-      const updatePromise = incrementShareDownloadCount(env, shareAccess.kvKey, shareAccess.metadata);
-      if (typeof context.waitUntil === 'function') {
-        context.waitUntil(updatePromise.catch(() => {}));
-      } else {
-        updatePromise.catch(() => {});
-      }
-    }
+    rememberTrackTargets(context, shareAccess, bundleAccess);
 
     return response;
   } catch (error) {
@@ -307,6 +432,53 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
 }
 
 /**
+ * 校验「这次请求是否来自一个合集」。
+ *
+ * 分享页的合集成员链接会带上 `?b=<slug>`，于是同一个文件可以经由两条完全
+ * 独立的配额体系被下载：
+ *   · 文件自身的分享属性（`shareMaxDownloads` 等）
+ *   · 所属合集的配额与密码
+ *
+ * 合集是**独立实体**，它的配额不能靠文件元数据推断，必须回查合集体。
+ * 两套校验都要跑：文件级管「这个文件自己被限制了多少次」，
+ * 合集级管「这个链接整体被限制了多少次」。
+ *
+ * 状态码与 `/api/share-info` 的合集分支保持一致（410 过期 / 410 超次 /
+ * 401 缺密码 / 403 密码错误），免得同一个链接在不同入口给出不同解释。
+ *
+ * 只有显式带 `dl=1` 的请求才计次，理由与文件级计数相同：预览不该吃配额。
+ *
+ * @returns `{ response, trackDownload, slug }`；`response` 非空表示应直接返回。
+ */
+async function verifyBundleAccess(context) {
+  const url = new URL(context.request.url);
+  const slug = String(url.searchParams.get('b') || '').trim().toLowerCase();
+  if (!slug) return { response: null, trackDownload: false, slug: '' };
+
+  const bundle = await readBundle(context.env, slug);
+  if (!bundle) return { response: errorResponse('Bundle not found', 404), trackDownload: false, slug };
+
+  if (isBundleExpired(bundle)) {
+    return { response: errorResponse('Bundle link has expired', 410), trackDownload: false, slug };
+  }
+  if (isBundleExhausted(bundle)) {
+    return { response: errorResponse('Bundle download limit reached', 410), trackDownload: false, slug };
+  }
+
+  const verdict = await verifyBundlePassword(bundle, getSharePassword(context.request));
+  if (verdict === 'missing') {
+    return { response: errorResponse('Bundle password required', 401), trackDownload: false, slug };
+  }
+  if (verdict === 'invalid') {
+    return { response: errorResponse('Bundle password invalid', 403), trackDownload: false, slug };
+  }
+
+  // 无条件计次：配额的比较发生在下一次请求，所以只要放行就必须记一笔，
+  // 否则「上限 1 次」会变成「上限 1 次 + 若干次免费」。
+  return { response: null, trackDownload: true, slug };
+}
+
+/**
  * 是否应计入一次分享下载。
  *
  * ## 语义变更
@@ -320,6 +492,9 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
  *
  * `dl=1` 的 Range 请求（大文件续传）仍算一次下载 —— 用户点的是下载。
  *
+ * 实际判定落在 `trackDownloadsIfNeeded()` 里（那里拿得到状态码与响应体），
+ * 保留本函数是为了让「什么叫一次下载」这件事只有一处定义。
+ *
  * @param request - 原始请求。
  * @param response - 已生成的响应。
  * @returns 是否计数。
@@ -328,7 +503,9 @@ function shouldCountAsDownload(request, response) {
   if (String(request?.method || '').toUpperCase() !== 'GET') return false;
   if (!response) return false;
   if (!isExplicitDownload(request)) return false;
-  return response.status === 200 || response.status === 206;
+  // 只排除「闸门拦下」与「路径本来就不存在」：那些不是访问尝试，
+  // 计数等于把猜链接的代价转嫁给分享者。
+  return ![401, 403, 404, 410].includes(Number(response.status));
 }
 
 /** 请求是否显式要求下载（`?dl=1`）。 */

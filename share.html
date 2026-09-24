@@ -246,6 +246,87 @@
     line-height: 1.7;
   }
 
+  /* ===== 合集视图 ===== */
+  /* 成员清单：单列纵向排布，每项自带预览/下载两个动作。
+     复用本页既有令牌，不引入新颜色。 */
+  .bundle-warn {
+    margin: 0 22px 14px;
+    padding: 9px 13px;
+    border-radius: var(--r-sm);
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--c-danger);
+    background: var(--c-danger-soft);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    line-height: 1.5;
+  }
+  .bundle-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 22px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .bundle-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--glass-border-ice);
+    background: var(--glass-subtle);
+    transition: border-color 0.3s var(--ease-apple), background 0.3s var(--ease-apple);
+  }
+  .bundle-item:hover {
+    border-color: var(--primary-light);
+    background: var(--glass-surface);
+  }
+  .bundle-item__icon {
+    font-size: 1.5rem;
+    line-height: 1;
+    flex: none;
+  }
+  /* min-width:0 是必需的：否则长文件名会把 grid 列撑爆，
+     在窄屏上造成整页横向溢出。 */
+  .bundle-item__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .bundle-item__name {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: var(--text-main);
+    word-break: break-all;
+  }
+  .bundle-item__sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+  }
+  .bundle-item__type {
+    padding: 1px 7px;
+    border-radius: var(--r-pill);
+    background: var(--glass-surface);
+    border: 1px solid var(--glass-border-ice);
+    font-size: 0.68rem;
+  }
+  .bundle-item__actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+  }
+  /* 预览块跨满整行，让 iframe 有足够宽度 */
+  .bundle-item__preview {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+  }
 
   @media (max-width: 560px) {
     .actions { flex-direction: column; }
@@ -253,6 +334,15 @@
     .badges { padding: 0 18px 14px; }
     .actions { padding: 0 18px 18px; }
     .preview-frame { height: 60vh; min-height: 300px; }
+
+    /* 窄屏下动作按钮换行到文件信息下方，避免把文件名挤成一条缝 */
+    .bundle-item { grid-template-columns: auto 1fr; }
+    .bundle-item__actions {
+      grid-column: 1 / -1;
+      justify-content: flex-end;
+    }
+    .bundle-list { padding: 0 16px 18px; }
+    .bundle-warn { margin-left: 16px; margin-right: 16px; }
   }
 </style>
 </head>
@@ -307,8 +397,8 @@
       </div>
     </div>
 
-    <!-- 正常 -->
-    <div v-else-if="state === 'ready'" class="stage">
+    <!-- 正常（单文件） -->
+    <div v-else-if="state === 'ready' && !isBundle" class="stage">
       <div class="card">
         <div class="file-head">
           <div class="file-thumb" v-text="fileIcon"></div>
@@ -358,6 +448,84 @@
       </div>
     </div>
 
+    <!-- 正常（合集） -->
+    <div v-else-if="state === 'ready' && isBundle" class="stage">
+      <div class="card">
+        <div class="file-head">
+          <div class="file-thumb">📦</div>
+          <div class="file-meta">
+            <div class="file-name" v-text="bundleTitle"></div>
+            <div class="file-sub">
+              <span v-text="bundleFiles.length + ' 个文件'"></span>
+              <span v-text="'共 ' + formatSize(bundleTotalSize)"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="badges">
+          <span v-if="isBundle" class="badge">📦 合集分享</span>
+          <span v-if="info.passwordProtected" class="badge">🔒 密码保护</span>
+          <span class="badge" :class="expiryBadge.tone" v-if="expiryBadge.text" v-text="expiryBadge.text"></span>
+          <span class="badge" :class="quotaBadge.tone" v-if="quotaBadge.text" v-text="quotaBadge.text"></span>
+          <span v-if="!info.passwordProtected && !expiryBadge.text && !quotaBadge.text" class="badge muted">
+            公开分享
+          </span>
+        </div>
+
+        <!-- 部分成员在上传后被删除：明确提示，不静默少列 -->
+        <div class="bundle-warn" v-if="missingCount > 0">
+          ⚠ 有 {{ missingCount }} 个文件已失效，未在下方列出。
+        </div>
+
+        <div class="actions">
+          <a
+            class="btn btn--primary"
+            :href="bundleDownloadAllUrl"
+            @click="onDownloadAllClick"
+          >⬇ 下载全部（{{ bundleFiles.length }}）</a>
+        </div>
+
+        <ul class="bundle-list">
+          <li v-for="(f, i) in bundleFiles" :key="i" class="bundle-item">
+            <span class="bundle-item__icon" v-text="fileIconOf(f.fileType)"></span>
+            <span class="bundle-item__meta">
+              <span class="bundle-item__name" v-text="f.fileName"></span>
+              <span class="bundle-item__sub">
+                <span v-text="formatSize(f.fileSize)"></span>
+                <span class="bundle-item__type" v-text="f.fileType"></span>
+              </span>
+            </span>
+            <span class="bundle-item__actions">
+              <button class="btn btn--ghost btn--sm" type="button"
+                      @click="togglePreviewOf(f, i)"
+                      :disabled="previewLoading">
+                <span v-text="previewLoading && previewIndex === i ? '加载中…' : (showPreview && previewIndex === i ? '收起' : '👁 预览')"></span>
+              </button>
+              <a class="btn btn--primary btn--sm"
+                 :href="fileDownloadUrl(f)"
+                 :download="f.fileName"
+                 @click="onDownloadClick"
+              >⬇ 下载</a>
+            </span>
+
+            <div class="bundle-item__preview" v-if="showPreview && previewIndex === i">
+              <iframe
+                v-if="previewSrc"
+                class="preview-frame"
+                :src="previewSrc"
+                allow="fullscreen; autoplay; clipboard-write"
+                referrerpolicy="same-origin"
+              ></iframe>
+              <div v-else class="preview-hint">
+                <div class="spinner" style="margin: 0 auto 12px;"></div>
+                正在准备预览…
+              </div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
     <div class="toast-stack">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type" v-text="t.text"></div>
     </div>
@@ -398,6 +566,13 @@ setTimeout(function () {
         // 分享标识：来自 /s/:slug 的 302 跳转
         shareId: '',
 
+        // 合集模式：`?b=` 走合集，`?s=` 走单文件。
+        // 两者的元信息请求与状态码处理共用同一套流程，只在渲染层分叉。
+        isBundle: false,
+        bundleFiles: [],
+        // 服务端声明的成员总数，与 bundleFiles.length 的差额即失效文件数
+        bundleExpectedCount: 0,
+
         // 文件信息（来自 /api/share-info）
         info: {
           fileName: '',
@@ -429,6 +604,8 @@ setTimeout(function () {
         showPreview: false,
         previewLoading: false,
         previewSrc: '',
+        // 合集模式下记录当前展开的是第几个成员；单文件模式恒为 -1
+        previewIndex: -1,
 
         theme: 'light',
         toasts: [],
@@ -441,8 +618,39 @@ setTimeout(function () {
 
     computed: {
       fileIcon: function () {
-        var map = { image: '🖼', video: '🎬', audio: '🎵', document: '📄' };
-        return map[this.info.fileType] || '📄';
+        return this.fileIconOf(this.info.fileType);
+      },
+
+      /** 合集标题：文件名清单太长，用数量概括。 */
+      bundleTitle: function () {
+        return this.bundleFiles.length + ' 个文件的合集';
+      },
+
+      bundleTotalSize: function () {
+        var total = 0;
+        for (var i = 0; i < this.bundleFiles.length; i++) {
+          total += Number(this.bundleFiles[i].fileSize) || 0;
+        }
+        return total;
+      },
+
+      /** 失效成员数：服务端声明的总数减去实际返回的条数。 */
+      missingCount: function () {
+        if (!this.isBundle) return 0;
+        return Math.max(0, this.bundleExpectedCount - this.bundleFiles.length);
+      },
+
+      /**
+       * 「下载全部」：按顺序逐个触发下载。
+       *
+       * 为什么不是打包成 zip：仓库约束是「零运行时依赖」，而 zip 需要引入
+       * 压缩库。文件可能很大，全部拉进内存再压缩也不现实。
+       *
+       * 这里返回空串，实际触发交给 onDownloadAllClick()——因为一次要触发多个
+       * 下载，单靠 `<a href>` 只能下一个。
+       */
+      bundleDownloadAllUrl: function () {
+        return this.bundleFiles.length ? '#' : '#';
       },
 
       /**
@@ -455,14 +663,7 @@ setTimeout(function () {
        * 「可能已有 query」处理，避免将来拼接出 `?a=1?dl=1`。
        */
       downloadUrl: function () {
-        if (!this.info.fileUrl) return '#';
-        var sep = this.info.fileUrl.indexOf('?') === -1 ? '?' : '&';
-        var url = this.info.fileUrl + sep + 'dl=1';
-        // 文件本身有密码时，文件流请求也必须带上，否则 file 路由会 401
-        if (this.info.passwordProtected && this.passwordValue) {
-          url += '&password=' + encodeURIComponent(this.passwordValue);
-        }
-        return url;
+        return this.fileDownloadUrl(this.info);
       },
 
       /** 有效期徽章：把绝对时间换算成剩余时长 */
@@ -498,7 +699,9 @@ setTimeout(function () {
 
     mounted: function () {
       this.initTheme();
-      this.shareId = this.readShareId();
+      var target = this.readShareTarget();
+      this.shareId = target.value;
+      this.isBundle = target.isBundle;
       if (!this.shareId) {
         this.showError('链接不完整', '这个分享链接缺少必要参数，请向分享者索取完整链接。', '🔗', 'danger');
         return;
@@ -535,19 +738,32 @@ setTimeout(function () {
 
       // ---------- URL 参数 ----------
       /**
-       * 读取分享标识。
-       * 兼容 `?s=`（新短链跳转）与 `?id=` / `?slug=`（手工拼的链接）。
+       * 读取分享目标。
+       *
+       * 优先 `?b=`（合集）：它与 `?s=` 互斥，由 `/s/:slug` 判定命名空间后
+       * 写入，因此这里看到 `b` 就一定是合集。
+       *
+       * 兼容 `?s=`（短链跳转）与 `?id=` / `?slug=`（手工拼的链接），
+       * 这三者都按单文件处理，保持既有行为。
+       *
+       * @returns `{ value: string, isBundle: boolean }`
        */
-      readShareId: function () {
+      readShareTarget: function () {
         var params = new URLSearchParams(window.location.search);
-        return String(params.get('s') || params.get('slug') || params.get('id') || '').trim();
+        var bundle = String(params.get('b') || '').trim();
+        if (bundle) return { value: bundle, isBundle: true };
+        return {
+          value: String(params.get('s') || params.get('slug') || params.get('id') || '').trim(),
+          isBundle: false
+        };
       },
 
       // ---------- 拉取信息 ----------
       loadInfo: function (options) {
         var opts = options || {};
         var self = this;
-        var url = '/api/share-info?s=' + encodeURIComponent(this.shareId);
+        var key = this.isBundle ? 'b' : 's';
+        var url = '/api/share-info?' + key + '=' + encodeURIComponent(this.shareId);
         if (this.passwordValue) {
           url += '&password=' + encodeURIComponent(this.passwordValue);
         }
@@ -580,8 +796,12 @@ setTimeout(function () {
         var data = body || {};
 
         if (status === 200) {
+          // 合集与单文件共用 info 中的有效期/次数/密码字段，
+          // 只在文件清单上分叉。
+          var files = Array.isArray(data.files) ? data.files : [];
+
           this.info = {
-            fileName: data.fileName || '未命名文件',
+            fileName: data.fileName || (data.bundle ? this.bundleTitle : '未命名文件'),
             fileSize: Number(data.fileSize) || 0,
             fileType: data.fileType || 'document',
             fileUrl: data.fileUrl || '',
@@ -593,6 +813,24 @@ setTimeout(function () {
             passwordProtected: Boolean(data.passwordProtected),
             uploadTime: data.uploadTime || null
           };
+
+          if (data.bundle) {
+            this.isBundle = true;
+            this.bundleFiles = files.map(function (f) {
+              return {
+                fileName: f.fileName || '未命名文件',
+                fileSize: Number(f.fileSize) || 0,
+                fileType: f.fileType || 'document',
+                fileUrl: f.fileUrl || ''
+              };
+            });
+            this.bundleExpectedCount = Number(data.expectedCount) || this.bundleFiles.length;
+          } else {
+            this.bundleFiles = [];
+            this.bundleExpectedCount = 0;
+            this.isBundle = false;
+          }
+
           this.passwordError = '';
           this.state = 'ready';
           this.now = Date.now();
@@ -680,20 +918,43 @@ setTimeout(function () {
           return;
         }
         this.showPreview = true;
+        this.previewIndex = -1;
         // 懒加载：只在用户真的点预览时才请求文件，避免无谓的流量
         if (this.previewSrc) return;
+        this.preparePreview(this.info, -1);
+      },
 
-        this.previewLoading = true;
-        var self = this;
-        var url = this.info.fileUrl;
-        if (this.info.passwordProtected && this.passwordValue) {
-          url += (url.indexOf('?') === -1 ? '?' : '&') + 'password=' + encodeURIComponent(this.passwordValue);
+      /**
+       * 合集模式下切换某个成员的预览。
+       *
+       * 同一个 iframe 复用：切换成员时重建 src。这里**不**缓存 previewSrc
+       * 跨成员 —— 缓存会让第二次点另一个文件时先闪出上一个文件的内容。
+       */
+      togglePreviewOf: function (file, index) {
+        if (this.showPreview && this.previewIndex === index) {
+          this.showPreview = false;
+          this.previewIndex = -1;
+          return;
         }
-        // 复用 preview.html 的渲染能力，用 embed 模式去掉它自己的顶栏与信息面板
+        this.showPreview = true;
+        this.previewIndex = index;
+        this.previewSrc = '';
+        this.preparePreview(file, index);
+      },
+
+      /**
+       * 拼出预览地址并交给 iframe。
+       *
+       * 复用 preview.html 的渲染能力，用 embed 模式去掉它自己的顶栏与信息面板。
+       */
+      preparePreview: function (file, index) {
+        var self = this;
+        this.previewLoading = true;
+        var url = this.fileStreamUrl(file);
         var previewUrl = '/preview.html?url=' + encodeURIComponent(url)
-          + '&title=' + encodeURIComponent(this.info.fileName)
-          + '&name=' + encodeURIComponent(this.info.fileName)
-          + '&size=' + encodeURIComponent(String(this.info.fileSize || 0))
+          + '&title=' + encodeURIComponent(file.fileName)
+          + '&name=' + encodeURIComponent(file.fileName)
+          + '&size=' + encodeURIComponent(String(file.fileSize || 0))
           + '&embed=1';
 
         // 给 iframe 一点加载时间再撤掉 loading 文案，否则会闪一下
@@ -704,6 +965,32 @@ setTimeout(function () {
       },
 
       // ---------- 下载 ----------
+      /**
+       * 拼接文件流地址（不含 dl=1）。
+       *
+       * 密码透传的判据是 `info.passwordProtected`，它对两种形态都成立：
+       *   · 单文件 —— 密码在文件自己的 metadata 上
+       *   · 合集   —— 密码在合集实体上，成员文件并不各自设密码
+       * 两种情况下 file 路由都要求同样的 `password` 查询参数，
+       * 因此这里可以统一处理。
+       */
+      fileStreamUrl: function (file) {
+        if (!file || !file.fileUrl) return '';
+        var url = file.fileUrl;
+        if (this.info.filePasswordRequired && this.passwordValue) {
+          url += (url.indexOf('?') === -1 ? '?' : '&') + 'password=' + encodeURIComponent(this.passwordValue);
+        }
+        return url;
+      },
+
+      /** 单品下载地址：文件流地址 + dl=1（file 路由据此切 attachment 并计数）。 */
+      fileDownloadUrl: function (file) {
+        if (!file || !file.fileUrl) return '#';
+        var url = this.fileStreamUrl(file);
+        var sep = url.indexOf('?') === -1 ? '?' : '&';
+        return url + sep + 'dl=1';
+      },
+
       /**
        * 下载走的是一条普通的 `<a download>` 导航，浏览器会带上 dl=1 请求文件流，
        * file 路由据此切 attachment 并 +1 计数。
@@ -723,6 +1010,56 @@ setTimeout(function () {
         setTimeout(function () {
           self.loadInfo({ silent: true });
         }, 4000);
+      },
+
+      /**
+       * 「下载全部」：串行触发每个文件的下载。
+       *
+       * 为什么串行带间隔而不是同时点：
+       *   · 浏览器对同一站点的并发下载数有限制，一次性触发会被丢弃一部分；
+       *   · 部分浏览器/扩展会把「多文件瞬时下载」判定为异常行为并弹窗拦截。
+       * 每次间隔 500ms 是实践上较稳的节奏。
+       *
+       * 合集计数由服务端在每次文件流请求上各 +1，因此这里每触发一个都会
+       * 消耗一次配额；配额不足时后几个可能被 410 拒绝，属于预期行为。
+       */
+      onDownloadAllClick: function (event) {
+        if (event) event.preventDefault();
+        var files = this.bundleFiles;
+        if (!files.length) return;
+
+        var self = this;
+        var index = 0;
+
+        var step = function () {
+          if (index >= files.length) {
+            self.toast('已触发 ' + files.length + ' 个文件的下载', 'success');
+            // 批量下载会连续消耗配额，稍后刷新一次剩余次数
+            if (self.info.maxDownloads) {
+              setTimeout(function () { self.loadInfo({ silent: true }); }, 1500);
+              setTimeout(function () { self.loadInfo({ silent: true }); }, 5000);
+            }
+            return;
+          }
+          var a = document.createElement('a');
+          a.href = self.fileDownloadUrl(files[index]);
+          a.download = files[index].fileName;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          index += 1;
+          setTimeout(step, 500);
+        };
+
+        this.toast('开始下载全部文件…', 'success');
+        step();
+      },
+
+      /** 按文件类型给图标。合集清单与单文件头部共用。 */
+      fileIconOf: function (fileType) {
+        var map = { image: '🖼', video: '🎬', audio: '🎵', document: '📄' };
+        return map[fileType] || '📄';
       },
 
       // ---------- 工具 ----------

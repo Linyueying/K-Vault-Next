@@ -12,6 +12,20 @@
  * 这样用户点开分享链接先看到一个正常页面，而不是被静默下载一个陌生文件；
  * 同时「预览」与「下载」得以分开，下载计数只在用户真的点下载时才走。
  *
+ * ## 合集短链（`?b=`）
+ *
+ * 单文件分享与合集分享共用 `/s/:slug` 这一个入口，但下游共享页用**不同的
+ * 查询参数**区分形态：`?s=` 给单文件，`?b=` 给合集。
+ *
+ * 所以这里必须先判断 slug 属于哪一个命名空间：
+ *   · 命中 `bundle_slug:<slug>` → 302 到 `/share.html?b=<slug>`
+ *   · 否则 → 302 到 `/share.html?s=<slug>`（保持原逻辑）
+ *
+ * 判序上把合集放在前面、且**不做回落猜测**：两个命名空间在创建时就已互斥
+ * （见 `share-bundle.js` 的 `isBundleSlugAvailable`），因此命中哪个是确定的。
+ * 若先试文件再试合集，一个合集 slug 会先被当作文件 ID 往下传，共享页拿到
+ * 一个解析不出东西的 `?s=` 值，报「链接不存在」——错误现象会与真实原因脱节。
+ *
  * ## 为什么不在这里解析映射
  *
  * 映射解析交给 `/api/share-info`。原因是解析结果（文件名、大小、剩余次数）
@@ -27,6 +41,8 @@
  * @module s/[slug]
  */
 
+import { BUNDLE_SLUG_KEY_PREFIX } from '../utils/share-bundle.js';
+
 /** 分享页路径。集中在此便于未来调整。 */
 const SHARE_PAGE_PATH = '/share.html';
 
@@ -41,8 +57,27 @@ function decodePathParam(rawValue = '') {
   }
 }
 
+/**
+ * 判断 slug 是否属于合集命名空间。
+ *
+ * 读失败时返回 `false`（按单文件处理）：两个分支都会跳到分享页，最坏情况
+ * 是分享页显示「链接不存在」，而不是抛出 500 把整个入口打挂。
+ *
+ * @param env - Pages 环境。
+ * @param slug - 归一化前的 slug 原值。
+ */
+async function isBundleSlug(env, slug) {
+  if (!env?.img_url || !slug) return false;
+  try {
+    const mapped = await env.img_url.get(`${BUNDLE_SLUG_KEY_PREFIX}${slug}`);
+    return Boolean(mapped);
+  } catch {
+    return false;
+  }
+}
+
 export async function onRequest(context) {
-  const { request, params } = context;
+  const { request, params, env } = context;
 
   const rawValue = decodePathParam(params?.slug || '');
 
@@ -52,7 +87,8 @@ export async function onRequest(context) {
 
   const redirectUrl = new URL(SHARE_PAGE_PATH, request.url);
   if (target) {
-    redirectUrl.searchParams.set('s', target);
+    const bundle = await isBundleSlug(env, target.toLowerCase());
+    redirectUrl.searchParams.set(bundle ? 'b' : 's', target);
   }
 
   return Response.redirect(redirectUrl.toString(), 302);

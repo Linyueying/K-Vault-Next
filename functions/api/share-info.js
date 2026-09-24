@@ -1,8 +1,14 @@
 /**
- * 分享元信息接口 —— `GET /api/share-info?s=<slug 或文件 ID>`
+ * 分享元信息接口 —— `GET /api/share-info?s=<slug 或文件 ID>` 或 `?b=<合集 slug>`
  *
  * `share.html` 用来渲染分享页的**唯一**数据来源。刻意保持公开（无需登录）：
  * 分享链接本身就是凭证，要求登录才能看元信息会让分享失去意义。
+ *
+ * 两条互斥入口：
+ *   · `s` —— 单文件分享（自定义短链或文件 ID），见文件末尾的单文件分支
+ *   · `b` —— 合集分享（多个文件聚合成一个链接），见 {@link respondBundle}
+ *
+ * 两者的状态码契约**完全一致**，`share.html` 得以共用同一套分支逻辑。
  *
  * ## 返回什么、不返回什么
  *
@@ -38,6 +44,12 @@ import {
   sanitizeShareSlug,
   verifySharePassword,
 } from '../utils/share-options.js';
+import {
+  isBundleExhausted,
+  isBundleExpired,
+  readBundle,
+  verifyBundlePassword,
+} from '../utils/share-bundle.js';
 
 /**
  * 记录是否「开通（或曾开通）过分享」。
@@ -75,6 +87,19 @@ export async function onRequest(context) {
   }
 
   const url = new URL(request.url);
+
+  // ---------- 合集分支 ----------
+  // `?b=<slug>` 与 `?s=<slug|fileId>` 是两条互斥的入口：`b` 专指合集，
+  // `s` 保持单文件语义不变。刻意不用「先试 b 再回落 s」的猜测式解析 ——
+  // 那会让一个写错的 `b` 参数静默变成对同名文件的查找，错误难以定位。
+  const bundleSlug = String(url.searchParams.get('b') || '').trim();
+  if (bundleSlug) {
+    if (bundleSlug.length > 128) {
+      return jsonResponse({ error: 'SHARE_NOT_FOUND', message: 'Invalid share identifier.' }, 404);
+    }
+    return await respondBundle(env, bundleSlug, url, request);
+  }
+
   const rawValue = String(url.searchParams.get('s') || url.searchParams.get('slug') || '').trim();
   if (!rawValue) {
     return jsonResponse({ error: 'SHARE_NOT_FOUND', message: 'Missing share identifier.' }, 404);
@@ -196,6 +221,143 @@ export async function onRequest(context) {
   } catch (error) {
     console.error('share-info error:', error);
     return jsonResponse({ error: 'SHARE_INFO_FAILED', message: error?.message || 'Unknown error' }, 500);
+  }
+}
+
+/* ============================================================
+ * 合集分支 —— `?b=<slug>`
+ * ============================================================ */
+
+/**
+ * 渲染一个合集分享。
+ *
+ * 状态码契约与单文件分支**完全一致**（200/401/403/410/404），这样 `share.html`
+ * 两种形态可以共用同一套分支逻辑，不必为合集再写一套错误处理。
+ *
+ * 与单文件分支的关键差异：
+ *
+ *   · 成员文件**逐个**返回名称/大小/类型，前端渲染成清单；
+ *   · 每个成员各自的**文件名与大小**来自文件自身的 metadata，但访问控制
+ *     完全由合集承担 —— 也就是说，合集里的文件**不需要**自己开过分享。
+ *     这正是合集存在的意义：把一堆未单独分享的文件一次性分享出去。
+ *   · **不返回**成员文件的 KV key / fileId。改成返回
+ *     `/file/<kvKey>` 形态的 URL —— 这是访问文件流所必需的，而该 URL 只对
+ *     **已通过密码校验**的访问者可见，与单文件分支的 `fileUrl` 同理。
+ *     裸 `fileId` 仍然不外泄，避免被拿去绕过短链直接调用其它接口。
+ *
+ * @param env - Pages 环境。
+ * @param slug - 合集 slug。
+ * @param url - 请求 URL（用于取密码参数）。
+ * @param request - 请求对象（用于取密码头）。
+ */
+async function respondBundle(env, slug, url, request) {
+  try {
+    const bundle = await readBundle(env, slug);
+    if (!bundle) {
+      return jsonResponse({ error: 'SHARE_NOT_FOUND', message: '分享链接不存在。' }, 404);
+    }
+
+    // ---------- 1. 有效期 ----------
+    if (isBundleExpired(bundle)) {
+      return jsonResponse(
+        { error: 'SHARE_EXPIRED', message: '分享链接已过期。', expiresAt: bundle.expiresAt },
+        410
+      );
+    }
+
+    // ---------- 2. 密码 ----------
+    // 顺序与单文件分支一致：密码先于次数。未通过密码验证的访问者不应拿到
+    // 「还剩几次」这类信息，也不该能探测出「已耗尽」这个事实。
+    const providedPassword =
+      url.searchParams.get('password') || request.headers.get('X-Share-Password') || '';
+
+    const passwordState = await verifyBundlePassword(bundle, providedPassword);
+    if (passwordState === 'missing') {
+      return jsonResponse(
+        { error: 'SHARE_PASSWORD_REQUIRED', passwordProtected: true, bundle: true },
+        401
+      );
+    }
+    if (passwordState === 'invalid') {
+      return jsonResponse(
+        {
+          error: 'SHARE_PASSWORD_INVALID',
+          message: '访问密码不正确。',
+          passwordProtected: true,
+          bundle: true,
+        },
+        403
+      );
+    }
+
+    // ---------- 3. 次数上限 ----------
+    if (isBundleExhausted(bundle)) {
+      return jsonResponse(
+        {
+          error: 'SHARE_LIMIT_REACHED',
+          message: '分享链接的下载次数已用尽。',
+          maxDownloads: bundle.maxDownloads,
+          downloadCount: bundle.downloadCount,
+        },
+        410
+      );
+    }
+
+    // ---------- 4. 组装成员清单 ----------
+    const files = [];
+    for (const fileId of bundle.fileIds) {
+      try {
+        const { record, kvKey } = await getRecordWithKey(env, fileId);
+        if (!record?.metadata) continue;
+        files.push({
+          fileName: record.metadata.fileName || String(kvKey || fileId),
+          fileSize: Number(record.metadata.fileSize) || 0,
+          fileType: record.metadata.fileType || 'document',
+          // 与单文件分支同理：这是访问文件流所必需的标识，
+          // 只对已通过密码校验的访问者返回。
+          fileUrl: `/file/${encodeURIComponent(kvKey)}`,
+        });
+      } catch (error) {
+        console.warn('Failed to resolve bundle member:', error?.message || error);
+      }
+    }
+
+    // 成员可能在上传后被逐个删除。全部失效时给 404 而不是返回空清单 ——
+    // 一个「零文件的分享页」没有意义，且会让人误以为页面坏了。
+    if (!files.length) {
+      return jsonResponse(
+        { error: 'SHARE_NOT_FOUND', message: '该分享中的文件已全部失效。' },
+        404
+      );
+    }
+
+    return jsonResponse({
+      success: true,
+      bundle: true,
+      slug: bundle.slug,
+      fileCount: files.length,
+      // 声明期望的成员数，便于前端提示"部分文件已失效"
+      expectedCount: bundle.fileIds.length,
+      files,
+      // 后续请求文件流时若合集设了密码，必须带上，否则 file 路由会 401。
+      // 注意：合集密码并不存在于文件元数据上，因此这里显式告知前端要以
+      // header 形式透传，而不是依赖文件自身的 sharePasswordHash。
+      filePasswordRequired: Boolean(bundle.passwordHash),
+      expiresAt: bundle.expiresAt || null,
+      maxDownloads: bundle.maxDownloads || null,
+      downloadCount: bundle.downloadCount,
+      remainingDownloads: bundle.maxDownloads
+        ? Math.max(0, bundle.maxDownloads - bundle.downloadCount)
+        : null,
+      passwordProtected: Boolean(bundle.passwordHash),
+      createdAt: bundle.createdAt || null,
+    });
+  } catch (error) {
+    console.error('share-info bundle error:', error);
+    return jsonResponse(
+      { error: 'SHARE_INFO_FAILED', message: error?.message || 'Unknown error' },
+      500
+    );
   }
 }
 

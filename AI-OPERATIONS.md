@@ -44,6 +44,14 @@ git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
 > 清理 CSS 时**额外**先跑 `node scripts/verify/dead-selectors.mjs <选择器>`，
 > 再改完用 `visual-snapshot` + `visual-diff` 证明零差异 —— 见 [3.4](#34-浏览器验证)。
 
+> **改动落在后端链路上时（分享 / 上传 / 下载计次），静态守卫不够。**
+> 四道守卫查语法、查共享层、查 token，但**不查链路是否真的接通** ——
+> 一个写了却没被调用的函数、一个前端没传的参数，它们全部 PASS。
+> 合集分享第一次落地的教训就在这里：`buildBundleSlug` 被 import 了但从未调用
+> （创建直接 500），`incrementBundleDownloadCount` 定义了但全仓无调用点
+> （配额只校验不记账）。两条都是跑 `node scripts/verify/share-bundle.mjs`
+> 才暴露的。所以：**新增/修改后端链路时，用第 3 步起的那套全栈跑一遍端到端**。
+
 > PAT 由用户在会话中提供；**同一个 token 可在同一条对话内反复使用，但严禁跨对话复用（新对话须换全新 token）**。**绝不写进任何文件、绝不提交、绝不回显在回复正文里**。
 > 用法见 [第 5 节](#5-git-操作与推送)。
 

@@ -1169,6 +1169,12 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       .share-keep { display: flex; align-items: center; gap: 7px; margin-top: 7px; font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; line-height: 1.4; user-select: none; }
       .share-keep input { width: 14px; height: 14px; margin: 0; flex: none; accent-color: var(--primary); cursor: pointer; }
 
+      /* 合集分享：部分文件失效时的提示。语气是「提醒」而非「报错」——
+         合集已经建好了，只是少了几个文件，用暖色而非红色。 */
+      .share-result__warn { display: flex; gap: 7px; align-items: flex-start; font-size: var(--fs-sm); color: #92400e; line-height: 1.5; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.32); }
+      html[data-theme="dark"] .share-result__warn { color: #fbbf24; }
+      .share-result__warn i { margin-top: 2px; flex: none; }
+
       /* =========================================================
          下载进度浮层
          ========================================================= */
@@ -1538,8 +1544,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             <div class="selection-bar glass">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
               <div class="selection-bar__actions">
+                <button class="btn btn--sm" @click="shareSelected" :disabled="selectedCount === 0"><i class="fas fa-share-nodes"></i> 分享选中 ({{ selectedCount }})</button>
                 <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0"><i class="fas fa-copy"></i> 复制链接</button>
-                <button class="btn btn--sm" @click="copySelectedShareLinks" :disabled="selectedCount === 0"><i class="fas fa-share-nodes"></i> 复制短链</button>
+                <button class="btn btn--sm" @click="copySelectedShareLinks" :disabled="selectedCount === 0"><i class="fas fa-link"></i> 复制短链</button>
                 <button class="btn btn--sm btn--danger" @click="removeSelected" :disabled="selectedCount === 0"><i class="fas fa-trash-can"></i> 移除</button>
               </div>
             </div>
@@ -2051,13 +2058,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
             <div style="display: flex; align-items: center; gap: 9px; font-size: 0.98rem; font-weight: 800;">
               <i class="fas fa-share-nodes" style="color: var(--primary);"></i>
-              <span>{{ shareDialogMode === 'manage' ? '管理分享' : '分享文件' }}</span>
+              <span>{{ shareDialogTitle }}</span>
             </div>
             <button class="btn btn--ghost btn--icon" @click="closeShareDialog" title="关闭"><i class="fas fa-xmark"></i></button>
           </div>
 
           <div class="summary" style="display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-sub); word-break: break-all;">
-            {{ shareDialogItem ? getDisplayName(shareDialogItem) : '' }}
+            {{ shareDialogItemsLabel }}
           </div>
 
           <transition name="rise" mode="out-in">
@@ -2073,7 +2080,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               <span class="share-tag" v-if="shareDialogResult.expiresAt">有效期至 {{ new Date(shareDialogResult.expiresAt).toLocaleString('zh-CN') }}</span>
               <span class="share-tag share-tag--muted" v-if="!shareDialogResult.passwordProtected && !shareDialogResult.maxDownloads && !shareDialogResult.expiresAt">公开 · 永久 · 不限次数</span>
             </div>
-            <div class="share-result__hint">访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。</div>
+            <div class="share-result__hint" v-if="isShareDialogBundle">访问者打开链接会看到这 {{ shareDialogItems.length }} 个文件的清单，可逐个预览或下载；只有点「下载」才计入次数。</div>
+            <div class="share-result__hint" v-else>访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。</div>
+
+            <!-- 逐项结果汇总：部分文件失效时明确列出，不静默丢弃 -->
+            <div class="share-result__warn" v-if="shareDialogResult.bundleMissing > 0">
+              <i class="fas fa-triangle-exclamation"></i>
+              <span>有 {{ shareDialogResult.bundleMissing }} 个文件已失效，未加入合集{{ shareDialogResult.bundleMissingNames.length ? '：' + shareDialogResult.bundleMissingNames.join('、') : '' }}</span>
+            </div>
           </div>
 
           <div class="share-fields" v-else key="fields">
@@ -2110,7 +2124,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               </label>
             </div>
 
-            <div class="field">
+            <div class="field" v-if="!isShareDialogBundle">
               <label>自定义短链</label>
               <div style="display: flex; gap: 6px; align-items: center;">
                 <span class="mono" style="font-size: 0.76rem; color: var(--text-muted); flex: none;">/s/</span>
@@ -2132,7 +2146,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           </transition>
 
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <button class="btn btn--danger" v-if="shareDialogMode === 'manage'" :disabled="shareDialogRevoking || shareDialogBusy" @click="revokeShare">
+            <button class="btn btn--danger" v-if="shareDialogMode === 'manage' && !isShareDialogBundle" :disabled="shareDialogRevoking || shareDialogBusy" @click="revokeShare">
               <i :class="shareDialogRevoking ? 'fas fa-circle-notch fa-spin' : 'fas fa-ban'"></i>
               <span>{{ shareDialogRevoking ? '处理中…' : '取消分享' }}</span>
             </button>
@@ -2140,7 +2154,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             <button class="btn" :disabled="shareDialogBusy" @click="closeShareDialog"><span>{{ shareDialogResult ? '完成' : '取消' }}</span></button>
             <button class="btn btn--primary" v-if="!shareDialogResult" :disabled="shareDialogBusy" @click="submitShareDialog">
               <i :class="shareDialogBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-share-nodes'"></i>
-              <span>{{ shareDialogBusy ? '提交中…' : (shareDialogMode === 'manage' ? '保存修改' : '生成分享链接') }}</span>
+              <span>{{ shareDialogBusy ? '提交中…' : (shareDialogMode === 'manage' && !isShareDialogBundle ? '保存修改' : '生成分享链接') }}</span>
             </button>
           </div>
         </div>
@@ -2386,6 +2400,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             /* 分享弹窗 */
             shareDialogVisible: false,
             shareDialogItem: null,
+            /* 合集分享：本次弹窗要分享的条目列表。
+               长度 > 1 时走合集分支；长度 1 或 0 时沿用原有单文件路径。
+               用数组而非单值，是为了让「单文件」成为「多文件」的退化情形，
+               两条路径共用同一套表单与校验。 */
+            shareDialogItems: [],
             shareDialogMode: "create",
             shareDialogBusy: false,
             shareDialogError: "",
@@ -2647,6 +2666,24 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           historyAllSelected() { const list = this.historySorted; return list.length > 0 && list.every((it) => it.selected); },
           historySelectedCount() { return this.historySorted.filter((it) => it.selected).length; },
 
+          /* 是否为合集分享（多选文件）。单文件分享时全程为 false，
+             所有既有分支因此保持原样。 */
+          isShareDialogBundle() {
+            return this.shareDialogItems.length > 1;
+          },
+          shareDialogTitle() {
+            if (this.isShareDialogBundle) return `分享 ${this.shareDialogItems.length} 个文件`;
+            return this.shareDialogMode === "manage" ? "管理分享" : "分享文件";
+          },
+          /* 弹窗副标题：合集列出文件名预览，单文件显示完整名。 */
+          shareDialogItemsLabel() {
+            if (this.isShareDialogBundle) {
+              const names = this.shareDialogItems.map((it) => this.getDisplayName(it));
+              const head = names.slice(0, 4).join("、");
+              return names.length > 4 ? `${head} 等 ${names.length} 个文件` : head;
+            }
+            return this.shareDialogItem ? this.getDisplayName(this.shareDialogItem) : "";
+          },
           shareDialogExpiryHint() {
             const expiresIn = Number(this.shareDialogForm.expiresIn) || 0;
             if (this.shareDialogMode === "manage" && expiresIn === 0) return "保持不变。选择具体时长才会覆盖当前设置。";
@@ -4358,6 +4395,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (!item.url && !item.path && !item.name) { this.showToast("无法识别该文件，请刷新后重试", "error"); return; }
             const mode = this.hasShare(item) ? "manage" : "create";
             this.shareDialogItem = item;
+            this.shareDialogItems = [item];
             this.shareDialogMode = mode;
             this.shareDialogError = "";
             this.shareDialogResult = null;
@@ -4374,9 +4412,39 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             };
             this.shareDialogVisible = true;
           },
+          /* 批量分享入口：把当前选中的文件作为一个合集来分享。
+             选中数 < 2 时退化为单文件分享，直接复用 openShareDialog，
+             避免出现「只有 1 个文件」的合集这种没有意义的形态。 */
+          shareSelected() {
+            const items = this.uploadedFiles.filter((f) => f.selected);
+            if (!items.length) { this.showToast("请先选择要分享的文件", "error"); return; }
+            if (items.length === 1) { this.openShareDialog(items[0]); return; }
+
+            this.shareDialogItems = items.slice();
+            this.shareDialogItem = null;
+            this.shareDialogMode = "create";
+            this.shareDialogError = "";
+            this.shareDialogResult = null;
+            this.shareDialogBusy = false;
+            this.shareDialogRevoking = false;
+            this.shareDialogShowPassword = false;
+            /* 合集统一套用一套参数，因此从空表单起步 ——
+               成员各自已有的分享设置不参与合并（那会产生"以谁为准"的歧义）。
+               自定义短链在合集模式下不可用（见模板里的 isShareDialogBundle 判断）。 */
+            this.shareDialogForm = {
+              expiresIn: 0,
+              maxDownloads: "",
+              password: "",
+              slug: "",
+              keepPassword: true,
+              keepSlug: true,
+            };
+            this.shareDialogVisible = true;
+          },
           closeShareDialog() {
             this.shareDialogVisible = false;
             this.shareDialogItem = null;
+            this.shareDialogItems = [];
             this.shareDialogResult = null;
             this.shareDialogError = "";
             this.shareDialogBusy = false;
@@ -4412,6 +4480,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const maxRaw = String(form.maxDownloads).trim();
             const maxDownloads = maxRaw === "" ? 0 : Number(maxRaw);
             if (maxRaw !== "" && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) { this.shareDialogError = "下载次数上限必须是非负整数（0 表示不限）。"; return; }
+
+            /* 合集分支：多选时走合集接口，单文件路径完全不受影响。 */
+            if (this.isShareDialogBundle) {
+              await this.submitBundleShare({ expiresIn: Number(form.expiresIn) || 0, maxDownloads, password });
+              return;
+            }
+
             const body = { action: isManage ? "update" : "create" };
             if (isManage) {
               body.expiresIn = Number(form.expiresIn) > 0 ? Number(form.expiresIn) : -1;
@@ -4458,6 +4533,82 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               console.error("分享配置失败:", err);
               this.shareDialogError = "网络错误，请稍后重试。";
             } finally { this.shareDialogBusy = false; }
+          },
+          /* 合集分享提交。
+             与单文件路径的关键差异：
+               · 自定义短链不可用 —— 合集统一套用一套参数，逐个命名没有意义，
+                 且要额外处理批量冲突。短链由服务端自动生成。
+               · 「管理/取消分享」不适用 —— 合集不是"某个文件的分享属性"，
+                 重置表单即可视为管理，无需 revoke 流程。
+               · 部分文件失效不阻塞整批：服务端把失效项放进 missing，
+                 这里把结果如实汇总给用户，不静默丢弃。 */
+          async submitBundleShare({ expiresIn, maxDownloads, password }) {
+            const items = this.shareDialogItems;
+            const fileIds = items.map((it) => this.shareTargetIdOf(it)).filter(Boolean);
+            if (!fileIds.length) { this.shareDialogError = "无法识别所选文件，请刷新后重试。"; return; }
+
+            this.shareDialogBusy = true;
+            this.shareDialogError = "";
+            try {
+              const res = await fetch(`${this.baseURL}/api/manage/share-bundle`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({ action: "create", fileIds, expiresIn, maxDownloads, password }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok || data.success === false) {
+                const messages = Array.isArray(data.messages) ? data.messages : [];
+                this.shareDialogError = messages[0] || data.message || data.error || `请求失败（HTTP ${res.status}）`;
+                return;
+              }
+
+              const path = data.sharePath || "";
+              const url = path ? (/^https?:\/\//i.test(path) ? path : `${this.baseURL}${path}`) : "";
+
+              /* 把失效文件名还原成人类可读的名字 —— 服务端只回传 ID，
+                 用户看不懂 ID 代表哪一个文件。 */
+              const missingIds = Array.isArray(data.missing) ? data.missing : [];
+              const missingNames = missingIds.map((id) => {
+                const hit = items.find((it) => this.shareTargetIdOf(it) === id);
+                return hit ? this.getDisplayName(hit) : id;
+              });
+
+              this.shareDialogResult = {
+                path,
+                url,
+                slug: data.slug || "",
+                expiresAt: data.expiresAt || 0,
+                maxDownloads: data.maxDownloads || 0,
+                passwordProtected: Boolean(data.passwordProtected),
+                active: Boolean(data.active),
+                bundle: true,
+                bundleCount: Number(data.accepted) || 0,
+                bundleMissing: missingNames.length,
+                bundleMissingNames: missingNames,
+              };
+              this.showToast(
+                missingNames.length
+                  ? `合集已创建，${missingNames.length} 个文件未加入`
+                  : `已创建 ${data.fileCount || fileIds.length} 个文件的合集分享`,
+                "success"
+              );
+            } catch (err) {
+              console.error("合集分享创建失败:", err);
+              this.shareDialogError = "网络错误，请稍后重试。";
+            } finally { this.shareDialogBusy = false; }
+          },
+          /* 从任意条目里解析出可用的文件 ID。与 shareDialogTargetId 同源逻辑，
+             但作用于传入的条目而非弹窗的当前条目 —— 合集要逐个解析。 */
+          shareTargetIdOf(item) {
+            if (!item) return "";
+            if (item.rawId) return String(item.rawId);
+            let raw = String(item.url || item.path || item.name || "").trim();
+            if (!raw) return "";
+            if (/^https?:\/\//i.test(raw)) { try { raw = new URL(raw).pathname; } catch (e) {} }
+            raw = raw.replace(/^\/file\//, "").replace(/^\/+/, "");
+            raw = raw.split("?")[0].split("#")[0];
+            try { return decodeURIComponent(raw); } catch (e) { return raw; }
           },
           async revokeShare() {
             const item = this.shareDialogItem;
