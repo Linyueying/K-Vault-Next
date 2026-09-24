@@ -695,7 +695,7 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 @keyframes collapseIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes collapseOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
 .collapse { display: grid; grid-template-rows: 1fr; }
-.collapse > * { min-height: 0; }
+.collapse > * { min-height: 0; min-width: 0; }
 .collapse-enter-active > *,
 .collapse-leave-active > * { overflow: hidden; }
 .collapse-enter-active { animation: collapseIn 0.5s var(--ease-apple) both; }

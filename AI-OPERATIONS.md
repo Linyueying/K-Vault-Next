@@ -745,3 +745,9 @@ git ls-remote 验证远端 SHA == 本地 HEAD
     轨道永远收不到 0（实测卡在 ~50px）。结构必须是 `<div class="collapse"><div class="collapse__inner">…面板…</div></div>`，
     `overflow:hidden; min-height:0` 落在 `.collapse__inner` 上，被裁切到 0 的是这层纯 div。已沉淀为共享层 `collapse` 过渡（见 `design-system.css`）。
 17. **镜像 URL 用完整 GitHub 路径形态**，裸 `ghfast.top/<owner>/<repo>` 会 403（见 §5.1）。
+18. **grid 收起容器必须给子项 `min-width:0`** —— grid 子项默认 `min-width:auto`，
+    行内容（长文件名 + 按钮组）的 min-content 会把轨道撑出视口，整页横向溢出
+    （真机截图：交付结果卡片、「清空」、底部导航全被截出右边界）。已修：
+    `.collapse > * { min-height:0; min-width:0 }`。验证脚本 `scripts/verify/overflow-x.mjs`；
+    该脚本测量时**别开 Playwright `isMobile:true`** —— Chrome 会自动撑宽布局视口
+    去容纳超宽内容，溢出全部漏检（见 `scripts/verify/README.md`）。

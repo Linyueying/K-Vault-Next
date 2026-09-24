@@ -30,7 +30,7 @@ npx playwright install chromium
 ## 活跃脚本（直接用这些）
 
 > `scripts/verify/_archive/` 是历史归档，**不要直接运行**（详见该目录
-> `_HEADER_NOTE.txt`）。下面是当前在用的 6 个。
+> `_HEADER_NOTE.txt`）。下面是当前在用的脚本。
 
 ### `smoke.mjs` —— 8 页冒烟测试（改完前端必跑）
 
@@ -109,6 +109,22 @@ leave 必须平滑收起到 0（ease-apple 曲线）。背景：selection-bar �
 「选择模式 ↔ 普通模式瞬间弹回」的根源；已改共享层 `collapse` 包裹。
 **坑**：`.selection-bar` 自身内容高度不变（被裁切的是外层 `.collapse`），
 要采样 `closest('.collapse')` 而不是操作条本身；容器终高 = 内容高 + margin-top。
+
+### `overflow-x.mjs` —— 移动端横向溢出验证（真实上传全链路）
+
+```bash
+BASE=http://127.0.0.1:8099 node scripts/verify/overflow-x.mjs
+```
+
+登录 → 预置 r2 → 用**长文件名**真实上传（贴近真机 `IMG_2026…_1.jpg`）→
+等 collapse 进场动画结束 → 量两层：① `scrollWidth === clientWidth`
+（无横向滚动，absolute/fixed 的真实溢出也由这层兜底）；② 逐个**在流元素**
+（static/relative）右边界不得越出视口。背景：结果面板改 collapse 后真机出现
+整页横向溢出（清空按钮/底部导航被截出右边界）——grid 子项默认
+`min-width:auto`，行内容 min-content 把轨道撑宽 11px；已修
+`.collapse > * { min-height:0; min-width:0 }`。
+**坑**：Playwright 测溢出**别开 `isMobile:true`** —— Chrome 移动端会把布局视口
+自动撑宽（390→401）去"容纳"超宽内容，`innerWidth` 跟着变大，溢出全部漏检。
 
 ### `verify_classes.mjs` —— 上收类渲染验证
 
