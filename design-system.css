@@ -597,15 +597,11 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   from { opacity: 0; transform: scale(0.92) translate3d(0, 10px, 0); }
   to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
 }
-@keyframes sheetIn {
-  from { opacity: 0.35; transform: translate3d(0, 100%, 0); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0); }
-}
-@keyframes dialogIn {
-  from { opacity: 0; transform: scale(0.86) translate3d(0, 16px, 0); }
-  60%  { opacity: 1; }
-  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
-}
+/* sheetIn / dialogIn 两个关键帧已删除：它们原先挂在 .modal--sheet /
+   .modal--dialog / .modal--preview 上，与 <transition name="sheet|dialog"> 的
+   过渡争同一轨道（低端设备闪烁的根因）。其起点与节奏已完整并入下方的
+   .sheet-enter-* / .dialog-enter-* 过渡，观感不变。
+   maskIn 仍被 gallery.html 使用，保留。 */
 @keyframes maskIn { from { opacity: 0; } to { opacity: 1; } }
 
 /* 上下文菜单：用 keyframes 而非 class 互换 —— 菜单是「插入 DOM + 切 class」
@@ -978,7 +974,14 @@ html[data-perf="low"] .morph-leave-to { filter: none; }
   backface-visibility: hidden;
 }
 
-/* Sheet / Dialog */
+/* Sheet / Dialog
+   ---------------------------------------------------------------------------
+   注意：这四个浮层的入场动画**只在这里定义**。宿主元素（.modal-mask /
+   .modal--sheet / .modal--dialog / .modal--preview）上**不再**挂 @keyframes
+   （原先是 maskIn / sheetIn / dialogIn）。原因：那样会在同一个元素上叠两套动画，
+   两套曲线争同一个 transform/opacity 轨道 —— GPU 空闲时看不出，低端设备一掉帧
+   相位就错开，紧贴面板边沿的内容（如存储节点首行）会来回抖。
+   下面把这几个 keyframes 的起点与节奏完整并入过渡，观感保持一致。 */
 .sheet-enter-active, .sheet-leave-active,
 .dialog-enter-active, .dialog-leave-active {
   backdrop-filter: none !important;
@@ -986,23 +989,28 @@ html[data-perf="low"] .morph-leave-to { filter: none; }
 }
 .sheet-enter-active { transition: opacity 0.3s var(--ease-apple); }
 .sheet-leave-active { transition: opacity 0.22s var(--ease-apple); }
+/* 面板上浮：0.46s 与原先 sheetIn 的 0.42s 接近，观感一致 */
 .sheet-enter-active .modal { transition: transform 0.46s var(--ease-apple); }
 .sheet-leave-active .modal { transition: transform 0.26s var(--ease-press), opacity 0.22s var(--ease-press); }
 .sheet-enter-from,
 .sheet-leave-to { opacity: 0; }
+/* 起点与 sheetIn 的 from 完全一致：translate3d(0,100%,0)，面板从屏幕外升起 */
 .sheet-enter-from .modal { transform: translate3d(0, 100%, 0); }
 .sheet-leave-to   .modal { transform: translate3d(0, 100%, 0); opacity: 0; }
 
 .dialog-enter-active { transition: opacity 0.26s var(--ease-apple); }
 .dialog-leave-active { transition: opacity 0.18s var(--ease-press); }
+/* 保留 dialogIn 的「透明度先到位、缩放随后跟上」节奏（原 keyframes 在 60% 处
+   opacity 已到 1）：透明度 0.26s，transform 0.44s，两者错开即等效。 */
 .dialog-enter-active .modal,
 .dialog-enter-active .dialog-panel { transition: transform 0.44s var(--ease-spring); }
 .dialog-leave-active .modal,
 .dialog-leave-active .dialog-panel { transition: transform 0.22s var(--ease-press), opacity 0.18s var(--ease-press); }
 .dialog-enter-from,
 .dialog-leave-to { opacity: 0; }
+/* 起点对齐 dialogIn 的 from：scale(0.86) translate3d(0,16px,0) */
 .dialog-enter-from .modal,
-.dialog-enter-from .dialog-panel { transform: scale(0.88) translate3d(0, 14px, 0); }
+.dialog-enter-from .dialog-panel { transform: scale(0.86) translate3d(0, 16px, 0); }
 .dialog-leave-to   .modal,
 .dialog-leave-to   .dialog-panel { transform: scale(0.92) translate3d(0, 10px, 0); opacity: 0; }
 
