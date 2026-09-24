@@ -2491,6 +2491,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             nodeResolveTimer: null,
 
             downloadingUrls: {},
+            /* 「下载中」状态的延时清理句柄：与 downloadingUrls 同键。
+               放在这里而不是闭包里，是为了能在重复点击时被 clearTimeout
+               掉，避免上一个定时器把刚点开的下载状态提前清掉。 */
+            downloadStateTimers: {},
             downloadProgress: { active: false, url: '', fileName: '', loaded: 0, total: 0, speed: '' },
 
             historyCleanupRunning: false,
@@ -4849,8 +4853,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           /* ===== 下载 ===== */
           isDownloading(item) {
             if (!item) return false;
-            const url = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
-            return !!this.downloadingUrls[url];
+            const raw = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
+            if (!raw) return false;
+            /* 查表用的 key 必须和 triggerDownload 写入时是同一个 —— 都经过
+               buildDownloadUrl。之前这里查的是**未加** `dl=1` 的 clean url，
+               而写入用的是带参数的下载 URL，两边永远对不上：按钮的
+               spinner 与 disabled 从未生效过，用户点下去界面零反馈，
+               「点了没反应」有一半来自这里。 */
+            return !!this.downloadingUrls[this.buildDownloadUrl(raw)];
           },
           /* 下载地址：在文件 URL 上追加 `dl=1`。
              file 路由只有在看到 `dl=1` 时才把 Content-Disposition 从 inline
@@ -4876,32 +4886,42 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const url = this.buildDownloadUrl(rawUrl);
             if (this.downloadingUrls[url]) { this.showToast('下载已开始，请查看浏览器下载栏', 'info'); return; }
             this.downloadingUrls[url] = true;
-            /* 用带 dl=1 的地址做存在性探测：HEAD 命中同一个路由，
-               这样「已删除」的判断与真正下载的是同一个资源。 */
+            /* 关键：必须在这次点击的同一个同步任务里就把下载交出去。
+               旧实现先 await 一次 HEAD 探测（后端全链路，几百毫秒到数秒）
+               才触发下载 —— 那时用户手势早已耗尽，浏览器会把这次下载
+               静默排队甚至拦截，表现正是「点了没反应，刷新页面后才弹出
+               下载框」。探测的成本也不小：后端当时对 HEAD 同样会去 R2
+               把整个对象读出来。 */
+            this._doNativeDownload(url, fileName);
+            this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
+            /* 失效探测挪到下载**之后**、完全不阻塞：它唯一的用处是把已被
+               删除的记录从历史里标出来，用户此刻已经拿到下载，不该再为它
+               等一个来回。后端对 HEAD 已短路（只取元数据），成本很低。 */
             fetch(url, { method: 'HEAD', credentials: 'include' })
-              .then(res => {
-                if (res.status === 404 || res.status === 410) {
-                  this.markHistoryAsMissing(rawUrl);
-                  this.showToast(`[${fileName || '文件'}] 已被删除（${res.status}）`, 'error');
-                  delete this.downloadingUrls[url];
-                  return;
-                }
-                this._doNativeDownload(url, fileName);
+              .then((res) => {
+                if (res.status === 404 || res.status === 410) this.markHistoryAsMissing(rawUrl);
               })
-              .catch(() => { this._doNativeDownload(url, fileName); });
+              .catch(() => {});
           },
           _doNativeDownload(url, fileName) {
             const a = document.createElement('a');
             a.href = url;
             a.download = fileName || '';
+            a.rel = 'noopener';
             a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
-            setTimeout(() => {
-              if (a.parentNode) a.parentNode.removeChild(a);
+            /* click() 是同步的：下载此刻已经交给浏览器排队，<a> 继续留在
+               DOM 里没有任何作用，可以立刻移除。旧实现固定挂 2 秒才移除，
+               只是历史遗留 —— 那 2 秒其实一直在客串「下载中」的计时器。 */
+            if (a.parentNode) a.parentNode.removeChild(a);
+            /* 「下载中」状态只服务于按钮反馈：留一小段让 spinner 看得见，
+               期间重复点击会落进上面的「已开始」提示，而不是连开两次。 */
+            clearTimeout(this.downloadStateTimers[url]);
+            this.downloadStateTimers[url] = setTimeout(() => {
               delete this.downloadingUrls[url];
-            }, 2000);
-            this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
+              delete this.downloadStateTimers[url];
+            }, 1500);
           },
           downloadFile(file) { this.triggerDownload(this.getCleanFileUrl(file), this.getDisplayName(file)); },
           previewImage(file) {
