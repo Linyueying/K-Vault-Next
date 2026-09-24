@@ -7,9 +7,11 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
   <link rel="stylesheet" href="/design-system.css">
   <link rel="stylesheet" href="/theme.css">
-  <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+  <script src="/theme.js?v=20260305"></script>
+  <script src="/app-core.js"></script>
   <style>
     /* 预览页 legacy 变量名（--bg / --panel / --brand …）的暗色取值；
        品牌色 / 玻璃层 / 圆角 / 间距 / 缓动等通用令牌统一取自 /design-system.css。 */
@@ -394,8 +396,6 @@
     }
 
     .theme-floating-toggle,
-    .theme-auto-inline-toggle,
-    .theme-admin-toggle,
     [data-theme-toggle] {
       display: none !important;
     }
@@ -1170,73 +1170,10 @@
       }
     }
 
-    /* ===== 访问密码门（受密码保护的文件） ===== */
-    .password-gate {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      text-align: center;
-      max-width: 380px;
-      padding: 28px 24px;
-      border-radius: var(--radius-lg, 16px);
-      background: var(--surface-1, rgba(255, 255, 255, 0.72));
-      border: 1px solid var(--glass-border-ice, rgba(148, 163, 184, 0.28));
-      box-shadow: var(--shadow-soft, 0 10px 30px rgba(15, 23, 42, 0.08));
-    }
-    .password-gate-icon {
-      width: 52px;
-      height: 52px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.3rem;
-      color: var(--primary, #0ea5e9);
-      background: rgba(var(--primary-rgb, 14, 165, 233), 0.12);
-    }
-    .password-gate-title { font-size: 1rem; }
-    .password-gate-desc {
-      font-size: 0.8rem;
-      color: var(--text-muted, #64748b);
-      line-height: 1.5;
-    }
-    .password-gate-form {
-      display: flex;
-      gap: 8px;
-      width: 100%;
-      margin-top: 6px;
-    }
-    .password-gate-form input {
-      flex: 1;
-      min-width: 0;
-      font-family: inherit;
-      font-size: 0.86rem;
-      padding: 10px 12px;
-      border-radius: 10px;
-      border: 1px solid var(--glass-border-ice, rgba(148, 163, 184, 0.28));
-      background: var(--surface-2, rgba(255, 255, 255, 0.9));
-      color: inherit;
-      outline: none;
-    }
-    .password-gate-form input:focus { border-color: var(--primary, #0ea5e9); }
-    .password-gate-form button {
-      font-family: inherit;
-      font-size: 0.86rem;
-      font-weight: 600;
-      color: #fff;
-      background: var(--primary, #0ea5e9);
-      border: none;
-      border-radius: 10px;
-      padding: 10px 16px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .password-gate-form button:disabled { opacity: 0.6; cursor: progress; }
-    .password-gate-error {
-      font-size: 0.78rem;
-      color: #ef4444;
-    }
+    /* ===== 访问密码门（受密码保护的文件） =====
+       整组已上收到 design-system.css。
+       原实现把设计令牌全写成了硬编码回退值（#0ea5e9 / #ef4444 / #64748b），
+       换主题时弹层颜色不跟随；现统一走共享层的令牌版。 */
   </style>
   <link rel="stylesheet" href="/mobile-refactor.css">
 </head>
@@ -1726,14 +1663,7 @@
       }
 
       function formatSize(bytes) {
-        const units = ["B", "KB", "MB", "GB", "TB"];
-        let value = Number(bytes) || 0;
-        let unit = 0;
-        while (value >= 1024 && unit < units.length - 1) {
-          value /= 1024;
-          unit += 1;
-        }
-        return `${value.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
+        return KVault.formatBytes(bytes);
       }
 
       function renderDeferredGate() {

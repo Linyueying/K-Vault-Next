@@ -7,10 +7,11 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
     <link rel="stylesheet" href="/design-system.css" />
     <link rel="stylesheet" href="/theme.css" />
     <script src="/theme.js?v=20260305"></script>
-    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <script src="/app-core.js"></script>
     <style>
       /* 设计令牌统一取自 /design-system.css；这里只保留本页的 --wf-* 快捷别名 */
       :root {
@@ -880,15 +881,7 @@
         }
 
         function formatFileSize(bytes) {
-          var value = Number(bytes || 0);
-          if (!Number.isFinite(value) || value <= 0) return "0 B";
-          var units = ["B", "KB", "MB", "GB", "TB"];
-          var index = 0;
-          while (value >= 1024 && index < units.length - 1) {
-            value /= 1024;
-            index += 1;
-          }
-          return value.toFixed(value >= 100 || index === 0 ? 0 : 1) + " " + units[index];
+          return KVault.formatBytes(bytes);
         }
 
         function resolveFileIconClass(file) {
@@ -1281,28 +1274,10 @@
             return;
           }
           var text = links.join("\n");
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text)
-              .then(function () {
-                setStatus("已复制 " + links.length + " 条链接。", true);
-              })
-              .catch(function (error) {
-                setStatus(error.message || "复制失败。", false);
-              });
-            return;
-          }
-          var textarea = document.createElement("textarea");
-          textarea.value = text;
-          document.body.appendChild(textarea);
-          textarea.select();
-          var copied = false;
-          try {
-            copied = document.execCommand("copy");
-          } catch {
-            copied = false;
-          }
-          textarea.remove();
-          setStatus(copied ? ("已复制 " + links.length + " 条链接。") : "复制失败。", copied);
+          /* 改走共享层：clipboard → execCommand 的降级链路只有一份 */
+          KVault.copy(text).then(function (copied) {
+            setStatus(copied ? ("已复制 " + links.length + " 条链接。") : "复制失败。", copied);
+          });
         });
 
         (async function init() {

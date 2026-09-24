@@ -1014,6 +1014,23 @@ html[data-perf="low"] .morph-leave-to { filter: none; }
 .dialog-leave-to   .modal,
 .dialog-leave-to   .dialog-panel { transform: scale(0.92) translate3d(0, 10px, 0); opacity: 0; }
 
+/* ==========================================================================
+   13.9 模态面板基类
+   ----------------------------------------------------------------------
+   原先只有 index.html 在自己的 <style> 里定义 .modal 的玻璃质感，
+   其余页面的模态面板各自散落、外观不完全一致。
+   以 index 为准上收到这里，页面只需写自己的尺寸/布局增量。
+   ========================================================================== */
+.modal {
+  background: var(--glass-elevated);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  overflow-y: auto;
+  will-change: transform, opacity;
+}
+
 /* 主题切换时，玻璃容器平滑换色而不是硬切 */
 .card, .liquid-card, .menu, .dock, .selection-bar, .modal, .modal-mask {
   transition: background-color 0.45s var(--ease-apple),
@@ -1021,6 +1038,104 @@ html[data-perf="low"] .morph-leave-to { filter: none; }
               box-shadow 0.45s var(--ease-apple),
               color 0.45s var(--ease-apple);
 }
+
+/* ==========================================================================
+   13.10 环境光背景 & 密码门
+   ----------------------------------------------------------------------
+   .ambient-glow / .ambient-orb 原先在 index / admin / gallery / paste
+   四页各写一份，其中 .ambient-glow 四页**完全相同** —— 典型的手抄漂移。
+   这里上收容器与光球基类；.orb-1 / .orb-2 的**位置、尺寸、配色**是各页
+   有意的差异化设计（以 index 为准），仍留在各页。
+
+   .password-gate 系列原先在 share / preview 各写一份，preview 那份把
+   设计令牌全写成了硬编码回退值（#0ea5e9 / #ef4444 / #64748b），
+   导致换主题时 password 弹层不跟随。这里以 share 的令牌版为准上收。
+   ========================================================================== */
+
+/* --- 环境光容器：四页完全一致 --- */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* --- 光球基类：以 index 为准（不加 blur，用径向渐变自身柔化） ---
+   gallery 曾额外加 filter: blur(90px)，与径向渐变叠加属冗余，
+   且 blur 是绘制属性、在低端设备上掉帧，故统一为不带 blur。 */
+.ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.48;
+}
+
+/* --- 密码门：以 share 的令牌版为准（preview 原为硬编码色值） --- */
+.password-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  max-width: 380px;
+  padding: 28px 24px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+}
+.password-gate-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.12);
+}
+.password-gate-title { font-size: 1rem; font-weight: 700; }
+.password-gate-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.password-gate-form { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
+.password-gate-form input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.86rem;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border-ice);
+  background: var(--surface-2);
+  color: inherit;
+  outline: none;
+  transition: var(--transition);
+}
+.password-gate-form input:focus { border-color: var(--primary); }
+.password-gate-form button {
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+.password-gate-form button:hover:not(:disabled) { background: var(--primary-dark); }
+.password-gate-form button:disabled { opacity: 0.6; cursor: progress; }
+.password-gate-error { font-size: 0.78rem; color: var(--danger); }
+
+/* --- 小工具类：原先 index / admin 各写一份，写法不同但语义一致 --- */
+.mono { font-family: 'JetBrains Mono', monospace; }
+.grow { flex: 1; }
 
 /* ==========================================================================
    14. 性能分级 & 无障碍降级

@@ -138,68 +138,12 @@ html[data-theme="dark"] textarea::placeholder {
   box-shadow: 0 8px 20px rgba(138, 75, 255, 0.2);
 }
 
-.theme-auto-inline-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 13px;
-  border-radius: 10px;
-  border: 1.5px solid rgba(138, 75, 255, 0.25);
-  background: linear-gradient(
-    135deg,
-    rgba(138, 75, 255, 0.16),
-    rgba(200, 241, 255, 0.42)
-  );
-  color: #2f3243;
-  font-size: 0.86em;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.theme-auto-inline-toggle i {
-  color: #8a4bff;
-  width: 14px;
-  text-align: center;
-}
-
-.theme-auto-inline-toggle:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(138, 75, 255, 0.2);
-}
-
-.theme-admin-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border: 1.5px solid rgba(138, 75, 255, 0.25);
-  border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    rgba(138, 75, 255, 0.16),
-    rgba(200, 241, 255, 0.42)
-  );
-  color: #2f3243;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-right: 8px;
-}
-
-.theme-admin-toggle [data-theme-label] {
-  display: none;
-}
-
-.theme-admin-toggle i {
-  color: #8a4bff;
-  font-size: 14px;
-}
-
-.theme-admin-toggle:hover {
-  transform: translateY(-2px) scale(1.03);
-  box-shadow: 0 8px 20px rgba(138, 75, 255, 0.2);
-}
+/* 这里原本还有 .theme-auto-inline-toggle / .theme-admin-toggle 两套完整样式
+   （含 i / :hover / [data-theme-label] / dark 变体）。它们对应的 DOM 只由
+   theme.js 的 ensureAutoToggle() 注入 —— 而那条「往页头里塞」的分支在
+   本仓库 8 个页面里永远匹配不到（没有 .header / .nav-links / .header-content），
+   已经删除。类名因此再无人生成，样式随之成为死代码，一并移除。
+   现在实际生效的浮动开关是 .theme-floating-toggle（就在下面）。 */
 
 html[data-theme="dark"] .theme-floating-toggle {
   border-color: rgba(154, 169, 255, 0.45);
@@ -212,22 +156,6 @@ html[data-theme="dark"] .theme-floating-toggle {
 }
 
 html[data-theme="dark"] .theme-floating-toggle i {
-  color: #c4d4ff;
-}
-
-html[data-theme="dark"] .theme-auto-inline-toggle,
-html[data-theme="dark"] .theme-admin-toggle {
-  border-color: rgba(154, 169, 255, 0.45);
-  background: linear-gradient(
-    135deg,
-    rgba(154, 169, 255, 0.2),
-    rgba(84, 106, 156, 0.35)
-  );
-  color: #e8eeff;
-}
-
-html[data-theme="dark"] .theme-auto-inline-toggle i,
-html[data-theme="dark"] .theme-admin-toggle i {
   color: #c4d4ff;
 }@media (max-width: 768px) {
   .theme-floating-toggle {
@@ -355,8 +283,6 @@ html[data-theme="dark"] .el-message-box {
 }
 
 .theme-floating-toggle,
-.theme-auto-inline-toggle,
-.theme-admin-toggle,
 .gallery-theme-toggle {
   border-color: rgba(var(--ui-border-rgb), 0.58) !important;
   background: rgba(var(--ui-surface-rgb), 0.9) !important;
@@ -365,15 +291,11 @@ html[data-theme="dark"] .el-message-box {
 }
 
 html[data-theme="dark"] .theme-floating-toggle,
-html[data-theme="dark"] .theme-auto-inline-toggle,
-html[data-theme="dark"] .theme-admin-toggle,
 html[data-theme="dark"] .gallery-theme-toggle {
   color: #e8eeff !important;
 }
 
 html[data-theme="dark"] .theme-floating-toggle i,
-html[data-theme="dark"] .theme-auto-inline-toggle i,
-html[data-theme="dark"] .theme-admin-toggle i,
 html[data-theme="dark"] .gallery-theme-toggle i {
   color: #d0dcff !important;
 }

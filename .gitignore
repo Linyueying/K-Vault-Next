@@ -9,3 +9,5 @@ server/node_modules/*
 cookies.txt
 test-login.json
 .wrangler-pages-test/
+__pycache__/
+*.pyc

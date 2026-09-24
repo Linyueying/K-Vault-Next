@@ -25,10 +25,11 @@ npx wrangler pages dev ./ \
   --port 8099 --persist-to /tmp/kvdata \
   --binding BASIC_USER=admin --binding BASIC_PASS=123
 
-# 4. 改完必跑三道守卫
+# 4. 改完必跑四道守卫
 python3 scripts/check_style.py
 python3 scripts/check_tokens.py
 python3 scripts/check_functions.py
+python3 scripts/check_shared.py     # 跨页共享层：防「一次改动只生效一页」的漂移复发
 
 # 5. 推
 git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
@@ -47,11 +48,12 @@ git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
 | **无构建步骤** | 根目录就是产物。**不要**引入打包器、TS 编译、`dist/` 输出 |
 | **8 个单文件 HTML** | `index / admin / gallery / paste / share / preview / webdav / login`。每页 CSS、JS 全内联在 `<style>` / `<script>` 里 |
 | **唯一共享样式层** | `design-system.css`。页面内联 `<style>` 只允许写「本页增量」 |
+| **唯一共享 JS 层** | `app-core.js`（`window.KVault`）。`formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` / `escapeHtml` / `debounce` 只有这一份实现 |
 | **Vue 3（纯，无 `@vue/compat`）** | 前端框架已是 Vue 3，`createApp` 全局挂载 |
 | **零运行时依赖** | 业务代码只用平台内置 API。**不要**加 `dependencies` |
 | **工作分支 `Pre`** | **永远不推 `main`**。默认分支与本分支的人际约定由用户决定 |
 
-**判断一个改动是否合规的最快方式**：跑那三道守卫脚本。它们就是这套约束的可执行版本。
+**判断一个改动是否合规的最快方式**：跑那四道守卫脚本。它们就是这套约束的可执行版本。
 
 ---
 
@@ -118,12 +120,13 @@ npx wrangler pages dev ./ \
 
 ## 3. 验证工具箱
 
-### 3.1 三道守卫脚本（改完必跑）
+### 3.1 四道守卫脚本（改完必跑）
 
 ```bash
 python3 scripts/check_style.py       # 页面内联 <style> 合法性
 python3 scripts/check_tokens.py      # 变量 / 动画名可解析 + 共享层无死关键帧
 python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号
+python3 scripts/check_shared.py      # 跨页共享层一致性（防「一改只生效一页」）
 ```
 
 各脚本具体查什么：
@@ -143,6 +146,34 @@ python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号
 **`check_functions.py`**
 1. `functions/` 下每个 `.js` 做 `node --check`
 2. 轻量标识符解析，抓「被当作函数调用、但既没 import、也没本地声明、也不是参数/内置」的名字
+
+**`check_shared.py`**
+
+这是「一次修改多前端生效」这条目标的守门人。它拦的是**漂移**——同一个能力在不同页面各写一份，改一处其余页不受影响。
+
+| 检查 | 内容 |
+| :--- | :--- |
+| **A. 页面禁用** | 页面内不得再自行实现 `app-core.js` 已提供的能力（手写 `formatBytes`、`fallbackCopy`、`execCommand("copy")`、toast 图标映射） |
+| **B. 加载顺序** | 8 页的样式表/脚本加载顺序必须与 `index.html` 一致（子序列语义） |
+| **C. 属性级重写** | 页面若重写了 `design-system.css` 已有的**同名属性**才算违规；只追加原层没有的属性（如 `.card{padding}`）属无害增量 |
+| **D. 组件类覆盖** | 页面不得**无条件**覆盖共享组件类；`@media` 内的响应式/触控适配属正当用法 |
+| **E. 死选择器回潮** | `mobile-refactor.css` 里已确认清理的那批类不得再次出现（见 [3.6](#36-mobile-refactorcss-为什么不能整体上收)） |
+
+**两类显式登记的例外**（都在脚本顶部常量里，必须写明理由）：
+
+- `CRITICAL_EXCEPTIONS` —— 某页面有意保留独立外观的组件类
+- `LATE_LOAD_CSS` —— 有意排在基础层之后、靠级联生效的覆盖层样式表（目前是 `mobile-refactor.css`）
+
+检查 C/D/E 做了大量误报抑制，理解这几条能避免你白跑：
+
+- **注释里的文件名**（`design-system.css`）不是类名
+- **修饰/状态类**（`.danger` / `.is-active`）天然多页出现，不算漂移
+- **后代限定**（`.dlg__actions .btn`）是页面作用域收敛，不是重写共享组件
+- **`@media` 内的规则**是响应式适配，不是无条件覆盖
+- **只在选择器区域取类名**，不扫声明体（否则 `url(...)` 里的点号会误判）
+- **E 只拦「已确认清理过的类」**，不拦「当前无页面使用的防御性类」（如 `.toolbar`）—— 后者无害
+
+**新增共享能力时的正确顺序**：先加进 `app-core.js` / `design-system.css`，再把各页调用点切过去，最后跑守卫确认 [A] 通过。**不要**先在页面里写一份「临时实现」——那正是这套检查要消灭的东西。
 
 ### 3.2 `check_functions.py` 为什么必须存在
 
@@ -203,7 +234,111 @@ rm -rf /tmp/org.chromium.Chromium.*
 
 ---
 
-## 4. 调试手册
+### 3.5 共享层架构（「改一处，8 页生效」怎么做到的）
+
+历史上 8 个页面各写各的：`formatBytes` 有 **6 份**实现、toast **5 份**、剪贴板 **5 份**，
+样式表加载顺序有 **6 种**组合。结果是改一个页面另外 7 个不受影响，维护成本极高。
+
+现在收敛成两个共享层，页面只写「本页增量」。
+
+#### 3.5.1 `app-core.js` —— 跨页共享 JS（`window.KVault`）
+
+无构建步骤，所以用 IIFE 挂全局，而不是 ESM。各页在 `<head>` 里按
+`theme.js → app-core.js → 页面主脚本` 的顺序引入。
+
+| 能力 | 说明 |
+| :--- | :--- |
+| `formatBytes(bytes, opts)` | `Intl.NumberFormat` 版。`opts.zero` 可定制 0 值的显示（share 页用「未知大小」）。别名 `formatSize` |
+| `toastIcon(type)` | `error` / `success` / `undo` / 其余 → `info`，统一图标映射 |
+| `toastDelay(message)` | 按时长自适应 `2600 ~ 6000ms`，长消息停久一点。别名 `toastDuration` |
+| `copy(text)` | 返回 `Promise<boolean>`。`clipboard → execCommand → false` 三段降级。别名 `copyText` |
+| `fetchJSON(url, opts)` | 统一 `credentials:'include'`、统一错误抛出、`401` 单独语义 |
+| `formatTime(input, opts)` | 统一「本地化 `YYYY-MM-DD HH:mm`」，`opts.dateOnly` 只要日期 |
+| `escapeHtml(str)` / `debounce(fn, wait)` | 小工具 |
+
+**约定**：复制失败**不 reject**，而是 resolve `false` —— 复制失败很常见，调用方通常只想 toast 一句，
+reject 会逼出无谓的 `.catch`。
+
+#### 3.5.2 `design-system.css` —— 唯一共享样式层
+
+| 层 | 职责 | 加载位置 |
+| :--- | :--- | :--- |
+| `design-system.css` | 变量、组件基类（`.btn` `.card` `.modal` `.toast` …）、动画 | 每个页面 |
+| `theme.css` | 主题色与切换按钮外观 | 每个页面 |
+| `mobile-refactor.css` | 移动端覆盖层（**有意后加载**，靠级联生效）。**注意它不是共享层**，见 [3.6](#36-mobile-refactorcss-为什么不能整体上收) | 仅 4 页 |
+| 页面内联 `<style>` | **只写本页增量** | — |
+
+**判断标准**：如果你在页面 `<style>` 里写的属性，`design-system.css` 里**已经有了同名属性**，
+那你就是在覆盖共享组件，应该改共享层而不是改页面。只写它没有的属性（如 `.card{padding}`）才是增量。
+`check_shared.py` 的 [C] 就是按这个标准做**属性级**比对的。
+
+**`@keyframes` 一律收口到 `design-system.css`**，页面内联 `<style>` 里禁止定义（`check_style.py` 会拦）。
+
+> **别被「同名」骗了**：`grep` 出「几十个重复类」时，先逐一核实**是不是同一个组件**。
+> 实测 37 个候选里只有 1 个是逐字节重复，其余 26 个是「同名不同组件」
+> （`.actions` 在 share 是按钮行、在 preview 是右对齐元信息行）。
+> 盲目合并会把两套设计揉成一套。判据是**属性级比对**，不是类名相同。
+
+#### 3.5.3 主题统一
+
+- 全局唯一 localStorage key：`"theme"`（旧的 `"themeMode"` 已做一次性迁移）
+- 统一入口：`window.ThemeManager`（`theme.js`）
+- 页面自带的切换按钮：在 `<html>` 上加 `data-own-theme-toggle`，`theme.js` 就不会再造浮动按钮，
+  按钮自身的 `@click` 委托给 `ThemeManager.toggleTheme()`
+
+> ⚠️ **不要**用 `data-theme-toggle` 标记「页面自带按钮」。
+> `theme.js` 的 `initDom()` 会对 `querySelectorAll('[data-theme-toggle]')` 一律绑定点击处理器；
+> 若把它挂在 `<body>` 上，body 就成了第二个切换按钮，一次点击被处理两次、主题来回抵消。
+> 这正是 `data-own-theme-toggle` 这个独立属性名存在的原因。
+
+**已删除的死分支**：`ensureAutoToggle()` 里原本还有两条「把按钮插进页头」的分支，分别查找
+`.header .nav-links` 和 `.header-content .actions` —— 这两组类在 8 个页面里**都不存在**，
+永远匹配不到（伴随的 `.theme-auto-inline-toggle` / `.theme-admin-toggle` 样式也一并从
+`theme.css` 删了）。实际一直在生效的只有「浮动按钮」那条，这也正是 `paste` / `share` /
+`preview` / `login` 四页会看到浮动主题开关的原因。
+
+> **推论**：改主题按钮相关代码前，先确认页面走的是哪条路径 —— 自带按钮（`index` / `admin`）、
+> `gallery` 自绘的 `theme-toggle-round`、浮动按钮（`paste` / `share` / `preview` / `login`），
+> 还是 `webdav` 的 `.btn action-btn`。四条路径的外观都不同。
+
+#### 3.5.4 怎么扩展
+
+**加一个跨页能力**：写进 `app-core.js` → 挂到 `window.KVault` → 各页调用点切过去 → 跑守卫。
+**加一个共享组件**：写进 `design-system.css` → 页面只留站点特定的尺寸/布局增量。
+
+```bash
+# 自查：各页是否还有「自己实现」的痕迹（守卫 [A] 的可读版）
+python3 scripts/check_shared.py
+```
+
+#### 3.6 `mobile-refactor.css` 为什么不能整体上收
+
+这是本仓库最容易误判的一个文件，单独说清楚。
+
+**它是什么**：781 行（已清理为 433 行）的移动端覆盖层，靠「在 `design-system.css` / `theme.css` 之后加载」赢得级联。仅 `gallery` / `preview` / `webdav` / `login` 四页引入。
+
+**它不是什么**：**不是共享层**。逐类统计 8 页使用情况后发现，全文件 71 个类里：
+
+| 使用页数 | 类数 | 例子 |
+| :--- | :--- | :--- |
+| ≥4 页 | **1** | `.btn` |
+| 1~3 页 | ~24 | `.header-title`（仅 webdav）、`.preview-close`（仅 gallery） |
+| 0 页 | ~31 | `.toolbar` / `.upload-item` / `.audio-card` …（防御性留着） |
+
+**所以不能把它合进 `design-system.css`**：那会把 webdav 的头部布局规则、gallery 的预览抽屉规则一并强加给另外 6 页。它不是「重复」，是**四页各自移动端增量的合集**。
+
+**已经做了什么**（2024 收敛）：
+
+1. 删掉 348 行指向「8 页里从未出现过」的类的死规则 —— `.header-content` / `.nav-links` / `.home-btn` / `.status-panel` / `.stats-text` / `.el-dropdown*` 等
+2. 安全证明：清理前后各拍 132 项计算样式快照，逐一比对，**不一致 0 项**
+3. 在守卫里加检查 [E]，防止这些类回潮
+
+**踩过的坑（务必记住）**：第一遍清理时误删了 `.header-title` / `.header-actions`。原因是初查只看了「这几个类是否在多数页面出现」，没做**全页精确 token 匹配**，漏掉了 `webdav.html` 里那唯一的 `<h1 class="header-title">`。
+
+> **教训**：判断一个类是否死，唯一可靠的方法是「全部 HTML + JS 的 `class` 属性做精确 token 匹配」，不能靠 grep 子串，也不能靠抽样看几页。`grep 'class="[^"]*\bcard\b'` 会把 `photo-card` / `state-card` 也算进去，而 `class="toolbar-card"` 会被误认为 `.toolbar` 存在。
+
+**将来要废弃这个文件的话**，正确做法是：按页拆分成 4 块，各自并入对应页面的 `<style>`，而不是上收到共享层。
+
 
 ### 4.1 Shell 陷阱
 
@@ -263,7 +398,7 @@ GPU 空闲时两条曲线相位接近，肉眼看不出问题；低端设备一�
 4. **把被删那条的视觉参数并进保留的那条** —— 起始值、缓动、时长、节奏全部对齐，**外观必须零变化**。
 5. 删掉随之变成孤儿的 `@keyframes`（`check_tokens.py` 会报「死动画」）。
 6. **加合成层提升**：给元素加 `transform: translateZ(0)` / `will-change: transform, opacity`，把它提到独立合成层，进一步降低主线程抖动的影响。
-7. 跑三道守卫，再实测确认 `animationName` 变成了 `none`、外观与修复前一致。
+7. 跑四道守卫，再实测确认 `animationName` 变成了 `none`、外观与修复前一致。
 
 > **用户明确要求过：修复闪烁时不得降低动画质量。** 保留原样的缓动、时长、位移距离，只删掉重复的那条曲线。不要用「把动画变短变弱」来糊弄。
 
@@ -332,9 +467,10 @@ git ls-remote "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" P
 
 ```bash
 git status --short                      # 应无未预期改动
-python3 scripts/check_style.py          # 三道守卫
+python3 scripts/check_style.py          # 四道守卫
 python3 scripts/check_tokens.py
 python3 scripts/check_functions.py
+python3 scripts/check_shared.py
 # 再确认没有把 PAT / .env / 临时文件带进去
 git diff --cached --stat
 ```
@@ -453,7 +589,7 @@ getComputedStyle(el).transform       // 期望：起始值与修复前完全一�
    ├─ 前端改动 → agent-browser 看渲染 + 量 getComputedStyle + 截图
    │
    ▼
-三道守卫全过
+四道守卫全过
    │
    ▼
 git push 到 Pre（用 PAT，走 ghfast.top 镜像）
@@ -478,7 +614,10 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 | 我要… | 命令 / 位置 |
 | :--- | :--- |
 | 本地起全栈 | `npx wrangler pages dev ./ --kv "img_url" --r2=R2_BUCKET --compatibility-date=2026-05-03 --port 8099 --persist-to /tmp/kvdata --binding BASIC_USER=admin --binding BASIC_PASS=123` |
-| 跑守卫 | `python3 scripts/check_style.py && python3 scripts/check_tokens.py && python3 scripts/check_functions.py` |
+| 跑守卫 | `python3 scripts/check_style.py && python3 scripts/check_tokens.py && python3 scripts/check_functions.py && python3 scripts/check_shared.py` |
+| 查跨页是否还各写各的 | `python3 scripts/check_shared.py` |
+| 加一个跨页能力 | 写进 `app-core.js` → 挂 `window.KVault` → 各页调用点切过去 |
+| 加一个共享组件 | 写进 `design-system.css` → 页面只留尺寸/布局增量 |
 | 校验后端符号 | `python3 scripts/check_functions.py` |
 | 生成/校验 wrangler 配置 | `npm run pages:r2:doctor` / `node scripts/cloudflare-pages-r2-doctor.js --check` |
 | 看设计令牌 | `design-system.css` 顶部 `:root` |
@@ -498,11 +637,15 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 
 1. **只推 `Pre`，永不推 `main`。**
 2. **PAT 不落盘、不回显、不提交。**
-3. **改完必跑三道守卫。**
+3. **改完必跑四道守卫。**
 4. **改 `functions/` 必跑 `check_functions.py`** —— 它是唯一能拦住「漏 import」的东西。
 5. **共享样式只准有一份**，在 `design-system.css`；页面内联禁止 `@keyframes`。
-6. **修闪烁不许降低动画质量** —— 删冗余曲线，保留原动效参数。
-7. **`transform`/`opacity` 是合成属性，`filter`/`backdrop-filter` 是绘制属性** —— 别在会动的元素上用后者。
-8. **排查闪烁要枚举祖先链**，元凶常在祖先上。
-9. **用户说「你改之前是好的」时，先查自己的 diff。**
-10. **验证要端到端** —— `curl` 真实接口、跑真实上传、量真实计算样式，不要只看改了没改。
+6. **跨页能力只准有一份**，在 `app-core.js`（`window.KVault`）。
+   页面里再写一份 `formatBytes` / 复制 / toast = 漂移起点，`check_shared.py` 会拦。
+7. **页面内联 `<style>` 只写「共享层没有的属性」**。
+   若写的是共享层已有的同名属性，那就是在覆盖共享组件 —— 改共享层，别改页面。
+8. **修闪烁不许降低动画质量** —— 删冗余曲线，保留原动效参数。
+9. **`transform`/`opacity` 是合成属性，`filter`/`backdrop-filter` 是绘制属性** —— 别在会动的元素上用后者。
+10. **排查闪烁要枚举祖先链**，元凶常在祖先上。
+11. **用户说「你改之前是好的」时，先查自己的 diff。**
+12. **验证要端到端** —— `curl` 真实接口、跑真实上传、量真实计算样式，不要只看改了没改。

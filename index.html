@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="light" data-own-theme-toggle>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -7,8 +7,11 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="apple-touch-icon" href="/logo.png">
     <link rel="shortcut icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/design-system.css" />
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/design-system.css" />
+    <link rel="stylesheet" href="/theme.css" />
+    <script src="/theme.js?v=20260305"></script>
+    <script src="/app-core.js"></script>
     <style>
       /* 设计令牌 / 基础组件 / 动效关键帧 / Vue 过渡族 已统一到 /design-system.css（单一事实来源）。
          本文件只保留 index 页特有的样式，不再重复定义任何全站通用规则。 */
@@ -30,13 +33,13 @@
         transition: background-color 0.55s var(--ease-apple), color 0.55s var(--ease-apple);
       }
 
-      .mono { font-family: 'JetBrains Mono', monospace; }
+      /* .mono 已上收到 design-system.css（小工具类，全站一份） */
 
       /* =========================================================
          Ambient Glow
          ========================================================= */
-      .ambient-glow { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
-      .ambient-orb { position: absolute; border-radius: 50%; opacity: 0.48; }
+      /* .ambient-glow / .ambient-orb 基类已上收到 design-system.css。
+         这里只保留本页光球的位置/尺寸/配色/动画（以 index 为准）。 */
       .orb-1 { top: -10%; left: 5%; width: 420px; height: 420px; background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, rgba(56, 189, 248, 0.10) 40%, transparent 72%); animation: orbFloat 18s var(--ease-apple) infinite alternate; }
       .orb-2 { bottom: 5%; right: -5%; width: 460px; height: 460px; background: radial-gradient(circle, rgba(14, 165, 233, 0.22) 0%, rgba(14, 165, 233, 0.06) 42%, transparent 72%); animation: orbFloat 22s var(--ease-apple) -6s infinite alternate-reverse; }
 
@@ -165,15 +168,8 @@
       .modal-mask--bottom { align-items: flex-end; }
       .modal-mask--center { align-items: center; }
 
-      .modal {
-        background: var(--glass-elevated);
-        backdrop-filter: blur(32px);
-        -webkit-backdrop-filter: blur(32px);
-        border: 1.5px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-elevated);
-        overflow-y: auto;
-        will-change: transform, opacity;
-      }
+      /* .modal 基础玻璃质感已上收到 design-system.css（以 index 为准），
+         这里不再重复定义，只保留本页的尺寸/布局增量。 */
       .modal--sheet {
   width: min(640px, 100%);
   /* 1. 新增：固定高度，统一体验 */
@@ -723,7 +719,7 @@ html[data-theme="dark"] .folder-new { background: rgba(var(--primary-rgb), 0.09)
 html[data-theme="dark"] .folder-new__title { color: var(--primary-light); }
 .folder-new__hint { margin-top: 6px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
 .folder-new__actions { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
-.grow { flex: 1; }
+/* .grow 已上收到 design-system.css（本页用的就是它的基础形态，无需增量） */
 
 /* 目录树 */
 .section-label, .settings-group__header, .hist-group__label { display: flex; align-items: center; gap: 7px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; color: var(--text-muted); line-height: 1.4; }
@@ -2540,11 +2536,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             return (bps / 1024).toFixed(0) + " KB/s";
           },
           formatSize(bytes) {
-            if (!bytes) return "0 B";
-            const k = 1024;
-            const sizes = ["B", "KB", "MB", "GB"];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return (bytes / Math.pow(k, i)).toFixed(1) + " " + sizes[i];
+            return KVault.formatBytes(bytes);
           },
           formatHistoryTime(ts) {
             if (!ts) return "未知时间";
@@ -2636,19 +2628,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.expandedTaskNames[key] = !this.expandedTaskNames[key];
           },
           copyToClipboard(text) {
-            const t = document.createElement("textarea");
-            t.value = text;
-            t.style.position = "fixed";
-            t.style.opacity = "0";
-            document.body.appendChild(t);
-            t.select();
-            document.execCommand("copy");
-            document.body.removeChild(t);
+            /* 改走共享层：降级链路只有一份，返回 Promise 供调用方按需链式处理 */
+            return KVault.copy(text);
           },
           showToast(message, type = "info") {
             this.toasts.push({ message, type });
             this.toastKey++;
-            setTimeout(() => { this.toasts.shift(); }, 2800);
+            /* 时长改由共享层统一计算（长的消息停久一点），与其它页面一致 */
+            setTimeout(() => { this.toasts.shift(); }, KVault.toastDelay(message));
           },
 
           /* =====================================================
@@ -3001,9 +2988,15 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (next) this.switchDrawerTab(next);
           },
           toggleLiquidTheme() {
-            this.currentTheme = this.currentTheme === "dark" ? "light" : "dark";
-            document.documentElement.setAttribute("data-theme", this.currentTheme);
-            try { localStorage.setItem("theme", this.currentTheme); } catch (e) {}
+            /* 走 theme.js 统一入口：由它负责写 data-theme、持久化、并广播给所有切换入口。
+               本页用 data-own-theme-toggle 声明「自带按钮」，theme.js 不会另造浮动按钮。 */
+            if (window.ThemeManager) {
+              this.currentTheme = window.ThemeManager.toggleTheme();
+            } else {
+              this.currentTheme = this.currentTheme === "dark" ? "light" : "dark";
+              document.documentElement.setAttribute("data-theme", this.currentTheme);
+              try { localStorage.setItem("theme", this.currentTheme); } catch (e) {}
+            }
           },
 
           /* ===== 存储节点 ===== */

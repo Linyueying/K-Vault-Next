@@ -1,7 +1,11 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "themeMode";
+  /* 与各页既有实现共用同一个存储键。
+     历史上这里用 "themeMode"，而 index.html / admin.html 自带的切换逻辑用 "theme"，
+     两套键并存会导致主题偏好互相覆盖、刷新后回退。统一到 "theme"。 */
+  var STORAGE_KEY = "theme";
+  var LEGACY_KEY = "themeMode";
   var THEME_ATTR = "data-theme";
   var VALID = { light: true, dark: true };
   var root = document.documentElement;
@@ -12,7 +16,16 @@
 
   function getStoredTheme() {
     try {
-      return normalizeTheme(localStorage.getItem(STORAGE_KEY));
+      var value = localStorage.getItem(STORAGE_KEY);
+      if (!value) {
+        // 兼容旧键：迁移一次，避免老用户偏好丢失
+        var legacy = localStorage.getItem(LEGACY_KEY);
+        if (legacy && VALID[legacy]) {
+          localStorage.setItem(STORAGE_KEY, legacy);
+          value = legacy;
+        }
+      }
+      return normalizeTheme(value);
     } catch (e) {
       return "light";
     }
@@ -98,24 +111,28 @@
     return button;
   }
 
+  /* 页面若已自带主题切换按钮（例如 index.html 的 toggleLiquidTheme、admin.html 的
+     toggleTheme），就不要凭空再造一个浮动按钮 —— 那会出现两个切换入口，观感与
+     行为都不对。
+     注意：这里刻意用一个**独立属性名** `data-own-theme-toggle`，而不是复用
+     `data-theme-toggle`。后者会被 initDom() 的 querySelectorAll('[data-theme-toggle]')
+     扫到并绑定点击处理器；若挂在 <body> 上，body 就会变成第二个切换按钮，
+     导致同一次点击被处理两次、主题来回抵消。 */
+  function pageHasOwnToggle() {
+    return document.documentElement.hasAttribute("data-own-theme-toggle");
+  }
+
   function ensureAutoToggle() {
     if (document.querySelector("[data-theme-toggle]")) return;
+    if (pageHasOwnToggle()) return;
 
-    var navLinks = document.querySelector(".header .nav-links");
-    if (navLinks) {
-      var inlineBtn = createToggleButton("theme-auto-inline-toggle");
-      navLinks.insertBefore(inlineBtn, navLinks.firstChild);
-      bindToggle(inlineBtn);
-      return;
-    }
-
-    var adminActions = document.querySelector(".header-content .actions");
-    if (adminActions) {
-      var adminBtn = createToggleButton("theme-admin-toggle");
-      adminActions.insertBefore(adminBtn, adminActions.firstChild);
-      bindToggle(adminBtn);
-      return;
-    }
+    /* 这里原本还有两条「插入到页头」的分支：
+         document.querySelector(".header .nav-links")
+         document.querySelector(".header-content .actions")
+       但本仓库 8 个页面里**都不存在** .header / .nav-links / .header-content，
+       两个选择器永远匹配不到，属历史遗留的死分支（伴随一整层对应的死 CSS）。
+       已删除。现在只有下面这条浮动按钮路径会生效 —— 它正是实际一直在跑的那条，
+       也是 paste / share / preview / login 四页看到浮动开关的原因。 */
 
     if (document.body && document.body.dataset.disableThemeToggle === "true") {
       return;

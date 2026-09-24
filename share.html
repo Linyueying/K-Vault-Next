@@ -8,7 +8,13 @@
 <meta name="robots" content="noindex, nofollow, noarchive">
 <title>文件分享 · K-Vault</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/logo.png">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
 <link rel="stylesheet" href="/design-system.css">
+<link rel="stylesheet" href="/theme.css">
+<script src="/theme.js?v=20260305"></script>
+<script src="/app-core.js"></script>
 <style>
   /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
 
@@ -153,67 +159,9 @@
   }
 
   /* ===== 密码门 ===== */
-  .password-gate {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    text-align: center;
-    max-width: 380px;
-    padding: 28px 24px;
-    border-radius: var(--radius-lg);
-    background: var(--surface-1);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--shadow-soft);
-  }
-  .password-gate-icon {
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.3rem;
-    color: var(--primary);
-    background: rgba(var(--primary-rgb), 0.12);
-  }
-  .password-gate-title { font-size: 1rem; font-weight: 700; }
-  .password-gate-desc {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    line-height: 1.5;
-  }
-  .password-gate-form { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
-  .password-gate-form input {
-    flex: 1;
-    min-width: 0;
-    font-family: inherit;
-    font-size: 0.86rem;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--glass-border-ice);
-    background: var(--surface-2);
-    color: inherit;
-    outline: none;
-    transition: var(--transition);
-  }
-  .password-gate-form input:focus { border-color: var(--primary); }
-  .password-gate-form button {
-    font-family: inherit;
-    font-size: 0.86rem;
-    font-weight: 600;
-    color: #fff;
-    background: var(--primary);
-    border: none;
-    border-radius: 10px;
-    padding: 10px 16px;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: var(--transition);
-  }
-  .password-gate-form button:hover:not(:disabled) { background: var(--primary-dark); }
-  .password-gate-form button:disabled { opacity: 0.6; cursor: progress; }
-  .password-gate-error { font-size: 0.78rem; color: var(--danger); }
+  /* .password-gate 系列已上收到 design-system.css（以本页的令牌版为准，
+     preview 原先那版把令牌写成了硬编码回退值，换主题不跟随）。
+     本页的入场动画增量在上方「首屏入场编排」里统一声明。 */
 
   /* ===== 文件信息区 ===== */
   .file-head {
@@ -779,13 +727,8 @@ setTimeout(function () {
 
       // ---------- 工具 ----------
       formatSize: function (bytes) {
-        var value = Number(bytes) || 0;
-        if (value <= 0) return '未知大小';
-        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        var i = 0;
-        var size = value;
-        while (size >= 1024 && i < units.length - 1) { size /= 1024; i += 1; }
-        return (i === 0 ? size : size.toFixed(size >= 100 ? 0 : 1)) + ' ' + units[i];
+        /* 改走共享层；保留本页特有语义：未知/零体积显示「未知大小」而非「0 B」 */
+        return KVault.formatBytes(bytes, { zero: '未知大小' });
       },
 
       formatDuration: function (ms) {
@@ -815,7 +758,7 @@ setTimeout(function () {
         var self = this;
         setTimeout(function () {
           self.toasts = self.toasts.filter(function (t) { return t.id !== id; });
-        }, 2600);
+        }, KVault.toastDelay(text));
       }
     }
   });

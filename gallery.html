@@ -7,10 +7,11 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/logo.png">
   <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="stylesheet" href="/design-system.css">
-    <link rel="stylesheet" href="/theme.css">
-  <script src="/theme.js?v=20260305"></script>
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="/design-system.css">
+  <link rel="stylesheet" href="/theme.css">
+  <script src="/theme.js?v=20260305"></script>
+  <script src="/app-core.js"></script>
   <style>
     /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
 
@@ -34,21 +35,11 @@
       transition: background-color 0.3s ease, color 0.3s ease;
     }
 
-    /* ===== Ambient Background ===== */
-    .ambient-glow {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      overflow: hidden;
-    }
-    .ambient-orb {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(90px);
-      opacity: 0.5;
-      transform: translate3d(0, 0, 0);
-    }
+    /* ===== Ambient Background =====
+       基类 .ambient-glow / .ambient-orb 已上收到 design-system.css（以 index 为准）。
+       原 gallery 版额外加了 filter: blur(90px) —— 与径向渐变柔化冗余，
+       且 blur 是绘制属性、会拖低端设备帧率，已统一去掉。
+       这里只保留本页光球的位置/尺寸/配色。 */
     .orb-1 {
       top: -12%;
       left: 4%;
@@ -1555,16 +1546,9 @@
         },
 
         copyToClipboard(text) {
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(text);
-          } else {
-            const textarea = document.createElement('textarea');
-            document.body.appendChild(textarea);
-            textarea.value = text;
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
-          }
+          /* 原实现没有处理 writeText 的 Promise 拒绝（非安全上下文会静默失败），
+             统一走共享层：内部已包含 Promise 兜底与 execCommand 降级 */
+          KVault.copy(text);
         },
 
         showToast(message, type = 'info') {
@@ -1573,16 +1557,12 @@
           setTimeout(() => {
             const index = this.toasts.indexOf(toast);
             if (index > -1) this.toasts.splice(index, 1);
-          }, 3000);
+          }, KVault.toastDelay(message));
         },
 
         getToastIcon(type) {
-          const icons = {
-            success: 'fas fa-circle-check',
-            error: 'fas fa-triangle-exclamation',
-            info: 'fas fa-circle-info'
-          };
-          return icons[type] || icons.info;
+          /* 图标映射改由共享层提供，全站一致 */
+          return KVault.toastIcon(type);
         },
 
         async checkAuth() {

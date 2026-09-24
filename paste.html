@@ -6,10 +6,12 @@
 <title>文本粘贴 | K-Vault</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/logo.png">
+<link rel="shortcut icon" href="/favicon.ico">
 <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
 <link rel="stylesheet" href="/design-system.css">
 <link rel="stylesheet" href="/theme.css">
 <script src="/theme.js?v=20260305"></script>
+<script src="/app-core.js"></script>
 <style>
 /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css */
 
@@ -23,8 +25,8 @@ body{
 a{color:inherit;text-decoration:none}
 button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
 
-.ambient-glow{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
-.ambient-orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+/* .ambient-glow / .ambient-orb 基类已上收到 design-system.css（以 index 为准，
+   不再叠加 blur —— 与径向渐变冗余且属绘制属性）。这里只保留本页光球的位置/尺寸/配色。 */
 .orb-1{width:340px;height:340px;background:rgba(var(--primary-rgb),.28);top:-90px;left:-80px}
 .orb-2{width:300px;height:300px;background:rgba(56,189,248,.22);bottom:-100px;right:-70px}
 
@@ -609,32 +611,16 @@ setTimeout(function () {
       },
 
       copyText(text, message) {
+        /* 改走共享层：复制的降级链路（clipboard → execCommand → 手动）只有一份 */
         const value = String(text == null ? "" : text);
-        if (!value) return;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(value).then(
-            () => this.showToast(message || "已复制", "success"),
-            () => this.fallbackCopy(value, message)
-          );
-          return;
-        }
-        this.fallbackCopy(value, message);
-      },
-
-      fallbackCopy(value, message) {
-        try {
-          const area = document.createElement("textarea");
-          area.value = value;
-          area.style.position = "fixed";
-          area.style.opacity = "0";
-          document.body.appendChild(area);
-          area.select();
-          document.execCommand("copy");
-          area.remove();
-          this.showToast(message || "已复制", "success");
-        } catch (e) {
-          window.prompt("手动复制", value);
-        }
+        const label = message || "已复制";
+        KVault.copy(value).then((ok) => {
+          if (ok) {
+            this.showToast(label, "success");
+          } else {
+            window.prompt("手动复制", value);
+          }
+        });
       },
 
       formatTime(ts) {
@@ -646,11 +632,8 @@ setTimeout(function () {
       },
 
       formatSize(bytes) {
-        const value = Number(bytes || 0);
-        if (!value) return "0 B";
-        if (value < 1024) return value + " B";
-        if (value < 1024 * 1024) return (value / 1024).toFixed(1) + " KB";
-        return (value / 1024 / 1024).toFixed(2) + " MB";
+        /* 改走共享层：原实现缺少 GB 档，超过 1GB 的文件会被显示成「1024.00 MB」 */
+        return KVault.formatBytes(bytes);
       },
 
       remaining(expiresAt) {
@@ -678,7 +661,7 @@ setTimeout(function () {
         this.toasts.push({ id: id, text: text, type: type || "" });
         setTimeout(() => {
           this.toasts = this.toasts.filter((t) => t.id !== id);
-        }, 2600);
+        }, KVault.toastDelay(text));
       }
     }
   });
