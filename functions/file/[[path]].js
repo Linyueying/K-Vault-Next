@@ -86,42 +86,65 @@ const MIME_TYPES = {
  */
 export async function onRequest(context) {
   const response = await handleRequest(context);
-  const tracked = await trackDownloadsIfNeeded(context, response);
+  /* HEAD 在进计次之前就脱掉 body：下游的 trackDownloadsIfNeeded 拿不到流，
+     也就不会为一次「只问在不在」的探测去做流包装。 */
+  const headless = stripBodyForHead(context.request, response);
+  const tracked = await trackDownloadsIfNeeded(context, headless);
   return applyDownloadDisposition(context, tracked);
 }
 
 /**
- * 核销一次分享下载。
+ * HEAD 响应收敛：只保留状态行与响应头，不带 body。
  *
- * 两条判断彼此独立，不共用同一个开关：
- *   · **记不记**（`shouldCountAsDownload`）—— 是不是一次真正的下载请求；
- *   · **这次要不要拦流**（状态码 2xx + 有 body）—— 用于区分「字节交付完成」
- *     与「中途失败」。下载走的是流式响应，「拿到 Response 对象」不等于
- *     「字节已经送出去了」。
+ * 每个存储分支都是照着 GET 写的（拉对象 / 拉上游），对 HEAD 也原样跑一遍。
+ * 与其让分支各自判断 method，不如在最外层统一脱 body —— 顺带保证 workerd
+ * 不再去 pull 那条流。
  *
- * 之所以必须把这一层独立出来：上游存储不可用时返回的是 500，
- * 响应根本不是下载，却仍然会被计入配额 —— 用户没拿到文件，配额却少了。
- * 这里只对 2xx 流做如实计数，失败一律不写账。
+ * 注意这只能省掉「边缘 → 客户端」这一段的开销；真正省掉上游读取的，是
+ * R2 分支里改用 `head()` 的短路（见 handleR2File）。
+ *
+ * @param request - 原始请求。
+ * @param response - 待收敛的响应。
+ * @returns 无 body 的响应（非 HEAD 或本来就没 body 时原样返回）。
+ */
+function stripBodyForHead(request, response) {
+  if (!response) return response;
+  if (String(request?.method || '').toUpperCase() !== 'HEAD') return response;
+  if (!response.body) return response;
+
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/**
+ * 核销一次分享下载（乐观计数）。
+ *
+ * 判断只有一条：`shouldCountAsDownload` —— 是不是一次真正的下载请求。
+ * 命中就用 `waitUntil` 落账，响应**原样放行**，不碰响应体。
+ *
+ * 为什么不再「等字节发完再记」：那需要在响应流上挂钩子（旧实现是把 body
+ * 包进自定义 ReadableStream 数字节），而 workerd 一旦发现 body 被重新包装，
+ * 就会剥掉显式设置的 Content-Length、退化成 chunked —— 浏览器（尤其手机端）
+ * 拿不到长度，下载框显示 0 B、进度条不动，看起来和卡死没区别。
+ * 保住长度，比「数完字节才算数」重要得多。
+ *
+ * 计次语义因此从「字节交付完成」放宽为「字节开始交付」：用户中途取消也会
+ * 记一次。这与「上游 5xx 仍计次」是同一个取舍（见下）—— 宁可多记一次，
+ * 也不留下一个反复重放就能绕过配额的入口。
  *
  * @param context - Pages 请求上下文。
- * @param response - 已生成的响应。
- * @returns 计次后的响应（需要挂 stream 尾钩时会重建响应）。
+ * @param response - 已生成的响应（HEAD 在进这里之前已是无 body 响应）。
+ * @returns 原响应。
  */
 async function trackDownloadsIfNeeded(context, response) {
   const pending = context.__kvTrackPending;
   // 无待记账目标 → 不是分享链接，直接放行（绝大多数请求走这条）。
-  // 这条放行不只是省事：workerd 对「原生流」（R2 body / fetch body）会保留
-  // 显式设置的 Content-Length，但只要 body 被读出来包进自定义
-  // ReadableStream，Content-Length 就会被运行时剥掉、退化成 chunked ——
-  // 浏览器（尤其手机端）拿不到长度，下载确认框显示 0.0 B。所以没有
-  // 记账目标时必须让原生流原样直达，任何包装都是有害的。
   if (!pending || !response) return response;
   if (!pending.file && !pending.bundle) return response;
 
-  // 两条判断用得是同一把尺子：
-  //   · 「这是一次下载请求吗」—— GET + 显式 dl=1；
-  //   · 「这次请求真的交付了字节吗」—— 2xx 且有 body。
-  //
   // 关于上游 5xx 的取舍：它同样计入配额。理由是这个 500 来自「拿不到上游
   // 文件路径」，而分享页此时已经通过 /api/share-info 确认过文件存在，
   // 也就是说这是一次针对有效文件的、真实的访问尝试 —— 与「链接猜错了」
@@ -130,48 +153,21 @@ async function trackDownloadsIfNeeded(context, response) {
   //
   // 真正不该计数的是「响应都没生成」的情况（404 文件不存在、401/403/410
   // 被闸门拦下、OPTIONS 预检）—— 那些在 shouldCountAsDownload 里已排除。
-  const delivered = response.status === 200 || response.status === 206;
-  const streamable = delivered && response.body && !response.bodyUsed;
   const counting = shouldCountAsDownload(context.request, response);
-  if (counting && typeof context.waitUntil === 'function') context.waitUntil(settleTrackCounts(context, pending));
+  if (counting && typeof context.waitUntil === 'function') {
+    context.waitUntil(settleTrackCounts(context, pending));
+  }
 
-  if (!streamable) return response;
-
-  const probe = response.body.getReader();
-  const tracker = new ReadableStream({
-    start(controller) {
-      controller.enqueue(new Uint8Array(0));
-    },
-    async pull(controller) {
-      try {
-        const { done, value } = await probe.read();
-        if (done) {
-          controller.close();
-          return;
-        }
-        controller.enqueue(value);
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-    cancel(reason) {
-      probe.cancel(reason).catch(() => {});
-    },
-  });
-
-  return new Response(tracker, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
+  // 原生流必须原样直达：任何包装都会让 Content-Length 丢失（见函数头注释）。
+  return response;
 }
 
 /**
  * 把「这一请求该记在哪本账上」暂存到 context，交给外层计次。
  *
- * 为什么不在当前层直接计次：文件和合集的计数都要求访问者真的拿到了字节。
- * 上游存储不可用时（比如 500），内层已经返回了响应对象，此时计次会
- * 把一次失败的下载算成配额消耗 —— 用户没拿到文件，配额却少了。
+ * 为什么不在当前层直接计次：计次要同时看到「是不是一次下载请求」和最终的
+ * 响应状态（闸门可能在这一层之后才把它判成 401/403/410），这两样只有
+ * 最外层才拿得全。内层只登记、不落账。
  *
  * `shareAccess` 必须是原始对象，不能是可能为 null 的中间值：
  * 这里只在它带 `trackDownload` 时才记，语义与旧的 inline 判断一致。
@@ -187,9 +183,7 @@ function rememberTrackTargets(context, shareAccess, bundleAccess = {}) {
       : null;
   const bundle = bundleAccess?.trackDownload && bundleAccess.slug ? { slug: bundleAccess.slug } : null;
   // 两个目标都不存在时不要设置 pending：普通（非分享）下载占绝大多数，
-  // 一旦设置了 pending，trackDownloadsIfNeeded 就会把原生流包装成自定义
-  // ReadableStream，workerd 会因此剥掉 Content-Length（详见那里的注释），
-  // 浏览器下载框显示 0.0 B。不设置 pending = 原生流直达 = 长度保留。
+  // 没有记账目标就没有理由让它们多走一层判断。
   if (!file && !bundle) return;
   context.__kvTrackPending = { env: context.env, file, bundle };
 }
@@ -778,6 +772,21 @@ async function handleR2File(context, r2Key, record = null) {
   }
 
   if (!object) {
+    /* HEAD 只要元数据，用 head() 而不是 get()。
+       旧实现在这里也走 get() —— 于是每个 HEAD 探测都要把整个对象从 R2
+       读一遍，只为回答「在不在」。前端的失效探测、以及「清理失效历史」
+       那条 5 并发的 HEAD 批量，都被放大成了一次次全文读取。 */
+    if (String(request.method || '').toUpperCase() === 'HEAD') {
+      const meta = await env.R2_BUCKET.head(r2Key);
+      if (!meta) return errorResponse('File not found in R2', 404);
+
+      const headHeaders = new Headers();
+      addResponseHeaders(headHeaders, fileName, mimeType);
+      headHeaders.set('Content-Length', String(meta.size));
+
+      return new Response(null, { status: 200, headers: headHeaders });
+    }
+
     object = await env.R2_BUCKET.get(r2Key);
   }
 
@@ -998,12 +1007,13 @@ async function handleGitHubFile(context, fileId, record = null) {
 async function findRecordByPrefixes(env, fileId, prefixes = []) {
   if (!env.img_url) return null;
 
-  for (const prefix of prefixes) {
-    const key = `${prefix}${fileId}`;
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) return record;
-  }
-  return null;
+  // 并发探测：串行版本最坏要把 prefixes.length 次 KV 往返叠起来。
+  // 命中判定仍按 prefixes 的原顺序取第一个，语义与串行版一致。
+  const keys = prefixes.map((prefix) => `${prefix}${fileId}`);
+  const probed = await Promise.all(
+    keys.map((key) => env.img_url.getWithMetadata(key).catch(() => null))
+  );
+  return probed.find((record) => record?.metadata) || null;
 }
 
 async function getTelegramFilePath(env, fileId) {

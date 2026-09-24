@@ -205,20 +205,30 @@ export async function getRecordWithKey(env, fileId, options = {}) {
     }
   }
 
-  // 路径 C：回落逐前缀串行探测（保留原有语义与顺序）
+  // 路径 C：回落后**并发**探测（候选集合与命中优先级沿用原有语义与顺序）。
+  //
+  // 旧实现是逐前缀串行 await：最坏 11 次 KV 往返叠在一起，光是定位一条记录
+  // 就可能付出近 1 秒 —— 而这只是下载的前置步骤。并发后最坏延迟等于一次
+  // 往返。代价是读次数从「命中即停」变成「全部发出」，但它只在索引缺失时
+  // 发生（老数据），且命中后会回填索引，之后永久走 1~2 次读的快路径：
+  // 用一次性的读放大，换掉后续的长期延迟。
   const candidateKeys = buildCandidateKeys(value, { prefixes, forceAll: options.forceAll === true });
-  for (const key of candidateKeys) {
-    const record = await env.img_url.getWithMetadata(key);
-    if (record?.metadata) {
-      // 命中后回填索引（幂等；失败不影响本次结果）
-      if (!options.skipIndex) {
-        await putRecordIndex(env, key, { prefixes, indexId: value });
-      }
-      if (typeof options.onIndexHit === 'function') {
-        options.onIndexHit({ indexed: false, kvKey: key });
-      }
-      return { record, kvKey: key };
+  const probed = await Promise.all(
+    candidateKeys.map((key) => env.img_url.getWithMetadata(key).catch(() => null))
+  );
+
+  // candidateKeys 的顺序就是优先级；并发只改变等待方式，不改变「谁优先」。
+  const hitIndex = probed.findIndex((record) => record?.metadata);
+  if (hitIndex !== -1) {
+    const key = candidateKeys[hitIndex];
+    // 命中后回填索引（幂等；失败不影响本次结果）
+    if (!options.skipIndex) {
+      await putRecordIndex(env, key, { prefixes, indexId: value });
     }
+    if (typeof options.onIndexHit === 'function') {
+      options.onIndexHit({ indexed: false, kvKey: key });
+    }
+    return { record: probed[hitIndex], kvKey: key };
   }
 
   if (typeof options.onIndexHit === 'function') {
