@@ -135,13 +135,19 @@ BASE=http://127.0.0.1:8099 CHROME_PATH=/usr/bin/chromium \
 
 核对 index 底部 Dock 改造（iOS 27 式）：① 指示器玻璃化（渐变底 + inset 高光 +
 spring 过渡）；② 点击 0→3 指示器**真实渲染位**逐格右移；③ 「更多功能」与抽屉内
-「系统导航」都停在**第 4 格**（menu/history 两个 tab 共用一格）；④ 跟手拖拽后
-吸附到最近格并执行对应抽屉行为、且不误触发点击；⑤ 容器高透（alpha≈0.42）+
-`blur + saturate`；⑥ 无横向溢出；⑦ 移动端 padding 收紧、blur 降级到 14px、
-指示器 4 格右缘与 dock 内地缘对齐。
-**坑**：验证必须读 `getBoundingClientRect().left`，**不能读 `--dock-i`**（那只是
-输入，读它会得到"永远不动"或假阳性）；另外抽屉打开时 `modal-mask`(z-index 2000)
-覆盖 dock(z-index 100)，点 dock 前须先关抽屉（既有产品行为）。
+「系统导航」都停在**第 4 格**（menu/history 两个 tab 共用一格）；④ 跟手拖拽
+**全程无瞬移**（2px 步长采 188 点，断言相邻位移 ≤ 8px —— 旧的双变量叠加 bug
+实测突跳 125.5px，必被抓住）并吸附到最近格、落点与目标格重合、执行对应抽屉
+行为、不误触发点击；⑤ 容器高透（alpha≈0.42）+ `blur + saturate`；⑥ 无横向溢出；
+⑦ 移动端 padding 收紧、blur 降级到 14px、指示器 4 格右缘与 dock 内地缘对齐。
+**坑**：
+1. 验证必须读 `getBoundingClientRect().left`，**不能读 `--dock-pos`**（那只是
+   输入，读它会得到"永远不动"或假阳性）。
+2. 抽屉打开时 `modal-mask`(z-index 2000) 覆盖 dock(z-index 100)，点 dock 前
+   须先关抽屉（既有产品行为）。
+3. 「无瞬移」阈值**不能**按槽宽定（槽宽≈102px，取 2.5×=309px 会放过 125px 的
+   瞬移）。要按**手指步长**定，取 4×（=8px）。改动本断言后，建议临时注入
+   旧架构（`--dock-i` + `--dock-drag-x` 叠加）自证它**能检出** —— 铁律 14。
 
 ### `glass-fx.mjs` —— 液态玻璃增强层（glassfx）运行时验证
 

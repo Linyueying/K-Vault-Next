@@ -3,10 +3,11 @@
  * ---------------------------------------------------------------------------
  * 验证 index 页底部 Dock 改造：
  *   ① 指示器存在且「玻璃化」（渐变 + inset 高光 + spring 过渡）
- *   ② 点击各格 → 指示器真实渲染位右移（读 getBoundingClientRect，不读 --dock-i，
+ *   ② 点击各格 → 指示器真实渲染位右移（读 getBoundingClientRect，不读 --dock-pos，
  *      后者只是输入、会造成假阳性）
  *   ③ 「更多功能」停在第 4 格（history 与 menu 两个 tab 都映射到 slot 3）
- *   ④ 跟手拖拽 → 松手吸附到最近格并执行对应抽屉行为；且拖后不误触发点击
+ *   ④ 跟手拖拽 → 2px 细粒度采样全程无瞬移（相邻位移 ≤ 步长×2.5）+ 松手吸附到
+ *      最近格并执行对应抽屉行为；且拖后不误触发点击
  *   ⑤ 容器高透（背景 alpha 显著低于原不透明玻璃）
  *   ⑥ 无横向溢出、无 JS 报错
  *   ⑦ 移动视口：padd 收紧、指示器仍等分对齐
@@ -149,18 +150,41 @@ async function main() {
     await page.mouse.move(startX, y);
     await page.mouse.down();
 
-    // 分步拖拽并采样指示器左边界，检验「连续跟手」而非「逐格跳动」
-    await page.mouse.move(startX + 10, y, { steps: 2 }); // 先越过 6px 死区锁定
+    // 先越过 6px 死区锁定横向
+    await page.mouse.move(startX + 10, y, { steps: 2 });
     await page.waitForTimeout(60);
-    const samples = [];
-    const steps = 12;
-    for (let i = 1; i <= steps; i++) {
-      const tx = startX + (dock.width * 0.5 * i) / steps;
-      await page.mouse.move(tx, y, { steps: 2 });
-      await page.waitForTimeout(24);
-      samples.push(await indicatorLeft(page));
+
+    /* ④a 无瞬移硬断言（本脚本的核心防线）
+       ------------------------------------------------------------------
+       历史 bug：位移曾是 `i * 步长 + dragX` 双变量叠加，换格时 i 跳一整格
+       而 dragX 已含该位移 → 指示器瞬移一整个槽位（实测 +102~125px）。
+       根治方式：位移改为单一浮点 --dock-pos，换格不再改变任何变量语义。
+       判据：以 2px 步长连续移动，逐点采样 getBoundingClientRect().left。
+       跟手时位移应≈手指位移，故相邻采样差应贴住 2px；一旦出现阶跃
+       （换格重新累计）就会飙到 ~100px。取 4×步长(=8px) 作上限：
+       既容忍采样抖动与 transition 残留，又远低于一个槽位宽度。 */
+    const SAMPLING_PX = 2;             // 手指每步移动的像素
+    const JUMP_LIMIT = SAMPLING_PX * 4; // 单次采样允许的最大位移（像素）
+    const fineSamples = [];
+    const span = dock.width * 0.75;    // 拖过约 3 格
+    const fineSteps = Math.round(span / SAMPLING_PX);
+    for (let i = 1; i <= fineSteps; i++) {
+      const tx = startX + (span * i) / fineSteps;
+      await page.mouse.move(tx, y);
+      fineSamples.push(await indicatorLeft(page));
     }
-    // 跟手判据：采样点应大体单调递增，且存在「非格点」的中间位置
+    let maxJump = 0;
+    let jumpAt = -1;
+    for (let i = 1; i < fineSamples.length; i++) {
+      const d = fineSamples[i] - fineSamples[i - 1];
+      if (Math.abs(d) > Math.abs(maxJump)) { maxJump = d; jumpAt = i; }
+    }
+    Math.abs(maxJump) <= JUMP_LIMIT
+      ? ok(`拖拽全程无瞬移（${fineSamples.length} 点采样，最大相邻位移 ${maxJump.toFixed(1)}px ≤ ${JUMP_LIMIT.toFixed(0)}px）`)
+      : bad(`检测到瞬移：第 ${jumpAt} 个采样点突跳 ${maxJump.toFixed(1)}px（上限 ${JUMP_LIMIT.toFixed(0)}px）`);
+
+    // 跟手判据：整体单调递增，且存在「非格点」的中间位置
+    const samples = fineSamples;
     const monoCount = samples.filter((v, i) => i === 0 || v > samples[i - 1] - 1).length;
     const slotXs = xs; // 先前点击得到的四格坐标
     const offGrid = samples.filter(
@@ -182,6 +206,10 @@ async function main() {
     landedSlot >= 1
       ? ok(`拖拽后吸附到第 ${landedSlot + 1} 格（x=${Math.round(xDrag)}）`)
       : bad(`拖拽后未离开首格（x=${Math.round(xDrag)}）`);
+    // 吸附精度：落点必须与目标格坐标几乎重合（弹簧动画结束后）
+    near(xDrag, xs[landedSlot], 2)
+      ? ok(`吸附落点与目标格重合（${xDrag.toFixed(1)} vs ${xs[landedSlot].toFixed(1)}）`)
+      : bad(`吸附落点偏离目标格：${xDrag.toFixed(1)} vs ${xs[landedSlot].toFixed(1)}`);
 
     // 拖拽落点对应的抽屉状态应已打开
     const state = await page.evaluate(() => {
