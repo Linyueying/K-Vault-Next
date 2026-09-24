@@ -81,12 +81,26 @@ node scripts/verify/visual-diff.mjs /tmp/before.json /tmp/after.json
 拍的不是截图，而是**关键元素的计算样式**（5 视口 × 8 页 × 13 元素 × 23 属性 = 520 项）。
 比截图严格：肉眼会漏 1px，字符串比对不会。
 
+### `queue-collapse.mjs` —— 队列/结果面板高度收起动画（真实上传全链路）
+
+```bash
+# 先按 AI-OPERATIONS.md §2.2 起带凭据的本地全栈（开放实例 /upload 会 401）
+BASE=http://127.0.0.1:8099 node scripts/verify/queue-collapse.mjs
+```
+
+登录（应用层 /api/auth/login）→ 预置 r2 → 页面内构造 File 走**真实上传** →
+逐帧采样两个面板的高度曲线：队列 enter 必须从 0 渐开、leave（2.5s 清理器
+移除任务后）必须平滑收起到 0、结果头部「选择/清空」必须在。
+背景：这两个面板原用 `rise`（不插值高度），任务完成瞬间塌陷、布局弹跳；
+已统一改共享层 `collapse` 过渡（`0fr↔1fr` 真插值 + `--ease-apple`）。
+**坑**：清理器清空 `uploadingFiles` 是同步的、leave 动画是异步的——采样
+面板消失要用元素引用（`el.isConnected`），不能用 `uploadingFiles.length`。
+
 ### `verify_classes.mjs` —— 上收类渲染验证
 
 ```bash
 node scripts/verify/verify_classes.mjs
 ```
-
 就地构造带这些类的元素，读计算样式，逐属性核对：`.ambient-glow` / `.ambient-orb`
 / `.mono` / `.grow` / `.password-gate*` / `.modal`（都是本次从各页面内联 `<style>`
 上收到 `design-system.css` 的）。**确认共享层真的在 8 页生效**，而不是因某页漏了

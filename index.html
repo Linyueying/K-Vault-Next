@@ -1285,8 +1285,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         </transition>
 
 <!-- 上传队列 -->
-<transition name="rise">
-<section class="card panel" v-if="uploadingFiles.length > 0">
+<transition name="collapse">
+<div class="collapse" v-if="uploadingFiles.length > 0">
+<div class="collapse__inner">
+<section class="card panel">
   <div class="panel__head">
     <span class="panel__title">
       <i class="fas fa-bars-progress"></i>
@@ -1368,6 +1370,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
   </div>
   </transition-group>
 </section>
+</div>
+</div>
 </transition>
         <!-- 交付结果 -->
         <transition name="collapse">
