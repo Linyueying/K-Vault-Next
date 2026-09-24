@@ -46,7 +46,14 @@ def check(path):
     if 'design-system.css' not in html:
         problems.append('未引入 design-system.css')
 
-    # 4) 引用的 CSS 变量是否在共享层里有定义
+    # 5) 图标库一致性：用了 FontAwesome 的 <i class="fa..."> 就必须引入它的样式表。
+    #    往 <head> 插新样式表时很容易顺手覆盖掉原有那一行，这个检查就是为了拦住它。
+    uses_fa = re.search(r'class="[^"]*\bfa[sbr]?\b', html) or re.search(r"class=\\?[\"'][^\"']*\bfa[sbr]?\b", html)
+    if uses_fa and 'fontawesome' not in html:
+        problems.append('使用了 FontAwesome 图标（fa/fas/far/fab）但未引入 '
+                        '/vendor/fontawesome/css/all.min.css')
+
+    # 6) 引用的 CSS 变量是否在共享层里有定义
     return problems
 
 
