@@ -766,3 +766,15 @@ git ls-remote 验证远端 SHA == 本地 HEAD
     `import()`（失败静默跳过，frosted 兜底）。给元素加 `.glass` 即得 rim + 光标 bloom
     +（Chromium）真实折射；页面内联的背景/边框/阴影会按源顺序覆盖它的默认外观，
     故**只取增强、不改既有设计**。验证脚本 `scripts/verify/glass-fx.mjs`。
+22. **`setPointerCapture` 会吃掉元素的 click，只在锁定拖拽后才捕获** —— 在
+    `pointerdown` 里就捕获，后续 click 会被重定向到捕获元素，按钮的原生 click
+    再也收不到（实测：点击 dock 完全无响应、`showDrawer` 不变）。正确做法是
+    `pointerdown` 只记录起点，等 `pointermove` 判定「横向占优」后再
+    `setPointerCapture`，让未拖拽的点击自然落到按钮上。
+23. **CSS 自定义属性降级要跟着特异性走** —— 组件内联写了 `--glass-blur: 20px`
+    后，共享层 `@media(max-width:680px) { :root { --glass-blur: 14px } }` **不会**
+    生效（内联特异性更高）。要在该组件的媒体查询里**显式**再覆盖一次，否则
+    移动端降级静默失效（实测 dock 移动端仍 20px）。验证脚本 `dock-indicator.mjs`。
+24. **验证滑动指示器必须读真实渲染位**，不能读 `--dock-i` —— 后者只是输入，
+    读它会得到「永远不动」或假阳性（实测 `--dock-i` 全程为 0 时，恰好等于
+    第 4 格坐标，令断言误判为通过）。要读 `getBoundingClientRect().left`。

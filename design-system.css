@@ -1266,4 +1266,6 @@ html[data-theme="dark"][data-perf="low"] {
     scroll-behavior: auto !important;
     will-change: auto !important;
   }
+  /* Dock 滑动指示器：直接跳格，不做弹性滑动（页面内联不重复声明该媒体查询）。 */
+  .dock__indicator { transition: none !important; }
 }

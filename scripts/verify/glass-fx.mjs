@@ -135,7 +135,12 @@ async function main() {
   await loginAndBoot(mpage);
 
   const mBlur = await mpage.evaluate(() => {
-    const el = document.querySelector(".glass") || document.querySelector(".card");
+    /* 优先取「普通玻璃容器」验证移动端降级；.dock 有自己内联的
+       --glass-blur，属于特例，单独看它会把结论带偏。 */
+    const el =
+      document.querySelector(".card") ||
+      document.querySelector(".panel") ||
+      document.querySelector(".glass");
     if (!el) return -1;
     const cs = getComputedStyle(el);
     const m = (cs.backdropFilter || "").match(/blur\(([\d.]+)px\)/);

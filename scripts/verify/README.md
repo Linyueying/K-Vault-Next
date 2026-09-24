@@ -126,6 +126,23 @@ BASE=http://127.0.0.1:8099 node scripts/verify/overflow-x.mjs
 **坑**：Playwright 测溢出**别开 `isMobile:true`** —— Chrome 移动端会把布局视口
 自动撑宽（390→401）去"容纳"超宽内容，`innerWidth` 跟着变大，溢出全部漏检。
 
+### `dock-indicator.mjs` —— 底部 Dock 液态玻璃 + 滑动指示器 + 跟手拖拽
+
+```bash
+BASE=http://127.0.0.1:8099 CHROME_PATH=/usr/bin/chromium \
+  BASIC_USER=admin BASIC_PASS=123 node scripts/verify/dock-indicator.mjs
+```
+
+核对 index 底部 Dock 改造（iOS 27 式）：① 指示器玻璃化（渐变底 + inset 高光 +
+spring 过渡）；② 点击 0→3 指示器**真实渲染位**逐格右移；③ 「更多功能」与抽屉内
+「系统导航」都停在**第 4 格**（menu/history 两个 tab 共用一格）；④ 跟手拖拽后
+吸附到最近格并执行对应抽屉行为、且不误触发点击；⑤ 容器高透（alpha≈0.42）+
+`blur + saturate`；⑥ 无横向溢出；⑦ 移动端 padding 收紧、blur 降级到 14px、
+指示器 4 格右缘与 dock 内地缘对齐。
+**坑**：验证必须读 `getBoundingClientRect().left`，**不能读 `--dock-i`**（那只是
+输入，读它会得到"永远不动"或假阳性）；另外抽屉打开时 `modal-mask`(z-index 2000)
+覆盖 dock(z-index 100)，点 dock 前须先关抽屉（既有产品行为）。
+
 ### `glass-fx.mjs` —— 液态玻璃增强层（glassfx）运行时验证
 
 ```bash

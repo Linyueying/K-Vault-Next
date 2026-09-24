@@ -979,19 +979,37 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         bottom: max(16px, env(safe-area-inset-bottom, 16px));
         left: 50%; transform: translateX(-50%);
         width: min(500px, calc(100% - 24px));
-        padding: 6px;
+        /* 几何令牌：指示器位移公式依赖它们，改这里即可整体调间距 */
+        --dock-pad: 6px;
+        --dock-gap: 6px;
+        /* 指示器落点（0-3）：静态默认 0，运行时由模板 :style 覆盖 */
+        --dock-i: 0;
+        /* 高透液态玻璃：由 .glass（glassfx）承担底/边/模糊/rim/bloom，
+           这里只覆盖令牌，不再声明 background / backdrop-filter / border
+           —— 内联样式优先级高于共享层 @import，重写规则会压掉 glassfx。 */
+        --glass-tint: 255, 255, 255;
+        --glass-alpha: 0.42;
+        --glass-blur: 20px;
+        --glass-saturate: 1.8;
+        --glass-sheen: 0.16;
+        --glass-rim: 0.55;
+        --glass-radius: 9999px;
+        padding: var(--dock-pad);
         border-radius: var(--r-pill);
-        background: var(--glass-elevated);
-        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-        border: 1.5px solid var(--glass-border-ice);
-        box-shadow: 0 16px 40px -10px rgba(2, 132, 199, 0.2), 0 4px 14px -3px rgba(0, 0, 0, 0.06);
+        box-shadow: 0 16px 40px -10px rgba(2, 132, 199, 0.22), 0 4px 14px -3px rgba(0, 0, 0, 0.08);
         z-index: 100;
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 6px;
+        gap: var(--dock-gap);
+        /* iOS Safari：backdrop-filter + radius + overflow:hidden 同框会闪，
+           指示器自带圆角、无需裁切，故保持 visible */
+        overflow: visible;
+        touch-action: pan-y;          /* 横向交给指示器拖拽，纵向保留页面滚动 */
+        -webkit-user-select: none;
+        user-select: none;
       }
       .dock__btn {
+        position: relative; z-index: 1;   /* 抬到指示器之上，保证命中区不被盖 */
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 3px; padding: var(--sp-2) var(--sp-1);
         border-radius: var(--r-pill);
@@ -1011,8 +1029,66 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       .dock__btn:hover { color: var(--primary); background: rgba(2, 132, 199, 0.06); }
       .dock__btn:hover i { transform: scale(1.14) translateY(-1px); }
       .dock__btn:active { transform: scale(0.92); }
-      .dock__btn.active { color: var(--primary-dark); background: linear-gradient(135deg, rgba(224, 242, 254, 0.95), rgba(186, 230, 253, 0.6)); border-color: var(--glass-border-ice); box-shadow: 0 4px 14px rgba(2, 132, 199, 0.16); }
-      html[data-theme="dark"] .dock__btn.active { color: #f0f9ff; background: linear-gradient(135deg, rgba(2, 132, 199, 0.35), rgba(56, 189, 248, 0.18)); border-color: rgba(56, 189, 248, 0.4); }
+      /* 选中态：背景由滑动指示器承担，这里只负责文字/图标变色
+         （原先是不透明浅蓝实心块，与「高透液态玻璃」冲突，已移除背景） */
+      .dock__btn.active { color: var(--primary-dark); background: transparent; border-color: transparent; box-shadow: none; }
+      html[data-theme="dark"] .dock__btn.active { color: #f0f9ff; background: transparent; border-color: transparent; }
+
+      /* =========================================================
+         滑动指示器（iOS 27 式液态玻璃胶囊）
+         ---------------------------------------------------------
+         独立绝对定位层，不参与 grid 轨道；由 --dock-i 驱动位移：
+           translateX = i * (自身宽 + gap)
+         translateX 里的 100% 指「指示器自身宽」= 槽宽 W，
+         故 100% + gap == W + gap，天然对齐 grid 间隙、无需知道 dock 像素宽。
+         i=3 时右边缘 = 3*(W+gap) + W = C - pad*2 + pad… 恰好落到 dock 右内边缘。
+         ========================================================= */
+      .dock__indicator {
+        position: absolute;
+        top: var(--dock-pad);
+        bottom: var(--dock-pad);
+        left: var(--dock-pad);
+        width: calc((100% - 3 * var(--dock-gap)) / 4);
+        border-radius: var(--r-pill);
+        z-index: 0;
+        pointer-events: none;
+        /* 高透玻璃胶囊：顶部 inset 高光 + 柔和蓝色投影，模拟液体浮起 */
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.72),
+          rgba(255, 255, 255, 0.34) 42%,
+          rgba(255, 255, 255, 0.22)
+        );
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.9),
+          inset 0 -1px 1px rgba(0, 0, 0, 0.06),
+          0 6px 16px -4px rgba(2, 132, 199, 0.28),
+          0 2px 6px -2px rgba(0, 0, 0, 0.12);
+        transform: translate3d(calc(var(--dock-i, 0) * (100% + var(--dock-gap))), 0, 0) scale(var(--dock-scale, 1));
+        transition: transform 0.52s var(--ease-spring);
+        will-change: transform;
+        transform-origin: center;
+      }
+      /* 拖拽中：指示器轻微压缩，松手回弹（iOS 分段控件质感） */
+      .dock.is-dragging .dock__indicator { --dock-scale: 0.94; }
+
+      /* 暗色：指示器转冷调半透，避免白胶囊过亮 */
+      html[data-theme="dark"] .dock { --glass-tint: 30, 38, 48; --glass-alpha: 0.42; --glass-rim: 0.32; --glass-sheen: 0.1; }
+      html[data-theme="dark"] .dock__indicator {
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.16),
+          rgba(255, 255, 255, 0.08) 45%,
+          rgba(56, 189, 248, 0.1)
+        );
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.22),
+          inset 0 -1px 1px rgba(0, 0, 0, 0.3),
+          0 6px 16px -4px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(56, 189, 248, 0.12);
+      }
+      /* 「减弱动态效果」下指示器直接跳格：统一由 design-system.css 的
+         @media(prefers-reduced-motion) 兜底（见该文件同名字段）。 */
 
       /* =========================================================
          抽屉导航（tab 项）
@@ -1168,6 +1244,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         .selection-bar { flex-wrap: wrap; }
         .status-pill { min-width: 120px; }   /* 小屏收窄一点，避免顶栏挤压 */
         .target-badge { min-width: 88px; }
+        /* Dock：小屏收紧间距并缩字号；指示器宽度用百分比，自动等分无需改公式。
+           blur 也要降级 —— .dock 内联的 --glass-blur 特异性高于共享层
+           @media(max-width:680px) 里的 :root，不显式覆盖就不会降。 */
+        .dock { --dock-pad: 5px; --dock-gap: 5px; --glass-blur: 14px; --glass-saturate: 1.5; }
+        .dock__btn { padding: var(--sp-1); gap: 2px; }
+        .dock__btn i { font-size: 0.98rem; }
+        .dock__btn span { font-size: 0.68rem; }
       }
 
     </style>
@@ -1457,18 +1540,28 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         </transition>
       </main>
 
-      <!-- 底部 Dock -->
-      <nav class="dock glass">
-        <button class="dock__btn" :class="{ active: !showDrawer }" @click="showDrawer = false">
+      <!-- 底部 Dock：iOS 27 式高透液态玻璃 + 滑动指示器 + 跟手拖拽 -->
+      <nav class="dock glass glass-refract"
+           ref="dockEl"
+           :class="{ 'is-dragging': dockDragActive }"
+           :style="{ '--dock-i': dockDragActive ? dockDrag.slotTo : dockIndicatorIndex }"
+           @pointerdown="onDockPointerDown"
+           @pointermove="onDockPointerMove"
+           @pointerup="onDockPointerUp"
+           @pointercancel="onDockPointerCancel">
+        <!-- 滑动指示器：独立绝对定位层，位于按钮之下 -->
+        <span class="dock__indicator" aria-hidden="true"></span>
+
+        <button class="dock__btn" data-dock-slot="0" :class="{ active: !showDrawer }" @click="onDockClick(0, () => (showDrawer = false))">
           <i class="fas fa-cloud-arrow-up"></i><span>主控台</span>
         </button>
-        <button class="dock__btn" @click="openDrawer('storage')" :class="{ active: showDrawer && activeDrawerTab === 'storage' }">
+        <button class="dock__btn" data-dock-slot="1" @click="onDockClick(1, () => openDrawer('storage'))" :class="{ active: showDrawer && activeDrawerTab === 'storage' }">
           <i :class="getStorageIcon(storageMode)"></i><span>存储节点</span>
         </button>
-        <button class="dock__btn" @click="openDrawer('folder')" :class="{ active: showDrawer && activeDrawerTab === 'folder' }">
+        <button class="dock__btn" data-dock-slot="2" @click="onDockClick(2, () => openDrawer('folder'))" :class="{ active: showDrawer && activeDrawerTab === 'folder' }">
           <i class="fas fa-folder-tree"></i><span>目录路径</span>
         </button>
-        <button class="dock__btn" @click="openMoreDrawer" :class="{ active: showDrawer && isMoreTabActive }">
+        <button class="dock__btn" data-dock-slot="3" @click="onDockClick(3, () => openMoreDrawer())" :class="{ active: showDrawer && isMoreTabActive }">
           <i class="fas fa-layer-group"></i><span>更多功能</span>
         </button>
       </nav>
@@ -2154,6 +2247,14 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       /* ===== 抽屉页签顺序（决定前进 / 后退方向） ===== */
       const DRAWER_TAB_ORDER = ["storage", "folder", "history", "menu"];
 
+      /* ===== Dock 槽位映射 =====
+         dock 有 4 格：主控台(0) / 存储节点(1) / 目录路径(2) / 更多功能(3)。
+         注意「更多功能」在抽屉里对应 history 与 menu **两个** tab，
+         但它们都该让指示器停在第 4 格 —— 故用本映射，不能直接取
+         DRAWER_TAB_ORDER 下标（那会把 menu 送到第 5 格）。
+         主控台不在此表：它对应 !showDrawer，索引恒为 0。 */
+      const DOCK_SLOT_BY_TAB = { storage: 1, folder: 2, history: 3, menu: 3 };
+
       /* ===== 并行上传常量 ===== */
       const PARALLEL_DEFAULT_HEAVY = 2;
       const PARALLEL_DEFAULT_LIGHT = 1;
@@ -2236,6 +2337,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             drawerNavDir: "forward",
             /* 抽屉横向滑动切页的手势状态 */
             drawerSwipe: { active: false, lock: "", x0: 0, y0: 0, dx: 0, t0: 0 },
+            /* Dock 滑动指示器 + 跟手拖拽状态 */
+            dockDrag: { active: false, lock: "", x0: 0, y0: 0, dx: 0, slotFrom: -1, slotTo: -1, moved: false, pointerId: -1, el: null },
             baseURL: document.location.origin,
             isDragging: false,
             dragDepth: 0,
@@ -2389,6 +2492,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           activeUploadCount() { return this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error").length; },
           pausedCount() { return this.uploadingFiles.filter((f) => f.status === "paused").length; },
           isMoreTabActive() { return ["history", "menu"].includes(this.activeDrawerTab); },
+
+          /* ===== Dock 指示器落点（0-3） =====
+             主控台 = !showDrawer → 0；其余查槽位映射。 */
+          dockIndicatorIndex() {
+            if (!this.showDrawer) return 0;
+            const slot = DOCK_SLOT_BY_TAB[this.activeDrawerTab];
+            return typeof slot === "number" ? slot : 0;
+          },
+          /* 拖拽中（仅横向锁定）：指示器临时跟随到最近格 */
+          dockDragActive() { return this.dockDrag.active && this.dockDrag.lock === "x"; },
 
           /* 手势拖拽中：跟手位移，首尾页做阻尼 */
           drawerPaneDragging() {
@@ -2950,6 +3063,93 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               if (!el || !el.focus) return;
               try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
             });
+          },
+
+          /* ===== Dock 滑动指示器：点击 / 跟手拖拽 =====
+             用 Pointer Events 单通道覆盖 鼠标 + 触摸；setPointerCapture 让指针
+             移出 dock 后仍能收到 move/up。touch-action:pan-y 把纵向留给页面滚动，
+             只在横向占优时锁定手势。与 .modal--sheet 上的 drawerSwipe 不冲突
+             （dock 在抽屉之外，DOM 不同子树）。 */
+          dockSlotRect() {
+            const dock = this.$refs.dockEl;
+            if (!dock) return null;
+            const r = dock.getBoundingClientRect();
+            const cs = getComputedStyle(dock);
+            const pad = parseFloat(cs.paddingLeft) || 6;
+            const gap = parseFloat(cs.columnGap || cs.gap) || 6;
+            const inner = r.width - pad * 2;
+            const slotW = (inner - gap * 3) / 4;
+            return { r, pad, gap, slotW, inner };
+          },
+          /* 由 clientX 反推最近槽位（0-3），带边界夹取 */
+          dockSlotFromX(clientX) {
+            const g = this.dockSlotRect();
+            if (!g || !g.slotW) return -1;
+            const rel = clientX - g.r.left - g.pad;
+            const step = g.slotW + g.gap;
+            return Math.max(0, Math.min(3, Math.round(rel / step)));
+          },
+          onDockPointerDown(e) {
+            if (e.pointerType === "mouse" && e.button !== 0) return;
+            const btn = e.target && e.target.closest ? e.target.closest("[data-dock-slot]") : null;
+            const slot = btn ? Number(btn.dataset.dockSlot) : this.dockSlotFromX(e.clientX);
+            const d = this.dockDrag;
+            d.active = true; d.lock = ""; d.dx = 0;
+            d.x0 = e.clientX; d.y0 = e.clientY;
+            d.slotFrom = slot; d.slotTo = slot; d.moved = false;
+            d.pointerId = e.pointerId;
+            d.el = e.currentTarget;
+            /* 注意：此处**不** setPointerCapture —— 一旦捕获，后续 click 会被
+               重定向到本容器，按钮的原生 click 就再也收不到（点击被吃掉）。
+               只在真正锁定为横向拖拽后才捕获（见 onDockPointerMove）。 */
+          },
+          onDockPointerMove(e) {
+            const d = this.dockDrag;
+            if (!d.active) return;
+            const dx = e.clientX - d.x0;
+            const dy = e.clientY - d.y0;
+            if (!d.lock) {
+              /* 8px 死区；横向需明显占优才抢，否则让给页面纵向滚动 */
+              if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+              d.lock = Math.abs(dx) >= Math.abs(dy) * 1.2 ? "x" : "y";
+              if (d.lock === "y") { d.active = false; return; }
+              /* 确认是横向拖拽了，此时才捕获指针：移出 dock 也能收到 move/up */
+              if (d.el && d.el.setPointerCapture) {
+                try { d.el.setPointerCapture(d.pointerId); } catch (err) { /* noop */ }
+              }
+            }
+            if (d.lock !== "x") return;
+            if (Math.abs(dx) > 4) d.moved = true;
+            d.dx = dx;
+            d.slotTo = this.dockSlotFromX(e.clientX);
+          },
+          onDockPointerUp() {
+            const d = this.dockDrag;
+            if (!d.active) return;
+            const wasDrag = d.lock === "x" && d.moved;
+            const target = d.slotTo;
+            d.active = false; d.lock = "";
+            if (!wasDrag) return;             /* 没拖动 → 交给按钮自己的 click */
+            /* 拖拽已生效：抑制浏览器补发的合成 click，并执行落点槽位行为 */
+            this._dockSuppressClick = true;
+            setTimeout(() => { this._dockSuppressClick = false; }, 350);
+            this.dockActivate(target);
+          },
+          onDockPointerCancel() {
+            const d = this.dockDrag;
+            d.active = false; d.lock = ""; d.dx = 0;
+          },
+          /* 统一入口：拖拽后的合成 click 直接吞掉 */
+          onDockClick(slot, fn) {
+            if (this._dockSuppressClick) return;
+            if (typeof fn === "function") fn();
+          },
+          /* 执行某个 dock 槽位对应的行为 */
+          dockActivate(slot) {
+            if (slot === 0) this.showDrawer = false;
+            else if (slot === 1) this.openDrawer("storage");
+            else if (slot === 2) this.openDrawer("folder");
+            else if (slot === 3) this.openMoreDrawer();
           },
 
           /* ===== 抽屉横向滑动切页 =====
