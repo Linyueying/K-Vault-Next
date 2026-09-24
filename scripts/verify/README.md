@@ -96,6 +96,20 @@ BASE=http://127.0.0.1:8099 node scripts/verify/queue-collapse.mjs
 **坑**：清理器清空 `uploadingFiles` 是同步的、leave 动画是异步的——采样
 面板消失要用元素引用（`el.isConnected`），不能用 `uploadingFiles.length`。
 
+### `select-bar.mjs` —— 选择模式操作条高度动画（真实上传全链路）
+
+```bash
+BASE=http://127.0.0.1:8099 node scripts/verify/select-bar.mjs
+```
+
+登录 → 预置 r2 → 真实上传 → 结果出现后点「选择」/「完成」切换选择模式，
+逐帧采样操作条外层 `.collapse` 容器的高度曲线：enter 必须从 0 渐开、
+leave 必须平滑收起到 0（ease-apple 曲线）。背景：selection-bar 原用 `bar`
+过渡（不插值高度），操作条出现/消失瞬间撑开/塌掉面板高度——即
+「选择模式 ↔ 普通模式瞬间弹回」的根源；已改共享层 `collapse` 包裹。
+**坑**：`.selection-bar` 自身内容高度不变（被裁切的是外层 `.collapse`），
+要采样 `closest('.collapse')` 而不是操作条本身；容器终高 = 内容高 + margin-top。
+
 ### `verify_classes.mjs` —— 上收类渲染验证
 
 ```bash

@@ -1437,14 +1437,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
 
           </transition-group>
 
-          <transition name="bar">
-            <div class="selection-bar" v-if="resultSelectMode">
+          <transition name="collapse">
+            <div class="collapse" v-if="resultSelectMode">
+            <div class="collapse__inner">
+            <div class="selection-bar">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
               <div class="selection-bar__actions">
                 <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0"><i class="fas fa-copy"></i> 复制链接</button>
                 <button class="btn btn--sm" @click="copySelectedShareLinks" :disabled="selectedCount === 0"><i class="fas fa-share-nodes"></i> 复制短链</button>
                 <button class="btn btn--sm btn--danger" @click="removeSelected" :disabled="selectedCount === 0"><i class="fas fa-trash-can"></i> 移除</button>
               </div>
+            </div>
+            </div>
             </div>
           </transition>
         </section>
@@ -1708,14 +1712,18 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               </button>
             </div>
 
-            <transition name="bar">
-            <div class="selection-bar" v-if="historySelectedCount > 0">
+            <transition name="collapse">
+            <div class="collapse" v-if="historySelectedCount > 0">
+            <div class="collapse__inner">
+            <div class="selection-bar">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ historySelectedCount }}</span>
               <div class="selection-bar__actions">
                 <button class="btn btn--sm" @click="copyHistorySelected"><i class="fas fa-copy"></i> 复制</button>
                 <button class="btn btn--sm" @click="addHistorySelectedToResults"><i class="fas fa-plus"></i> 加入结果</button>
                 <button class="btn btn--sm btn--danger" @click="deleteHistorySelected"><i class="fas fa-trash"></i> 删除</button>
               </div>
+            </div>
+            </div>
             </div>
             </transition>
 
