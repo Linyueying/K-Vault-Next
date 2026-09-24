@@ -88,7 +88,25 @@ const shrinkOk = shrinkUniq[shrinkUniq.length - 1] === 0 && shrinkUniq.length >=
 console.log('');
 console.log('操作条渐开   :', growOk ? 'PASS' : 'FAIL');
 console.log('操作条渐收至0:', shrinkOk ? 'PASS' : 'FAIL');
+
+// ③ 打开「…」上拉菜单（menu--up 会溢出面板顶部），验证 collapse 裁切层未把菜单裁掉
+await page.waitForTimeout(600); // 等操作条 leave 结束、DOM 稳定
+await page.evaluate(() => {
+  const app = document.querySelector('#app')._vnode.component.proxy;
+  app.toggleFileMenu(0); // 单文件时 index === length-1 → menu--up 向上弹出
+});
+await page.waitForTimeout(450); // 等 menu 入场过渡完成
+const clip = await page.evaluate(() => {
+  const menu = document.querySelector('.panel .menu');
+  if (!menu) return { ok: false, why: 'menu 未打开' };
+  const item = menu.querySelector('.menu__item'); // 菜单首项（最靠上、最易被顶部裁切）
+  const r = item.getBoundingClientRect();
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return { ok: menu.contains(hit), why: hit ? hit.className || hit.tagName : 'null', menuTop: Math.round(menu.getBoundingClientRect().top) };
+});
+console.log('上拉菜单未被裁切:', clip.ok ? 'PASS' : `FAIL（elementFromPoint 命中 ${clip.why}，菜单顶 ${clip.menuTop}px）`);
+
 console.log('页面 JS 报错 :', errors.length === 0 ? '无' : errors.join(' | '));
 await browser.close();
-if (!growOk || !shrinkOk || errors.length) process.exit(1);
+if (!growOk || !shrinkOk || !clip.ok || errors.length) process.exit(1);
 console.log('ALL PASS');

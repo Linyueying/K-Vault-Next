@@ -689,12 +689,15 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
          <div class="collapse__inner"><section class="card panel">…</section></div>
        </div>
      </transition>
-   .collapse 为单格 grid，唯一子元素（.collapse__inner）被 overflow:hidden 裁切，
-   grid-template-rows 在 0fr↔1fr 间插值。 */
+   .collapse 为单格 grid，唯一子元素（.collapse__inner）在动画期间被 overflow:hidden 裁切，
+   grid-template-rows 在 0fr↔1fr 间插值。裁切仅限动画进行中（enter/leave-active 类随动画
+   起止由 Vue 自动加减）——静止时必须放开溢出，否则面板内的上拉菜单等溢出弹层会被裁掉。 */
 @keyframes collapseIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes collapseOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
 .collapse { display: grid; grid-template-rows: 1fr; }
-.collapse > * { min-height: 0; overflow: hidden; }
+.collapse > * { min-height: 0; }
+.collapse-enter-active > *,
+.collapse-leave-active > * { overflow: hidden; }
 .collapse-enter-active { animation: collapseIn 0.5s var(--ease-apple) both; }
 .collapse-leave-active { animation: collapseOut 0.44s var(--ease-apple) both; }
 
