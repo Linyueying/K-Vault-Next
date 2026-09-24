@@ -110,7 +110,13 @@ export async function onRequest(context) {
 async function trackDownloadsIfNeeded(context, response) {
   const pending = context.__kvTrackPending;
   // 无待记账目标 → 不是分享链接，直接放行（绝大多数请求走这条）。
+  // 这条放行不只是省事：workerd 对「原生流」（R2 body / fetch body）会保留
+  // 显式设置的 Content-Length，但只要 body 被读出来包进自定义
+  // ReadableStream，Content-Length 就会被运行时剥掉、退化成 chunked ——
+  // 浏览器（尤其手机端）拿不到长度，下载确认框显示 0.0 B。所以没有
+  // 记账目标时必须让原生流原样直达，任何包装都是有害的。
   if (!pending || !response) return response;
+  if (!pending.file && !pending.bundle) return response;
 
   // 两条判断用得是同一把尺子：
   //   · 「这是一次下载请求吗」—— GET + 显式 dl=1；
@@ -175,14 +181,17 @@ async function trackDownloadsIfNeeded(context, response) {
  * @param bundleAccess - `verifyBundleAccess()` 的返回值。
  */
 function rememberTrackTargets(context, shareAccess, bundleAccess = {}) {
-  context.__kvTrackPending = {
-    env: context.env,
-    file:
-      shareAccess?.trackDownload && shareAccess.kvKey
-        ? { kvKey: shareAccess.kvKey, metadata: shareAccess.metadata }
-        : null,
-    bundle: bundleAccess?.trackDownload && bundleAccess.slug ? { slug: bundleAccess.slug } : null,
-  };
+  const file =
+    shareAccess?.trackDownload && shareAccess.kvKey
+      ? { kvKey: shareAccess.kvKey, metadata: shareAccess.metadata }
+      : null;
+  const bundle = bundleAccess?.trackDownload && bundleAccess.slug ? { slug: bundleAccess.slug } : null;
+  // 两个目标都不存在时不要设置 pending：普通（非分享）下载占绝大多数，
+  // 一旦设置了 pending，trackDownloadsIfNeeded 就会把原生流包装成自定义
+  // ReadableStream，workerd 会因此剥掉 Content-Length（详见那里的注释），
+  // 浏览器下载框显示 0.0 B。不设置 pending = 原生流直达 = 长度保留。
+  if (!file && !bundle) return;
+  context.__kvTrackPending = { env: context.env, file, bundle };
 }
 
 /**
