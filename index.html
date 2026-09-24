@@ -137,7 +137,7 @@
          视觉不会抖动。这里统一应用到项目内所有含数字的胶囊类元素上。
          ========================================================= */
       .badge,
-      .target-badge,
+      .task__node,
       .share-badge,
       .row-tag,
       .unconfigured,
@@ -543,7 +543,26 @@
 .task__name--long { cursor: zoom-in; }
 /* 长文件名展开到 4 行 */
 .task__name.is-open { -webkit-line-clamp: 4; max-height: calc(1.3em * 4); }
-.task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+/* 元信息行：左列「大小 + 状态」、右列「储存位置」标签。
+   为什么是网格而不是 flex：
+     flex 下标签（.task__node）无论加 margin-left:auto 还是 flex:1 0 auto，
+     都会参与同一套换行计算 —— 移动端内容列仅 130px，左列两项已占 158px，
+     标签必然被挤到下一行；而且这一行放几行还随左列文字长度浮动，
+     卡片高度不稳定。
+     网格把「左列的自发换行」与「标签钉在右列」彻底解耦：
+     minmax(0,1fr) 让左列可收缩可换行，max-content 让右列恰好等于标签宽度，
+     两者互不干扰。
+     gap 用 --sp-2（8px）而非 --sp-1：标签是独立信息块，需要与左侧拉开距离。
+   注意 .task__meta-left 必须自己再是一个 flex 容器 —— 大小/状态仍要
+   在窄屏自然换行（它们是等长片段，换行不影响卡片高度稳定性）。
+   小屏（≤680px）另有覆盖：两列并排塞不下，改成单列堆叠、标签右对齐，
+   见 Responsive 段的 .task__meta。 */
+.task__meta {
+  font-size: var(--fs-xs); color: var(--text-muted);
+  display: grid; grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center; gap: var(--sp-2);
+}
+.task__meta-left { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; }
 /* 速率 / 错误：独占一行，不参与上一行的 flex 换行。
    之前这两项直接塞在 .task__meta 里用 v-if 增删，一旦挤到换行，
    那一行会「啪」地多出来、整张卡片高度瞬间跳一下，且没有任何过渡。
@@ -902,19 +921,45 @@ html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color:
 /* 未配置标签 */
 .unconfigured { align-self: flex-start; font-size: var(--fs-xs); font-weight: 700; padding: 2px 7px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); color: var(--text-muted); display: inline-block; margin-top: 4px; }
 
-/* 目标节点徽章：微调宽度与固定防挤压 */
-.target-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 4px;
-  flex-shrink: 0; /* 关键：防止被压缩 */
-  min-width: 68px; /* 从 96px 减小，让它与文件名同行时更和谐 */
+/* 储存位置标签：上传队列里每个任务都显示「这个文件正在往哪个节点写」。
+   ---------------------------------------------------------
+   为什么从头部行搬到元信息行：
+     旧版把它塞在 .task__header 里、与文件名同一行并 justify-content:
+     space-between 顶到右端。哪怕已经是 flex-shrink:0 + 文件名 min-width:0
+     的标准写法，中文长文件名在窄屏上依然会被压成「6 个字 + 省略号」——
+     因为那一行只有一个内容项、旁边却常驻一个 68~88px 的徽章，
+     留给文件名的空间被硬生生吃掉一块。用户要的是「文件名完整」，
+     而不是「徽章显眼」，所以把徽章下移一行、让头部行整行归文件名。
+   为什么不是简单塞进 .task__meta 的末尾：
+     .task__meta 是 flex-wrap:wrap，移动端内容列只有 130px，而
+     「200 KB / 200 KB」(80) + 「• 已完成 (100%)」(78) 已占 158px，
+     再挂一个 101px 的标签会把它撑成 3 行 —— 卡片高度随之从 2 行变 3 行，
+     违反本区块开头的硬约束「整卡高度不允许随状态变化而变」。
+     所以这里让元信息行升格为「两列网格」：左列是大小/状态（允许自身换行），
+     右列是标签（独占一列、永不换行、垂直居中）。
+     桌面宽裕时两列并排（视觉上就是「同行右端」）；
+     小屏列宽不足时改单列堆叠（标签自己一行、右对齐），
+     顺序与行数都是确定的，不随文字长度浮动。
+   为什么所有节点模式都显示：
+     旧版条件是 v-if="storageMode === 'auto'"。非智能模式下看似「已知目标」，
+     但那个「已知」只存在于设置面板里 —— 上传队列本身看不出这条任务究竟写到了
+     Telegram 还是 R2，暂停后重试（retryUpload 会重算 targetMode）、
+     智能分支回退（resolveStorageForFile 的候选兜底）这些情况更无从判断。
+     标签常驻 = 队列自身即事实来源，不必再去别处对照。
+   颜色：保留原来的紫色，作为「储存位置」这一类信息的统一视觉标识，
+     不随节点不同而改色 —— 换色会让人以为在提示某种状态（警告/错误）。 */
+.task__node {
+  display: inline-flex; align-items: center; gap: 4px;
+  flex: none;
+  align-self: center; /* 独立一列时垂直居中，不跟随左列的基线 */
   padding: 1px 7px; border-radius: var(--r-pill);
   background: rgba(139, 92, 246, 0.14); color: #7c3aed;
   font-weight: 700; font-size: 0.68rem;
+  white-space: nowrap;
   animation: pop 0.28s var(--ease-apple) backwards;
 }
-html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92, 246, 0.22); }
-.target-badge i { font-size: 0.62rem; }
+html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 246, 0.22); }
+.task__node i { font-size: 0.62rem; }
       /* =========================================================
          本地历史
          ========================================================= */
@@ -1269,7 +1314,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         .view-toggle { align-self: flex-start; }
         .selection-bar { flex-wrap: wrap; }
         .status-pill { min-width: 120px; }   /* 小屏收窄一点，避免顶栏挤压 */
-        .target-badge { min-width: 88px; }
+        /* 小屏内容列被压到 ~130px，放不下「大小 + 状态」与标签并排
+           （标签自身就要 96px，并排会把左列挤到每行一个字）。
+           此时退回单列堆叠：标签独占一行、右对齐，卡片高度稳定多出 1 行，
+           但换来了左列两项能正常读到 —— 这是窄屏下唯一可读的取舍。
+           注意这里用 grid-template-columns: 1fr 而非 display:flex：
+           flex-wrap 会让标签在左列换行后又被拉回同一行计算，行为不确定；
+           显式单列网格 = 两行、顺序确定、不参与任何换行博弈。 */
+        .task__meta { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
+        .task__meta .task__node { justify-self: end; padding: 1px 5px; gap: 3px; }
+        .task__node { padding: 1px 5px; gap: 3px; }
         /* Dock：小屏收紧间距并缩字号；指示器宽度用百分比，自动等分无需改公式。
            blur 也要降级 —— .dock 内联的 --glass-blur 特异性高于共享层
            @media(max-width:680px) 里的 :root，不显式覆盖就不会降。 */
@@ -1417,20 +1471,26 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
     <img v-if="file.preview" :src="file.preview" class="task__thumb" />
     <div v-else class="task__thumb"><i :class="getFileIcon(file.name)"></i></div>
     <div class="task__info">
-      <!-- 头部行：文件名最多两行，目标节点徽章固定在右端 -->
+      <!-- 头部行：整行归文件名。储存位置标签已下移到下方元信息行，
+           不再与文件名抢位置（详见 .task__node 的样式注释）。 -->
       <div class="task__header">
         <div class="task__name"
              :class="{ 'task__name--long': isLongFileName(file.name), 'is-open': isNameExpanded(file) }"
              :title="file.name"
              @click="toggleNameExpanded(file)">{{ file.name }}</div>
-        <span class="target-badge" v-if="storageMode === 'auto' && file.targetMode">
-          <i :class="getStorageIcon(file.targetMode)"></i><span>{{ storageLabel(file.targetMode) }}</span>
-        </span>
       </div>
-      <!-- 操作行：文件大小与状态文案固定在上一行（两者长度稳定，不会因暂停/继续而换行加高） -->
+      <!-- 操作行：左列「大小 + 状态」自发换行，右列「储存位置」标签钉住不动。
+           网格布局让标签既不会挤到文件名（它已不在头部行），
+           也不会把左列的行数撑多（它是独立一列，不参与左列换行）。
+           详见 .task__node / .task__meta 的样式注释。 -->
       <div class="task__meta">
-        <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-        <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
+        <div class="task__meta-left">
+          <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
+          <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
+        </div>
+        <span class="task__node" v-if="taskNodeMode(file)" :title="`储存位置：${storageLabel(taskNodeMode(file))}`">
+          <i :class="getStorageIcon(taskNodeMode(file))"></i><span>{{ storageLabel(taskNodeMode(file)) }}</span>
+        </span>
       </div>
       <!-- 速率 / 错误行：独占一行。收起时高度为 0，出现时平滑展开 + 淡入，
            整张卡片的高度随之一起过渡，不再瞬间被撑开。 -->
@@ -2739,6 +2799,17 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           /* ===== 存储元信息 ===== */
           getStorageIcon(mode) { return (STORAGE_META[mode] || {}).icon || "fas fa-server"; },
           storageLabel(mode) { return (STORAGE_META[mode] || {}).label || mode || ""; },
+          /* 上传队列「储存位置」标签要显示的节点。
+             优先用任务自己钉下的 targetMode —— 它是入队那一刻
+             resolveStorageForFile(file.size) 算出来的真实落点，中途不会变，
+             即使 storageMode 之后被用户切换（或任务被暂停重试）也仍是权威值。
+             只有极少数历史任务没带上 targetMode（比如从旧版 localStorage 恢复的
+             断点续传记录）才回落到当前 storageMode。
+             返回值恒非空，模板里的 v-if 只用于防御 —— 见 .task__node 注释。 */
+          taskNodeMode(file) {
+            if (!file) return "";
+            return file.targetMode || this.storageMode || "";
+          },
 
           /* ===== 工具方法 ===== */
           formatSpeed(bps) {
