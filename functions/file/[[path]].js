@@ -333,7 +333,7 @@ function addCorsHeaders(headers) {
   return headers;
 }
 
-function addResponseHeaders(headers, fileName, mimeType, upstream = null) {
+function addResponseHeaders(headers, fileName, mimeType, upstream = null, options = {}) {
   addCorsHeaders(headers);
   headers.set('Content-Type', mimeType || 'application/octet-stream');
   headers.set('Cache-Control', 'no-store, max-age=0');
@@ -345,11 +345,77 @@ function addResponseHeaders(headers, fileName, mimeType, upstream = null) {
   }
 
   if (upstream) {
-    const contentLength = upstream.headers.get('Content-Length');
+    // 以「上游响应头 + 已知权威大小 + 请求的 Range」三方推导 Content-Length。
+    // 不能只信上游：Telegram 等 CDN 的响应可能压根不带 Content-Length，
+    // 而 KV 元数据里的 fileSize 是可信的权威值。
+    const resolved = resolveContentLength(upstream, options);
+    if (resolved != null) headers.set('Content-Length', String(resolved));
+
     const contentRange = upstream.headers.get('Content-Range');
-    if (contentLength) headers.set('Content-Length', contentLength);
     if (contentRange) headers.set('Content-Range', contentRange);
   }
+}
+
+/**
+ * 解析本次响应应当声明的 Content-Length。
+ *
+ * 优先级（从高到低）：
+ *   1. 上游显式给出的 `Content-Length`（最贴近真实字节数）；
+ *   2. 已知权威文件大小 + 请求的 `Range`（用于补上游缺失的长度）；
+ *   3. 无 —— 宁可不声明，也不声明一个错的值。
+ *
+ * 为什么这件事必须做：浏览器下载栏依赖 `Content-Length` 计算进度。
+ * 当上游（尤其中转 CDN）不返回该头时，Worker 会退化成 chunked 编码，
+ * 浏览器只能按「已收字节 / 未知总量」显示，于是出现「0 B 却能一直涨」、
+ * 「进度到 100% 又回退」这类观感 —— 也就是用户看到的 0b 下载。
+ *
+ * 关于 **Range 的特殊处理**：带 `Range: bytes=0-` 的请求，上游可能返回
+ * `Content-Length` 为**整个文件**大小（而非本段长度），声明出去就会
+ * 「声明 5MB、实发 5MB 从头」，反而更糟。因此只要请求带 Range 且拿不到
+ * 上游真实长度，就**不声明** Content-Length，让浏览器按已收字节增长，
+ * 但至少不会出现「瞬间完成又继续长」的割裂感。
+ *
+ * @param upstream - 上游响应。
+ * @param options - `{ knownSize, rangeHeader }`。
+ * @returns 字节数，或 `null` 表示不应声明。
+ */
+function resolveContentLength(upstream, options = {}) {
+  const knownSize = Number(options.knownSize);
+  const hasKnownSize = Number.isFinite(knownSize) && knownSize > 0;
+
+  const headerValue = upstream?.headers?.get('Content-Length');
+  if (headerValue) {
+    const parsed = Number(headerValue);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    // 关键：`Content-Length: 0` 在「文件明明有大小」时是上游在撒谎，
+    // 直接采用就会复现用户看到的「0 B 下载」——必须让位给已知大小。
+    if (parsed === 0 && !hasKnownSize) return 0;
+  }
+
+  if (!hasKnownSize) return null;
+
+  // 无 Range：上游没给长度，但我们知道文件总大小，可以直接补上。
+  if (!options.rangeHeader) return knownSize;
+
+  // 有 Range：解析出本段长度，只有当它就是「从 0 到结尾」时才敢声明。
+  const range = parseSimpleRange(options.rangeHeader, knownSize);
+  if (!range || range.unsatisfiable) return null;
+  if (range.start === 0 && range.end === knownSize - 1) return knownSize;
+  return null;
+}
+
+/**
+ * 从 KV 记录里取「权威文件大小」。
+ *
+ * 上游存储（Telegram / Discord CDN）可能不给 `Content-Length`，而上传时
+ * 落库的 `fileSize` 是可信的。取不到或非法时返回 0，交由调用方跳过补全。
+ *
+ * @param record - KV 记录（含 metadata）。
+ * @returns 字节数（取不到为 0）。
+ */
+function resolveKnownFileSize(record) {
+  const size = Number(record?.metadata?.fileSize || 0);
+  return Number.isFinite(size) && size > 0 ? size : 0;
 }
 
 function handleOptions() {
@@ -631,7 +697,10 @@ async function handleTelegramFile(context, fileId, record = null) {
   }
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    knownSize: resolveKnownFileSize(record),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,
@@ -668,7 +737,11 @@ async function handleSignedTelegramFile(context, signedMeta) {
   }
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    // 签名链接的 fileSize 来自 URL 里的签名元数据，同样权威。
+    knownSize: resolveKnownFileSize({ metadata: { fileSize: signedMeta.fileSize } }),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,
@@ -848,7 +921,10 @@ async function handleS3File(context, fileId, record = null) {
   if (!upstream) return errorResponse('File not found in S3', 404);
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    knownSize: resolveKnownFileSize(record),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,
@@ -885,7 +961,10 @@ async function handleDiscordFile(context, fileId, record = null) {
   const mimeType = getMimeType(fileName);
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    knownSize: resolveKnownFileSize(record),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,
@@ -915,7 +994,10 @@ async function handleHFFile(context, fileId, record = null) {
   const mimeType = getMimeType(fileName);
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    knownSize: resolveKnownFileSize(record),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,
@@ -942,7 +1024,10 @@ async function handleWebDAVFile(context, fileId, record = null) {
   const mimeType = getMimeType(fileName);
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    knownSize: resolveKnownFileSize(record),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,
@@ -973,7 +1058,10 @@ async function handleGitHubFile(context, fileId, record = null) {
   const mimeType = getMimeType(fileName);
 
   const headers = new Headers();
-  addResponseHeaders(headers, fileName, mimeType, upstream);
+  addResponseHeaders(headers, fileName, mimeType, upstream, {
+    knownSize: resolveKnownFileSize(record),
+    rangeHeader,
+  });
 
   return new Response(upstream.body, {
     status: upstream.status,

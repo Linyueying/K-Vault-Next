@@ -3453,7 +3453,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               const len = res.headers.get("content-length");
               if (len === null) return null;
               const n = Number(len);
-              return Number.isFinite(n) && n >= 0 ? n : null;
+              /* 0 不放行：上游缺头时可能退化成 `content-length: 0`，
+                 那是「大小未知」而不是「空文件」。放行 0 会让调用方
+                 把文件当成 0 字节，进度条与校验全部失真。 */
+              return Number.isFinite(n) && n > 0 ? n : null;
             } catch (_) { return null; }
           },
 
