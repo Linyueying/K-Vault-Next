@@ -10,6 +10,13 @@
         令牌块 / 组件块 / 关键帧块，避免两份定义打架。
    ========================================================================== */
 
+/* glassfx（vendored @ /vendor/glassfx）—— 液态玻璃库：.glass 工具类提供
+   边缘高光 rim / 光标跟随 bloom / Chromium 真实折射（@supports 兜底到 frost）。
+   必须放在所有规则之前；本文件后续对 .card/.modal 等的定义会在源顺序上
+   覆盖 .glass 的 background/border/box-shadow/radius，从而保留项目既有设计，
+   只取它的 rim + bloom + 折射增强。 */
+@import url("/vendor/glassfx/glass.css");
+
 /* ==========================================================================
    1. Design Tokens —— 设计令牌
    ========================================================================== */
@@ -92,6 +99,19 @@
   --dur-slow: 0.34s;
   --dur-enter: 0.5s;
   --transition: all var(--dur-base) var(--ease-fluid);
+
+  /* —— Apple 风统一玻璃 / 缓动令牌（重构基线）——
+     saturate(1.8) == 180%；blur 统一 20px；移动端再降级到 14px。 */
+  --glass-blur: 20px;
+  --glass-saturate: 1.8;          /* = saturate(180%) */
+  --glass-brightness: 1.05;       /* 供 glassfx .glass 使用 */
+  --glass-rim: 0.5;
+  --glass-sheen: 0.14;
+  --glass-bloom: 255, 255, 255;
+  --glass-bloom-size: 220px;
+  --glass-radius: 24px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);   /* Apple 落地/卡片入场统一缓动 */
+  --r-xl: 28px;                                  /* 大面板/模态圆角上限（20–28px） */
 
   /* 节点状态过渡（识别延迟 → 平滑收敛） */
   --dur-resolve: 0.62s;
@@ -180,15 +200,15 @@ body {
 .card,
 .liquid-card {
   background: var(--glass-surface);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-soft);
   border-radius: var(--r-lg);
   transition: background-color 0.45s var(--ease-apple),
               border-color 0.45s var(--ease-apple),
               box-shadow 0.45s var(--ease-apple),
-              transform 0.45s var(--ease-fluid);
+              transform 0.45s var(--ease-out);
   position: relative;
 }
 .card::before,
@@ -498,6 +518,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 
 @media (max-width: 680px) {
   .toast { padding: 9px var(--sp-4); font-size: var(--fs-sm); }
+  /* 移动端分级降模糊：20px → 14px、saturate 略降；不关模糊。
+     真正低端机仍走 html[data-perf="low"] 的 !important 全关规则。 */
+  :root {
+    --glass-blur: 14px;
+    --glass-saturate: 1.5;
+  }
 }
 
 /* ==========================================================================
@@ -873,13 +899,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .pane-forward-leave-active,
 .pane-back-leave-active {
   transition: opacity 0.18s var(--ease-press),
-              transform 0.24s var(--ease-press),
-              filter 0.18s var(--ease-press);
+              transform 0.24s var(--ease-press);
 }
-.pane-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); filter: blur(6px); }
-.pane-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); filter: blur(6px); }
-.pane-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); filter: blur(6px); }
-.pane-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); filter: blur(6px); }
+.pane-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); }
+.pane-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); }
+.pane-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); }
+.pane-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); }
 .pane-forward-enter-active > *,
 .pane-back-enter-active > * { animation: paneItemIn 0.34s var(--ease-fluid) backwards; }
 .pane-forward-enter-active > *:nth-child(1),
@@ -905,14 +930,13 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-forward-leave-active,
 .view-back-leave-active {
   transition: opacity 0.18s var(--ease-press),
-              transform 0.24s var(--ease-press),
-              filter 0.18s var(--ease-press);
+              transform 0.24s var(--ease-press);
   position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
 }
-.view-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); filter: blur(6px); }
-.view-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); filter: blur(6px); }
-.view-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); filter: blur(6px); }
-.view-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); filter: blur(6px); }
+.view-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); }
+.view-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); }
+.view-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); }
+.view-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); }
 .view-forward-enter-active > *,
 .view-back-enter-active > * { animation: paneItemIn 0.34s var(--ease-fluid) backwards; }
 .view-forward-enter-active > *:nth-child(1),
@@ -926,63 +950,46 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-forward-enter-active > *:nth-child(n + 5),
 .view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
 
-html[data-perf="low"] .view-forward-enter-from,
-html[data-perf="low"] .view-forward-leave-to,
-html[data-perf="low"] .view-back-enter-from,
-html[data-perf="low"] .view-back-leave-to { filter: none; }
+/* 入场已纯 transform + opacity，无 filter：低性能档无需再单独撤 blur */
 
 /* --------------------------------------------------------------------------
    文字级切换（.label / .morph）—— 状态胶囊、当前上限数值等「原地换字」
    --------------------------------------------------------------------------
-   为什么单独抽出来并额外提层：
-   这两个过渡作用在**行内文字**上（.status-pill__text / .summary__value），
-   父容器宽度往往随内容变化。行内元素本身不是合成层，一旦过渡里带了
-   filter: blur()（绘制属性，每帧重新生成位图），低端设备掉帧时中间帧被丢弃，
-   文字边缘就会「糊→清→糊」反复闪动，看起来像在抖。
-
-   这里的做法（质量不降）：
-     - 位移 + 淡入的观感与原来完全一致（起点 6px、spring 缓动都保留）
-     - 给元素提前提层（will-change / translateZ(0)），让它走合成器而非每帧重绘
-     - blur 只在低性能档位撤掉（见下方 data-perf="low"），能力足够的设备照旧保留
-   注意 .label-leave-active 原先漏配 filter 过渡，导致离场时 blur 是「跳变」
-   而非渐变 —— 这里补齐，观感比原来更顺。
+   重构（Apple 风）：入场/出场**只动 transform + opacity**，彻底移除原先的
+   filter: blur() 绘制开销（见铁律：只动 transform/opacity）。
+     - 位移 + 淡入的观感与原来一致（起点、spring 缓动都保留）
+     - 元素提前提层（will-change / translateZ(0)），走合成器而非每帧重绘
+     - 低端设备（data-perf="low"）仍保留一次性 transform+opacity 入场，
+       不再需要单独撤 blur（因为本来就没有）
    -------------------------------------------------------------------------- */
 .label-enter-active {
   transition: opacity 0.3s var(--ease-apple),
-              transform 0.42s var(--ease-spring),
-              filter 0.3s var(--ease-apple);
-  will-change: transform, opacity, filter;
+              transform 0.42s var(--ease-spring);
+  will-change: transform, opacity;
 }
 .label-leave-active {
   transition: opacity 0.18s var(--ease-press),
-              transform 0.22s var(--ease-press),
-              filter 0.18s var(--ease-press);
-  will-change: transform, opacity, filter;
+              transform 0.22s var(--ease-press);
+  will-change: transform, opacity;
 }
-.label-enter-from { opacity: 0; transform: translate3d(6px, 0, 0) translateZ(0); filter: blur(2px); }
-.label-leave-to   { opacity: 0; transform: translate3d(-6px, 0, 0) translateZ(0); filter: blur(2px); }
+.label-enter-from { opacity: 0; transform: translate3d(6px, 0, 0) translateZ(0); }
+.label-leave-to   { opacity: 0; transform: translate3d(-6px, 0, 0) translateZ(0); }
 
 /* 更大的文字块切换（标题 / 段落级）：位移与模糊幅度略大，同样提层 */
 .morph-enter-active {
   transition: opacity 0.34s var(--ease-apple),
-              transform 0.46s var(--ease-spring),
-              filter 0.34s var(--ease-apple);
-  will-change: transform, opacity, filter;
+              transform 0.46s var(--ease-spring);
+  will-change: transform, opacity;
 }
 .morph-leave-active {
   transition: opacity 0.2s var(--ease-press),
-              transform 0.26s var(--ease-press),
-              filter 0.2s var(--ease-press);
-  will-change: transform, opacity, filter;
+              transform 0.26s var(--ease-press);
+  will-change: transform, opacity;
 }
-.morph-enter-from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.975) translateZ(0); filter: blur(3px); }
-.morph-leave-to   { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.975) translateZ(0); filter: blur(3px); }
+.morph-enter-from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.975) translateZ(0); }
+.morph-leave-to   { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.975) translateZ(0); }
 
-/* 低性能档：撤掉 blur（绘制开销），保留位移 + 淡入 —— 观感一致但不闪 */
-html[data-perf="low"] .label-enter-from,
-html[data-perf="low"] .label-leave-to,
-html[data-perf="low"] .morph-enter-from,
-html[data-perf="low"] .morph-leave-to { filter: none; }
+/* 入场已纯 transform + opacity，低性能档无需再撤 blur */
 
 /* 承载这两个过渡的元素（行内文字）本身也要提层，否则 will-change 加在过渡类上
    会随「进出场类名」被反复添加/移除，反而引起层重创建。这里对常见宿主一次性提层。
@@ -1044,9 +1051,10 @@ html[data-perf="low"] .morph-leave-to { filter: none; }
    ========================================================================== */
 .modal {
   background: var(--glass-elevated);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1.5px solid var(--glass-border-ice);
+  border-radius: var(--r-xl);
   box-shadow: var(--shadow-elevated);
   overflow-y: auto;
   will-change: transform, opacity;
@@ -1159,6 +1167,26 @@ html[data-perf="low"] .morph-leave-to { filter: none; }
 .grow { flex: 1; }
 
 /* ==========================================================================
+   13.12 滚动揭示（reveal on scroll）
+   ----------------------------------------------------------------------
+   配套 app-core.js 的 KVault.revealOnScroll()：给元素加 [data-reveal]，
+   进入视口时由 JS 加 .is-revealed。**只动 transform + opacity**，零依赖、
+   零风险；Apple 风统一缓动 --ease-out。respects prefers-reduced-motion：
+   命中时 app-core 直接全量揭示，不做位移动画。
+   ========================================================================== */
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out);
+  will-change: transform, opacity;
+}
+[data-reveal].is-revealed {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  will-change: auto;
+}
+
+/* ==========================================================================
    14. 性能分级 & 无障碍降级
    ========================================================================== */
 /* 低端设备：去掉模糊 */
@@ -1172,10 +1200,7 @@ html[data-perf="low"] .modal-mask {
   -webkit-backdrop-filter: none !important;
 }
 html[data-perf="low"] .ambient-orb { animation: none; }
-html[data-perf="low"] .pane-forward-enter-from,
-html[data-perf="low"] .pane-forward-leave-to,
-html[data-perf="low"] .pane-back-enter-from,
-html[data-perf="low"] .pane-back-leave-to { filter: none; }
+/* 入场已纯 transform + opacity，低性能档无需再撤 blur */
 
 /* 灵动引擎关闭（html[data-perf="low"]）：只撤「贵」的部分，保留入场质感。
    早先这里是「动画全停」（duration 压到 0.01ms），代价是把弹簧手感也一起杀掉了。
@@ -1223,10 +1248,13 @@ html[data-theme="dark"][data-perf="low"] {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .card, .menu, .dock, .selection-bar, .modal, .modal-mask {
+  /* 一并覆盖 glassfx 的 .glass：否则 .glass::after（bloom）与 ::before（rim）
+     在关掉模糊后仍常驻，且 .glass 自身的 backdrop-filter 会漏网。 */
+  .card, .menu, .dock, .selection-bar, .modal, .modal-mask, .glass {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
+  .glass::after { display: none; }
 }
 
 /* 尊重系统「减弱动态效果」 */

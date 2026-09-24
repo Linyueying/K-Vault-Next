@@ -126,6 +126,25 @@ BASE=http://127.0.0.1:8099 node scripts/verify/overflow-x.mjs
 **坑**：Playwright 测溢出**别开 `isMobile:true`** —— Chrome 移动端会把布局视口
 自动撑宽（390→401）去"容纳"超宽内容，`innerWidth` 跟着变大，溢出全部漏检。
 
+### `glass-fx.mjs` —— 液态玻璃增强层（glassfx）运行时验证
+
+```bash
+# 先按 AI-OPERATIONS.md §2.2 起带凭据的本地全栈
+BASE=http://127.0.0.1:8099 CHROME_PATH=/usr/bin/chromium \
+  BASIC_USER=admin BASIC_PASS=123 node scripts/verify/glass-fx.mjs
+```
+
+桌面 + 移动两种视口下核对：① glassfx 的共享折射滤镜 `#glassfx-refract`
+确已注入（JS 增强生效）；② `.glass` 元素上 `backdrop-filter` 含
+`blur(20px)` + `saturate(180%)`；③ 指针移入后 `.glass` 被写入
+`--glass-mx/--glass-my`（光标 bloom 追踪在跑）；④ 移动端按 `@media(max-width:680px)`
+把 `--glass-blur` 降级到 14px（不关模糊）。背景：本轮 Apple 风玻璃重构
+（统一 `--glass-blur:20px`/`saturate(180%)`/`--ease-out`，接入 vendored
+glassfx，清理入场 `filter:blur`）。
+**坑**：本地 wrangler dev 带 `BASIC_USER/PASS` 时，页面匿名轮询 `/api/manage/*`
+会回 401，被 `page.on('console')` 当成 error —— 脚本用 `IGNORE` 正则
+过滤资源/网络类报错，只对**真实 script 异常**报警。
+
 ### `verify_classes.mjs` —— 上收类渲染验证
 
 ```bash

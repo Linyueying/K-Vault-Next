@@ -605,8 +605,8 @@ html[data-theme="dark"] .share-badge { background: rgba(52, 211, 153, 0.15); col
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-3) var(--sp-4);
   background: var(--glass-elevated);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border-ice);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-elevated);
@@ -627,8 +627,8 @@ html[data-theme="dark"] .share-badge { background: rgba(52, 211, 153, 0.15); col
   padding: var(--sp-2);
   border-radius: var(--r-md);
   background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid rgba(255, 255, 255, 0.8);
   box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(var(--primary-rgb), 0.06);
   transform-origin: top right;
@@ -982,11 +982,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         padding: 6px;
         border-radius: var(--r-pill);
         background: var(--glass-elevated);
-        backdrop-filter: blur(28px);
-        -webkit-backdrop-filter: blur(28px);
+        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
         border: 1.5px solid var(--glass-border-ice);
         box-shadow: 0 16px 40px -10px rgba(2, 132, 199, 0.2), 0 4px 14px -3px rgba(0, 0, 0, 0.06);
-        z-index: 1000;
+        z-index: 100;
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 6px;
@@ -1093,8 +1093,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         padding: var(--sp-3) var(--sp-4);
         border-radius: var(--r-md);
         background: var(--glass-elevated);
-        backdrop-filter: blur(24px);
-        -webkit-backdrop-filter: blur(24px);
+        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
         border: 1.5px solid var(--glass-border-ice);
         box-shadow: var(--shadow-elevated);
         z-index: 2500;
@@ -1422,7 +1422,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   <button class="btn btn--ghost btn--icon" @click.stop="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
                   <button class="btn btn--ghost btn--icon" :class="{ open: resultMenuFor === index }" @click.stop="toggleFileMenu(index)" title="更多操作"><i class="fas fa-ellipsis"></i></button>
                   <transition name="menu">
-                    <div v-if="resultMenuFor === index" class="menu" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
+                    <div v-if="resultMenuFor === index" class="menu glass" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
                       <button class="menu__item" @click="menuAct(openPreview(file))"><i class="fas fa-eye"></i><span>预览</span></button>
                       <button class="menu__item" @click="menuAct(downloadFile(file))"><i class="fas fa-download"></i><span>下载</span></button>
                       <button class="menu__item" @click="menuAct(openShareDialog(file))"><i class="fas fa-share-nodes"></i><span>{{ hasShare(file) ? '管理分享' : '创建分享' }}</span></button>
@@ -1440,7 +1440,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           <transition name="collapse">
             <div class="collapse" v-if="resultSelectMode">
             <div class="collapse__inner">
-            <div class="selection-bar">
+            <div class="selection-bar glass">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
               <div class="selection-bar__actions">
                 <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0"><i class="fas fa-copy"></i> 复制链接</button>
@@ -1458,7 +1458,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
       </main>
 
       <!-- 底部 Dock -->
-      <nav class="dock">
+      <nav class="dock glass">
         <button class="dock__btn" :class="{ active: !showDrawer }" @click="showDrawer = false">
           <i class="fas fa-cloud-arrow-up"></i><span>主控台</span>
         </button>
@@ -1715,7 +1715,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             <transition name="collapse">
             <div class="collapse" v-if="historySelectedCount > 0">
             <div class="collapse__inner">
-            <div class="selection-bar">
+            <div class="selection-bar glass">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ historySelectedCount }}</span>
               <div class="selection-bar__actions">
                 <button class="btn btn--sm" @click="copyHistorySelected"><i class="fas fa-copy"></i> 复制</button>

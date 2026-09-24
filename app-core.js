@@ -208,8 +208,60 @@
     };
   }
 
+  /* ------------------------------------------------------------------ *
+   * 液态玻璃增强层（glassfx）
+   *   加载 vendored @ /vendor/glassfx/index.js —— 它挂一次共享 SVG 折射滤镜
+   *   (#glassfx-refract)、并启动一个委托的指针监听，为每个 .glass 元素写入
+   *   --glass-mx/--glass-my（光标跟随 bloom）。
+   *   纯增强：加载失败 / 不支持时静默跳过，页面照旧（frosted 兜底）。
+   *   CSS 已在 design-system.css 顶部 @import，无需此处再引。
+   *   @returns {Promise<boolean>} 是否成功加载
+   * ------------------------------------------------------------------ */
+  function glassInit() {
+    if (typeof document === "undefined") return Promise.resolve(false);
+    if (glassInit._p) return glassInit._p; // 幂等：多页调用只加载一次
+
+    glassInit._p = import("/vendor/glassfx/index.js")
+      .then(function () { return true; })
+      .catch(function () { return false; }); // 增强失败不影响主流程
+    return glassInit._p;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 滚动揭示（reveal on scroll）
+   *   零依赖的 IntersectionObserver 微模块：给 [data-reveal] 元素在进入视口时
+   *   加 .is-revealed，配合 CSS 只做 transform + opacity 过渡（Apple 风）。
+   *   尊重 prefers-reduced-motion —— 命中时直接全量揭示，不做动画。
+   *   @returns {() => void} 停止函数
+   * ------------------------------------------------------------------ */
+  function revealOnScroll(root) {
+    var scope = root || document;
+    var els = [].slice.call(scope.querySelectorAll("[data-reveal]"));
+    if (!els.length) return function () {};
+
+    var reduce = typeof window !== "undefined" && window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (reduce || !("IntersectionObserver" in window)) {
+      els.forEach(function (el) { el.classList.add("is-revealed"); });
+      return function () {};
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-revealed");
+          io.unobserve(entry.target);
+        }
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.08 });
+
+    els.forEach(function (el) { io.observe(el); });
+    return function () { io.disconnect(); };
+  }
+
   window.KVault = {
-    version: "1.0.0",
+    version: "1.1.0",
     formatBytes: formatBytes,
     formatSize: formatBytes, // 别名：多数页面用这个名字
     formatTime: formatTime,
@@ -222,5 +274,23 @@
     fetchJSON: fetchJSON,
     escapeHtml: escapeHtml,
     debounce: debounce,
+    glassInit: glassInit,
+    revealOnScroll: revealOnScroll,
   };
+
+  /* 自动初始化：纯增强、可失败。
+     - glassfx：DOM 就绪后加载一次（注入折射滤镜 + 启动指针 bloom 追踪）
+     - revealOnScroll：自动接管带 [data-reveal] 的元素
+     任一步失败都静默跳过，不阻塞页面既有逻辑。 */
+  if (typeof document !== "undefined") {
+    var bootGlass = function () {
+      try { glassInit(); } catch (e) { /* noop */ }
+      try { revealOnScroll(document); } catch (e) { /* noop */ }
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bootGlass, { once: true });
+    } else {
+      bootGlass();
+    }
+  }
 })();

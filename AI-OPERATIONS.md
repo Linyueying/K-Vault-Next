@@ -751,3 +751,18 @@ git ls-remote 验证远端 SHA == 本地 HEAD
     `.collapse > * { min-height:0; min-width:0 }`。验证脚本 `scripts/verify/overflow-x.mjs`；
     该脚本测量时**别开 Playwright `isMobile:true`** —— Chrome 会自动撑宽布局视口
     去容纳超宽内容，溢出全部漏检（见 `scripts/verify/README.md`）。
+19. **共享层新增工具类，必须显式覆盖同优先级的页面内联样式** —— 页面内联 `<style>`
+    在 `@import design-system.css` **之后**，同特异性时页面内联胜出。给 `.dock` 之类
+    既打 `.glass`、又指望共享层 `.card` 规则生效时，若页面内联也写了
+    `backdrop-filter`，最终生效的是**页面那份**（实测 dock 的 `blur(28px)` 压过
+    共享层）。做法：把页面内联的参数改成令牌（`blur(var(--glass-blur))`）或直接
+    删掉重复声明，别假设共享层能盖过去。
+20. **入场动画只动 `transform`/`opacity`，禁用 `filter: blur()`** —— blur 是绘制属性，
+    每帧重生成位图；且与 `backdrop-filter` + `overflow:hidden`（`collapse` 动画期）
+    同框会在 iOS Safari 闪烁。本轮已把 `.pane-*`/`.view-*`/`.label-*`/`.morph-*`
+    入场里的 `filter: blur()` 全部移除，`will-change` 同步收窄为 `transform, opacity`。
+21. **液态玻璃用 vendored 库（glassfx @ `/vendor/glassfx`），运行时零 CDN** ——
+    CSS 走 `@import`（须在所有规则之前），JS 由 `app-core.js` 在 DOM 就绪后
+    `import()`（失败静默跳过，frosted 兜底）。给元素加 `.glass` 即得 rim + 光标 bloom
+    +（Chromium）真实折射；页面内联的背景/边框/阴影会按源顺序覆盖它的默认外观，
+    故**只取增强、不改既有设计**。验证脚本 `scripts/verify/glass-fx.mjs`。

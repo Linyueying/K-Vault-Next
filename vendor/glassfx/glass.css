@@ -1,0 +1,235 @@
+/* ==========================================================================
+   glassfx — real-refraction glassmorphism for any element
+   --------------------------------------------------------------------------
+   Add `glass` to any element that has a border-radius. Optionally add
+   `glass-refract` for true backdrop lensing + chromatic dispersion (Chromium;
+   graceful blur fallback elsewhere). Everything is themeable through CSS
+   custom properties — override them on :root, on .glass, or per element.
+
+   Depth (specular edge + layered shadow + lit rim + diagonal sheen) and the
+   cursor-tracking bloom work in every modern browser with `backdrop-filter`.
+   The lens (SVG feDisplacementMap fed into `backdrop-filter: url()`) is
+   currently Chromium-only; the @supports gate below keeps every other engine
+   on the depth + frost fallback so a glass surface is never broken/empty.
+
+   MIT licensed. https://github.com/SquareMediaGroup/glassfx
+   ========================================================================== */
+
+:root {
+  /* —— Global Defaults (override on :root to theme site-wide) ————————————— */
+  --glass-tint: 255, 255, 255;        /* surface colour, as "r, g, b"        */
+  --glass-alpha: 0.16;                /* surface opacity                     */
+  --glass-blur: 14px;                 /* frost amount                        */
+  --glass-saturate: 1.4;              /* backdrop saturation boost           */
+  --glass-brightness: 1.05;           /* backdrop brightness boost           */
+  --glass-radius: 16px;               /* used only if the element sets none  */
+  --glass-bloom: 255, 255, 255;       /* cursor-bloom colour, "r, g, b"      */
+  --glass-bloom-size: 200px;          /* cursor-bloom radius                 */
+  --glass-sheen: 0.14;                /* diagonal top-left highlight         */
+  --glass-rim: 0.5;                   /* lit-edge brightness (top)           */
+  --glass-refract-strength: 48;       /* mean refraction scale               */
+  --glass-refract-dispersion: 6;      /* chromatic aberration spread         */
+  --glass-grain: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.80' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.025'/%3E%3C/svg%3E");
+  --glass-tilt-max: 6deg;
+  --glass-tilt-perspective: 1000px;
+
+  /* strong modifier defaults */
+  --glass-strong-tint: 30, 38, 48;
+  --glass-strong-alpha: 0.66;
+  --glass-strong-blur: 16px;
+}
+
+.glass {
+  position: relative;
+  isolation: isolate;                 /* own stacking context for ::after    */
+  border-radius: var(--glass-radius);
+  /* Diagonal sheen baked into the background so it always sits *below* content
+     (no z-index fight) — the static "faked-refraction" highlight. */
+  background:
+    var(--glass-grain),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, var(--glass-sheen)),
+      rgba(255, 255, 255, 0) 46%
+    ),
+    rgba(var(--glass-tint), var(--glass-alpha));
+  background-size: 200% 200%;
+  animation: glass-sheen-drift 10s ease-in-out infinite alternate;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+    brightness(var(--glass-brightness));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+    brightness(var(--glass-brightness));
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.45), /* enhanced specular top edge */
+    inset 0 -1px 1px rgba(0, 0, 0, 0.15),      /* enhanced bottom shade      */
+    inset 1px 0 1px rgba(255, 255, 255, 0.15), /* left edge                  */
+    inset -1px 0 1px rgba(0, 0, 0, 0.1),       /* right edge                 */
+    0 8px 24px rgba(0, 0, 0, 0.22),            /* elevation                  */
+    0 2px 6px rgba(0, 0, 0, 0.12);             /* tight contact shadow       */
+  /* Bloom animates via box-shadow + rim only — never backdrop-filter, whose
+     url() in the refract variant would force a discrete (snapping) transition. */
+  transition:
+    box-shadow 0.45s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+/* Lit rim — a 1px gradient ring, bright at the top, via the masked-border
+   trick. Sits exactly on the edge so it never overlaps content. */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    var(--glass-angle, 180deg),
+    rgba(255, 255, 255, var(--glass-rim)) 0%,
+    rgba(255, 255, 255, 0.12) 40%,
+    rgba(255, 255, 255, 0.04) 60%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+  transition: filter 0.45s ease;
+}
+
+/* Cursor-tracking bloom. glassfx's JS writes the pointer position within the
+   hovered element into --glass-mx/--glass-my; this radial glow centres there.
+   Without the JS it still works — it just blooms from the centre. Sits at
+   z-index -1: above the surface fill, below all content. */
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    var(--glass-bloom-size) circle at var(--glass-mx, 50%) var(--glass-my, 50%),
+    rgba(var(--glass-bloom), 0.12),
+    rgba(var(--glass-bloom), 0.032) 45%,
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+
+@media (hover: hover) {
+  .glass:hover::after {
+    opacity: 1;
+  }
+}
+
+/* Keyboard equivalent: a uniform bloom when focus enters the surface. */
+.glass:focus-within {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+    inset 0 0 44px rgba(var(--glass-bloom), 0.088),
+    0 8px 28px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.08),
+    0 0 44px rgba(var(--glass-bloom), 0.152);
+}
+
+.glass:focus-within::before {
+  filter: brightness(2.4);
+}
+
+/* —— Modifiers ————————————————————————————————————————————————————————— */
+.glass-sm { --glass-blur: 6px; }
+.glass-md { --glass-blur: 12px; }
+.glass-xl { --glass-blur: 20px; }
+
+/* Frosted dark slab — strong, legible surfaces (headers, toolbars). Neutral
+   slate by default; override --glass-strong-tint to brand it globally. */
+.glass-strong {
+  --glass-tint: var(--glass-strong-tint);
+  --glass-alpha: var(--glass-strong-alpha);
+  --glass-blur: var(--glass-strong-blur);
+}
+
+.glass-pill { border-radius: 9999px; }
+
+/* Near-opaque — dropdowns/popovers that must stay legible over any content. */
+.glass-opaque { --glass-alpha: 0.92; }
+
+/* Lighter fill — a more see-through slab. Declared after glass-strong so it
+   wins the cascade when both are present. */
+.glass-translucent { --glass-alpha: 0.4; }
+
+/* Optional helper: a barely-there text shadow to lift labels off translucent
+   glass for legibility. */
+.glass-legible-text { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
+
+/* Legibility shadow helper optimized for navigation dropdown items. */
+@media (min-width: 768px) {
+  .glass-menu-legible {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* —— Real refraction (Chromium) ———————————————————————————————————————————
+   Only Chromium currently honours an SVG filter reference in backdrop-filter;
+   the @supports test is false in Safari/Firefox, so they fall through to the
+   depth + frost above. Order matters: the lens (url) displaces the CRISP
+   backdrop first — heavy blur before displacement would erase the bend and
+   colour fringing — then a light blur smooths the result. The SVG filter is
+   injected by glassfx's JS (import "glassfx" / <GlassFilter/>). -webkit- is
+   intentionally NOT given the url() (Safari can't render it and would drop the
+   whole filter). */
+@supports (backdrop-filter: url("#glassfx-refract")) {
+  .glass-refract {
+    backdrop-filter: var(--glass-refract-id, url(#glassfx-refract)) blur(var(--glass-blur))
+      saturate(var(--glass-saturate)) brightness(var(--glass-brightness));
+  }
+}
+
+/* Refraction is GPU-costly tiled across many small surfaces — drop the
+   displacement on phones and lean on the cheaper blur + frost. */
+@media (max-width: 768px) {
+  @supports (backdrop-filter: url("#glassfx-refract")) {
+    .glass-refract {
+      backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate))
+        brightness(var(--glass-brightness));
+    }
+  }
+}
+
+/* —— Accessibility ————————————————————————————————————————————————————————
+   Honour reduced-motion (no bloom/transition animation) and reduced-
+   transparency (fall back to a near-solid surface, drop the blur + bloom). */
+@media (prefers-reduced-motion: reduce) {
+  .glass,
+  .glass::before,
+  .glass::after {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    --glass-alpha: 0.96;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass::after {
+    display: none;
+  }
+}
+
+/* —— Animations —————————————————————————————————————————————————————————— */
+@keyframes glass-sheen-drift {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 100% 100%;
+  }
+}
+
