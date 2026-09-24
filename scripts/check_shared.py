@@ -235,7 +235,8 @@ LATE_LOAD_CSS = {
         '否则会把 webdav 的头部规则、gallery 的预览规则强加给其余 6 页。'
         '已于 2024 收敛：删除 350 行指向「8 页均不存在」的类的死代码'
         '（.header-content / .nav-links / .home-btn / .status-panel / .el-* 等），'
-        '781 -> 433 行，清理前后 132 项计算样式快照逐一比对完全一致。',
+        '781 -> 433 行，清理前后用修正过 getPropertyValue 大小写陷阱的真实计算样式值'
+        '（520 项，5 视口×8 页×13 元素×23 属性去重后）逐一比对，0 差异 —— 见 visual-snapshot.mjs / visual-diff.mjs。',
 }
 
 

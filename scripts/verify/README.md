@@ -27,7 +27,10 @@ npx playwright install chromium
 
 端口不是 8788 时：`BASE=http://127.0.0.1:8099 node scripts/verify/xxx.mjs`
 
-## 三个脚本
+## 活跃脚本（直接用这些）
+
+> `scripts/verify/_archive/` 是历史归档，**不要直接运行**（详见该目录
+> `_HEADER_NOTE.txt`）。下面是当前在用的 6 个。
 
 ### `smoke.mjs` —— 8 页冒烟测试（改完前端必跑）
 
@@ -78,6 +81,39 @@ node scripts/verify/visual-diff.mjs /tmp/before.json /tmp/after.json
 拍的不是截图，而是**关键元素的计算样式**（5 视口 × 8 页 × 13 元素 × 23 属性 = 520 项）。
 比截图严格：肉眼会漏 1px，字符串比对不会。
 
+### `verify_classes.mjs` —— 上收类渲染验证
+
+```bash
+node scripts/verify/verify_classes.mjs
+```
+
+就地构造带这些类的元素，读计算样式，逐属性核对：`.ambient-glow` / `.ambient-orb`
+/ `.mono` / `.grow` / `.password-gate*` / `.modal`（都是本次从各页面内联 `<style>`
+上收到 `design-system.css` 的）。**确认共享层真的在 8 页生效**，而不是因某页漏了
+`<link>` 或删了定义就退回默认值。smoke 不覆盖这一项。
+
+### `audit-theme-toggle.mjs` —— 每页主题开关盘点
+
+```bash
+node scripts/verify/audit-theme-toggle.mjs
+```
+
+精确统计每页的 `data-theme-toggle` 元素与各开关路径（自带按钮 / gallery 自绘 /
+浮动按钮 / webdav 的 `.btn action-btn`）。诊断「自带开关页不该再被造浮动按钮、
+其余页浮动按钮必须恰好 1 个」——防 `data-theme-toggle` 被误挂在 `<body>` 上导致
+一次点击被处理两次、主题来回抵消。
+
+### `visual-check.mjs` —— 视觉冒烟（具体元素）
+
+```bash
+node scripts/verify/visual-check.mjs
+```
+
+查**具体视觉元素**是否出现且属性对：环境光层 `.ambient-glow` 是否固定定位、
+密码门 `.password-gate` 是否按 token 版渲染（max-width 380px）、玻璃卡是否有背景色、
+`.btn` 高度是否合理、以及 **FontAwesome 是否真正加载**（之前 share.html 没引，
+图标全是方块；smoke 和 verify_classes 都没覆盖这项）。
+
 `visual-diff.mjs` 退出码 0 = 完全一致，1 = 有差异（逐属性打印）。
 
 **用途**：证明「这轮重构是纯删死代码，没有改变任何渲染结果」。本次清理
@@ -119,3 +155,17 @@ node scripts/verify/smoke.mjs
 ```
 
 清理/重构 CSS 时**额外**做：`dead-selectors.mjs` 确认可删 → 改 → `visual-snapshot` + `visual-diff` 确认零差异。
+
+## 历史归档：`_archive/`
+
+上一轮「前端统一化」改造期间写过的脚本都收在 `scripts/verify/_archive/`
+（详见该目录的 `_HEADER_NOTE.txt`）。分两类，**都不要直接运行**：
+
+- **已被活跃版本取代**（只读测试）：`visual_snap.mjs`、`regress_full.mjs`、
+  `dead_css.mjs`；以及已失效的 `check_toggle_link.mjs`（它查的死类已被删）。
+- **一次性改造/分析工具**（会改动文件，**绝不可重跑**）：`prune2.py` / `prune3.py` /
+  `prune_mobile.py` 用脚本改写过 `mobile-refactor.css`，该文件已是清理后最终状态，
+  重跑会把它改坏；`analyze_pending.py` / `classify.py` / `classify2.py` /
+  `dead_quant.py` 是当时取证「37 个重复类」用过的分析工具，仅供追溯。
+
+> 归到这里是为了"工作不丢、可追溯"。要用测试请认准上面的 6 个活跃脚本。

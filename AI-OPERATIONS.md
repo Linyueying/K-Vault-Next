@@ -254,11 +254,16 @@ node scripts/verify/visual-snapshot.mjs /tmp/after.json
 node scripts/verify/visual-diff.mjs /tmp/before.json /tmp/after.json
 ```
 
-三个脚本各自解决一类问题：
+**6 个活跃脚本**（`scripts/verify/`，配套说明见该目录 `README.md`），各自解决一类问题：
 
 - **`smoke.mjs`** —— 8 页 × 双视口，查 JS 报错 / 死选择器节点 / 主题切换
 - **`dead-selectors.mjs`** —— 运行时 `querySelectorAll` 计数，给出「死·可删」/「在用·勿删」
 - **`visual-snapshot.mjs` + `visual-diff.mjs`** —— 520 项计算样式快照比对
+- **`verify_classes.mjs`** —— 验证上收到 `design-system.css` 的类（`.ambient-glow` / `.modal` / `.password-gate*` 等）确实在 8 页都渲染正确
+- **`audit-theme-toggle.mjs`** —— 每页主题开关盘点，诊断「开关重复/缺失」
+- **`visual-check.mjs`** —— 具体视觉元素冒烟（含 FontAwesome 是否真加载，smoke 没覆盖这项）
+
+> `scripts/verify/_archive/` 是历史归档（被取代的版本 + 一次性改造工具），**不要直接运行**，详见该目录 `_HEADER_NOTE.txt`。
 
 #### 3.4.2 删 CSS 前的铁律：先跑 `dead-selectors.mjs`
 
@@ -685,7 +690,11 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 | 本地起全栈 | `npx wrangler pages dev ./ --kv "img_url" --r2=R2_BUCKET --compatibility-date=2026-05-03 --port 8099 --persist-to /tmp/kvdata --binding BASIC_USER=admin --binding BASIC_PASS=123` |
 | 跑守卫 | `python3 scripts/check_style.py && python3 scripts/check_tokens.py && python3 scripts/check_functions.py && python3 scripts/check_shared.py` |
 | 8 页冒烟（运行时） | `node scripts/verify/smoke.mjs`（先起 `python3 -m http.server 8788`） |
+| **8 页冒烟** | `node scripts/verify/smoke.mjs` |
 | **删 CSS 前查选择器是否真死** | `node scripts/verify/dead-selectors.mjs .xxx .yyy` |
+| **上收类渲染验证** | `node scripts/verify/verify_classes.mjs` |
+| **每页主题开关盘点** | `node scripts/verify/audit-theme-toggle.mjs` |
+| **具体视觉元素冒烟** | `node scripts/verify/visual-check.mjs` |
 | **重构前后证明零差异** | `node scripts/verify/visual-snapshot.mjs a.json` → 改 → `... b.json` → `node scripts/verify/visual-diff.mjs a.json b.json` |
 | 查跨页是否还各写各的 | `python3 scripts/check_shared.py` |
 | 加一个跨页能力 | 写进 `app-core.js` → 挂 `window.KVault` → 各页调用点切过去 |

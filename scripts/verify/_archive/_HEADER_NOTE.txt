@@ -1,0 +1,20 @@
+# ⚠️ 本目录是「历史归档」，请勿直接运行。
+#
+# 这里保存的是上一轮「前端统一化」改造期间写过的脚本，按用途分两类：
+#
+# 【A】已被 scripts/verify/ 下的活跃版本取代（只读测试，功能相同或更强）：
+#   - visual_snap.mjs    → 取代者：visual-snapshot.mjs（+ visual-diff.mjs）
+#   - regress_full.mjs   → 取代者：smoke.mjs
+#   - dead_css.mjs       → 取代者：dead-selectors.mjs
+#   - check_toggle_link.mjs → 已失效：它查的 .theme-admin-toggle/.theme-auto-inline-toggle
+#                            正是那轮清理删掉的死类，现在全站为 0，跑它没有意义。
+#
+# 【B】一次性「改造/分析」工具（会改动文件，且任务已完成，绝不可重跑）：
+#   - prune2.py / prune3.py / prune_mobile.py
+#       用脚本改写过 mobile-refactor.css（删死选择器）。mobile-refactor.css 已经是
+#       清理后的最终状态（433 行）。重跑会再次改写它、把已交付的结果改坏。
+#   - analyze_pending.py / classify.py / classify2.py / dead_quant.py
+#       用于那轮「37 个重复类」的取证分析，纯只读，仅供追溯当时怎么判断的。
+#
+# 这些文件留在仓库里只是为了「工作不丢、可追溯」。要用测试请用上一级目录里的
+# 活跃脚本；要追溯当时做法再来看这里。
