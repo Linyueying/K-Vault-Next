@@ -269,7 +269,9 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .crumbs-bar .spacer{margin-left:auto}
 /* 卡片网格 */
 .vault-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:var(--sp-3)}
-.vault-card{position:relative;background:var(--glass-surface);backdrop-filter:blur(var(--sp-4));-webkit-backdrop-filter:blur(var(--sp-4));border:1px solid var(--glass-border);border-radius:var(--r-lg);overflow:hidden;transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple);display:flex;flex-direction:column;}
+/* 注意：卡片不能设 overflow:hidden —— 它会把「更多操作」弹出菜单整块裁掉。
+   圆角裁剪改由 .card-thumb 自己负责。 */
+.vault-card{position:relative;background:var(--glass-surface);backdrop-filter:blur(var(--sp-4));-webkit-backdrop-filter:blur(var(--sp-4));border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple);display:flex;flex-direction:column;}
 @media(hover:hover){.vault-card:hover{border-color:var(--primary-light);transform:translateY(-3px) scale(1.006);box-shadow:0 10px 26px -6px rgba(var(--primary-rgb),.22)}}
 .vault-card:active{transform:translateY(-1px) scale(.985);transition-duration:.1s}
 .vault-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(var(--primary-rgb),.2)}
@@ -280,7 +282,7 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .card-dl::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
 @media(hover:hover){.card-dl:hover{transform:scale(1.12);background:rgba(15,23,42,.7);border-color:rgba(255,255,255,.6)}}
 .card-dl:active{transform:scale(.88);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.card-thumb{height:132px;display:flex;align-items:center;justify-content:center;background:var(--glass-subtle);cursor:pointer;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-border);}
+.card-thumb{height:132px;display:flex;align-items:center;justify-content:center;background:var(--glass-subtle);cursor:pointer;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-border);border-radius:calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0;}
 .card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s var(--ease-apple)}
 .vault-card:hover .card-thumb img{transform:scale(1.08)}
 .card-thumb>i{font-size:2.6rem;color:var(--primary);opacity:.55}
@@ -322,6 +324,12 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .act-wrap{position:relative;display:inline-flex;flex:none}
 .act-menu{min-width:172px;padding:var(--sp-1)}
 .act-menu .dropdown-item{padding:10px var(--sp-3);border-radius:var(--r-sm);font-size:.83rem}
+/* 菜单打开的那一项（卡片/行）浮到同级最上层。
+   卡片与行都带 backdrop-filter，各自形成独立堆叠层，
+   若不提升 z-index，弹出菜单会被后面的卡片/行盖住。
+   .vault-card 是 grid item、.vault-row 是 flex item，z-index 无需 position 即生效，
+   这里显式给出 position:relative 只是保证跨浏览器一致。 */
+.vault-card.menu-open,.vault-row.menu-open{position:relative;z-index:40}
 /* 分页 */
 .pager{display:flex;align-items:center;justify-content:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:6px}
 .pager-pages{display:flex;gap:5px;align-items:center}
@@ -1244,7 +1252,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" key="grid">
         <div v-for="item in pageData" :key="item.name"
              class="vault-card"
-             :class="{selected:item.selected, dragging: drag.ids.indexOf(item.id||item.name)>-1}"
+             :class="{selected:item.selected, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
              draggable="true"
              @dragstart="dragStart(item,$event)"
              @dragend="dragEnd">
@@ -1303,7 +1311,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div v-else-if="viewMode==='list' && pageData.length" class="vault-list" key="list">
         <div v-for="item in pageData" :key="item.name"
              class="vault-row"
-             :class="{selected:item.selected}">
+             :class="{selected:item.selected, 'menu-open': openMenu==='row:'+item.name}">
           <label class="check" :class="{on:item.selected}" @click.stop.prevent="toggleSelect(item)">
             <i class="fas fa-check"></i>
             <input type="checkbox" v-model="item.selected" tabindex="-1">
