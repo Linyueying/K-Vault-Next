@@ -680,6 +680,24 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 @keyframes rowExpandIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
 @keyframes rowExpandOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
 
+/* 通用容器展开/收起（grid-template-rows 真插值，进出场都补齐，配 <transition name="collapse">）。
+   用于「出现/消失会带动容器高度变化」的面板（如 index 的交付结果），让「缩小」也走非线性缓动，
+   而非瞬间塌缩。结构约定（务必加一层无样式的 .collapse__inner 包裹，否则带 padding 的卡片
+   无法真正收到 0，会卡在内容最小高度）：
+     <transition name="collapse">
+       <div class="collapse" v-if="...">
+         <div class="collapse__inner"><section class="card panel">…</section></div>
+       </div>
+     </transition>
+   .collapse 为单格 grid，唯一子元素（.collapse__inner）被 overflow:hidden 裁切，
+   grid-template-rows 在 0fr↔1fr 间插值。 */
+@keyframes collapseIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
+@keyframes collapseOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
+.collapse { display: grid; grid-template-rows: 1fr; }
+.collapse > * { min-height: 0; overflow: hidden; }
+.collapse-enter-active { animation: collapseIn 0.34s var(--ease-apple) both; }
+.collapse-leave-active { animation: collapseOut 0.30s var(--ease-apple) both; }
+
 /* 数字/计数切换 */
 @keyframes countIn  { from { opacity: 0; transform: scale(0.6) translate3d(0, -6px, 0); } to { opacity: 1; transform: scale(1) translate3d(0, 0, 0); } }
 @keyframes countOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.6) translate3d(0, 6px, 0); } }
