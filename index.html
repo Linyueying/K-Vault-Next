@@ -638,6 +638,13 @@ html[data-theme="dark"] .share-badge { background: rgba(52, 211, 153, 0.15); col
 }
 .selection-bar__info { font-size: var(--fs-md); font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 6px; }
 .selection-bar__actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+/* 与 design-system.css 的 collapse 段同理：本条外阴影（--shadow-elevated，
+   0 16px 36px -6px）向下溢出约 36px，在 collapse 展开期间会被
+   .collapse__inner 的 overflow:hidden 整整藏住 0.5s，动画结束那一帧
+   overflow 恢复、阴影硬蹦出来 —— 就是「点选择后阴影抽搐」的那一下。
+   动画期间不画，结束后借 .glass 自带的 transition: box-shadow 0.45s 渐入。 */
+.collapse-enter-active .selection-bar,
+.collapse-leave-active .selection-bar { box-shadow: none; }
 
 /* =========================================================
    上下文菜单（iOS 风格）

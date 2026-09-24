@@ -727,6 +727,23 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .collapse-enter-active { animation: collapseIn 0.5s var(--ease-apple) both; }
 .collapse-leave-active { animation: collapseOut 0.44s var(--ease-apple) both; }
 
+/* —— 面板外阴影在展开/收起期间的「抽搐」 ——
+   上面那条 overflow:hidden 是收到 0 高度的必要条件，但它同时会裁掉面板的
+   **外**阴影（.card 的 --shadow-soft 扩散约 24px）。实测时序：
+       t=7ms   高度 0    overflow=hidden   阴影被裁
+       t=523ms 高度 134  overflow=visible  阴影瞬间蹦出
+   也就是说阴影被整整藏了 0.5s，然后在最后一帧硬切出来，没有任何过渡 ——
+   这就是用户报的那下「抽搐」。收起时反向同理（visible→hidden，阴影突然消失）。
+   解法：动画期间干脆不画外阴影，动画结束后由 .card / .liquid-card 自带的
+   transition: box-shadow 0.45s 平滑补上。这样「阴影出现」变成一段渐入，
+   而不是一次硬跳。inset 阴影不溢出、不受裁切影响，可以保留。
+   注：别想着用 overflow:clip + overflow-clip-margin 给阴影留边 ——
+   高度收到 0 时那圈 margin 会让内容残留几十像素，collapse 就收不干净了。 */
+.collapse-enter-active > * > .card,
+.collapse-leave-active > * > .card,
+.collapse-enter-active > * > .liquid-card,
+.collapse-leave-active > * > .liquid-card { box-shadow: none; }
+
 /* 数字/计数切换 */
 @keyframes countIn  { from { opacity: 0; transform: scale(0.6) translate3d(0, -6px, 0); } to { opacity: 1; transform: scale(1) translate3d(0, 0, 0); } }
 @keyframes countOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.6) translate3d(0, 6px, 0); } }

@@ -46,7 +46,8 @@ await page.waitForFunction(() => {
 }, { timeout: 30000 });
 console.log('[上传] OK，结果条数 =', await page.evaluate(() => document.querySelector('#app')._vnode.component.proxy.uploadedFiles.length));
 
-// 逐帧采样器：抓元素引用，采到从 DOM 移除为止
+// 逐帧采样器：抓元素引用，采到从 DOM 移除为止。
+// 同时采 box-shadow —— 见下方「外阴影不得硬跳变」一条。
 async function sampleHeight(selector) {
   return page.evaluate(async (sel) => {
     const out = [];
@@ -65,15 +66,49 @@ async function sampleHeight(selector) {
   }, selector);
 }
 
+// 一次采样同时拿到「高度」与「外阴影」。
+// 必须同帧采：阴影的渐入发生在高度动画结束之后（约 500ms → 950ms），
+// 若先跑完 2s 的高度采样再回头采阴影，动画早已结束，只会采到终值 1 个 ——
+// 看起来像「硬跳」，其实是采样器自己的时序 bug。
+async function sampleBoth(selector) {
+  return page.evaluate(async (sel) => {
+    const heights = [], shadows = [];
+    const t0 = performance.now();
+    await new Promise((res) => {
+      const tick = () => {
+        const bar = heights.bar || (heights.bar = document.querySelector(sel));
+        const el = bar ? bar.closest('.collapse') : null;
+        if (!el || !el.isConnected) { res(); return; }
+        heights.push(Math.round(el.getBoundingClientRect().height));
+        shadows.push(getComputedStyle(bar).boxShadow);
+        if (performance.now() - t0 < 2000) requestAnimationFrame(tick); else res();
+      };
+      requestAnimationFrame(tick);
+    });
+    return { heights, shadows };
+  }, selector);
+}
+
 // ① 点「选择」→ 操作条渐开（.selection-bar 外层的 .collapse 高度插值）
+//    同时采外阴影：collapse 的 overflow:hidden 会裁掉外阴影，若不处理，
+//    动画结束那一帧阴影会硬蹦出来（用户报的「阴影抽搐」）。
 await page.evaluate(() => {
   const app = document.querySelector('#app')._vnode.component.proxy;
   app.toggleSelectMode();
 });
-const growSeq = await sampleHeight('.selection-bar');
+const grow = await sampleBoth('.selection-bar');
+const growSeq = grow.heights;
 const growUniq = [...new Set(growSeq)];
 console.log('[选择→操作条渐开] 高度序列(去重):', growUniq.join('→'));
 const growOk = growSeq[0] < 15 && growUniq[growUniq.length - 1] > 40 && growUniq.length >= 8;
+
+// 阴影必须「渐入」而不是「硬跳」：终值之前应采到 >=5 个中间值。
+// 硬跳时序列只有 [none, 终值] 两项，一眼可辨。
+const shadowUniq = [...new Set(grow.shadows)];
+console.log('[阴影渐入] 去重帧数:', shadowUniq.length,
+  '| 首=', shadowUniq[0].slice(0, 34),
+  '| 末=', shadowUniq[shadowUniq.length - 1].slice(0, 34));
+const shadowSoft = shadowUniq.length >= 5;
 
 // ② 点「完成」→ 操作条渐收至 0
 await page.evaluate(() => {
@@ -88,6 +123,7 @@ const shrinkOk = shrinkUniq[shrinkUniq.length - 1] === 0 && shrinkUniq.length >=
 console.log('');
 console.log('操作条渐开   :', growOk ? 'PASS' : 'FAIL');
 console.log('操作条渐收至0:', shrinkOk ? 'PASS' : 'FAIL');
+console.log('外阴影渐入   :', shadowSoft ? 'PASS' : 'FAIL');
 
 // ③ 打开「…」上拉菜单（menu--up 会溢出面板顶部），验证 collapse 裁切层未把菜单裁掉
 await page.waitForTimeout(600); // 等操作条 leave 结束、DOM 稳定
@@ -108,5 +144,5 @@ console.log('上拉菜单未被裁切:', clip.ok ? 'PASS' : `FAIL（elementFromP
 
 console.log('页面 JS 报错 :', errors.length === 0 ? '无' : errors.join(' | '));
 await browser.close();
-if (!growOk || !shrinkOk || !clip.ok || errors.length) process.exit(1);
+if (!growOk || !shrinkOk || !shadowSoft || !clip.ok || errors.length) process.exit(1);
 console.log('ALL PASS');
