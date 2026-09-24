@@ -205,6 +205,37 @@ leave 必须平滑收起到 0（ease-apple 曲线）。背景：selection-bar �
 **坑**：`.selection-bar` 自身内容高度不变（被裁切的是外层 `.collapse`），
 要采样 `closest('.collapse')` 而不是操作条本身；容器终高 = 内容高 + margin-top。
 
+### `select-bar-actions.mjs` —— 选择条「功能选项」改造后的行为回归
+
+```bash
+BASE=http://127.0.0.1:8099 node scripts/verify/select-bar-actions.mjs
+```
+
+四组、27 条断言，全部走真实上传（预置 r2）：
+
+1. **交付结果条**：按钮集合 = 下载 / 分享 / 复制链接 / 移动到 / 删除；只有「删除」
+   是 danger；未选中时前三个置灰、已登录且已选中时五个全可用。
+2. **移动到**确实弹出 prompt 对话框、确认后真的 POST `move-folder`，并用
+   `/api/manage/list` 反查云端 `folderPath` 已改（**坑**：该接口返回的是
+   `keys[]`，`folderPath` 挂在 `metadata` 上，不是 `files[]`）。
+3. **删除**确实弹 danger 确认框、逐个调 `manage/delete/<id>`，删除后再 HEAD
+   文件 URL 必须是 404/410，且本地历史同一条同步失效（不留死链）。
+4. **未登录**时 移动到/删除 置灰且 tooltip 提示需要登录；**历史条**按钮集合与
+   云端删除行为；**批量下载**用探针替换 `_doNativeDownload` 计数（headless
+   里真下载落不了地），断言逐个触发且间隔 ≥400ms（否则浏览器判为滥用而静默拦截）。
+
+**坑（都踩过）**：
+- `page.evaluate(fn)` 会 **await 返回的 Promise**。写成 `() => app.deleteSelected()`
+  这种「箭头直接返回」的形式，evaluate 会一直挂到弹窗被确认为止——而确认动作
+  在下一个 evaluate 里，死锁。必须写成 `{ app.deleteSelected(); }`（返回 undefined）。
+- `page.waitForFunction(fn, options)` 的第二个参数是 **arg 不是 options**。
+  写成 `waitForFunction(fn, { timeout: 5000 })` 时超时仍是默认 30s。
+- 本部署**访客上传是关闭的**，未登录上传会被 `redirectToLogin()` 弹去登录页，
+  `#app` 随之变 null。要测「未登录」分支就先登录传完文件，再把
+  `isAuthenticated` 置回 false 来验证模板绑定。
+- `selectedFiles` 是**计算属性**不是方法，写成 `this.selectedFiles()` 会抛
+  `is not a function`（页面错误，按钮点了没反应）。
+
 ### `overflow-x.mjs` —— 移动端横向溢出验证（真实上传全链路）
 
 ```bash
@@ -337,6 +368,10 @@ node scripts/verify/smoke.mjs
 
 改动涉及后端链路（分享 / 上传 / 下载计次）时**额外**跑：
 `node scripts/verify/share-bundle.mjs`（需本地全栈）。
+
+改动涉及**选择条 / 批量操作**（删除、移动、批量下载）时**额外**跑：
+`node scripts/verify/select-bar-actions.mjs`（需本地全栈）。它自带
+`BREAK_DELETE=1` 故障注入开关，用来证明脚本确实能抓到「删除没真调接口」。
 
 **新脚本的铁律：先证明它能捕捉故障。** 写完之后回退/注入一次对应 bug，
 确认脚本确实变红 —— 一个永远绿的测试等于没有测试。`share-bundle.mjs`

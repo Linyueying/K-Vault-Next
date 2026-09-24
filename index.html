@@ -684,7 +684,6 @@ html[data-theme="dark"] .menu { background: rgba(30, 41, 59, 0.95); border-color
 .menu__item--danger { color: var(--c-danger); }
 .menu__item--danger i { color: var(--c-danger); }
 .menu__item--danger:hover { background: var(--c-danger-soft); }
-.menu__sep { height: 1px; margin: var(--sp-1) var(--sp-3); background: var(--glass-border-ice); }
 
 /* 上下文菜单进出场：走 keyframes，避免同帧插入+换 class 导致动画被整帧跳过。
    时长/缓动沿用项目既有的 --ease-spring（回弹）与 --ease-press（收束）。 */
@@ -1595,8 +1594,6 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                       <button class="menu__item" @click="menuAct(downloadFile(file))"><i class="fas fa-download"></i><span>下载</span></button>
                       <button class="menu__item" @click="menuAct(openShareDialog(file))"><i class="fas fa-share-nodes"></i><span>{{ hasShare(file) ? '管理分享' : '创建分享' }}</span></button>
                       <button v-if="hasShare(file)" class="menu__item" @click="menuAct(copyShareLink(file))"><i class="fas fa-link"></i><span>复制分享短链</span></button>
-                      <div class="menu__sep"></div>
-                      <button class="menu__item menu__item--danger" @click="menuAct(removeFromResults(index))"><i class="fas fa-trash-can"></i><span>移除</span></button>
                     </div>
                   </transition>
                 </div>
@@ -1611,10 +1608,11 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             <div class="selection-bar glass">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
               <div class="selection-bar__actions">
-                <button class="btn btn--sm" @click="shareSelected" :disabled="selectedCount === 0"><i class="fas fa-share-nodes"></i> 分享选中 ({{ selectedCount }})</button>
-                <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0"><i class="fas fa-copy"></i> 复制链接</button>
-                <button class="btn btn--sm" @click="copySelectedShareLinks" :disabled="selectedCount === 0"><i class="fas fa-link"></i> 复制短链</button>
-                <button class="btn btn--sm btn--danger" @click="removeSelected" :disabled="selectedCount === 0"><i class="fas fa-trash-can"></i> 移除</button>
+                <button class="btn btn--sm" @click="downloadSelected" :disabled="selectedCount === 0" title="逐个下载所选文件"><i class="fas fa-download"></i> 下载</button>
+                <button class="btn btn--sm" @click="shareSelected" :disabled="selectedCount === 0" title="把所选文件合成一个分享链接"><i class="fas fa-share-nodes"></i> 分享</button>
+                <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0" :title="`按「${currentFormatLabel}」格式复制所选文件的直链`"><i class="fas fa-copy"></i> 复制链接</button>
+                <button class="btn btn--sm" @click="moveSelectedToFolder" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '把所选文件移动到其它目录' : '需要登录后才能移动云端文件'"><i class="fas fa-folder-tree"></i> 移动到</button>
+                <button class="btn btn--sm btn--danger" @click="deleteSelected" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '从云端删除所选文件（不可恢复）' : '需要登录后才能删除云端文件'"><i class="fas fa-trash-can"></i> 删除</button>
               </div>
             </div>
             </div>
@@ -1900,9 +1898,11 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             <div class="selection-bar glass">
               <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ historySelectedCount }}</span>
               <div class="selection-bar__actions">
-                <button class="btn btn--sm" @click="copyHistorySelected"><i class="fas fa-copy"></i> 复制</button>
-                <button class="btn btn--sm" @click="addHistorySelectedToResults"><i class="fas fa-plus"></i> 加入结果</button>
-                <button class="btn btn--sm btn--danger" @click="deleteHistorySelected"><i class="fas fa-trash"></i> 删除</button>
+                <button class="btn btn--sm" @click="downloadHistorySelected" title="逐个下载所选文件"><i class="fas fa-download"></i> 下载</button>
+                <button class="btn btn--sm" @click="copyHistorySelected" :title="`按「${currentFormatLabel}」格式复制所选文件的直链`"><i class="fas fa-copy"></i> 复制链接</button>
+                <button class="btn btn--sm" @click="addHistorySelectedToResults" title="把所选记录加回交付结果"><i class="fas fa-plus"></i> 加入结果</button>
+                <button class="btn btn--sm" @click="moveHistorySelectedToFolder" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '把所选文件移动到其它目录' : '需要登录后才能移动云端文件'"><i class="fas fa-folder-tree"></i> 移动到</button>
+                <button class="btn btn--sm btn--danger" @click="deleteHistorySelected" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '从云端删除所选文件（不可恢复）' : '需要登录后才能删除云端文件'"><i class="fas fa-trash"></i> 删除</button>
               </div>
             </div>
             </div>
@@ -1951,7 +1951,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                       <button class="btn btn--ghost" :disabled="isDownloading(item)" @click.stop="historyDownload(item)" title="下载">
                         <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
                       </button>
-                      <button class="btn btn--ghost btn--danger" @click.stop="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
+                      <button class="btn btn--ghost btn--danger" @click.stop="historyDelete(item)" title="仅从本地历史移除（云端文件保留）"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
                 </transition-group>
@@ -1981,7 +1981,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                       <button class="btn btn--ghost btn--icon" :disabled="isDownloading(item)" @click="historyDownload(item)" title="下载">
                         <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
                       </button>
-                      <button class="btn btn--ghost btn--icon btn--danger" @click="historyDelete(item)" title="删除"><i class="fas fa-xmark"></i></button>
+                      <button class="btn btn--ghost btn--icon btn--danger" @click="historyDelete(item)" title="仅从本地历史移除（云端文件保留）"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
                 </transition-group>
@@ -2468,6 +2468,10 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             resultLinksOpen: false,
             clearArmed: false,
             clearArmTimer: null,
+            /* 批量云端操作（删除 / 移动）进行中 —— 期间锁住选择条按钮，
+               避免同一次删除被连点触发两轮。 */
+            resultBatchBusy: false,
+            historyBatchBusy: false,
 
             /* 分享（上传时注入，恒为 false） */
             shareEnabled: false,
@@ -2588,6 +2592,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
         },
         computed: {
           selectedCount() { return this.uploadedFiles.filter((f) => f.selected).length; },
+          selectedFiles() { return this.uploadedFiles.filter((f) => f.selected); },
           isAllSelected() { return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected); },
           batchLinkCount() {
             const targets = this.uploadedFiles.filter((f) => f.selected);
@@ -4484,17 +4489,6 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             this.copyToClipboard(url);
             this.showToast("已复制分享短链", "success");
           },
-          getBatchShareLinks() {
-            const targets = this.uploadedFiles.filter((f) => f.selected);
-            const list = (targets.length ? targets : this.uploadedFiles).filter((f) => this.hasShare(f));
-            return list.map((f) => this.shareUrlOf(f)).join("\n");
-          },
-          copySelectedShareLinks() {
-            const text = this.getBatchShareLinks();
-            if (!text) { this.showToast("选中的文件都没有分享短链", "error"); return; }
-            this.copyToClipboard(text);
-            this.showToast(`已复制 ${text.split("\n").length} 条分享短链`, "success");
-          },
           shareBadgeText(item) {
             if (!item || !this.hasShare(item)) return "";
             const bits = [];
@@ -4890,7 +4884,6 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           },
           selectAll() { const target = !this.isAllSelected; this.uploadedFiles.forEach((f) => (f.selected = target)); },
           clearResults() { this.uploadedFiles = []; },
-          removeFromResults(idx) { this.uploadedFiles.splice(idx, 1); },
           toggleSelectMode() {
             this.resultSelectMode = !this.resultSelectMode;
             this.resultMenuFor = null;
@@ -4907,11 +4900,129 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           toggleFormatMenu() { this.resultMenuFor = null; this.resultFormatMenuOpen = !this.resultFormatMenuOpen; },
           pickFormat(key) { this.linkFormat = key; this.resultFormatMenuOpen = false; },
           menuAct() { this.resultMenuFor = null; },
-          removeSelected() {
-            const count = this.selectedCount;
-            if (!count) return;
-            this.uploadedFiles = this.uploadedFiles.filter((f) => !f.selected);
-            this.showToast(`已移除 ${count} 项`, "success");
+          /* ===== 选中项的批量操作 =====
+             交付结果与历史记录共用同一套实现：两条列表里的条目都带 url
+             （形如 <origin>/file/<id>），而管理接口要的文件 ID 可以直接从
+             url 反解 —— 与分享弹窗撤销用的是同一套解析（shareTargetIdOf），
+             所以后端不必为上传结果额外回传 id。 */
+          async downloadItems(items) {
+            const list = (items || []).filter(Boolean);
+            if (!list.length) return;
+            this.showToast(`开始下载 ${list.length} 个文件，请查看浏览器下载栏`, "info");
+            for (let i = 0; i < list.length; i++) {
+              this.triggerDownload(this.getCleanFileUrl(list[i]), this.getDisplayName(list[i]));
+              /* 逐个触发之间必须留间隔：瞬间并发的多个下载会被浏览器判为
+                 滥用而静默拦截，admin 的批量下载同样是这个处理。 */
+              if (i < list.length - 1) await new Promise((r) => setTimeout(r, 500));
+            }
+          },
+          downloadSelected() { this.downloadItems(this.selectedFiles); },
+          downloadHistorySelected() { this.downloadItems(this.historySorted.filter((it) => it.selected)); },
+
+          async moveItemsToFolder(items) {
+            const list = (items || []).filter(Boolean);
+            if (!list.length) return;
+            if (!this.isAuthenticated) { this.showToast("需要登录后才能移动云端文件", "error"); return; }
+            const target = await this.promptDialog(`把选中的 ${list.length} 个文件移动到哪个目录？\n留空表示根目录。`, {
+              title: "移动到目录",
+              label: "目标目录",
+              placeholder: "例如 photos/2026",
+              value: this.folderPath || "",
+              confirmText: "移动",
+            });
+            if (target == null) return;
+            /* 与后端 normalizeFolderPath 对齐：只去掉首尾斜杠，中间原样保留 */
+            const targetFolderPath = String(target || "").trim().replace(/^\/+|\/+$/g, "");
+            const ids = list.map((it) => this.shareTargetIdOf(it)).filter(Boolean);
+            if (!ids.length) { this.showToast("无法识别所选文件，请刷新后重试", "error"); return; }
+            try {
+              const res = await fetch(`${this.baseURL}/api/manage/files/move-folder`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids, targetFolderPath }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok || data.success === false) { this.showToast(data.error || data.message || `移动失败（HTTP ${res.status}）`, "error"); return; }
+              const moved = Number(data.moved) || 0;
+              if (!moved) { this.showToast("没有移动任何文件，所选文件可能已不在云端", "error"); return; }
+              this.showToast(`已移动 ${moved} 个文件到「${targetFolderPath || "根目录"}」`, "success");
+            } catch (e) {
+              this.showToast("移动失败，请稍后重试", "error");
+            }
+          },
+          async moveSelectedToFolder() {
+            if (this.resultBatchBusy) return;
+            this.resultBatchBusy = true;
+            try { await this.moveItemsToFolder(this.selectedFiles); }
+            finally { this.resultBatchBusy = false; }
+          },
+          async moveHistorySelectedToFolder() {
+            if (this.historyBatchBusy) return;
+            this.historyBatchBusy = true;
+            try { await this.moveItemsToFolder(this.historySorted.filter((it) => it.selected)); }
+            finally { this.historyBatchBusy = false; }
+          },
+
+          /* 云端删除的确认与执行。确认收在这里而不是各调用方，是为了让
+             交付结果和历史记录两条入口的文案、按钮、风险提示完全一致。 */
+          confirmDeleteFromCloud(count) {
+            return this.confirmDanger(
+              `将从云端删除选中的 ${count} 个文件。\n\n删除后无法通过本站恢复。`,
+              {
+                title: "删除云端文件",
+                subtitle: "危险操作",
+                confirmText: `删除 ${count} 个`,
+                cancelText: "取消",
+                note: "KV 记录与已生成的分享短链会一并清除",
+              }
+            );
+          },
+          async deleteItemsFromCloud(items, onRemoved) {
+            const list = (items || []).filter(Boolean);
+            if (!list.length) return 0;
+            if (!this.isAuthenticated) { this.showToast("需要登录后才能删除云端文件", "error"); return 0; }
+            let done = 0;
+            const failed = [];
+            for (const item of list) {
+              const id = this.shareTargetIdOf(item);
+              if (!id) { failed.push(this.getDisplayName(item)); continue; }
+              try {
+                /* 与 admin / gallery 的调用方式保持一致：不带 method 走 GET，
+                   delete 处理器是 onRequest（全方法），鉴权由 manage 中间件兜住。 */
+                const res = await fetch(`${this.baseURL}/api/manage/delete/${encodeURIComponent(id)}`, {
+                  credentials: "include",
+                });
+                const data = await res.json().catch(() => ({}));
+                /* 记录本来就没了（KV 已过期 / 别处已删）当作成功 —— 用户此刻
+                   要的就是「这条从列表里消失」，没必要为不存在的记录报错。 */
+                const gone = res.status === 404 || res.status === 410 || /not found/i.test(String(data.error || ""));
+                if ((!res.ok && !gone) || (!gone && data.success === false)) { failed.push(this.getDisplayName(item)); continue; }
+                done += 1;
+                if (typeof onRemoved === "function") onRemoved(item);
+              } catch (e) {
+                failed.push(this.getDisplayName(item));
+              }
+            }
+            if (done) this.showToast(`已删除 ${done} 个文件`, "success");
+            if (failed.length) {
+              const preview = failed.slice(0, 3).join("、");
+              this.showToast(`${failed.length} 个文件删除失败${preview ? `：${preview}${failed.length > 3 ? " 等" : ""}` : ""}`, "error");
+            }
+            return done;
+          },
+          async deleteSelected() {
+            const list = this.selectedFiles;
+            if (!list.length || this.resultBatchBusy) return;
+            if (!(await this.confirmDeleteFromCloud(list.length))) return;
+            this.resultBatchBusy = true;
+            try {
+              await this.deleteItemsFromCloud(list, (item) => {
+                this.uploadedFiles = this.uploadedFiles.filter((f) => f !== item);
+                /* 云端记录已删，历史里的同一条也应同时失效，否则会留下点开就 404 的死链 */
+                this.markHistoryAsMissing(this.getCleanFileUrl(item));
+              });
+            } finally { this.resultBatchBusy = false; }
           },
           handleClearResults() {
             if (!this.clearArmed) {
@@ -5165,18 +5276,15 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           async deleteHistorySelected() {
             const list = this.historySorted.filter((it) => it.selected);
             if (!list.length) return;
-            const delOk = await this.confirmDanger(`将删除选中的 ${list.length} 条历史记录。`, {
-              title: "删除记录",
-              subtitle: "危险操作",
-              confirmText: `删除 ${list.length} 条`,
-              cancelText: "取消",
-              note: "仅影响本地记录，云端文件不受影响",
-            });
-            if (!delOk) return;
-            const ids = new Set(list.map((it) => it.id));
-            this.uploadHistory = this.uploadHistory.filter((it) => !ids.has(it.id));
-            this.persistHistory();
-            this.showToast(`已删除 ${list.length} 条记录`, "success");
+            if (this.historyBatchBusy) return;
+            if (!(await this.confirmDeleteFromCloud(list.length))) return;
+            this.historyBatchBusy = true;
+            try {
+              await this.deleteItemsFromCloud(list, (item) => {
+                this.uploadHistory = this.uploadHistory.filter((it) => it !== item);
+                this.persistHistory();
+              });
+            } finally { this.historyBatchBusy = false; }
           },
           toggleHistorySelectAll() {
             const target = !this.historyAllSelected;
