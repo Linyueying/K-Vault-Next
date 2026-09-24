@@ -351,7 +351,8 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .batch-dock__info{font-size:var(--fs-md);font-weight:700;color:var(--primary-text);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
 .batch-dock__info strong{font-family:'JetBrains Mono',monospace}
 .batch-dock__actions{display:flex;align-items:center;gap:var(--sp-1);flex:none}
-.dock-act{width:44px;height:44px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--text-sub);display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:inherit;font-size:.66rem;font-weight:600;cursor:pointer;transition:background .3s var(--ease-apple),color .3s var(--ease-apple),transform .34s var(--ease-spring);flex:none}
+.dock-act{width:52px;height:44px;border-radius:var(--r-sm);border:none;background:transparent;color:var(--text-sub);display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-family:inherit;font-size:.66rem;font-weight:600;cursor:pointer;transition:background .3s var(--ease-apple),color .3s var(--ease-apple),transform .34s var(--ease-spring);flex:none}
+.dock-act span{white-space:nowrap}
 .dock-act i{font-size:.94rem;color:var(--primary);transition:transform .4s var(--ease-spring)}
 .dock-act:hover{background:rgba(var(--primary-rgb),.08)}
 .dock-act:hover i{transform:scale(1.14) translateY(-1px)}
@@ -704,7 +705,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .view-back-enter-from,.view-back-leave-to{filter:none}
 }
 @media (max-width:360px){
-  .dock-act{width:40px}
+  .dock-act{width:48px}
   .dock-act span{display:none}
   .batch-dock{padding:var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3)}
   .toast__action{padding:5px 10px}
@@ -968,13 +969,13 @@ html[data-perf="low"] .ambient-orb{animation:none}
             </button>
             <div class="dropdown-divider"></div>
             <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('copy')">
-              <i class="fas fa-copy"></i><span>批量复制链接</span>
+              <i class="fas fa-link"></i><span>复制所选直链</span>
             </button>
             <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('bundle')">
-              <i class="fas fa-share-nodes"></i><span>创建合集分享</span>
+              <i class="fas fa-share-nodes"></i><span>创建分享链接</span>
             </button>
             <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('move')">
-              <i class="fas fa-folder-tree"></i><span>移动到目录</span>
+              <i class="fas fa-folder-tree"></i><span>移动文件到目录</span>
             </button>
             <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('download')">
               <i class="fas fa-download"></i><span>批量下载</span>
@@ -1401,9 +1402,9 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <div class="batch-dock" v-if="selectedFiles.length">
     <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
     <div class="batch-dock__actions">
-      <button class="dock-act" @click="batchCopy" title="复制链接"><i class="fas fa-copy"></i><span>复制</span></button>
-      <button class="dock-act" @click="openBundleShare()" title="创建合集分享"><i class="fas fa-share-nodes"></i><span>合集</span></button>
-      <button class="dock-act" @click="openMove()" title="移动到目录"><i class="fas fa-folder-tree"></i><span>移动</span></button>
+      <button class="dock-act" @click="batchCopy" title="复制所选文件的直链"><i class="fas fa-link"></i><span>复制链接</span></button>
+      <button class="dock-act" @click="openBundleShare()" title="生成分享链接（单个或多个文件均可）"><i class="fas fa-share-nodes"></i><span>分享</span></button>
+      <button class="dock-act" @click="openMove()" title="把所选文件移动到其它目录"><i class="fas fa-folder-tree"></i><span>移动到</span></button>
       <button class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
       <button class="dock-act danger" @click="batchDelete" title="批量删除"><i class="fas fa-trash"></i><span>删除</span></button>
       <button class="dock-act" @click="clearSelection" title="取消选择"><i class="fas fa-xmark"></i><span>取消</span></button>
@@ -1849,10 +1850,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
     <div class="dialog-panel">
       <h2 class="dialog-title">
         <i class="fas fa-share-nodes"></i>
-        <span>创建合集分享</span>
+        <span>{{ bundleFiles.length === 1 ? '创建文件分享' : '创建合集分享' }}</span>
       </h2>
       <div class="dialog-message">
-        已选 <strong>{{ bundleFileNames.length }}</strong> 个文件，将合并为一个分享链接。
+        已选 <strong>{{ bundleFileNames.length }}</strong> 个文件，将{{ bundleFiles.length === 1 ? '为其生成' : '合并为' }}一个分享链接。
       </div>
 
       <div class="dialog-message" style="font-size:.78rem;color:var(--text-muted);word-break:break-all">
@@ -3502,12 +3503,10 @@ Vue.createApp({
     openBundleShare() {
       const files = (arguments.length && Array.isArray(arguments[0]) ? arguments[0] : this.selectedFiles) || [];
       if (!files.length) { this.showToast('请先选择文件', 'error'); return; }
-      /* 只有 1 个文件时没有「合集」的意义，明确劝阻而不是默默建出单文件合集 ——
-         那种合集会与文件自身的分享功能重复，且用户在分享管理里看不到。 */
-      if (files.length === 1) {
-        this.showToast('合集分享至少需要选择 2 个文件', 'error');
-        return;
-      }
+      /* 单个文件也允许分享：对话框标题会自动切成「文件分享」。
+         后端 share-bundle 本就接受 1..N 个文件（「合集至少需要一个文件」），
+         之前前端强制 >=2 反而把「就想分享一个文件」的常见诉求挡在门外。
+         单文件合集与文件自身的分享属性是两套体系，互不影响。 */
       this.bundleFiles = files.slice();
       this.bundleBusy = false;
       this.bundleError = '';
