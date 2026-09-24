@@ -914,6 +914,70 @@ html[data-perf="low"] .view-forward-leave-to,
 html[data-perf="low"] .view-back-enter-from,
 html[data-perf="low"] .view-back-leave-to { filter: none; }
 
+/* --------------------------------------------------------------------------
+   文字级切换（.label / .morph）—— 状态胶囊、当前上限数值等「原地换字」
+   --------------------------------------------------------------------------
+   为什么单独抽出来并额外提层：
+   这两个过渡作用在**行内文字**上（.status-pill__text / .summary__value），
+   父容器宽度往往随内容变化。行内元素本身不是合成层，一旦过渡里带了
+   filter: blur()（绘制属性，每帧重新生成位图），低端设备掉帧时中间帧被丢弃，
+   文字边缘就会「糊→清→糊」反复闪动，看起来像在抖。
+
+   这里的做法（质量不降）：
+     - 位移 + 淡入的观感与原来完全一致（起点 6px、spring 缓动都保留）
+     - 给元素提前提层（will-change / translateZ(0)），让它走合成器而非每帧重绘
+     - blur 只在低性能档位撤掉（见下方 data-perf="low"），能力足够的设备照旧保留
+   注意 .label-leave-active 原先漏配 filter 过渡，导致离场时 blur 是「跳变」
+   而非渐变 —— 这里补齐，观感比原来更顺。
+   -------------------------------------------------------------------------- */
+.label-enter-active {
+  transition: opacity 0.3s var(--ease-apple),
+              transform 0.42s var(--ease-spring),
+              filter 0.3s var(--ease-apple);
+  will-change: transform, opacity, filter;
+}
+.label-leave-active {
+  transition: opacity 0.18s var(--ease-press),
+              transform 0.22s var(--ease-press),
+              filter 0.18s var(--ease-press);
+  will-change: transform, opacity, filter;
+}
+.label-enter-from { opacity: 0; transform: translate3d(6px, 0, 0) translateZ(0); filter: blur(2px); }
+.label-leave-to   { opacity: 0; transform: translate3d(-6px, 0, 0) translateZ(0); filter: blur(2px); }
+
+/* 更大的文字块切换（标题 / 段落级）：位移与模糊幅度略大，同样提层 */
+.morph-enter-active {
+  transition: opacity 0.34s var(--ease-apple),
+              transform 0.46s var(--ease-spring),
+              filter 0.34s var(--ease-apple);
+  will-change: transform, opacity, filter;
+}
+.morph-leave-active {
+  transition: opacity 0.2s var(--ease-press),
+              transform 0.26s var(--ease-press),
+              filter 0.2s var(--ease-press);
+  will-change: transform, opacity, filter;
+}
+.morph-enter-from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.975) translateZ(0); filter: blur(3px); }
+.morph-leave-to   { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.975) translateZ(0); filter: blur(3px); }
+
+/* 低性能档：撤掉 blur（绘制开销），保留位移 + 淡入 —— 观感一致但不闪 */
+html[data-perf="low"] .label-enter-from,
+html[data-perf="low"] .label-leave-to,
+html[data-perf="low"] .morph-enter-from,
+html[data-perf="low"] .morph-leave-to { filter: none; }
+
+/* 承载这两个过渡的元素（行内文字）本身也要提层，否则 will-change 加在过渡类上
+   会随「进出场类名」被反复添加/移除，反而引起层重创建。这里对常见宿主一次性提层。
+   display:inline-block 是 transition 对行内元素生效的前提（transform 对纯 inline 无效），
+   原先散落在 index.html 里，随本次统一一起收口到这里。 */
+.status-pill__text,
+.summary__value {
+  display: inline-block;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
 /* Sheet / Dialog */
 .sheet-enter-active, .sheet-leave-active,
 .dialog-enter-active, .dialog-leave-active {

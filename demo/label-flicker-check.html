@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>文字切换闪烁 —— blur vs 无 blur 对照</title>
+<link rel="stylesheet" href="/design-system.css">
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 0; background: #eef2f7; padding-bottom: 30px; }
+  h1 { font-size: 16px; margin: 16px; color: #0f172a; }
+  .sub { margin: 0 16px 14px; font-size: 12px; color: #64748b; line-height: 1.7; }
+  .panel { margin: 0 16px 14px; background: #fff; border: 1px solid #dbe3ee; border-radius: 14px; padding: 14px; }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: #334155; }
+  .panel p { font-size: 12px; color: #64748b; line-height: 1.6; margin: 0 0 10px; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px;
+          border-radius: 999px; background: #fff; border: 1px solid #dbe3ee;
+          font-size: 13px; font-weight: 600; color: #0f172a; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex: none; }
+  .txt { display: inline-block; min-width: 110px; text-align: left; }
+
+  /* ===== 旧：带 filter: blur()（复刻修复前的 index.html） ===== */
+  .old .label-enter-active { transition: opacity .3s ease, transform .42s cubic-bezier(.34,1.56,.64,1), filter .3s ease; }
+  .old .label-leave-active { transition: opacity .18s ease, transform .22s ease; }
+  .old .label-enter-from { opacity: 0; transform: translate3d(6px,0,0); filter: blur(2px); }
+  .old .label-leave-to   { opacity: 0; transform: translate3d(-6px,0,0); filter: blur(2px); }
+
+  /* ===== 新：纯合成属性 + 提层（复刻修复后的 design-system.css） ===== */
+  .new .label-enter-active { transition: opacity .3s ease, transform .42s cubic-bezier(.34,1.56,.64,1); }
+  .new .label-leave-active { transition: opacity .18s ease, transform .22s ease; }
+  .new .label-enter-from { opacity: 0; transform: translate3d(6px,0,0) translateZ(0); }
+  .new .label-leave-to   { opacity: 0; transform: translate3d(-6px,0,0) translateZ(0); }
+  .new .txt { will-change: transform, opacity; transform: translateZ(0); backface-visibility: hidden; }
+
+  button { margin: 0 16px 8px; padding: 9px 18px; border-radius: 10px; cursor: pointer;
+           border: 1px solid #cbd5e1; background: #fff; font-size: 13px; font-weight: 600; }
+  button:hover { background: #f1f5f9; }
+</style>
+</head>
+<body>
+  <h1>文字切换闪烁 · blur 对照</h1>
+  <p class="sub">
+    两侧都在切换同一段文字（存储节点名称），唯一区别是过渡里是否使用 <code>filter: blur()</code>。<br>
+    配合 Chrome DevTools 的 <strong>Performance → CPU 4x~6x 降速</strong>：左侧文字边缘会「糊→清→糊」抖动，右侧平滑。
+  </p>
+
+  <div class="panel old">
+    <h2>旧 <code>filter: blur(2px)</code></h2>
+    <p>blur 属<strong>绘制属性</strong>，每帧都要重新生成位图；低端设备掉帧时中间帧被丢弃 → 文字边缘闪动。</p>
+    <div><span class="pill"><span class="dot"></span>
+      <transition name="label" mode="out-in"><span class="txt" :key="w1">{{ w1 }}</span></transition>
+    </span></div>
+  </div>
+
+  <div class="panel new">
+    <h2>新 纯 opacity + transform（+ 提层）</h2>
+    <p>只用<strong>合成器属性</strong>，不触发重绘；元素提前 <code>translateZ(0)</code> 提层，过渡期间不被降级。</p>
+    <div><span class="pill"><span class="dot"></span>
+      <transition name="label" mode="out-in"><span class="txt" :key="w2">{{ w2 }}</span></transition>
+    </span></div>
+  </div>
+
+  <button @click="swap">切换一次</button>
+  <button @click="burst">连点 8 次</button>
+
+  <script src="/vendor/vue.global.prod.min.js"></script>
+  <script>
+    const WORDS = ['Telegram 频道', '智能节点', 'Cloudflare R2', 'Telegram 频道'];
+    Vue.createApp({
+      data() {
+        return { i1: 0, i2: 0 };
+      },
+      computed: {
+        w1() { return WORDS[this.i1]; },
+        w2() { return WORDS[this.i2]; }
+      },
+      methods: {
+        swap() {
+          this.i1 = (this.i1 + 1) % WORDS.length;
+          this.i2 = this.i1;
+        },
+        burst() {
+          let n = 0;
+          const t = setInterval(() => {
+            this.swap();
+            if (++n >= 8) clearInterval(t);
+          }, 320);
+        }
+      }
+    }).mount(document.body);
+  </script>
+</body>
+</html>

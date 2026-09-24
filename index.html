@@ -475,17 +475,9 @@
       .status-pill__pulse.is-settling { animation: settleBreathe 1.1s var(--ease-apple) infinite; }
 
 
-      .morph-enter-active { transition: opacity 0.34s var(--ease-apple), transform 0.46s var(--ease-spring), filter 0.34s var(--ease-apple); }
-      .morph-leave-active { transition: opacity 0.2s var(--ease-press), transform 0.26s var(--ease-press), filter 0.2s var(--ease-press); }
-      .morph-enter-from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.975); filter: blur(3px); }
-      .morph-leave-to   { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.975); filter: blur(3px); }
+      /* 文字级切换过渡（.label / .morph）与宿主提层已统一到 /design-system.css，
+         那里同时处理了低性能档位撤 blur 的降级，避免行内文字切换时边缘闪动。 */
 
-      .label-enter-active { transition: opacity 0.3s var(--ease-apple), transform 0.42s var(--ease-spring), filter 0.3s var(--ease-apple); }
-      .label-leave-active { transition: opacity 0.18s var(--ease-press), transform 0.22s var(--ease-press); }
-      .label-enter-from { opacity: 0; transform: translate3d(6px, 0, 0); filter: blur(2px); }
-      .label-leave-to   { opacity: 0; transform: translate3d(-6px, 0, 0); filter: blur(2px); }
-
-      .status-pill__text { display: inline-block; }
       .summary__value, .upload-zone__sub > strong { display: inline-block; }
 
       /* 快捷操作条 */
