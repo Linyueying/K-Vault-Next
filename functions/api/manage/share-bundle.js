@@ -45,6 +45,7 @@ import {
   resolveBundleFileIds,
   writeBundle,
 } from '../../utils/share-bundle.js';
+import { listAllKeys, shouldIncludeKey, normalizeKey, normalizeFolderPath } from '../../utils/file-list.js';
 
 const VALID_ACTIONS = new Set(['create', 'update', 'revoke']);
 
@@ -159,13 +160,22 @@ async function handleWrite(env, body, action) {
   }
 
   // ---------- 3. 成员文件 ----------
-  // update 未传 fileIds 时沿用现有成员，实现"只改参数不动成员"。
+  // 三种来源（优先级从高到低）：
+  //   a) update 且未传 fileIds / folderPath → 沿用现有成员，实现"只改参数不动成员"；
+  //   b) 显式 fileIds → 逐个校验，失效文件进 missing（部分成功语义）；
+  //   c) folderPath（且无 fileIds）→ 分享整个目录：服务端按 folderPath 批量解析成员（新增）。
+  //
+  // 来源 (c) 的意义：目录下的文件可能远多于前端已加载的列表，让前端先拉全再回传
+  // fileIds 既不可靠（分页/截断）也无必要 —— 服务端直接扫 KV 解析是最权威的来源。
   const rawFileIds = readBundleFileIds(body);
-  const wantsMemberChange = rawFileIds.length > 0;
+  const folderSource = Object.prototype.hasOwnProperty.call(body, 'folderPath')
+    ? normalizeFolderPath(String(body.folderPath ?? ''))
+    : null;
+  const wantsMemberChange = rawFileIds.length > 0 || folderSource !== null;
 
   if (!isUpdate && !wantsMemberChange) {
     return jsonResponse(
-      { success: false, error: 'VALIDATION_FAILED', messages: ['请至少选择一个文件。'] },
+      { success: false, error: 'VALIDATION_FAILED', messages: ['请至少选择一个文件或目录。'] },
       400
     );
   }
@@ -183,24 +193,72 @@ async function handleWrite(env, body, action) {
 
   let fileIds = current?.fileIds || [];
   let missing = [];
+  // 目录来源时记录扫描到的成员总数与是否触顶（用于回传给前端汇总）。
+  let scanned = 0;
+  let capped = false;
 
   if (wantsMemberChange) {
-    const { resolved, missing: missingIds } = await resolveBundleFileIds(env, rawFileIds);
-    missing = missingIds;
+    if (folderSource !== null) {
+      // 目录来源：服务端扫 KV，把 folderPath 命中的文件直接作为成员。
+      // 与 fileIds 来源的关键差异：成员在这里已经过 KV 校验（都是真实存在的记录），
+      // 因此不需要再走 resolveBundleFileIds，也不会产生 missing。
+      const includeSubfolders = body.includeSubfolders === true;
+      const all = await listAllKeys(env);
+      const matched = all
+        .filter(shouldIncludeKey)
+        .map(normalizeKey)
+        .filter((entry) => {
+          const fp = entry.metadata.folderPath || '';
+          if (folderSource === '') {
+            // 根目录：folderPath 为空的文件；勾选「包含子目录」时涵盖全部文件。
+            // 注意不能写成 fp.startsWith('') —— 空串 startsWith 恒为真，会误吞所有文件。
+            return includeSubfolders ? true : fp === '';
+          }
+          return includeSubfolders
+            ? fp === folderSource || fp.startsWith(`${folderSource}/`)
+            : fp === folderSource;
+        });
+      scanned = matched.length;
+      if (scanned === 0) {
+        return jsonResponse(
+          {
+            success: false,
+            error: 'VALIDATION_FAILED',
+            messages: ['该目录为空或不存在任何文件，无法分享。'],
+          },
+          400
+        );
+      }
+      if (scanned > MAX_BUNDLE_FILES) {
+        return jsonResponse(
+          {
+            success: false,
+            error: 'VALIDATION_FAILED',
+            messages: [`该目录包含 ${scanned} 个文件，超过单合集上限（${MAX_BUNDLE_FILES}）。请缩小范围或使用多选分享。`],
+          },
+          400
+        );
+      }
+      fileIds = matched.map((entry) => String(entry.name));
+      missing = [];
+    } else {
+      const { resolved, missing: missingIds } = await resolveBundleFileIds(env, rawFileIds);
+      missing = missingIds;
 
-    if (!resolved.length) {
-      // 一个都没解析到：明确失败，而不是建出一个空合集。
-      return jsonResponse(
-        {
-          success: false,
-          error: 'NO_VALID_FILES',
-          message: '所选文件都不可用，请刷新列表后重试。',
-          missing,
-        },
-        404
-      );
+      if (!resolved.length) {
+        // 一个都没解析到：明确失败，而不是建出一个空合集。
+        return jsonResponse(
+          {
+            success: false,
+            error: 'NO_VALID_FILES',
+            message: '所选文件都不可用，请刷新列表后重试。',
+            missing,
+          },
+          404
+        );
+      }
+      fileIds = resolved.map((item) => String(item.kvKey));
     }
-    fileIds = resolved.map((item) => String(item.kvKey));
   }
 
   if (!fileIds.length) {
@@ -303,6 +361,9 @@ async function handleWrite(env, body, action) {
     accepted: fileIds.length,
     rejected: missing.length,
     missing,
+    // 目录来源时回传扫描总数，便于前端区分"目录本身有 N 个文件"与"合集收录了 M 个"。
+    scanned: scanned || saved.fileIds.length,
+    capped: capped,
     expiresAt: saved.expiresAt || null,
     maxDownloads: saved.maxDownloads || null,
     passwordProtected: Boolean(saved.passwordHash),

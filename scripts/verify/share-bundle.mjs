@@ -286,6 +286,42 @@ try {
     rec('文件级分享信息仍可读', false, '未拿到文件级 slug');
   }
 
+  /* ---------------- 12. 分享目录（folderPath 来源） ---------------- */
+  // 与「多选文件」平行的另一条合集来源：直接传 folderPath，由服务端按目录解析成员。
+  // 见 functions/api/manage/share-bundle.js 的 handleWrite 分支 (c)。
+  const dirSeeds = ['verify-dir-a.txt', 'verify-dir-b.txt'];
+  const dirSeeded = await ensureSeedFiles(dirSeeds, { folder: 'verify-share-dir' });
+  rec('预置 2 个目录文件到 KV', dirSeeded.ok === true, dirSeeded.reason || '');
+  if (!dirSeeded.ok) throw new Error('预置目录文件失败：' + (dirSeeded.reason || ''));
+
+  const dirCreated = await call('/api/manage/share-bundle', {
+    method: 'POST', body: { action: 'create', folderPath: 'verify-share-dir' },
+  });
+  const dslug = dirCreated.body?.slug;
+  rec('按目录创建合集成功', dirCreated.status === 200 && dirCreated.body?.success === true,
+    `HTTP ${dirCreated.status} ${JSON.stringify(dirCreated.body).slice(0, 160)}`);
+  rec('目录合集收录 2 个文件', dirCreated.body?.fileCount === 2, `fileCount=${dirCreated.body?.fileCount}`);
+
+  if (dslug) {
+    const dInfo = await call(`/api/share-info?b=${encodeURIComponent(dslug)}`);
+    rec('目录合集分享信息可读且标记为合集', dInfo.status === 200 && dInfo.body?.bundle === true,
+      `HTTP ${dInfo.status} ${JSON.stringify(dInfo.body).slice(0, 120)}`);
+    rec('目录合集返回 2 个成员', Array.isArray(dInfo.body?.files) && dInfo.body.files.length === 2,
+      `files=${dInfo.body?.files?.length}`);
+    const dNames = (dInfo.body?.files || []).map((f) => f.fileName).sort();
+    rec('目录成员文件名正确', JSON.stringify(dNames) === JSON.stringify([...dirSeeds].sort()),
+      JSON.stringify(dNames));
+  } else {
+    rec('目录成员文件名正确', false, '未拿到目录合集 slug');
+  }
+
+  const dirEmpty = await call('/api/manage/share-bundle', {
+    method: 'POST', body: { action: 'create', folderPath: 'verify-nonexistent-dir' },
+  });
+  rec('空目录/不存在目录：明确拒绝（400）',
+    dirEmpty.status === 400 && dirEmpty.body?.success === false,
+    `HTTP ${dirEmpty.status} ${JSON.stringify(dirEmpty.body).slice(0, 120)}`);
+
   rec('无 JS 报错', jsErrors.length === 0, jsErrors.join(' | '));
 } finally {
   await browser.close();

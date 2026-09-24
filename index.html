@@ -1754,16 +1754,19 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             </div>
 
             <div class="tree-panel">
-              <div class="tree-row" :class="{ active: !folderPath }" style="padding-left: 10px;" @click="selectUploadFolder('')">
+              <div class="tree-row" :class="{ active: !folderPath }" style="padding-left: 10px;">
                 <span class="tree-row__arrow empty"></span>
                 <i class="fas fa-house tree-row__icon" style="color: var(--primary);"></i>
-                <span class="tree-row__name">根目录</span>
+                <span class="tree-row__name" @click="selectUploadFolder('')">根目录</span>
+                <div class="tree-row__actions">
+                  <button class="btn btn--ghost btn--icon btn--sm" @click="handleShareFolder({ path: '', name: '根目录', fileCount: 0 })" title="分享根目录（未归类文件）"><i class="fas fa-share-nodes"></i></button>
+                </div>
               </div>
 
               <folder-node v-for="node in uploadFolderTree.children" :key="node.path" :node="node" :depth="1"
                 :current-path="folderPath" :expanded="expandedFolders"
                 @select="selectUploadFolder" @toggle="toggleFolderExpand"
-                @rename="handleRenameFolder" @delete="handleDeleteFolder"></folder-node>
+                @rename="handleRenameFolder" @delete="handleDeleteFolder" @share="handleShareFolder"></folder-node>
 
               <transition name="fade" mode="out-in">
               <div class="tree-empty" v-if="uploadFoldersLoading && !uploadFolderTree.children.length" key="loading">
@@ -2080,7 +2083,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               <span class="share-tag" v-if="shareDialogResult.expiresAt">有效期至 {{ new Date(shareDialogResult.expiresAt).toLocaleString('zh-CN') }}</span>
               <span class="share-tag share-tag--muted" v-if="!shareDialogResult.passwordProtected && !shareDialogResult.maxDownloads && !shareDialogResult.expiresAt">公开 · 永久 · 不限次数</span>
             </div>
-            <div class="share-result__hint" v-if="isShareDialogBundle">访问者打开链接会看到这 {{ shareDialogItems.length }} 个文件的清单，可逐个预览或下载；只有点「下载」才计入次数。</div>
+            <div class="share-result__hint" v-if="isShareDialogBundle">访问者打开链接会看到这 {{ (shareDialogResult && shareDialogResult.bundleCount) || shareDialogItems.length }} 个文件的清单，可逐个预览或下载；只有点「下载」才计入次数。</div>
             <div class="share-result__hint" v-else>访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。</div>
 
             <!-- 逐项结果汇总：部分文件失效时明确列出，不静默丢弃 -->
@@ -2139,6 +2142,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               </label>
               <div style="font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px;">只能包含小写字母、数字、下划线与短横线。</div>
             </div>
+
+            <label class="share-keep" v-if="shareDialogFolder" style="margin-top: 2px;">
+              <input type="checkbox" v-model="shareDialogFolder.includeSubfolders" />
+              同时包含子目录中的文件
+            </label>
 
             <div class="share-hint"><i class="fas fa-circle-info"></i><span>{{ shareDialogExpiryHint }}</span></div>
             <div class="share-error" v-if="shareDialogError"><i class="fas fa-triangle-exclamation"></i><span>{{ shareDialogError }}</span></div>
@@ -2318,7 +2326,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           onSelect() { this.$emit("select", this.node.path); },
           onToggle(e) { e.stopPropagation(); if (!this.hasChildren) return; this.$emit("toggle", this.node.path); },
           onRename(e) { e.stopPropagation(); this.$emit("rename", this.node); },
-          onDelete(e) { e.stopPropagation(); this.$emit("delete", this.node); }
+          onDelete(e) { e.stopPropagation(); this.$emit("delete", this.node); },
+          onShare(e) { e.stopPropagation(); this.$emit("share", this.node); }
         },
         template: `
           <div>
@@ -2334,6 +2343,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                 <span class="tree-row__count" v-if="node.fileCount > 0">{{ node.fileCount }} 文件</span>
               </transition>
               <div class="tree-row__actions">
+                <button class="btn btn--ghost btn--icon btn--sm" @click="onShare" title="分享此目录"><i class="fas fa-share-nodes"></i></button>
                 <button class="btn btn--ghost btn--icon btn--sm" @click="onRename" title="重命名"><i class="fas fa-pen"></i></button>
                 <button class="btn btn--ghost btn--icon btn--sm" @click="onDelete" title="删除"><i class="fas fa-trash"></i></button>
               </div>
@@ -2344,7 +2354,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
                   <folder-node v-for="child in node.children" :key="child.path" :node="child" :depth="depth + 1"
                     :current-path="currentPath" :expanded="expanded"
                     @select="$emit('select', $event)" @toggle="$emit('toggle', $event)"
-                    @rename="$emit('rename', $event)" @delete="$emit('delete', $event)"></folder-node>
+                    @rename="$emit('rename', $event)" @delete="$emit('delete', $event)"
+                    @share="$emit('share', $event)"></folder-node>
                 </div>
               </div>
             </transition>
@@ -2412,6 +2423,11 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             shareDialogRevoking: false,
             shareDialogForm: { expiresIn: 0, maxDownloads: "", password: "", slug: "", keepPassword: true, keepSlug: true },
             shareDialogShowPassword: false,
+            /* 分享目录模式：非空表示本次弹窗在分享某个 folderPath。
+               结构：{ path, name, fileCount, includeSubfolders }。
+               与 shareDialogItems 互斥 —— 目录分享走服务端按 folderPath 解析成员，
+               前端不需要预先收集文件 ID。 */
+            shareDialogFolder: null,
 
             /* 统一自定义对话框状态与队列 */
             dlg: Object.assign({}, DLG_DEFAULTS),
@@ -2666,17 +2682,23 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           historyAllSelected() { const list = this.historySorted; return list.length > 0 && list.every((it) => it.selected); },
           historySelectedCount() { return this.historySorted.filter((it) => it.selected).length; },
 
-          /* 是否为合集分享（多选文件）。单文件分享时全程为 false，
+          /* 是否为合集分享（多选文件 或 分享整个目录）。单文件分享时全程为 false，
              所有既有分支因此保持原样。 */
           isShareDialogBundle() {
-            return this.shareDialogItems.length > 1;
+            return this.shareDialogItems.length > 1 || !!this.shareDialogFolder;
           },
           shareDialogTitle() {
+            if (this.shareDialogFolder) return `分享目录「${this.shareDialogFolder.name}」`;
             if (this.isShareDialogBundle) return `分享 ${this.shareDialogItems.length} 个文件`;
             return this.shareDialogMode === "manage" ? "管理分享" : "分享文件";
           },
-          /* 弹窗副标题：合集列出文件名预览，单文件显示完整名。 */
+          /* 弹窗副标题：合集列出文件名预览，单文件显示完整名，目录显示路径。 */
           shareDialogItemsLabel() {
+            if (this.shareDialogFolder) {
+              const path = this.shareDialogFolder.path || "根目录";
+              const count = this.shareDialogFolder.fileCount > 0 ? `（${this.shareDialogFolder.fileCount} 个文件）` : "";
+              return `目录：${path}${count}`;
+            }
             if (this.isShareDialogBundle) {
               const names = this.shareDialogItems.map((it) => this.getDisplayName(it));
               const head = names.slice(0, 4).join("、");
@@ -4412,6 +4434,37 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             };
             this.shareDialogVisible = true;
           },
+          /* 分享目录入口：把某个 folderPath 下的所有文件作为一个合集来分享。
+             与 shareSelected 平行 —— 后者聚合"已选中的文件"，这里聚合"目录里的文件"。
+             成员解析交给服务端（按 folderPath 扫 KV），前端只负责把目录上下文带过去，
+             因此不需要预先收集文件 ID，也不受前端加载分页的限制。 */
+          handleShareFolder(node) {
+            if (!node) return;
+            const folder = {
+              path: this.normalizeFolderPath(node.path || ""),
+              name: node.name || (node.path ? node.path : "根目录"),
+              fileCount: Number(node.fileCount) || 0,
+              includeSubfolders: false,
+            };
+            this.shareDialogItem = null;
+            this.shareDialogItems = [];
+            this.shareDialogFolder = folder;
+            this.shareDialogMode = "create";
+            this.shareDialogError = "";
+            this.shareDialogResult = null;
+            this.shareDialogBusy = false;
+            this.shareDialogRevoking = false;
+            this.shareDialogShowPassword = false;
+            this.shareDialogForm = {
+              expiresIn: 0,
+              maxDownloads: "",
+              password: "",
+              slug: "",
+              keepPassword: true,
+              keepSlug: true,
+            };
+            this.shareDialogVisible = true;
+          },
           /* 批量分享入口：把当前选中的文件作为一个合集来分享。
              选中数 < 2 时退化为单文件分享，直接复用 openShareDialog，
              避免出现「只有 1 个文件」的合集这种没有意义的形态。 */
@@ -4422,6 +4475,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
 
             this.shareDialogItems = items.slice();
             this.shareDialogItem = null;
+            this.shareDialogFolder = null;
             this.shareDialogMode = "create";
             this.shareDialogError = "";
             this.shareDialogResult = null;
@@ -4445,6 +4499,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             this.shareDialogVisible = false;
             this.shareDialogItem = null;
             this.shareDialogItems = [];
+            this.shareDialogFolder = null;
             this.shareDialogResult = null;
             this.shareDialogError = "";
             this.shareDialogBusy = false;
@@ -4462,10 +4517,31 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             try { return decodeURIComponent(raw); } catch (e) { return raw; }
           },
           async submitShareDialog() {
+            const form = this.shareDialogForm;
+            const password = String(form.password || "");
+            if (password.length > 200) { this.shareDialogError = "访问密码过长（最多 200 个字符）。"; return; }
+            const maxRaw = String(form.maxDownloads).trim();
+            const maxDownloads = maxRaw === "" ? 0 : Number(maxRaw);
+            if (maxRaw !== "" && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) { this.shareDialogError = "下载次数上限必须是非负整数（0 表示不限）。"; return; }
+            const expiresIn = Number(form.expiresIn) || 0;
+
+            /* 目录分享分支：按 folderPath 让服务端解析成员，前端无需收集文件 ID。
+               必须在下方「识别单文件」校验之前分流 —— 目录分享没有 item / targetId。 */
+            if (this.shareDialogFolder) {
+              await this.submitDirectoryShare({ expiresIn, maxDownloads, password });
+              return;
+            }
+
+            /* 合集分支：多选时走合集接口。必须在下方「识别单文件」校验之前分流 ——
+               批量分享时 shareDialogItem 为 null，若先校验 item 会被「无法识别该文件」误拦。 */
+            if (this.isShareDialogBundle) {
+              await this.submitBundleShare({ expiresIn, maxDownloads, password });
+              return;
+            }
+
             const item = this.shareDialogItem;
             const targetId = this.shareDialogTargetId();
             if (!item || !targetId) { this.shareDialogError = "无法识别该文件，请刷新后重试。"; return; }
-            const form = this.shareDialogForm;
             const isManage = this.shareDialogMode === "manage";
             let slugRaw = String(form.slug || "").trim();
             if (!slugRaw && !isManage) {
@@ -4475,17 +4551,6 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             }
             const slug = slugRaw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
             if (slugRaw && !slug) { this.shareDialogError = "短链只能包含字母、数字、下划线或短横线。"; return; }
-            const password = String(form.password || "");
-            if (password.length > 200) { this.shareDialogError = "访问密码过长（最多 200 个字符）。"; return; }
-            const maxRaw = String(form.maxDownloads).trim();
-            const maxDownloads = maxRaw === "" ? 0 : Number(maxRaw);
-            if (maxRaw !== "" && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) { this.shareDialogError = "下载次数上限必须是非负整数（0 表示不限）。"; return; }
-
-            /* 合集分支：多选时走合集接口，单文件路径完全不受影响。 */
-            if (this.isShareDialogBundle) {
-              await this.submitBundleShare({ expiresIn: Number(form.expiresIn) || 0, maxDownloads, password });
-              return;
-            }
 
             const body = { action: isManage ? "update" : "create" };
             if (isManage) {
@@ -4595,6 +4660,64 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
               );
             } catch (err) {
               console.error("合集分享创建失败:", err);
+              this.shareDialogError = "网络错误，请稍后重试。";
+            } finally { this.shareDialogBusy = false; }
+          },
+          /* 目录分享提交。
+             与 submitBundleShare 的唯一差别：成员来源不是前端的 fileIds，而是
+             请求体里的 folderPath —— 服务端会按目录自行解析出成员文件。其余的
+             参数、结果展示、错误回显逻辑完全复用合集的语义。 */
+          async submitDirectoryShare({ expiresIn, maxDownloads, password }) {
+            const folder = this.shareDialogFolder;
+            if (!folder) { this.shareDialogError = "未指定要分享的目录。"; return; }
+
+            this.shareDialogBusy = true;
+            this.shareDialogError = "";
+            try {
+              const res = await fetch(`${this.baseURL}/api/manage/share-bundle`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                body: JSON.stringify({
+                  action: "create",
+                  folderPath: folder.path,
+                  includeSubfolders: folder.includeSubfolders,
+                  expiresIn,
+                  maxDownloads,
+                  password,
+                }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok || data.success === false) {
+                const messages = Array.isArray(data.messages) ? data.messages : [];
+                this.shareDialogError = messages[0] || data.message || data.error || `请求失败（HTTP ${res.status}）`;
+                return;
+              }
+
+              const path = data.sharePath || "";
+              const url = path ? (/^https?:\/\//i.test(path) ? path : `${this.baseURL}${path}`) : "";
+
+              this.shareDialogResult = {
+                path,
+                url,
+                slug: data.slug || "",
+                expiresAt: data.expiresAt || 0,
+                maxDownloads: data.maxDownloads || 0,
+                passwordProtected: Boolean(data.passwordProtected),
+                active: Boolean(data.active),
+                bundle: true,
+                // 目录成员在服务端解析，没有"前端失效文件"，bundleMissing 恒为 0。
+                bundleCount: Number(data.fileCount) || 0,
+                bundleScanned: Number(data.scanned) || 0,
+                bundleMissing: 0,
+                bundleMissingNames: [],
+              };
+              this.showToast(
+                `已创建目录「${folder.name}」的合集分享（${data.fileCount || 0} 个文件）`,
+                "success"
+              );
+            } catch (err) {
+              console.error("目录分享创建失败:", err);
               this.shareDialogError = "网络错误，请稍后重试。";
             } finally { this.shareDialogBusy = false; }
           },

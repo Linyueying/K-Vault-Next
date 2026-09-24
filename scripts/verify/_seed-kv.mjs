@@ -26,9 +26,11 @@ function findDb() {
 
 /**
  * 确保给定的文件名在 KV 里存在（内容不重要，只需要是可下载的记录）。
+ * @param {string[]} names - 文件名列表。
+ * @param {{ folder?: string }} [opts] - 可选，指定 folderPath（用于「分享目录」用例）。
  * @returns {{ok: boolean, reason?: string, written?: string[]}}
  */
-export async function ensureSeedFiles(names) {
+export async function ensureSeedFiles(names, opts = {}) {
   let DatabaseSync;
   try {
     ({ DatabaseSync } = require('node:sqlite'));
@@ -56,6 +58,8 @@ export async function ensureSeedFiles(names) {
         fileSize: body.length,
         fileType: 'document',
         TimeStamp: Date.now(),
+        // 可选：把文件归入某个目录，供「分享目录」用例按 folderPath 解析成员。
+        ...(opts.folder ? { folderPath: opts.folder } : {}),
       });
 
       db.prepare('REPLACE INTO _mf_entries (key, blob_id, expiration, metadata) VALUES (?, ?, ?, ?)')
