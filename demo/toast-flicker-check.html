@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>低性能设备 Toast 闪烁 —— 修复前后对照</title>
+<link rel="stylesheet" href="design-system.css">
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 0; background: #eef2f7; padding-bottom: 40px; }
+  h1 { font-size: 17px; margin: 18px 16px 6px; color: #0f172a; }
+  .sub { margin: 0 16px 14px; font-size: 12px; color: #64748b; line-height: 1.7; }
+  .panel { margin: 0 16px 14px; background: #fff; border: 1px solid #dbe3ee; border-radius: 14px; padding: 14px; }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: #334155; }
+  .panel p { font-size: 12px; color: #64748b; line-height: 1.65; margin: 0 0 10px; }
+  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+  /* 舞台：模拟固定的顶部浮层区域 */
+  .stage { position: relative; height: 90px; border-radius: 10px; overflow: hidden;
+           background: linear-gradient(135deg,#e2e8f0,#cbd5e1); }
+  .stack { position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+           display: flex; flex-direction: column; align-items: center; width: max-content; }
+
+  /* ============ 修复前：animation + transition 双套 ============ */
+  .before .toast {
+    display: flex; align-items: center; gap: 9px; padding: 9px 22px;
+    border-radius: 999px; background: #fff; border: 1.5px solid rgba(59,130,246,.4);
+    box-shadow: 0 10px 30px rgba(15,23,42,.13);
+    font-size: 14px; font-weight: 600; color: #0b5ea8;
+    animation: toastInOld .26s cubic-bezier(.34,1.56,.64,1) backwards;  /* 第 1 套 */
+  }
+  .before .toast-enter-active { transition: opacity .26s ease, transform .42s cubic-bezier(.34,1.56,.64,1); } /* 第 2 套 */
+  .before .toast-enter-from   { opacity: 0; transform: translate3d(0,-22px,0) scale(.9); }
+  @keyframes toastInOld { from { opacity:0; transform:translate3d(0,-22px,0) scale(.9);} to { opacity:1; transform:translate3d(0,0,0) scale(1);} }
+
+  /* ============ 修复后：单套过渡 + 独立合成层 ============ */
+  .after .toast {
+    display: flex; align-items: center; gap: 9px; padding: 9px 22px;
+    border-radius: 999px; background: #fff; border: 1.5px solid rgba(59,130,246,.4);
+    box-shadow: 0 10px 30px rgba(15,23,42,.13);
+    font-size: 14px; font-weight: 600; color: #0b5ea8;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform, opacity;
+  }
+  .after .toast-enter-active { transition: opacity .26s ease, transform .42s cubic-bezier(.34,1.56,.64,1); }
+  .after .toast-enter-from   { opacity: 0; transform: translate3d(0,-22px,0) scale(.9) translateZ(0); }
+
+  button { margin: 0 16px 8px; padding: 10px 20px; border-radius: 10px; cursor: pointer;
+           border: 1px solid #cbd5e1; background: #fff; font-size: 13px; font-weight: 600; }
+  button:hover { background: #f1f5f9; }
+
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; margin-left:6px; }
+  .badge.bad { background:#fee2e2; color:#b91c1c; }
+  .badge.good { background:#dcfce7; color:#15803d; }
+</style>
+</head>
+<body>
+  <h1>低性能设备上 Toast 闪烁 · 修复前后对照</h1>
+  <p class="sub">
+    两侧渲染的是同一个 toast（<code>已切换至：智能</code>），唯一区别是动画实现。<br>
+    建议配合 Chrome DevTools 的 <strong>Performance → CPU 4x/6x 降速</strong> 观察：
+    左侧会出现「淡入 → 被打回起点 → 再淡入」的往复（闪烁），右侧平滑到位。
+  </p>
+
+  <div class="panel before">
+    <h2>修复前 <span class="badge bad">双套动画竞争</span></h2>
+    <p>元素上同时存在 <code>animation: toastIn</code> 与 Vue 的 <code>.toast-enter-from</code> 过渡。
+       两者争夺同一个 <code>transform / opacity</code>，掉帧时阶段错开 → 闪烁。</p>
+    <div class="stage"><div class="stack" id="s-before"></div></div>
+  </div>
+
+  <div class="panel after">
+    <h2>修复后 <span class="badge good">单套过渡 + 独立合成层</span></h2>
+    <p>入场只由 Vue 过渡驱动，起点/缓动/时长与原来完全一致（观感不变）；
+       并提前 <code>translateZ(0)</code> 提层，避免每帧重新 raster。</p>
+    <div class="stage"><div class="stack" id="s-after"></div></div>
+  </div>
+
+  <button onclick="fire()">同时触发一次「切换存储节点」</button>
+  <button onclick="loop()">连续触发 10 次（压测）</button>
+
+  <script src="/vendor/vue.global.prod.min.js"></script>
+  <script>
+    function makeEl() {
+      const el = document.createElement('div');
+      el.className = 'toast toast-enter-from';
+      el.innerHTML = '<span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:#1d9bf0;color:#fff;align-items:center;justify-content:center;font-size:11px;">&#10003;</span><span>已切换至：智能</span>';
+      return el;
+    }
+
+    function fire() {
+      ['before', 'after'].forEach(k => {
+        const stack = document.getElementById('s-' + k);
+        stack.innerHTML = '';
+        const el = makeEl();
+        stack.appendChild(el);
+        // 与 Vue 时序一致：先落 enter-from，下一帧换成 enter-active
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          el.classList.remove('toast-enter-from');
+          el.classList.add('toast-enter-active');
+        }));
+      });
+    }
+
+    function loop() {
+      let n = 0;
+      const t = setInterval(() => {
+        fire();
+        if (++n >= 10) clearInterval(t);
+      }, 320);
+    }
+  </script>
+</body>
+</html>

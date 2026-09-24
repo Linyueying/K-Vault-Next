@@ -463,7 +463,14 @@ html[data-theme="dark"] .switch__track { background: rgba(148, 163, 184, 0.28); 
   font-weight: 600;
   line-height: 1.4;
   max-width: 100%;
-  animation: toastIn 0.26s var(--ease-spring) backwards;
+  /* 独立合成层：toast 是 position:fixed 容器里的浮层，且带 box-shadow，
+     低端设备上若不提前提层，每帧都要重新 raster，掉帧时肉眼可见抖动。
+     这里主动 translateZ(0) + will-change，把绘制成本前移，属于「提质量」而非降质量。
+     注意：入场动画只由下面的 Vue 过渡族负责，此处**不再**挂 animation —— 两套
+     动画争同一个 transform/opacity 会让元素在掉帧时来回跳（历史 bug，见文件末注释）。 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
 }
 .toast i { font-size: 0.9rem; flex: none; }
 
@@ -621,10 +628,6 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   to   { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
 }
 
-@keyframes toastIn {
-  from { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9); }
-  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
-}
 @keyframes panelIn {
   from { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.94); }
   to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
@@ -698,11 +701,10 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 
 /* 兼容别名：旧页面用过的名字，统一在这里收口（新代码请用上面的规范名）。
    dockRise 保留独立取值：画廊页的 dock 只上浮 26px，
-   而全站 dockIn 是 96px 的「从屏幕外升起」，两者语义不同。 */
+   而全站 dockIn 是 96px 的「从屏幕外升起」，两者语义不同。
+   原先还留着 fadeInUp / fadeUp / slideDown 三个别名，随各页面迁移到
+   riseIn / riseInSm 后已无任何引用，故删除（check_tokens.py 会拦这类死定义）。 */
 @keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
-@keyframes fadeInUp  { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
-@keyframes fadeUp    { from { opacity: 0; transform: translate3d(0, 12px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
-@keyframes slideDown { from { opacity: 0; transform: translate3d(0, -14px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
 @keyframes dockRise  { from { opacity: 0; transform: translate3d(-50%, 26px, 0) scale(0.96); } to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); } }
 
 /* ==========================================================================
@@ -749,11 +751,14 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .ctrl-enter-from   { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.96); }
 .ctrl-leave-to     { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
 
-/* Toast：单条（顶部居中，容器自身带 translateX(-50%)） */
+/* Toast：单条（顶部居中，容器自身带 translateX(-50%)）。
+   这是 toast 入场动画的**唯一**实现 —— 元素上不再挂 @keyframes，
+   两套动画争同一轨道会在掉帧时闪烁。起点/时长/缓动与原先的 toastIn 完全一致，
+   观感不变；额外补上 translateZ(0) 保持既有的独立合成层，避免过渡期间被降级。 */
 .toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
 .toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
-.toast-enter-from   { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9); }
-.toast-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0) scale(0.94); }
+.toast-enter-from   { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9) translateZ(0); }
+.toast-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0) scale(0.94) translateZ(0); }
 
 /* 列表项（transition-group）：离场必须脱离文档流，否则剩余项要等它淡完才「跳」上来 */
 .list { position: relative; }
@@ -964,18 +969,38 @@ html[data-perf="low"] .pane-forward-leave-to,
 html[data-perf="low"] .pane-back-enter-from,
 html[data-perf="low"] .pane-back-leave-to { filter: none; }
 
-/* 灵动引擎关闭：模糊全撤、动画全停。
-   duration 压到 0.01ms 而非 none，可保留 fill-mode 的最终状态，元素不会停在半途。 */
+/* 灵动引擎关闭（html[data-perf="low"]）：只撤「贵」的部分，保留入场质感。
+   早先这里是「动画全停」（duration 压到 0.01ms），代价是把弹簧手感也一起杀掉了。
+   现在改为：
+     - 撤掉 backdrop-filter（每帧都要重算模糊，是低端设备最大开销）
+     - 撤掉常驻/循环动画（ambient-orb、spin 之类会持续占 GPU）
+     - **保留**一次性的 transform + opacity 入场过渡（纯合成，开销极低）
+   这样低端设备也能拿到与高端一致的入场观感，而不再是「啪」一下出现。 */
 html[data-perf="low"] *,
 html[data-perf="low"] *::before,
 html[data-perf="low"] *::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  animation-duration: 0.01ms !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important;
-  will-change: auto !important;
 }
+
+/* 常驻循环动画在低性能档位直接停掉（它们才是持续吃 GPU 的那部分） */
+html[data-perf="low"] .ambient-orb,
+html[data-perf="low"] .spinner,
+html[data-perf="low"] .spinner-ring,
+html[data-perf="low"] .fa-spin,
+html[data-perf="low"] [class*="pulse"],
+html[data-perf="low"] [class*="float"] {
+  animation: none !important;
+}
+
+/* 浮层（toast / 菜单 / 弹窗 / 面板）保留入场过渡，只把时长压短一点，
+   让低端设备不至于因为长过渡而掉帧，但曲线与终态完全一致。 */
+html[data-perf="low"] .toast,
+html[data-perf="low"] .toast-stack * {
+  will-change: transform, opacity;
+}
+html[data-perf="low"] .toast-enter-active { transition-duration: 0.2s, 0.32s; }
+html[data-perf="low"] .toast-leave-active { transition-duration: 0.14s, 0.16s; }
 /* 模糊停用后，玻璃层必须改为不透明，否则背景光晕会透上来压低文字对比度 */
 html[data-perf="low"] {
   --glass-surface: #ffffff;

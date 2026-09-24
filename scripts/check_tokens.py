@@ -28,11 +28,40 @@ def style_blocks(path):
 
 
 def main():
-    shared = strip_css_comments(io.open(SHARED, encoding='utf-8').read())
+    shared_raw = io.open(SHARED, encoding='utf-8').read()
+    shared = strip_css_comments(shared_raw)
     shared_vars = set(VAR_DEF.findall(shared))
     shared_kf = set(KF_DEF.findall(shared))
 
     bad = 0
+
+    # 0) 共享层里定义了、却没有任何地方引用的 @keyframes。
+    #    这类「死动画」通常是「把某处的 animation 删了、关键帧忘了删」的残留；
+    #    留着不只是占体积 —— 它会让人误以为动画还在生效，排查动效问题时误导判断。
+    shared_used = set()
+    for decl in ANIM_USE.findall(shared):
+        first = decl.strip().split()[0]
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', first):
+            shared_used.add(first)
+    # 页面与内联 style 里也可能引用共享层的关键帧
+    page_text = ''
+    for p in PAGES:
+        page_text += io.open(p, encoding='utf-8').read()
+    for decl in ANIM_USE.findall(strip_css_comments(page_text)):
+        first = decl.strip().split()[0]
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', first):
+            shared_used.add(first)
+
+    # -webkit-/标准写法、以及被 animation: name 引用的都算
+    kf_referenced = set(shared_used)
+    # 有些关键帧通过 animation-name 单独引用
+    for m in re.finditer(r'animation-name\s*:\s*([^;]+);', shared + page_text):
+        for tok in re.split(r'[\s,]+', m.group(1)):
+            if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', tok.strip()):
+                kf_referenced.add(tok.strip())
+
+    orphan_kf = sorted(shared_kf - kf_referenced)
+
     for p in PAGES:
         css = style_blocks(p)
         page_vars = set(VAR_DEF.findall(css))
@@ -72,6 +101,13 @@ def main():
                 print('   未定义关键帧: %s' % ', '.join(miss_kf))
         else:
             print('[OK]   %s' % p)
+
+    if orphan_kf:
+        bad += 1
+        print('[检查] %s' % SHARED)
+        print('   定义了但无人引用的关键帧（删掉引用后忘了删定义？）: %s'
+              % ', '.join(orphan_kf))
+
     return bad
 
 

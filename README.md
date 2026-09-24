@@ -464,7 +464,7 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 
 ```bash
 python3 scripts/check_style.py       # 括号平衡 / 禁止页面内定义 @keyframes / 必须引入设计系统 / 引入图标库
-python3 scripts/check_tokens.py      # 所有 var(--x) 与 animation 名称都能解析到定义
+python3 scripts/check_tokens.py      # var(--x) 与 animation 名可解析 / 共享层无“死关键帧”
 python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号（漏 import 会被抓出来）
 ```
 
