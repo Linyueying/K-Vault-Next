@@ -173,6 +173,9 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 /* 下拉面板：transform-origin 决定「从触发点长出来」的方向感 */
 .dropdown-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:190px;z-index:999;padding:6px;border-radius:var(--r-md);background:var(--glass-elevated);backdrop-filter:blur(28px) saturate(1.8);-webkit-backdrop-filter:blur(28px) saturate(1.8);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);transform-origin:top left;}
 .dropdown-panel.right{left:auto;right:0;transform-origin:top right}
+/* 贴近视口底部时向上展开，避免菜单被裁切（menuUp 由 toggleMenu 动态设置） */
+.dropdown-panel.up{top:auto;bottom:calc(100% + 8px);transform-origin:bottom left}
+.dropdown-panel.right.up{transform-origin:bottom right}
 .dropdown-item{width:100%;display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;border:none;background:transparent;color:var(--text-sub);font-size:.83rem;font-weight:600;font-family:inherit;cursor:pointer;transition:background var(--dur-fast) var(--ease-apple),color var(--dur-fast) var(--ease-apple),transform .1s var(--ease-press);text-align:left;}
 .dropdown-item i:first-child{width:15px;font-size:.8rem;color:var(--text-muted);text-align:center;transition:color var(--dur-fast) var(--ease-apple)}
 .dropdown-item:hover{background:rgba(var(--primary-rgb),.09);color:var(--primary)}
@@ -822,7 +825,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <i class="fas fa-chevron-down caret" :style="{transform: openMenu==='type' ? 'rotate(180deg)' : 'none'}"></i>
           </button>
           <transition name="menu">
-          <div class="dropdown-panel" v-if="openMenu==='type'">
+          <div :class="['dropdown-panel',{'up':menuUp}]" v-if="openMenu==='type'">
             <button class="dropdown-item" v-for="o in typeOptions" :key="o.value"
                     :class="{active: fileType===o.value}" @click="setType(o.value)">
               <i :class="o.icon"></i>
@@ -843,7 +846,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <i class="fas fa-chevron-down caret" :style="{transform: openMenu==='storage' ? 'rotate(180deg)' : 'none'}"></i>
           </button>
           <transition name="menu">
-          <div class="dropdown-panel" v-if="openMenu==='storage'">
+          <div :class="['dropdown-panel',{'up':menuUp}]" v-if="openMenu==='storage'">
             <button class="dropdown-item" v-for="o in storageOptions" :key="o.value"
                     :class="{active: storage===o.value}" @click="setStorage(o.value)">
               <i :class="o.icon"></i>
@@ -864,7 +867,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <i class="fas fa-chevron-down caret" :style="{transform: openMenu==='sort' ? 'rotate(180deg)' : 'none'}"></i>
           </button>
           <transition name="menu">
-          <div class="dropdown-panel" v-if="openMenu==='sort'">
+          <div :class="['dropdown-panel',{'up':menuUp}]" v-if="openMenu==='sort'">
             <button class="dropdown-item" v-for="o in sortOptions" :key="o.value"
                     :class="{active: sort===o.value}" @click="setSort(o.value)">
               <i :class="o.icon"></i>
@@ -956,7 +959,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <i class="fas fa-chevron-down caret" :style="{transform: openMenu==='batch' ? 'rotate(180deg)' : 'none'}"></i>
           </button>
           <transition name="menu">
-          <div class="dropdown-panel right" v-if="openMenu==='batch'">
+          <div :class="['dropdown-panel','right',{'up':menuUp}]" v-if="openMenu==='batch'">
             <button class="dropdown-item" @click="handleBatch('selectAll')">
               <i class="fas fa-check-double"></i><span>{{ isAllSelected ? '取消全选当前页' : '全选当前页' }}</span>
             </button>
@@ -1290,7 +1293,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
                 <i class="fas fa-ellipsis"></i>
               </button>
               <transition name="menu">
-              <div class="dropdown-panel right act-menu" v-if="openMenu==='card:'+item.name">
+              <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
                 <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('like',item)">
@@ -1339,7 +1342,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
                 <i class="fas fa-ellipsis"></i>
               </button>
               <transition name="menu">
-              <div class="dropdown-panel right act-menu" v-if="openMenu==='row:'+item.name">
+              <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
                 <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
@@ -2028,6 +2031,7 @@ Vue.createApp({
     status: { telegram:{}, kv:{}, r2:{}, s3:{}, discord:{}, huggingface:{}, github:{} },
 
     openMenu: null,
+    menuUp: false,
     filterSheetOpen: false,
     toasts: [],
 
@@ -2387,7 +2391,23 @@ Vue.createApp({
 
     /* ================= 交互 ================= */
     toggleMenu(name) {
-      this.openMenu = this.openMenu === name ? null : name;
+      if (this.openMenu === name) {
+        this.openMenu = null;
+        this.menuUp = false;
+        return;
+      }
+      this.openMenu = name;
+      this.menuUp = false;
+      // 贴近视口底部时改为向上展开，避免菜单溢出被裁切
+      this.$nextTick(() => {
+        const panel = this.$el.querySelector('.dropdown-panel');
+        if (!panel) { this.menuUp = false; return; }
+        const wrap = panel.parentElement;
+        const rect = wrap.getBoundingClientRect();
+        const ph = panel.offsetHeight || 240;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        this.menuUp = spaceBelow < ph + 12;
+      });
     },
     closeMenus() { this.openMenu = null; },
     toggleSelect(item) {
