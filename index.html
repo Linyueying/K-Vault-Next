@@ -543,26 +543,13 @@
 .task__name--long { cursor: zoom-in; }
 /* 长文件名展开到 4 行 */
 .task__name.is-open { -webkit-line-clamp: 4; max-height: calc(1.3em * 4); }
-/* 元信息行：左列「大小 + 状态」、右列「储存位置」标签。
-   为什么是网格而不是 flex：
-     flex 下标签（.task__node）无论加 margin-left:auto 还是 flex:1 0 auto，
-     都会参与同一套换行计算 —— 移动端内容列仅 130px，左列两项已占 158px，
-     标签必然被挤到下一行；而且这一行放几行还随左列文字长度浮动，
-     卡片高度不稳定。
-     网格把「左列的自发换行」与「标签钉在右列」彻底解耦：
-     minmax(0,1fr) 让左列可收缩可换行，max-content 让右列恰好等于标签宽度，
-     两者互不干扰。
-     gap 用 --sp-2（8px）而非 --sp-1：标签是独立信息块，需要与左侧拉开距离。
-   注意 .task__meta-left 必须自己再是一个 flex 容器 —— 大小/状态仍要
-   在窄屏自然换行（它们是等长片段，换行不影响卡片高度稳定性）。
-   小屏（≤680px）另有覆盖：两列并排塞不下，改成单列堆叠、标签右对齐，
-   见 Responsive 段的 .task__meta。 */
-.task__meta {
-  font-size: var(--fs-xs); color: var(--text-muted);
-  display: grid; grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: center; gap: var(--sp-2);
-}
-.task__meta-left { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; min-width: 0; }
+/* 元信息行：只放「大小 + 状态」，普通 flex 行、允许在窄屏自然换行。
+   历史：这里曾尝试放储存位置标签 —— 先在 flex 行末尾（会被挤到第 3 行、
+   左侧留一大块空白，看着像错位），后改两列网格（移动端列宽只剩 30px、
+   每行一个字，更糟）。根因是移动端内容列仅 100~130px，标签本身就要 96px，
+   无论怎么分列都放不下。最终标签移出文字区、落到右侧操作列顶部，
+   本行恢复原样。 */
+.task__meta { font-size: var(--fs-xs); color: var(--text-muted); display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
 /* 速率 / 错误：独占一行，不参与上一行的 flex 换行。
    之前这两项直接塞在 .task__meta 里用 v-if 增删，一旦挤到换行，
    那一行会「啪」地多出来、整张卡片高度瞬间跳一下，且没有任何过渡。
@@ -599,8 +586,17 @@
    恒定槽宽随之从 116px 收到 94px（3×30 + 2×2），把省下的 22px 还给左侧内容。
    改前在 345px 卡片上内容列只剩 91px、右侧却空置 91px，观感是「左挤右松」；
    改后内容列 112px，按钮右缘与图标左缘各距卡片 37px，左右对称。 */
+/* 操作列：竖排 —— 上「储存位置标签」、下「按钮组」。
+   之所以改成 column：标签此前放在文字区（文件名行 / 元信息行）时，
+   移动端内容列只有 100~130px 而标签要 96px，怎么排都会把某一行挤爆。
+   移到本列后它彻底脱离文字区，与文件名、大小/状态不再争空间。
+   宽度：flex-shrink:0 + min-width:94px，实际列宽取「标签宽 / 按钮组宽」的
+   较大者（桌面完整名 101px 时列宽自动到 101px，只从内容列少拿 7px）。
+   注意 .taskAct 仍需自己的 94px 槽宽 —— 否则 1 个按钮 ↔ 3 个按钮切换时
+   列宽会跟着变，左侧内容又被推来推去。 */
 .task__actions {
-  display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1);
+  display: flex; flex-direction: column;
+  align-items: flex-end; justify-content: center; gap: var(--sp-1);
   flex-shrink: 0; min-width: 94px;
 }
 /* 上传队列行内的图标按钮采用紧凑尺寸（对齐设计体系 --h-ctrl-sm）。 */
@@ -612,7 +608,7 @@
    共 4 个按钮，把后面的任务行横向挤开、又缩回去 —— 就是那股弹动。
    绝对定位让离场按钮不再参与布局，容器宽度恒定。
    按钮间距收到 2px：3 个按钮合计 30×3 + 2×2 = 94px，恰好等于槽宽。 */
-.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 94px; }
 /* 离场按钮绝对定位：切换瞬间「1 暂停 + 3 续传」不会同时占位，
    容器宽度恒定，左侧文件名不再被推来推去。容器高度恰等于按钮高，
    故 top:0 即垂直居中。 */
@@ -922,24 +918,23 @@ html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color:
 .unconfigured { align-self: flex-start; font-size: var(--fs-xs); font-weight: 700; padding: 2px 7px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.2); color: var(--text-muted); display: inline-block; margin-top: 4px; }
 
 /* 储存位置标签：上传队列里每个任务都显示「这个文件正在往哪个节点写」。
+   落位：卡片右上角、操作按钮正上方（在 .task__actions 竖排容器的第一行）。
    ---------------------------------------------------------
-   为什么从头部行搬到元信息行：
-     旧版把它塞在 .task__header 里、与文件名同一行并 justify-content:
-     space-between 顶到右端。哪怕已经是 flex-shrink:0 + 文件名 min-width:0
-     的标准写法，中文长文件名在窄屏上依然会被压成「6 个字 + 省略号」——
-     因为那一行只有一个内容项、旁边却常驻一个 68~88px 的徽章，
-     留给文件名的空间被硬生生吃掉一块。用户要的是「文件名完整」，
-     而不是「徽章显眼」，所以把徽章下移一行、让头部行整行归文件名。
-   为什么不是简单塞进 .task__meta 的末尾：
-     .task__meta 是 flex-wrap:wrap，移动端内容列只有 130px，而
-     「200 KB / 200 KB」(80) + 「• 已完成 (100%)」(78) 已占 158px，
-     再挂一个 101px 的标签会把它撑成 3 行 —— 卡片高度随之从 2 行变 3 行，
-     违反本区块开头的硬约束「整卡高度不允许随状态变化而变」。
-     所以这里让元信息行升格为「两列网格」：左列是大小/状态（允许自身换行），
-     右列是标签（独占一列、永不换行、垂直居中）。
-     桌面宽裕时两列并排（视觉上就是「同行右端」）；
-     小屏列宽不足时改单列堆叠（标签自己一行、右对齐），
-     顺序与行数都是确定的，不随文字长度浮动。
+   为什么最终落在右侧操作列，而不是留在文字区：
+     三轮迭代的实测结论（360 / 390 / 430 / 768 / 1440 五个视口量过）：
+     1) 原位置：文件名行右端（.task__header 内）。中文长文件名被压成
+        「6 个字 + 省略号」—— 用户报的原始问题。
+     2) 移到元信息行末尾（原 flex-wrap 行）：移动端内容列仅 100~130px，
+        而「大小」(80) + 「状态」(78) 已占 158px，标签(96)被挤到第 3 行、
+        左侧空 34px，观感就是「错位」。
+     3) 元信息行改两列网格：标签虽钉在右列，但左列被压到只剩 30px、
+        每行一个字，比 2) 更糟。
+     根因是移动端文字区根本放不下第三样东西 —— 在文字区里换任何排法都无解。
+     移到操作列后它与文字区彻底解耦：不占文件名宽度、不占元信息行行高，
+     列宽取「标签宽 / 按钮组宽」较大者，桌面完整名也只多拿 7px。
+   完整名 / 短名：两份文本都渲染，由 CSS 断点切换（见 Responsive 段），
+     不引入视口监听 —— 窄屏显示 R2 / TG 这类短名，省下的宽度还给文字区。
+     title 始终写完整名，窄屏悬停仍可看到全称。
    为什么所有节点模式都显示：
      旧版条件是 v-if="storageMode === 'auto'"。非智能模式下看似「已知目标」，
      但那个「已知」只存在于设置面板里 —— 上传队列本身看不出这条任务究竟写到了
@@ -951,7 +946,6 @@ html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color:
 .task__node {
   display: inline-flex; align-items: center; gap: 4px;
   flex: none;
-  align-self: center; /* 独立一列时垂直居中，不跟随左列的基线 */
   padding: 1px 7px; border-radius: var(--r-pill);
   background: rgba(139, 92, 246, 0.14); color: #7c3aed;
   font-weight: 700; font-size: 0.68rem;
@@ -960,6 +954,8 @@ html[data-theme="dark"] .row-tag { background: rgba(167, 139, 250, 0.22); color:
 }
 html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 246, 0.22); }
 .task__node i { font-size: 0.62rem; }
+/* 短名默认隐藏：只有窄屏断点才切换显示（见 Responsive 段 .task__node-short）。 */
+.task__node-short { display: none; }
       /* =========================================================
          本地历史
          ========================================================= */
@@ -1314,16 +1310,13 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
         .view-toggle { align-self: flex-start; }
         .selection-bar { flex-wrap: wrap; }
         .status-pill { min-width: 120px; }   /* 小屏收窄一点，避免顶栏挤压 */
-        /* 小屏内容列被压到 ~130px，放不下「大小 + 状态」与标签并排
-           （标签自身就要 96px，并排会把左列挤到每行一个字）。
-           此时退回单列堆叠：标签独占一行、右对齐，卡片高度稳定多出 1 行，
-           但换来了左列两项能正常读到 —— 这是窄屏下唯一可读的取舍。
-           注意这里用 grid-template-columns: 1fr 而非 display:flex：
-           flex-wrap 会让标签在左列换行后又被拉回同一行计算，行为不确定；
-           显式单列网格 = 两行、顺序确定、不参与任何换行博弈。 */
-        .task__meta { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
-        .task__meta .task__node { justify-self: end; padding: 1px 5px; gap: 3px; }
+        /* 窄屏：标签改用短名（R2 / TG / GH …）。
+           完整名在 390px 屏上要 96px，会把操作列撑宽、反过来挤压文字区；
+           短名约 45px，操作列维持 94px 按钮槽宽即可，文字区分毫不动。
+           两份文本由 CSS 断点切换，无需 JS 视口监听。 */
         .task__node { padding: 1px 5px; gap: 3px; }
+        .task__node-full { display: none; }
+        .task__node-short { display: inline; }
         /* Dock：小屏收紧间距并缩字号；指示器宽度用百分比，自动等分无需改公式。
            blur 也要降级 —— .dock 内联的 --glass-blur 特异性高于共享层
            @media(max-width:680px) 里的 :root，不显式覆盖就不会降。 */
@@ -1471,26 +1464,19 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
     <img v-if="file.preview" :src="file.preview" class="task__thumb" />
     <div v-else class="task__thumb"><i :class="getFileIcon(file.name)"></i></div>
     <div class="task__info">
-      <!-- 头部行：整行归文件名。储存位置标签已下移到下方元信息行，
-           不再与文件名抢位置（详见 .task__node 的样式注释）。 -->
+      <!-- 头部行：整行归文件名。储存位置标签已移出文字区、落到右侧操作列顶部，
+           与文件名、大小/状态都不再争任何宽度（详见 .task__node 的样式注释）。 -->
       <div class="task__header">
         <div class="task__name"
              :class="{ 'task__name--long': isLongFileName(file.name), 'is-open': isNameExpanded(file) }"
              :title="file.name"
              @click="toggleNameExpanded(file)">{{ file.name }}</div>
       </div>
-      <!-- 操作行：左列「大小 + 状态」自发换行，右列「储存位置」标签钉住不动。
-           网格布局让标签既不会挤到文件名（它已不在头部行），
-           也不会把左列的行数撑多（它是独立一列，不参与左列换行）。
-           详见 .task__node / .task__meta 的样式注释。 -->
+      <!-- 元信息行：只放「大小 + 状态」，恢复成普通 flex 行。
+           标签移走后这一行不再需要网格分列。 -->
       <div class="task__meta">
-        <div class="task__meta-left">
-          <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-          <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
-        </div>
-        <span class="task__node" v-if="taskNodeMode(file)" :title="`储存位置：${storageLabel(taskNodeMode(file))}`">
-          <i :class="getStorageIcon(taskNodeMode(file))"></i><span>{{ storageLabel(taskNodeMode(file)) }}</span>
-        </span>
+        <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
+        <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
       </div>
       <!-- 速率 / 错误行：独占一行。收起时高度为 0，出现时平滑展开 + 淡入，
            整张卡片的高度随之一起过渡，不再瞬间被撑开。 -->
@@ -1505,6 +1491,12 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       </div>
     </div>
     <div class="task__actions">
+      <!-- 储存位置标签：固定在卡片右上角、操作按钮上方。
+           完整名 / 短名各渲染一份，用 CSS 断点切换（纯样式，不引入视口监听）。
+           title 始终带完整名，窄屏显示短名时悬停仍能看到全称。 -->
+      <span class="task__node" v-if="taskNodeMode(file)" :title="`储存位置：${storageLabel(taskNodeMode(file))}`">
+        <i :class="getStorageIcon(taskNodeMode(file))"></i><span class="task__node-full">{{ storageLabel(taskNodeMode(file)) }}</span><span class="task__node-short">{{ storageShortLabel(taskNodeMode(file)) }}</span>
+      </span>
       <!-- 操作按钮组在「进行中 / 已暂停 / 出错 / 已阻断」四组之间互斥切换。
            这里必须用 transition-group 而不是 <transition mode="out-in">：
            后者的模板里是「多根 <template> 片段」，Vue 会把整个片段当成一个子节点，
@@ -2367,14 +2359,17 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       /* ===== 存储节点元数据（唯一真相来源，合并原 getStorageIcon + storageLabel） =====
          注意：auto 的 label 为 "智能"，用于顶栏胶囊；设置列表里的行标题是硬编码的
          "智能节点"，不受这里影响。 */
+      /* short 用于窄屏（≤680px）的上传队列「储存位置」标签：
+         完整名在 390px 屏上要 96px，会把操作列撑宽、反过来挤压文字区。
+         两条文本都由这里出，避免别处再硬编码一份导致两处文案对不上。 */
       const STORAGE_META = {
-        auto:        { label: "智能",           icon: "fas fa-wand-magic-sparkles" },
-        telegram:    { label: "Telegram",       icon: "fab fa-telegram" },
-        r2:          { label: "Cloudflare R2",  icon: "fas fa-cloud" },
-        s3:          { label: "Amazon S3",      icon: "fas fa-database" },
-        discord:     { label: "Discord",        icon: "fab fa-discord" },
-        huggingface: { label: "HuggingFace",    icon: "fas fa-robot" },
-        github:      { label: "GitHub",         icon: "fab fa-github" },
+        auto:        { label: "智能",           short: "智能", icon: "fas fa-wand-magic-sparkles" },
+        telegram:    { label: "Telegram",       short: "TG",   icon: "fab fa-telegram" },
+        r2:          { label: "Cloudflare R2",  short: "R2",   icon: "fas fa-cloud" },
+        s3:          { label: "Amazon S3",      short: "S3",   icon: "fas fa-database" },
+        discord:     { label: "Discord",        short: "DC",   icon: "fab fa-discord" },
+        huggingface: { label: "HuggingFace",    short: "HF",   icon: "fas fa-robot" },
+        github:      { label: "GitHub",         short: "GH",   icon: "fab fa-github" },
       };
 
       /* ===== 递归目录树组件 ===== */
@@ -2799,6 +2794,11 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           /* ===== 存储元信息 ===== */
           getStorageIcon(mode) { return (STORAGE_META[mode] || {}).icon || "fas fa-server"; },
           storageLabel(mode) { return (STORAGE_META[mode] || {}).label || mode || ""; },
+          /* 窄屏标签用的短名；未登记 short 时退回完整名，不会显示空白。 */
+          storageShortLabel(mode) {
+            const meta = STORAGE_META[mode] || {};
+            return meta.short || meta.label || mode || "";
+          },
           /* 上传队列「储存位置」标签要显示的节点。
              优先用任务自己钉下的 targetMode —— 它是入队那一刻
              resolveStorageForFile(file.size) 算出来的真实落点，中途不会变，
