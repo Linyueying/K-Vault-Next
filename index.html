@@ -575,17 +575,25 @@
 .task__nowrap { white-space: nowrap; }
 /* 操作按钮槽：宽度固定为「3 个按钮」的宽度。
    暂停（1 个按钮）与已暂停 / 失败（3 个按钮）之间切换时，
-   容器宽度如果跟着变，左边的文件名就会被推来推去 —— 这是抽动的主因之一。 */
+   容器宽度如果跟着变，左边的文件名就会被推来推去 —— 这是抽动的主因之一。
+   行内按钮统一改用紧凑尺寸（--h-ctrl-sm，与目录树 / 结果行的按钮同规格），
+   恒定槽宽随之从 116px 收到 94px（3×30 + 2×2），把省下的 22px 还给左侧内容。
+   改前在 345px 卡片上内容列只剩 91px、右侧却空置 91px，观感是「左挤右松」；
+   改后内容列 112px，按钮右缘与图标左缘各距卡片 37px，左右对称。 */
 .task__actions {
   display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1);
-  flex-shrink: 0; min-width: 116px;
+  flex-shrink: 0; min-width: 94px;
 }
+/* 上传队列行内的图标按钮采用紧凑尺寸（对齐设计体系 --h-ctrl-sm）。 */
+.task .btn--icon { width: var(--h-ctrl-sm); height: var(--h-ctrl-sm); }
+.task .btn--icon i { font-size: var(--fs-xs); }
 /* 操作按钮在「暂停 / 已暂停 / 出错」三组之间整体切换。
    关键：离场元素必须脱离文档流。
    否则在出入场交叉的那 160ms 里，容器里会短暂同时存在「1 暂停 + 3 续传」
    共 4 个按钮，把后面的任务行横向挤开、又缩回去 —— 就是那股弹动。
-   绝对定位让离场按钮不再参与布局，容器宽度恒定。 */
-.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
+   绝对定位让离场按钮不再参与布局，容器宽度恒定。
+   按钮间距收到 2px：3 个按钮合计 30×3 + 2×2 = 94px，恰好等于槽宽。 */
+.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 /* 离场按钮绝对定位：切换瞬间「1 暂停 + 3 续传」不会同时占位，
    容器宽度恒定，左侧文件名不再被推来推去。容器高度恰等于按钮高，
    故 top:0 即垂直居中。 */
