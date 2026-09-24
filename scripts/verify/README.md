@@ -46,6 +46,22 @@ node scripts/verify/smoke.mjs
 
 退出码 0 = 全过。
 
+### `guest-banner-login.mjs` —— 访客横幅「登录账户」跳转回归
+
+```bash
+node scripts/verify/guest-banner-login.mjs
+```
+
+把首页 Vue 实例的访客状态强开（黄色横幅渲染出来），点击右侧「登录账户」，
+断言最终 URL 落到 `/login.html` 且带 `redirect` 回跳参数。
+
+> **这个脚本的由来**：该链接曾误绑 `openDrawer('menu')` —— 点了打开「系统导航」
+> 抽屉，而不是跳登录页（用户报的「点到系统导航界面」就是这个）。
+>
+> 注入方式：Vue 3 生产构建下 `app._instance` 为 `null`，根实例要从容器 vnode 取：
+> `document.getElementById('app').__vue_app__._container._vnode.component.proxy`。
+> 后续要构造其它登录态/访客态前置条件时，照这个路径取 proxy。
+
 ### `dead-selectors.mjs` —— 删 CSS 之前必须先跑（防误删）
 
 ```bash
