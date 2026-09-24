@@ -516,6 +516,8 @@ git remote -v
 
 **直接访问 GitHub 在本环境不可达**，必须走 `ghfast.top` 镜像。远端 URL 里已带镜像前缀。
 
+> ⚠️ **镜像 URL 形态陷阱**：`ghfast.top` 必须用**完整 GitHub 路径**形态 `https://ghfast.top/https://github.com/<owner>/<repo>.git`（ls-remote / clone / push 均如此）。裸形态 `https://ghfast.top/<owner>/<repo>.git` 会直接返回 **403**，下一个 AI 容易在此浪费时间。本仓库已 clone，origin 已是正确完整形态，直接 `git remote -v` 取用即可，勿照抄占位符。
+
 ### 5.2 PAT 处理铁律
 
 - PAT 由用户**每次会话单独提供**，可能在同一条会话里多次给出。
@@ -738,3 +740,7 @@ git ls-remote 验证远端 SHA == 本地 HEAD
     差点把一个假阴性当成交付证据。
 15. **验证脚本要留在仓库里，不要写 `/tmp`** —— 一次性脚本下次还得重写，
     而且过程中攒下的经验（坑、判据）会一起丢掉。现在的归宿是 `scripts/verify/`。
+16. **`grid-template-rows: 0fr↔1fr` 收起动画必须有「纯包裹层」** —— 直接子元素若是带 `padding`/`border` 的卡片，
+    轨道永远收不到 0（实测卡在 ~50px）。结构必须是 `<div class="collapse"><div class="collapse__inner">…面板…</div></div>`，
+    `overflow:hidden; min-height:0` 落在 `.collapse__inner` 上，被裁切到 0 的是这层纯 div。已沉淀为共享层 `collapse` 过渡（见 `design-system.css`）。
+17. **镜像 URL 用完整 GitHub 路径形态**，裸 `ghfast.top/<owner>/<repo>` 会 403（见 §5.1）。
