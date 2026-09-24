@@ -984,6 +984,8 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         --dock-gap: 6px;
         /* 指示器落点（0-3）：静态默认 0，运行时由模板 :style 覆盖 */
         --dock-i: 0;
+        /* 跟手拖拽的像素偏移：静态默认 0，拖拽期间由 JS 直接写 DOM */
+        --dock-drag-x: 0px;
         /* 高透液态玻璃：由 .glass（glassfx）承担底/边/模糊/rim/bloom，
            这里只覆盖令牌，不再声明 background / backdrop-filter / border
            —— 内联样式优先级高于共享层 @import，重写规则会压掉 glassfx。 */
@@ -1048,7 +1050,10 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         top: var(--dock-pad);
         bottom: var(--dock-pad);
         left: var(--dock-pad);
-        width: calc((100% - 3 * var(--dock-gap)) / 4);
+        /* 注意：absolute 元素的 % 参照**padding box**（含 dock 的 padding），
+           但按钮的实际槽宽基于**内容盒**。所以先减掉两侧 padding 还原内容盒宽，
+           再按 4 等分减 3 个 gap —— 否则会宽出 2*pad/4，且误差随索引累积放大。 */
+        width: calc((100% - 2 * var(--dock-pad) - 3 * var(--dock-gap)) / 4);
         border-radius: var(--r-pill);
         z-index: 0;
         pointer-events: none;
@@ -1069,8 +1074,16 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
         will-change: transform;
         transform-origin: center;
       }
-      /* 拖拽中：指示器轻微压缩，松手回弹（iOS 分段控件质感） */
-      .dock.is-dragging .dock__indicator { --dock-scale: 0.94; }
+      /* 跟手拖拽：期间关掉过渡（否则每帧都在追一个移动的目标会「拖泥带水」），
+         并叠加由 JS 实时写入的像素位移 --dock-drag-x，让胶囊连续贴住手指。 */
+      .dock.is-dragging .dock__indicator {
+        --dock-scale: 0.96;
+        transition: none;
+        transform: translate3d(
+          calc(var(--dock-i, 0) * (100% + var(--dock-gap)) + var(--dock-drag-x, 0px)),
+          0, 0
+        ) scale(var(--dock-scale, 1));
+      }
 
       /* 暗色：指示器转冷调半透，避免白胶囊过亮 */
       html[data-theme="dark"] .dock { --glass-tint: 30, 38, 48; --glass-alpha: 0.42; --glass-rim: 0.32; --glass-sheen: 0.1; }
@@ -2338,7 +2351,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             /* 抽屉横向滑动切页的手势状态 */
             drawerSwipe: { active: false, lock: "", x0: 0, y0: 0, dx: 0, t0: 0 },
             /* Dock 滑动指示器 + 跟手拖拽状态 */
-            dockDrag: { active: false, lock: "", x0: 0, y0: 0, dx: 0, slotFrom: -1, slotTo: -1, moved: false, pointerId: -1, el: null },
+            dockDrag: { active: false, lock: "", x0: 0, y0: 0, dx: 0, anchorX: 0, slotFrom: -1, slotTo: -1, moved: false, pointerId: -1, el: null },
             baseURL: document.location.origin,
             isDragging: false,
             dragDepth: 0,
@@ -3089,6 +3102,13 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const step = g.slotW + g.gap;
             return Math.max(0, Math.min(3, Math.round(rel / step)));
           },
+          /* 把跟手像素位移直接写到 DOM（不走响应式，避免每帧 setState 掉帧） */
+          setDockDragX(px) {
+            const el = this.$refs.dockEl;
+            if (!el) return;
+            if (px) el.style.setProperty("--dock-drag-x", px + "px");
+            else el.style.removeProperty("--dock-drag-x");
+          },
           onDockPointerDown(e) {
             if (e.pointerType === "mouse" && e.button !== 0) return;
             const btn = e.target && e.target.closest ? e.target.closest("[data-dock-slot]") : null;
@@ -3109,18 +3129,24 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             const dx = e.clientX - d.x0;
             const dy = e.clientY - d.y0;
             if (!d.lock) {
-              /* 8px 死区；横向需明显占优才抢，否则让给页面纵向滚动 */
-              if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+              /* 6px 死区；横向需明显占优才抢，否则让给页面纵向滚动 */
+              if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
               d.lock = Math.abs(dx) >= Math.abs(dy) * 1.2 ? "x" : "y";
               if (d.lock === "y") { d.active = false; return; }
               /* 确认是横向拖拽了，此时才捕获指针：移出 dock 也能收到 move/up */
               if (d.el && d.el.setPointerCapture) {
                 try { d.el.setPointerCapture(d.pointerId); } catch (err) { /* noop */ }
               }
+              /* 锁定瞬间把「锚点位移」归零：此后 --dock-drag-x 表示
+                 相对起始格的连续偏移，指示器即从起始格平滑贴住手指，
+                 不会因为死区内已移动的 6px 而跳一下。 */
+              d.anchorX = e.clientX;
             }
             if (d.lock !== "x") return;
-            if (Math.abs(dx) > 4) d.moved = true;
+            if (Math.abs(dx) > 3) d.moved = true;
             d.dx = dx;
+            /* 连续跟手：相对起始格的像素偏移，直接驱动指示器 */
+            this.setDockDragX(e.clientX - d.anchorX);
             d.slotTo = this.dockSlotFromX(e.clientX);
           },
           onDockPointerUp() {
@@ -3128,7 +3154,9 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
             if (!d.active) return;
             const wasDrag = d.lock === "x" && d.moved;
             const target = d.slotTo;
-            d.active = false; d.lock = "";
+            /* 先清跟手位移、恢复 transition，再让 --dock-i 驱动吸附回弹 */
+            this.setDockDragX(0);
+            d.active = false; d.lock = ""; d.dx = 0;
             if (!wasDrag) return;             /* 没拖动 → 交给按钮自己的 click */
             /* 拖拽已生效：抑制浏览器补发的合成 click，并执行落点槽位行为 */
             this._dockSuppressClick = true;
@@ -3137,6 +3165,7 @@ html[data-theme="dark"] .target-badge { color: #c4b5fd; background: rgba(139, 92
           },
           onDockPointerCancel() {
             const d = this.dockDrag;
+            this.setDockDragX(0);
             d.active = false; d.lock = ""; d.dx = 0;
           },
           /* 统一入口：拖拽后的合成 click 直接吞掉 */

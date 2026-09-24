@@ -138,16 +138,42 @@ async function main() {
     console.log("SKIP  未找到「系统导航」tab，跳过该子项");
   }
 
-  // ④ 跟手拖拽 → 吸附 + 不误触发点击
+  // ④ 跟手拖拽 → 连续跟手 + 吸附 + 不误触发点击
   await closeDrawer();
   await page.click('.dock__btn[data-dock-slot="0"]');
   await page.waitForTimeout(600);
   const dock = await page.locator(".dock").boundingBox();
   if (dock) {
     const y = dock.y + dock.height / 2;
-    await page.mouse.move(dock.x + dock.width * 0.12, y);
+    const startX = dock.x + dock.width * 0.12;
+    await page.mouse.move(startX, y);
     await page.mouse.down();
-    await page.mouse.move(dock.x + dock.width * 0.62, y, { steps: 14 });
+
+    // 分步拖拽并采样指示器左边界，检验「连续跟手」而非「逐格跳动」
+    await page.mouse.move(startX + 10, y, { steps: 2 }); // 先越过 6px 死区锁定
+    await page.waitForTimeout(60);
+    const samples = [];
+    const steps = 12;
+    for (let i = 1; i <= steps; i++) {
+      const tx = startX + (dock.width * 0.5 * i) / steps;
+      await page.mouse.move(tx, y, { steps: 2 });
+      await page.waitForTimeout(24);
+      samples.push(await indicatorLeft(page));
+    }
+    // 跟手判据：采样点应大体单调递增，且存在「非格点」的中间位置
+    const monoCount = samples.filter((v, i) => i === 0 || v > samples[i - 1] - 1).length;
+    const slotXs = xs; // 先前点击得到的四格坐标
+    const offGrid = samples.filter(
+      (v) => slotXs.every((s) => Math.abs(v - s) > 6)
+    ).length;
+    monoCount >= samples.length - 1
+      ? ok(`拖拽过程连续跟手（${samples.length} 个采样大体单调）`)
+      : bad(`拖拽不跟手（采样：${samples.map((v) => Math.round(v)).join(",")}）`);
+    offGrid >= 2
+      ? ok(`指示器可停在格间（${offGrid}/${samples.length} 个非格点位置）`)
+      : bad(`指示器只会在格点间跳动（非格点仅 ${offGrid} 个）`);
+
+    await page.mouse.move(startX + dock.width * 0.5, y, { steps: 4 });
     await page.mouse.up();
     await page.waitForTimeout(800);
 
@@ -192,6 +218,41 @@ async function main() {
   /blur\(/.test(dockStyle.backdrop) && /saturate\(/.test(dockStyle.backdrop)
     ? ok(`Dock backdrop-filter 含 blur + saturate（${dockStyle.backdrop}）`)
     : bad(`Dock backdrop-filter 异常：${dockStyle.backdrop}`);
+
+  // ⑤b 指示器宽度必须与按钮槽宽一致 —— 这是「右边超出」的根因。
+  // absolute 元素的 % 参照 padding box（含 dock padding），若只减 gap
+  // 就会宽出 2*pad/4，且误差随索引累积放大（第 4 格明显越界）。
+  const widths = await page.evaluate(() => {
+    const ind = document.querySelector(".dock__indicator").getBoundingClientRect();
+    const btns = Array.from(document.querySelectorAll(".dock__btn")).map(
+      (b) => b.getBoundingClientRect().width
+    );
+    return { indW: ind.width, btnW: btns[0], allBtnW: btns };
+  });
+  near(widths.indW, widths.btnW, 1)
+    ? ok(`指示器宽度与按钮槽宽一致（${widths.indW.toFixed(1)} vs ${widths.btnW.toFixed(1)}）`)
+    : bad(`指示器宽度偏移：${widths.indW.toFixed(1)} vs ${widths.btnW.toFixed(1)}（差 ${(widths.indW - widths.btnW).toFixed(1)}px）`);
+
+  // ⑤c 最后一格不得越出 dock 右内缘（误差累积的最终判据）
+  const lastSlot = await page.evaluate(() => {
+    const dock = document.querySelector(".dock");
+    const ind = document.querySelector(".dock__indicator");
+    const cs = getComputedStyle(dock);
+    const pad = parseFloat(cs.paddingLeft);
+    const dr = dock.getBoundingClientRect();
+    // 把指示器移到最后一格所需的位移
+    const ir = ind.getBoundingClientRect();
+    const lastBtn = document.querySelector('.dock__btn[data-dock-slot="3"]').getBoundingClientRect();
+    return {
+      indW: ir.width,
+      innerRight: dr.right - pad,
+      lastBtnRight: lastBtn.right,
+      lastBtnLeft: lastBtn.left,
+    };
+  });
+  near(lastSlot.lastBtnRight, lastSlot.innerRight, 1)
+    ? ok(`末格按钮右缘贴齐 dock 内地缘（${lastSlot.lastBtnRight.toFixed(1)} vs ${lastSlot.innerRight.toFixed(1)}）`)
+    : bad(`末格按钮右缘越界：${lastSlot.lastBtnRight.toFixed(1)} vs ${lastSlot.innerRight.toFixed(1)}`);
 
   // ⑥ 无横向溢出（不开 isMobile，见 README 已知坑）
   const overflow = await page.evaluate(() => ({

@@ -778,3 +778,13 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 24. **验证滑动指示器必须读真实渲染位**，不能读 `--dock-i` —— 后者只是输入，
     读它会得到「永远不动」或假阳性（实测 `--dock-i` 全程为 0 时，恰好等于
     第 4 格坐标，令断言误判为通过）。要读 `getBoundingClientRect().left`。
+25. **absolute 元素的 `%` 参照 padding box，不是 content box** —— 在带 padding 的
+    容器里算等分格宽，必须**先减两侧 padding**：
+    `calc((100% - 2*pad - 3*gap) / 4)`。只减 gap 会宽出 `2*pad/4`，且误差
+    **随索引累积放大**（实测 dock 指示器宽 87.8 vs 按钮 85.3，第 4 格明显越出
+    右边界）。验证要断言「指示器宽 == 按钮槽宽」+「末格右缘贴齐容器内地缘」。
+26. **跟手拖拽要关掉 transition 并叠加像素偏移** —— 只做「逐格吸附」是跳跃、
+    不是跟手。正确做法：锁定横向后记录 `anchorX`，每帧把 `clientX - anchorX`
+    写入 `--dock-drag-x`（**直接写 DOM，不走响应式**，否则每帧 setState 掉帧），
+    同时给拖拽态 `transition: none`；松手先清偏移再恢复 transition，让
+    `--dock-i` 驱动弹回吸附。
