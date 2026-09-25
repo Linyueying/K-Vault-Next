@@ -2393,6 +2393,12 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
          这是服务端协议下限，前端不能低于它。 */
       const MIN_CHUNK_SIZE = 5 * 1024 * 1024;
 
+      /* 单个任务的自动重试预算（不含首次尝试）。
+         调度器 canRun() 允许 status === "error" 且 want === "run" 的任务重新入队，
+         而普通失败并不会把 want 改成 "stop" —— 于是服务端永久拒绝某一片时，
+         客户端会无限重传同一片，UI 在「上传失败」和「上传中」之间反复横跳，
+         用户根本看不到失败。这里给一个很小的预算，用尽后交给用户手动重试。 */
+      const AUTO_RETRY_BUDGET = 2;
 
       /* ===== 存储节点元数据（唯一真相来源，合并原 getStorageIcon + storageLabel） =====
          注意：auto 的 label 为 "智能"，用于顶栏胶囊；设置列表里的行标题是硬编码的
@@ -4005,7 +4011,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             const heavyN = this.concurrencyForPool("heavy");
             const canRun = (item) => {
               const blocked = this.isTelegramTask(item) ? inFlight.light >= lightN : inFlight.heavy >= heavyN;
-              return !item.inFlight && item.want === "run" && !item.cancelRequested && (item.status === "waiting" || item.status === "error") && !blocked;
+              return !item.inFlight && item.want === "run" && !item.cancelRequested && !item.autoRetryExhausted && (item.status === "waiting" || item.status === "error") && !blocked;
             };
             const preferred = this.uploadingFiles.find((f) => this.isTelegramTask(f) === preferTelegram && canRun(f));
             if (preferred) return preferred;
@@ -4076,10 +4082,17 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               else this.showToast(msg, "error");
               return;
             }
+            /* 自动重试预算：用尽后不再被调度器自动重派（canRun 会跳过），
+               但 status 仍是 error 且 want 仍是 run —— 手动重试 / 重试全部失败
+               依然能把它捡起来（那两个入口会清 autoRetryExhausted）。
+               注意不能用 want = "stop" 来停：那样会被 retryAllFailed 的过滤条件排掉。 */
+            item.autoRetries = (item.autoRetries || 0) + 1;
+            const exhausted = item.autoRetries > AUTO_RETRY_BUDGET;
+            if (exhausted) item.autoRetryExhausted = true;
             if (this.isRetirableError(err)) {
               /* 用户并没有想停，却收到超时/中断：算失败，可续传 */
               item.status = "error";
-              item.statusText = "上传超时，可续传";
+              item.statusText = exhausted ? "上传超时，请手动续传" : "上传超时，可续传";
               item.error = msg;
               return;
             }
@@ -4477,6 +4490,8 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
               f.error = null;
               f.want = "run";
+              f.autoRetries = 0;
+              f.autoRetryExhausted = false;
               this.invalidateTaskRun(f);
             });
             this.restartUploadNow();
@@ -4495,6 +4510,8 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             file.want = "run";
             file.error = null;
             file.status = "waiting";
+            file.autoRetries = 0;
+            file.autoRetryExhausted = false;
             file.statusText = file.chunkDone && file.chunkDone.length ? `续传（已完成 ${file.chunkDone.length} 个分片）` : "等待续传";
             this.invalidateTaskRun(file);
             this.restartUploadNow();
