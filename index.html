@@ -3511,12 +3511,13 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             try { localStorage.setItem("liveEngine", "0"); } catch (e) {}
             this.showToast("已切换到低性能模式", "success");
           },
-          /* 初始化：用户设过就听用户的；没设过则跟随硬件自动检测，保证开关与实际一致 */
+          /* 初始化：只认用户的显式设置。
+             没设置过一律按「开」—— 已不再做硬件自动检测，data-perf 不会在
+             用户未表态的情况下被写上，所以默认值不该再去读它。 */
           syncLiveEngineFromPerf() {
             let saved = null;
             try { saved = localStorage.getItem("liveEngine"); } catch (e) {}
-            if (saved === "0" || saved === "1") this.liveEngine = saved === "1";
-            else this.liveEngine = document.documentElement.getAttribute("data-perf") !== "low";
+            this.liveEngine = (saved === "0") ? false : true;
             this.applyPerfMode();
           },
           getUploadLimit(storageMode) {
@@ -5441,16 +5442,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
           this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
           window.addEventListener("keydown", this._dlgKeyHandler, true);
-          try {
-            const cores = navigator.hardwareConcurrency || 8;
-            const mem = navigator.deviceMemory || 8;
-            const conn = navigator.connection;
-            const slowNet = conn && (conn.saveData || /(^|-)2g$/.test(conn.effectiveType || ""));
-            if (cores <= 4 || mem <= 4 || slowNet) {
-              document.documentElement.setAttribute("data-perf", "low");
-            }
-          } catch (e) {}
-          /* 必须在硬件自动检测之后：用户显式设置优先，未设置过则跟随检测结果 */
+          /* 不再按硬件自动降级（原 hardwareConcurrency / deviceMemory / saveData
+             判据误判率高，会让中端设备被动失去全部动效）。
+             现在 data-perf 只由 applyPerfMode() 写入 —— 即用户主动关掉「灵动引擎」时。 */
           this.syncLiveEngineFromPerf();
 
           try {

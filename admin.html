@@ -3964,13 +3964,12 @@ Vue.createApp({
       mq.addEventListener('change', this._schemeHandler);
     } catch (e) {}
 
-    /* ==== 性能分级（移植 index 的 data-perf 降级策略）==== */
-    try {
-      const cores = navigator.hardwareConcurrency || 4;
-      const mem = navigator.deviceMemory || 4;
-      const low = cores <= 2 || mem <= 2 || (navigator.connection && navigator.connection.saveData === true);
-      if (low) document.documentElement.setAttribute('data-perf', 'low');
-    } catch (e) {}
+    /* 性能分级说明：不再做硬件自动检测。
+       原先这里按 hardwareConcurrency / deviceMemory / saveData 自动打上
+       data-perf="low"，但那套判据误判率很高（deviceMemory 只有 Chromium 支持，
+       cores <= 2 在中端机上也会命中），结果是不少设备被动失去全部动效。
+       现在一律不降级 —— 只有用户在设置里主动关掉「灵动引擎」时才切到低性能模式，
+       即 data-perf 的写入点只保留 index.html 的 applyPerfMode()。 */
 
     /* ==== 首屏入场编排 ==== */
     const bootDelay = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ? 60 : 780;
