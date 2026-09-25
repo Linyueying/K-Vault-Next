@@ -363,6 +363,13 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 弹层（对齐 index .modal-mask / .modal--dialog / .modal--preview）
 ========================================================= */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:2000;display:flex;align-items:center;justify-content:center;padding:var(--sp-5);}
+/* 通用确认/输入/信息对话框（askConfirm / askPrompt / showInfo）。
+   它可能从任意面板内部触发 —— 分享管理里取消分享、令牌面板里轮换密钥、
+   设置面板里恢复默认…… 但模板里它排在所有面板之前，与 .overlay 同为
+   z-index:2000 时会按 DOM 顺序被后出现的面板整块压住（用户看到的就是
+   「点了红色禁用按钮没弹窗，要关掉面板才冒出来」）。
+   提到 2300：恒高于全部面板(2000)，仍低于 toast/lightbox(9999)。 */
+.overlay.dialog-overlay{z-index:2300}
 .dialog-panel{width:min(560px,100%);max-height:86dvh;overflow-y:auto;border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(32px);-webkit-backdrop-filter:blur(32px);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);padding:22px 24px;will-change:transform,opacity;}
 .dialog-panel.wide{width:min(880px,100%)}
 .dialog-title{font-size:var(--fs-lg);font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:9px}
@@ -1434,7 +1441,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
        注意：危险操作点遮罩不关闭（HIG：不可逆操作不得因误触外部而取消）
        ============================================================ -->
   <transition name="dialog">
-  <div class="overlay" v-if="dialog.visible" @click.self="dialog.danger || dialogCancel()">
+  <div class="overlay dialog-overlay" v-if="dialog.visible" @click.self="dialog.danger || dialogCancel()">
     <div class="dialog-panel">
       <h2 class="dialog-title" :class="{danger: dialog.danger}">
         <i :class="dialog.danger ? 'fas fa-triangle-exclamation' : 'fas fa-circle-info'"></i>
