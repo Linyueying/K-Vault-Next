@@ -658,6 +658,21 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
   to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
 }
+/* 底部批量操作栏（<transition name="bar">）的进出场。
+   这里刻意用 @keyframes 而不是 transition，理由与上方 menuIn/menuOut 相同：
+   底栏是「插入 DOM + 同帧切 class」出现的，浏览器来不及为 transition 建立
+   起始值 —— 实测在「选中后立刻取消」时，进场两帧都停在 opacity:0，
+   离场于是从 0 起算，表现为底栏瞬间消失（无任何可见过渡）。
+   keyframes 把两端写死在动画里，不依赖样式是否被提交过，因此不受该竞态影响。
+   translateX(-50%) 是底栏自身的水平居中偏移，两端都必须带上，否则进出场会横向跳位。 */
+@keyframes barIn {
+  from { opacity: 0; transform: translateX(-50%) translate3d(0, 18px, 0) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translate3d(0, 0, 0) scale(1); }
+}
+@keyframes barOut {
+  from { opacity: 1; transform: translateX(-50%) translate3d(0, 0, 0) scale(1); }
+  to   { opacity: 0; transform: translateX(-50%) translate3d(0, 18px, 0) scale(0.98); }
+}
 @keyframes pop {
   from { transform: scale(0.72); opacity: 0; }
   to   { transform: scale(1);    opacity: 1; }
@@ -800,10 +815,13 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .drop-enter-from,
 .drop-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0); }
 
-.bar-enter-active { transition: opacity 0.24s var(--ease-apple), transform 0.34s var(--ease-spring); }
-.bar-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+/* 底部批量操作栏：见 barIn / barOut 关键帧处的说明。
+   opacity 置 1 是为了让 class 交换不参与插值 —— 真正的起止值由 keyframes 提供，
+   与 .menu-enter-from / .menu-leave-to 同一套做法。 */
+.bar-enter-active { animation: barIn 0.34s var(--ease-spring) both; }
+.bar-leave-active { animation: barOut 0.2s var(--ease-press) both; }
 .bar-enter-from,
-.bar-leave-to     { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.98); }
+.bar-leave-to     { opacity: 1; }
 
 /* 控件组互换（选择/清空 ↔ 全选/完成）：错峰淡入淡出，避免「啪」地互替 */
 .ctrl-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.28s var(--ease-spring); }

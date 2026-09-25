@@ -541,7 +541,10 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 #app:not(.is-booted) .empty-state    {animation:riseIn .52s var(--ease-fluid) .2s backwards;}
 #app:not(.is-booted) .pager          {animation:riseInSm .44s var(--ease-fluid) .22s backwards;}
 #app:not(.is-booted) .kv-usage-panel {animation:panelIn .5s var(--ease-fluid) backwards;}
-#app:not(.is-booted) .batch-dock     {animation:dockIn .72s var(--ease-fluid) .1s backwards;}
+/* .batch-dock 不参与这里的首屏 animation 编排。
+   它的入场由设计系统 .bar-enter-active 的 animation 负责；两套 animation 同时
+   作用于同一元素会争抢 opacity / transform 轨道，在「选中后立刻取消」时会丢掉
+   进场值，导致底栏瞬间消失。详见 design-system.css 中 barIn 关键帧处的说明。 */
 
 /* 视图切换：网格卡片 / 列表行逐格「长」出来 */
 .vault-grid > .vault-card,
@@ -587,31 +590,19 @@ Apple 风格动效 · 应用层（首屏错峰入场）
              color .45s var(--ease-apple);
 }
 
-/* 底部批量操作栏是 <transition name="bar"> 的目标，进出场（下滑淡出）由
-   design-system.css 的 .bar-* 提供 opacity / transform 过渡。
-   这里用「显式高优先级 (0,2,0) 的 active 规则」兜底：进场、离场，以及「进场途中
-   被点掉」这类打断瞬间，元素都一定能拿到 opacity / transform 过渡。之前用
-   .batch-dock:not(.bar-*-active) 限定，个别浏览器对 :not()+transition 简写的边界
-   处理有差异，打断的中间窗口可能把过渡顶掉，导致底栏瞬间消失。换成显式 active 规则
-   后，权重 (0,2,0) 恒压过下方静态态的 (0,1,0) 规则，过渡不会再被抢走。 */
+/* 底部批量操作栏是 <transition name="bar"> 的目标。进出场统一由
+   design-system.css 的 .bar-* 负责，那里用 @keyframes（barIn / barOut）
+   而非 transition —— 底栏是「插入 DOM + 同帧切 class」出现的，transition
+   来不及建立起始值，在「选中后立刻取消」时会导致底栏瞬间消失。
+   详见 design-system.css 中 barIn 关键帧上方的说明。
+
+   因此这里只保留静态态的配色过渡，不再重复声明 opacity / transform 过渡，
+   否则会与 .bar-enter-active / .bar-leave-active 的 animation 抢同一轨道。 */
 .batch-dock{
   transition:background-color .45s var(--ease-apple),
              border-color .45s var(--ease-apple),
              box-shadow .45s var(--ease-apple),
              color .45s var(--ease-apple);
-}
-.batch-dock.bar-enter-active{
-  transition:opacity .24s var(--ease-apple),transform .34s var(--ease-spring);
-}
-.batch-dock.bar-leave-active{
-  transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);
-}
-/* .batch-dock 靠 translateX(-50%) 做水平居中；design-system.css 的 .bar-*-from/to
-   用 translate3d(0,18px,0) 直接覆写 transform，会把这 50% 偏移抹掉 —— 进出场那一瞬
-   底栏会先跳到屏幕中线右侧再滑回。这两条 (0,2,0) 把居中偏移补回去。 */
-.batch-dock.bar-enter-from,
-.batch-dock.bar-leave-to{
-  transform:translateX(-50%) translate3d(0,18px,0) scale(.98);
 }
 
 /* =========================================================
@@ -1424,7 +1415,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
     </section>
   </div>
 
-  <!-- ===== 底部批量操作栏（dockIn 从底部弹起） ===== -->
+  <!-- ===== 底部批量操作栏（进出场由 <transition name="bar"> 统一负责） ===== -->
   <transition name="bar">
   <div class="batch-dock" v-if="selectedFiles.length">
     <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
