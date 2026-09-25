@@ -650,8 +650,16 @@
       box-shadow: 0 18px 44px -10px rgba(2, 132, 199, 0.3), 0 4px 14px -3px rgba(0, 0, 0, 0.08);
       z-index: 1000;
       max-width: calc(100% - 24px);
-      animation: dockRise 0.32s var(--ease-spring);
     }
+
+    /* 底部批量操作栏的进出场统一交给 Vue <transition name="bar">（见模板）。
+       之前只靠 animation: dockRise 做进场，离场无任何机制，导致取消选中时
+       底栏当帧被移除（硬切）。这里显式写 opacity:0 末态 + 保留 translateX(-50%)
+       居中偏移的 transform，避免依赖外部 .bar-* 且离场时横向跳位。 */
+    .batch-dock.bar-enter-active { transition: opacity .24s var(--ease-apple), transform .34s var(--ease-spring); }
+    .batch-dock.bar-leave-active { transition: opacity .16s var(--ease-press), transform .2s var(--ease-press); }
+    .batch-dock.bar-enter-from,
+    .batch-dock.bar-leave-to     { opacity: 0; transform: translateX(-50%) translate3d(0, 18px, 0) scale(.98); }
 
     .batch-count {
       display: inline-flex;
@@ -1124,6 +1132,10 @@
     </div>
 
     <!-- ============ Batch Dock ============ -->
+    <!-- 用 <transition name="bar"> 统一进出场：
+         取消选中最后一项时 v-if 变 false，Vue 会先跑 bar-leave 淡出+下滑再移除，
+         不再当帧 removeChild（原代码无 <transition>，绿圈底栏会硬切消失）。 -->
+    <transition name="bar">
     <div class="batch-dock" v-if="selectedCount > 0">
       <div class="batch-count">
         <i class="fas fa-check-double"></i>
@@ -1142,6 +1154,7 @@
         <i class="fas fa-xmark"></i> 取消
       </button>
     </div>
+    </transition>
 
     <!-- ============ Preview Modal ============ -->
     <div class="preview-backdrop" v-if="previewData" @click="closePreview">
