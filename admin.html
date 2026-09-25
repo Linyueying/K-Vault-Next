@@ -226,7 +226,7 @@ html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 主布局
 ========================================================= */
 .admin-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:var(--sp-4);align-items:start}
-.folders-panel{padding:var(--sp-3);max-height:calc(100dvh - 190px);display:flex;flex-direction:column;z-index:1}
+.folders-panel{padding:var(--sp-3);max-height:calc(100dvh - 190px);display:flex;flex-direction:column;min-height:0;z-index:1}
 .folders-panel.collapsed .folder-tree-panel{display:none}
 .folders-panel.collapsed{max-height:none}
 .panel-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin-bottom:10px}
@@ -239,7 +239,7 @@ html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 .mini-icon-btn.danger:hover{background:var(--c-danger-strong);border-color:var(--c-danger-strong)}
 .mini-icon-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
 .mini-icon-btn:disabled:hover{background:var(--glass-surface);color:var(--text-muted);border-color:var(--glass-border-ice)}
-.folder-tree-panel{border:1px solid var(--glass-border-ice);border-radius:var(--r-md);background:var(--glass-subtle);padding:6px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:120px;-webkit-overflow-scrolling:touch;}
+.folder-tree-panel{border:1px solid var(--glass-border-ice);border-radius:var(--r-md);background:var(--glass-subtle);padding:6px;overflow-y:auto;overflow-x:hidden;flex:1;min-height:120px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
 .folder-tree-panel::-webkit-scrollbar,.move-list::-webkit-scrollbar,.token-list::-webkit-scrollbar{width:6px}
 .folder-tree-panel::-webkit-scrollbar-thumb,.move-list::-webkit-scrollbar-thumb,.token-list::-webkit-scrollbar-thumb{background:rgba(148,163,184,.35);border-radius:var(--r-pill)}
 .folder-tree-panel::-webkit-scrollbar-track{background:transparent}
@@ -678,7 +678,41 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .folders-panel{max-height:280px}
   .collapse-only{display:inline-flex}
 }
+/* 小屏（≤680）目录面板与面包屑一并紧凑化：
+   工具栏压缩后，目录面板（实测 280px）成了首屏剩余的最大障碍 —— 12 个目录时
+   它就是最后一根稻草。这里把面板限到 172px、行高压到 32px，并把面包屑收成单行。
+   面板本身仍是 flex 列容器，172px 会被压到低于 .folder-tree-panel 的 min-height，
+   因此基础样式补了 min-height:0（有 header 与内层面板两块，结构上不必保底），
+   让目录列表自身滚动而不是撑破面板、盖到面包屑上。 */
 @media (max-width:680px){
+  .folders-panel{padding:9px 10px;max-height:172px}
+  .folders-panel .panel-head{margin-bottom:7px}
+  .folders-panel .panel-title{font-size:.8rem;gap:6px}
+  .folders-panel .panel-title i{font-size:.76rem}
+  .folders-panel .panel-actions{gap:2px}
+  /* 目录行与图标降高，仍保留整行可点 */
+  .folder-tree-panel{padding:4px;min-height:72px;border-radius:var(--r-sm)}
+  .folder-tree-row{padding:5px 8px;font-size:.78rem;gap:6px;min-height:32px}
+  .folder-tree-icon{font-size:.76rem}
+  .folder-tree-count{font-size:.62rem;padding:0 5px}
+  .folder-tree-empty{padding:14px var(--sp-2);font-size:.74rem;gap:6px}
+  .folder-tree-empty i{font-size:1.1rem}
+  /* 面包屑：单行 34px，长路径省略号，不再换行堆高 */
+  .crumbs-bar{padding:6px 11px;gap:5px;flex-wrap:nowrap;overflow:hidden}
+  .folder-crumb{padding:3px 7px;font-size:.74rem;gap:4px;min-width:0;
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .folder-crumb:first-of-type{flex:0 0 auto}
+  .folder-crumb-sep{flex:0 0 auto}
+  /* 统计「N 项」与路径都改成可收缩 + 省略号：
+     窄屏下目录名常常长到撑满整行，把统计顶出胶囊之外；而统计文案由
+     pageData / paginationTotal 拼出，也可能长过目录名。两边都能收缩才不会互相挤爆
+     （实测任一固定宽度都会在 320-360px 下越界）。收缩时路径优先让位，
+     因为统计是纯数字、截断即失真，路径截断只丢尾部层级。 */
+  .crumbs-bar .tool-stat{flex:0 1 auto;min-width:0;font-size:.66rem;padding-left:6px;
+                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* .spacer 是基线布局里的伸缩件，窄屏改用 flex 排序收口，这里让它退出 */
+  .crumbs-bar .spacer{display:none}
+  .crumbs-bar .folder-crumb:not(:first-of-type){flex:1 1 auto;min-width:20px}
   #app{
     padding:
       calc(var(--sp-3) + env(safe-area-inset-top,0px))
@@ -692,25 +726,49 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .toolbar-tools{gap:6px}
   .tool-btn{padding:6px 11px;font-size:var(--fs-xs)}
   .tool-stat{width:100%;margin-left:0;text-align:right}
+  /* ===== 移动端工具栏紧凑化 =====
+     原先工具栏卡片在小屏上要占掉约 370px（搜索 54 + 筛选/统计 68 + 工具箱 201 + 间距），
+     叠加其上的目录面板与面包屑后，首屏一张文件卡都露不出来。
+     这里逐层收紧：搜索框、统计行、工具箱一律降高，目标把工具栏压到 ~200px 以内。 */
+  .toolbar-card{padding:9px 11px;gap:7px;margin-bottom:10px;border-radius:var(--r-lg)}
+  .toolbar-top{gap:7px;flex-wrap:nowrap}
+  /* 搜索框：去掉上下多余留白，输入区压到 34px 高 */
+  .search-box{padding:5px 11px;min-width:0;min-height:34px}
+  .search-box input{font-size:.82rem}
+  .search-box>i{font-size:.78rem}
+  /* 视图切换：pointer:coarse 里被撑到 54x44 的按钮在这里收回，
+     改用伪元素保留 44px 热区（视觉小、可点区域不缩水，符合 HIG）。 */
+  .view-toggle{padding:2px;gap:2px}
+  .view-toggle button{position:relative;width:38px;height:30px;font-size:.72rem}
+  .view-toggle button::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+  /* 筛选按钮与统计并到一行，统计靠右，少占一整行 */
+  .toolbar-tools{gap:6px;flex-wrap:nowrap;align-items:center}
+  .tool-btn{padding:5px 10px;font-size:.72rem;min-height:32px}
+  .tool-stat{width:auto;margin-left:auto;flex:1;text-align:right;font-size:.68rem;
+             white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 工具箱：标签与首行标题合并成一行，条目降高、收紧间距 */
+  .tool-hub{flex-direction:row;align-items:center;gap:8px;padding:8px 9px;margin-top:0}
+  .tool-hub-label{padding-left:0;padding-right:0;font-size:.7rem;gap:5px;flex:none}
+  .tool-hub-label i{font-size:.72rem}
+  .tool-hub-items{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;flex:1;min-width:0}
+  .tool-hub-items > *{width:100%;min-width:0;animation:none}
+  .tool-hub-items .dropdown-wrap{display:flex;width:100%}
+  .tool-hub-items .dropdown-wrap > .tool-chip{width:100%}
+  /* 工具条目：34px 高、图标 22px，热区仍撑满整格便于点按 */
+  .tool-chip{justify-content:flex-start;min-height:34px;min-width:0;padding:4px 8px;
+             font-size:.72rem;gap:7px;border-radius:var(--r-sm)}
+  .tool-chip .caret{margin-left:auto;font-size:.5rem}
+  .tool-chip .chip-icon{width:22px;height:22px;font-size:.66rem;border-radius:7px}
+  .tool-chip--extra{display:none}
+  .tool-hub.is-open .tool-chip--extra{display:inline-flex}
+  .tool-more{display:inline-flex}
   .vault-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
   .card-thumb{height:118px}
   .card-body{padding:var(--sp-2) var(--sp-3)}
   .row-actions{flex-wrap:nowrap}
   .lightbox-bar .fname{max-width:60vw}
   .kv-ops-grid{grid-template-columns:repeat(2,1fr)}
-  /* 工具箱：收起次要项 + 统一拉伸（否则 dropdown-wrap 里的「批量操作」不撑满） */
-  .tool-hub{flex-direction:column;align-items:stretch;gap:10px}
-  .tool-hub-label{padding-left:2px}
-  .tool-hub-items{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-2)}
-  .tool-hub-items > *{width:100%;min-width:0;animation:none}
-  .tool-hub-items .dropdown-wrap{display:flex;width:100%}
-  .tool-hub-items .dropdown-wrap > .tool-chip{width:100%}
-  .tool-chip{justify-content:flex-start;min-height:44px;min-width:0;padding:6px 10px;font-size:var(--fs-xs);gap:var(--sp-2)}
-  .tool-chip .caret{margin-left:auto}
-  .tool-chip .chip-icon{width:24px;height:24px;font-size:.72rem}
-  .tool-chip--extra{display:none}
-  .tool-hub.is-open .tool-chip--extra{display:inline-flex}
-  .tool-more{display:inline-flex}
+  /* 工具箱的紧凑化规则已上移到本媒体查询开头（与 .toolbar-card 相邻），此处不再重复 */
   .filter-sheet{grid-template-columns:1fr;padding:var(--sp-3);gap:11px}
   .batch-dock{border-radius:var(--r-md);padding:var(--sp-2)}
   .dropdown-panel{max-height:min(60vh,360px);overflow-y:auto;-webkit-overflow-scrolling:touch;z-index:1200;padding:var(--sp-2);}
