@@ -34,11 +34,14 @@
  */
 
 import {
+  BUNDLE_TYPE_FILES,
+  BUNDLE_TYPE_FOLDER,
   MAX_BUNDLE_FILES,
   buildBundlePasswordFields,
   buildBundleSlug,
   deleteBundle,
   isBundleSlugAvailable,
+  listFolderMembersLive,
   parseBundleOptions,
   readBundle,
   readBundleFileIds,
@@ -196,54 +199,75 @@ async function handleWrite(env, body, action) {
   // 目录来源时记录扫描到的成员总数与是否触顶（用于回传给前端汇总）。
   let scanned = 0;
   let capped = false;
+  // 合集类型与目录上下文：目录分享默认走「实时文件夹分享」（type:'folder'），
+  // 不快照 fileIds、只记 folderPath，由 share-info 按目录实时列举。
+  // 快照模式（type:'files'）仅当显式 live:false 时保留（向后兼容旧行为）。
+  let bundleType = current?.type || BUNDLE_TYPE_FILES;
+  let folderPathValue = current?.folderPath || '';
+  let includeSubfoldersValue = Boolean(current?.includeSubfolders);
 
   if (wantsMemberChange) {
     if (folderSource !== null) {
-      // 目录来源：服务端扫 KV，把 folderPath 命中的文件直接作为成员。
-      // 与 fileIds 来源的关键差异：成员在这里已经过 KV 校验（都是真实存在的记录），
-      // 因此不需要再走 resolveBundleFileIds，也不会产生 missing。
-      const includeSubfolders = body.includeSubfolders === true;
-      const all = await listAllKeys(env);
-      const matched = all
-        .filter(shouldIncludeKey)
-        .map(normalizeKey)
-        .filter((entry) => {
-          const fp = entry.metadata.folderPath || '';
-          if (folderSource === '') {
-            // 根目录：folderPath 为空的文件；勾选「包含子目录」时涵盖全部文件。
-            // 注意不能写成 fp.startsWith('') —— 空串 startsWith 恒为真，会误吞所有文件。
-            return includeSubfolders ? true : fp === '';
-          }
-          return includeSubfolders
-            ? fp === folderSource || fp.startsWith(`${folderSource}/`)
-            : fp === folderSource;
-        });
-      scanned = matched.length;
-      if (scanned === 0) {
-        return jsonResponse(
-          {
-            success: false,
-            error: 'VALIDATION_FAILED',
-            messages: ['该目录为空或不存在任何文件，无法分享。'],
-          },
-          400
-        );
+      // 目录来源：服务端按 folderPath 解析成员。
+      includeSubfoldersValue = body.includeSubfolders === true;
+      const live = body.live !== false;
+      if (live) {
+        // 实时文件夹分享：只记录目录路径，不快照成员。
+        // 空目录也允许分享——成员后续上传即实时出现。
+        bundleType = BUNDLE_TYPE_FOLDER;
+        folderPathValue = folderSource;
+        fileIds = [];
+        missing = [];
+        scanned = 0;
+        capped = false;
+      } else {
+        // 快照模式（旧行为）：扫 KV 把命中文件写死进 fileIds。
+        bundleType = BUNDLE_TYPE_FILES;
+        folderPathValue = '';
+        const all = await listAllKeys(env);
+        const matched = all
+          .filter(shouldIncludeKey)
+          .map(normalizeKey)
+          .filter((entry) => {
+            const fp = entry.metadata.folderPath || '';
+            if (folderSource === '') {
+              // 根目录：folderPath 为空的文件；勾选「包含子目录」时涵盖全部文件。
+              // 注意不能写成 fp.startsWith('') —— 空串 startsWith 恒为真，会误吞所有文件。
+              return includeSubfoldersValue ? true : fp === '';
+            }
+            return includeSubfoldersValue
+              ? fp === folderSource || fp.startsWith(`${folderSource}/`)
+              : fp === folderSource;
+          });
+        scanned = matched.length;
+        if (scanned === 0) {
+          return jsonResponse(
+            {
+              success: false,
+              error: 'VALIDATION_FAILED',
+              messages: ['该目录为空或不存在任何文件，无法分享。'],
+            },
+            400
+          );
+        }
+        if (scanned > MAX_BUNDLE_FILES) {
+          return jsonResponse(
+            {
+              success: false,
+              error: 'VALIDATION_FAILED',
+              messages: [`该目录包含 ${scanned} 个文件，超过单合集上限（${MAX_BUNDLE_FILES}）。请缩小范围或使用多选分享。`],
+            },
+            400
+          );
+        }
+        fileIds = matched.map((entry) => String(entry.name));
+        missing = [];
       }
-      if (scanned > MAX_BUNDLE_FILES) {
-        return jsonResponse(
-          {
-            success: false,
-            error: 'VALIDATION_FAILED',
-            messages: [`该目录包含 ${scanned} 个文件，超过单合集上限（${MAX_BUNDLE_FILES}）。请缩小范围或使用多选分享。`],
-          },
-          400
-        );
-      }
-      fileIds = matched.map((entry) => String(entry.name));
-      missing = [];
     } else {
       const { resolved, missing: missingIds } = await resolveBundleFileIds(env, rawFileIds);
       missing = missingIds;
+      bundleType = BUNDLE_TYPE_FILES;
+      folderPathValue = '';
 
       if (!resolved.length) {
         // 一个都没解析到：明确失败，而不是建出一个空合集。
@@ -261,7 +285,8 @@ async function handleWrite(env, body, action) {
     }
   }
 
-  if (!fileIds.length) {
+  // 实时文件夹分享允许 fileIds 为空（成员按目录实时列举），其余情况仍需至少一个文件。
+  if (bundleType !== BUNDLE_TYPE_FOLDER && !fileIds.length) {
     return jsonResponse(
       { success: false, error: 'VALIDATION_FAILED', messages: ['合集至少需要一个文件。'] },
       400
@@ -321,7 +346,10 @@ async function handleWrite(env, body, action) {
 
   const nextBundle = {
     slug,
+    type: bundleType,
     fileIds,
+    folderPath: folderPathValue,
+    includeSubfolders: includeSubfoldersValue,
     createdAt: current?.createdAt || Date.now(),
     downloadCount: current?.downloadCount || 0,
     // 未提及则沿用现值；显式 0 表示清除。
@@ -350,19 +378,30 @@ async function handleWrite(env, body, action) {
 
   const saved = await writeBundle(env, nextBundle);
 
+  // 实时文件夹分享的成员数按目录实时统计（而非写死在 fileIds 里）。
+  const liveFileCount =
+    bundleType === BUNDLE_TYPE_FOLDER
+      ? (await listFolderMembersLive(env, folderPathValue, includeSubfoldersValue)).length
+      : saved.fileIds.length;
+
   return jsonResponse({
     success: true,
     action,
     slug: saved.slug,
     sharePath: `/s/${encodeURIComponent(saved.slug)}`,
     fileIds: saved.fileIds,
-    fileCount: saved.fileIds.length,
+    fileCount: liveFileCount,
+    type: saved.type,
+    // 文件夹实时分享标记：前端据此提示"分享后目录内容会实时同步"。
+    folder: bundleType === BUNDLE_TYPE_FOLDER,
+    folderPath: folderPathValue,
+    live: bundleType === BUNDLE_TYPE_FOLDER,
     // 逐项结果：前端据此汇总展示
     accepted: fileIds.length,
     rejected: missing.length,
     missing,
     // 目录来源时回传扫描总数，便于前端区分"目录本身有 N 个文件"与"合集收录了 M 个"。
-    scanned: scanned || saved.fileIds.length,
+    scanned: scanned || liveFileCount,
     capped: capped,
     expiresAt: saved.expiresAt || null,
     maxDownloads: saved.maxDownloads || null,

@@ -1686,6 +1686,18 @@ html[data-perf="low"] .ambient-orb{animation:none}
         <span class="dialog-hint">下载次数仅在访问者点击「下载」时增长 —— 预览不计入。</span>
       </div>
 
+      <div style="display:flex;gap:8px;margin:2px 0 14px;">
+        <button type="button" @click="switchShareTab('files')"
+                :style="shareTab==='files' ? 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-weight:600;cursor:pointer;' : 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-sub);cursor:pointer;'">
+          文件分享
+        </button>
+        <button type="button" @click="switchShareTab('bundles')"
+                :style="shareTab==='bundles' ? 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-weight:600;cursor:pointer;' : 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text-sub);cursor:pointer;'">
+          合集 / 目录分享
+        </button>
+      </div>
+
+      <template v-if="shareTab === 'files'">
       <div class="share-stats" v-if="shareStats">
         <div class="share-stat">
           <div class="share-stat-value">{{ shareStats.total }}</div>
@@ -1785,6 +1797,72 @@ html[data-perf="low"] .ambient-orb{animation:none}
           </transition-group>
         </transition>
       </div>
+      </template>
+
+      <template v-else>
+        <div class="token-section no-margin">
+          <div class="token-section-head">
+            <h3 class="token-section-title">
+              <i class="fas fa-folder-tree"></i>
+              <span>合集 / 目录分享（{{ filteredShareBundles.length }} / {{ shareBundles.length }}）</span>
+            </h3>
+            <button class="btn" :disabled="shareBundlesLoading" @click="loadShareBundles">
+              <i class="fas" :class="shareBundlesLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
+            </button>
+          </div>
+
+          <div class="share-search" style="margin-bottom:10px;">
+            <i class="fas fa-magnifying-glass"></i>
+            <input type="text" v-model="shareBundleSearch" placeholder="搜索目录路径或短链…">
+          </div>
+
+          <transition name="fade" mode="out-in">
+            <div v-if="shareBundlesLoading && !shareBundles.length" class="token-empty" key="bloading">
+              <i class="fas fa-circle-notch fa-spin"></i> 加载中…
+            </div>
+            <div v-else-if="!shareBundles.length" class="token-empty" key="bempty">
+              还没有任何合集 / 目录分享。在文件列表选中多个文件后点「合集分享」，或分享某个目录即可创建。
+            </div>
+            <div v-else-if="!filteredShareBundles.length" class="token-empty" key="bnofilter">
+              当前筛选条件下没有匹配的分享。
+            </div>
+            <transition-group v-else name="list" tag="div" class="token-list share-list" key="blist">
+              <div class="token-row" v-for="b in filteredShareBundles" :key="b.slug"
+                   :class="{disabled: !b.active}">
+                <div class="token-row-top">
+                  <span class="token-name" :title="b.folderShare ? b.folderPath : (b.files[0] && b.files[0].fileName)">
+                    <i class="fas" :class="b.folderShare ? 'fa-folder' : 'fa-layer-group'"></i>
+                    {{ b.folderShare ? (b.folderPath || '根目录') : ((b.files[0] && b.files[0].fileName) || ('合集 ' + b.slug)) }}
+                  </span>
+                  <span class="token-preview">{{ b.fileCount }} 个文件</span>
+                  <span class="token-badge" v-if="b.folderShare"><i class="fas fa-arrows-rotate"></i> 实时</span>
+                  <span class="token-badge" v-if="b.folderShare && b.includeSubfolders">含子目录</span>
+                  <span class="token-badge" v-if="b.passwordProtected"><i class="fas fa-lock"></i> 密码</span>
+                  <span class="token-badge warn" v-if="b.expired">已过期</span>
+                  <span class="token-badge warn" v-else-if="b.exhausted">次数用尽</span>
+                  <div class="token-row-actions">
+                    <button class="mini-icon-btn" @click="copyBundleLink(b)" title="复制分享链接">
+                      <i class="fas fa-link"></i>
+                    </button>
+                    <button class="mini-icon-btn" @click="openBundlePage(b)" title="打开分享页">
+                      <i class="fas fa-arrow-up-right-from-square"></i>
+                    </button>
+                    <button class="mini-icon-btn danger" @click="revokeShareBundle(b)" title="取消分享">
+                      <i class="fas fa-ban"></i>
+                    </button>
+                  </div>
+                </div>
+                <div class="token-row-meta">
+                  <span><i class="fas fa-hourglass-half"></i> {{ bundleExpiryText(b) }}</span>
+                  <span><i class="fas fa-download"></i> {{ bundleQuotaText(b) }}</span>
+                  <span v-if="b.folderShare"><i class="fas fa-folder-tree"></i> {{ b.folderPath || '根目录' }}</span>
+                  <span v-if="b.createdAt"><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(b.createdAt) }}</span>
+                </div>
+              </div>
+            </transition-group>
+          </transition>
+        </div>
+      </template>
 
       <div class="dialog-actions mt">
         <button class="btn" @click="closeSharePanel">关闭</button>
@@ -2161,7 +2239,14 @@ Vue.createApp({
       { value: 'expired',   label: '已过期' },
       { value: 'exhausted', label: '次数用尽' },
       { value: 'password',  label: '密码保护' }
-    ]
+    ],
+
+    /* ---------- 合集 / 目录分享管理 ---------- */
+    shareTab: 'files',
+    shareBundles: [],
+    shareBundlesLoading: false,
+    shareBundleRevokingSlug: '',
+    shareBundleSearch: ''
   } },
 
   computed: {
@@ -2188,6 +2273,16 @@ Vue.createApp({
         if (s.passwordProtected) counts.password += 1;
       }
       return counts;
+    },
+
+    /* ---------- 合集 / 目录分享筛选 ---------- */
+    filteredShareBundles() {
+      const kw = this.shareBundleSearch.trim().toLowerCase();
+      return this.shareBundles.filter((b) => {
+        if (!kw) return true;
+        return String(b.folderPath || '').toLowerCase().includes(kw)
+          || String(b.slug || '').toLowerCase().includes(kw);
+      });
     },
 
     /* ---------- 过滤 / 排序 / 分页 ---------- */
@@ -3456,7 +3551,10 @@ Vue.createApp({
       this.sharePanelVisible = true;
       this.shareFilter = 'all';
       this.shareSearch = '';
+      this.shareBundleSearch = '';
       this.loadShares();
+      // 合集 / 目录分享列表一并预加载，进入对应标签页即可见（实时同步数据）。
+      this.loadShareBundles();
     },
     closeSharePanel() {
       this.sharePanelVisible = false;
@@ -3485,6 +3583,94 @@ Vue.createApp({
       } finally {
         this.sharesLoading = false;
       }
+    },
+
+    /* ================= 合集 / 目录分享管理 ================= */
+    switchShareTab(tab) {
+      this.shareTab = tab;
+      // 进入合集标签页时按需加载（首次或尚未加载），避免每次切换都打接口。
+      if (tab === 'bundles' && !this.shareBundles.length && !this.shareBundlesLoading) {
+        this.loadShareBundles();
+      }
+    },
+
+    async loadShareBundles() {
+      this.shareBundlesLoading = true;
+      try {
+        const res = await fetch('./api/manage/share-bundles', {
+          headers: { 'Accept': 'application/json' },
+          credentials: 'same-origin',
+          cache: 'no-store'
+        });
+        if (res.status === 401) {
+          this.showToast('登录已过期，请重新登录', 'error');
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        }
+        // 后端按目录实时统计，因此这里的 fileCount 永远是当前真实成员数 —— 分享管理同步更新。
+        this.shareBundles = Array.isArray(data.bundles) ? data.bundles : [];
+      } catch (err) {
+        console.error('加载合集分享列表失败:', err);
+        this.showToast('加载合集分享列表失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        this.shareBundlesLoading = false;
+      }
+    },
+
+    bundleFullUrl(b) {
+      const path = b.sharePath || ('/s/' + encodeURIComponent(b.slug || ''));
+      return this.baseURL + path;
+    },
+    copyBundleLink(b) {
+      this.copyText(this.bundleFullUrl(b));
+      this.showToast('分享链接已复制', 'success');
+    },
+    openBundlePage(b) {
+      window.open(this.bundleFullUrl(b), '_blank', 'noopener');
+    },
+
+    async revokeShareBundle(b) {
+      const label = b.folderShare ? ('目录「' + (b.folderPath || '根目录') + '」') : ('合集 ' + b.slug);
+      const ok = await this.askConfirm(
+        `确定取消${label}的分享？<br>
+         <span style="color:var(--text-muted);font-size:.8rem">取消后分享链接立即失效。</span>`,
+        '取消分享', true
+      );
+      if (!ok) return;
+      this.shareBundleRevokingSlug = b.slug;
+      try {
+        const res = await fetch('./api/manage/share-bundle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ action: 'revoke', slug: b.slug })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        }
+        this.showToast('已取消分享', 'success');
+        this.shareBundles = this.shareBundles.filter((item) => item.slug !== b.slug);
+      } catch (err) {
+        console.error('取消合集分享失败:', err);
+        this.showToast('取消分享失败：' + (err.message || '未知错误'), 'error');
+      } finally {
+        this.shareBundleRevokingSlug = '';
+      }
+    },
+
+    bundleExpiryText(b) {
+      if (!b.expiresAt) return '永久有效';
+      const remain = Number(b.expiresAt) - Date.now();
+      if (remain <= 0) return '已过期（' + this.formatTokenTime(b.expiresAt) + '）';
+      return '还剩 ' + this.formatShareDuration(remain) + '（至 ' + this.formatTokenTime(b.expiresAt) + '）';
+    },
+    bundleQuotaText(b) {
+      if (!b.maxDownloads) return '不限次数';
+      return (b.downloadCount || 0) + ' / ' + b.maxDownloads + ' 次';
     },
 
     shareFullUrl(s) {

@@ -31,6 +31,7 @@ import {
   isBundleActive,
   isBundleExhausted,
   isBundleExpired,
+  listFolderMembersLive,
   readBundle,
 } from '../../utils/share-bundle.js';
 
@@ -123,34 +124,54 @@ async function listBundleSlugs(env) {
  * —— 那些函数是给"这条记录本身被分享"的场景用的，对合集成员没有意义。
  */
 async function buildBundleRecord(env, bundle) {
+  const isFolder = bundle.type === 'folder';
+  const folderPath = isFolder ? (bundle.folderPath || '') : '';
+  const includeSubfolders = isFolder ? Boolean(bundle.includeSubfolders) : false;
+
   const resolved = [];
   const missing = [];
 
-  const ids = Array.isArray(bundle.fileIds) ? bundle.fileIds : [];
-  for (let i = 0; i < ids.length; i += MEMBER_BATCH_SIZE) {
-    const batch = ids.slice(i, i + MEMBER_BATCH_SIZE);
-    const results = await Promise.all(
-      batch.map(async (fileId) => {
-        try {
-          const { record, kvKey } = await getRecordWithKey(env, fileId);
-          if (!record?.metadata) return { fileId, ok: false };
-          return {
-            fileId,
-            ok: true,
-            kvKey: String(kvKey || ''),
-            fileName: record.metadata.fileName || String(kvKey || fileId),
-            fileSize: Number(record.metadata.fileSize) || 0,
-            fileType: record.metadata.fileType || 'document',
-            storageType: record.metadata.storageType || record.metadata.storage || 'telegram',
-          };
-        } catch {
-          return { fileId, ok: false };
-        }
-      })
-    );
-    for (const item of results) {
-      if (item.ok) resolved.push(item);
-      else missing.push(item.fileId);
+  if (isFolder) {
+    // 实时文件夹分享：按目录实时列举，反映当前真实成员数（分享管理同步更新）。
+    const members = await listFolderMembersLive(env, folderPath, includeSubfolders);
+    for (const m of members) {
+      resolved.push({
+        fileId: '',
+        ok: true,
+        kvKey: String(m.name || ''),
+        fileName: m.metadata.fileName || String(m.name || ''),
+        fileSize: Number(m.metadata.fileSize) || 0,
+        fileType: m.metadata.fileType || 'document',
+        storageType: m.metadata.storageType || 'telegram',
+      });
+    }
+  } else {
+    const ids = Array.isArray(bundle.fileIds) ? bundle.fileIds : [];
+    for (let i = 0; i < ids.length; i += MEMBER_BATCH_SIZE) {
+      const batch = ids.slice(i, i + MEMBER_BATCH_SIZE);
+      const results = await Promise.all(
+        batch.map(async (fileId) => {
+          try {
+            const { record, kvKey } = await getRecordWithKey(env, fileId);
+            if (!record?.metadata) return { fileId, ok: false };
+            return {
+              fileId,
+              ok: true,
+              kvKey: String(kvKey || ''),
+              fileName: record.metadata.fileName || String(kvKey || fileId),
+              fileSize: Number(record.metadata.fileSize) || 0,
+              fileType: record.metadata.fileType || 'document',
+              storageType: record.metadata.storageType || record.metadata.storage || 'telegram',
+            };
+          } catch {
+            return { fileId, ok: false };
+          }
+        })
+      );
+      for (const item of results) {
+        if (item.ok) resolved.push(item);
+        else missing.push(item.fileId);
+      }
     }
   }
 
@@ -160,6 +181,10 @@ async function buildBundleRecord(env, bundle) {
   return {
     slug: bundle.slug,
     sharePath: `/s/${encodeURIComponent(bundle.slug)}`,
+    type: isFolder ? 'folder' : 'files',
+    folderShare: isFolder,
+    folderPath,
+    includeSubfolders,
     fileCount: resolved.length,
     // 成员条目只暴露展示所需字段，不含 fileId（沿用 share-info 不外泄内部
     // 标识的基线；这里给的是 fileName，足够后台辨认）。

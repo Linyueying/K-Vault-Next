@@ -2152,6 +2152,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             </div>
             <div class="share-result__hint" v-if="isShareDialogBundle">访问者打开链接会看到这 {{ (shareDialogResult && shareDialogResult.bundleCount) || shareDialogItems.length }} 个文件的清单，可逐个预览或下载；只有点「下载」才计入次数。</div>
             <div class="share-result__hint" v-else>访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。</div>
+            <div class="share-result__hint share-result__hint--live" v-if="shareDialogResult && shareDialogResult.live">
+              <i class="fas fa-arrows-rotate"></i> 这是<b>实时文件夹分享</b>：之后往该目录上传或删除文件，分享页会自动同步最新内容，无需重新生成链接。
+            </div>
 
             <!-- 逐项结果汇总：部分文件失效时明确列出，不静默丢弃 -->
             <div class="share-result__warn" v-if="shareDialogResult.bundleMissing > 0">
@@ -4765,14 +4768,17 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify({
-                  action: "create",
-                  folderPath: folder.path,
-                  includeSubfolders: folder.includeSubfolders,
-                  expiresIn,
-                  maxDownloads,
-                  password,
-                }),
+              body: JSON.stringify({
+                action: "create",
+                folderPath: folder.path,
+                includeSubfolders: folder.includeSubfolders,
+                // 目录分享默认「实时同步」：分享的是目录本身，而非创建时刻的文件快照。
+                // 之后往该目录上传/删除文件，分享页会自动反映最新内容。
+                live: true,
+                expiresIn,
+                maxDownloads,
+                password,
+              }),
               });
               const data = await res.json().catch(() => ({}));
               if (!res.ok || data.success === false) {
@@ -4793,6 +4799,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                 passwordProtected: Boolean(data.passwordProtected),
                 active: Boolean(data.active),
                 bundle: true,
+                // 实时文件夹分享标记：template 据此提示"目录内容会实时同步"。
+                live: Boolean(data.live),
+                folder: Boolean(data.folder),
                 // 目录成员在服务端解析，没有"前端失效文件"，bundleMissing 恒为 0。
                 bundleCount: Number(data.fileCount) || 0,
                 bundleScanned: Number(data.scanned) || 0,
@@ -4800,7 +4809,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                 bundleMissingNames: [],
               };
               this.showToast(
-                `已创建目录「${folder.name}」的合集分享（${data.fileCount || 0} 个文件）`,
+                data.live
+                  ? `已创建目录「${folder.name}」的实时分享（当前 ${data.fileCount || 0} 个文件，后续上传会实时同步）`
+                  : `已创建目录「${folder.name}」的合集分享（${data.fileCount || 0} 个文件）`,
                 "success"
               );
             } catch (err) {

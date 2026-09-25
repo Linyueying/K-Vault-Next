@@ -37,6 +37,12 @@
  */
 
 import { getRecordWithKey } from './file-record.js';
+import {
+  listAllKeys,
+  shouldIncludeKey,
+  normalizeKey,
+  normalizeFolderPath,
+} from './file-list.js';
 
 /** 合集定义的 KV 前缀。 */
 export const BUNDLE_KEY_PREFIX = 'bundle:';
@@ -59,6 +65,15 @@ export const MAX_BUNDLE_FILES = 100;
 
 /** 合集 slug 的最大长度，与 `sanitizeShareSlug` 一致。 */
 const MAX_SLUG_LENGTH = 64;
+
+/**
+ * 合集类型。
+ *   · `files`  —— 文件快照（默认）：成员写死进 `fileIds`，创建后不随目录变化。
+ *   · `folder` —— 实时文件夹分享：不持有 `fileIds`，只记 `folderPath`，
+ *                列举时按目录前缀实时扫 KV，因此上传/删除会立即反映到分享页。
+ */
+export const BUNDLE_TYPE_FILES = 'files';
+export const BUNDLE_TYPE_FOLDER = 'folder';
 
 /* ============================================================
  * slug
@@ -210,16 +225,23 @@ export async function readBundle(env, slug) {
     const metadata = record?.metadata;
     if (!metadata || typeof metadata !== 'object') return null;
 
-    // fileIds 是合集的存在基础；缺失或空数组视为无效合集，
-    // 避免下游渲染出一个"零文件"的空壳页面。
+    // 判定合集类型：默认 `files`（文件快照）；`folder` 为实时文件夹分享。
+    const type = metadata.type === BUNDLE_TYPE_FOLDER ? BUNDLE_TYPE_FOLDER : BUNDLE_TYPE_FILES;
+
+    // fileIds 是「文件快照」型合集的存在基础；但「文件夹分享」型合集
+    // 不持有 fileIds（成员按目录实时列举），因此只在 type==='files' 时
+    // 把空 fileIds 视为无效，避免渲染出"零文件"空壳页面。
     const fileIds = Array.isArray(metadata.fileIds)
       ? metadata.fileIds.map((id) => String(id || '')).filter(Boolean)
       : [];
-    if (!fileIds.length) return null;
+    if (type === BUNDLE_TYPE_FILES && !fileIds.length) return null;
 
     return {
       slug: normalized,
+      type,
       fileIds,
+      folderPath: type === BUNDLE_TYPE_FOLDER ? normalizeFolderPath(metadata.folderPath || '') : '',
+      includeSubfolders: type === BUNDLE_TYPE_FOLDER ? Boolean(metadata.includeSubfolders) : false,
       expiresAt: Number(metadata.expiresAt) || 0,
       maxDownloads: Number(metadata.maxDownloads) || 0,
       downloadCount: Number(metadata.downloadCount) || 0,
@@ -251,6 +273,35 @@ export async function writeBundle(env, bundle) {
   const slug = sanitizeBundleSlug(bundle?.slug);
   if (!slug) throw new Error('合集短链标识无效。');
 
+  const type = bundle?.type === BUNDLE_TYPE_FOLDER ? BUNDLE_TYPE_FOLDER : BUNDLE_TYPE_FILES;
+
+  // ---------- 实时文件夹分享：不持有 fileIds，只记 folderPath ----------
+  if (type === BUNDLE_TYPE_FOLDER) {
+    const folderPath = normalizeFolderPath(bundle?.folderPath || '');
+    const metadata = {
+      slug,
+      type,
+      fileIds: [],
+      folderPath,
+      includeSubfolders: Boolean(bundle?.includeSubfolders),
+      expiresAt: Number(bundle.expiresAt) || 0,
+      maxDownloads: Number(bundle.maxDownloads) || 0,
+      downloadCount: Number(bundle.downloadCount) || 0,
+      passwordSalt: String(bundle.passwordSalt || ''),
+      passwordHash: String(bundle.passwordHash || ''),
+      createdAt: Number(bundle.createdAt) || Date.now(),
+      label: String(bundle.label || ''),
+    };
+
+    await env.img_url.put(`${BUNDLE_KEY_PREFIX}${slug}`, '', { metadata });
+    await env.img_url.put(`${BUNDLE_SLUG_KEY_PREFIX}${slug}`, slug, {
+      metadata: { slug, updatedAt: Date.now() },
+    });
+
+    return { ...metadata };
+  }
+
+  // ---------- 文件快照型合集：fileIds 必填且非空 ----------
   const fileIds = Array.isArray(bundle?.fileIds)
     ? bundle.fileIds.map((id) => String(id || '')).filter(Boolean)
     : [];
@@ -258,7 +309,10 @@ export async function writeBundle(env, bundle) {
 
   const metadata = {
     slug,
+    type,
     fileIds,
+    folderPath: '',
+    includeSubfolders: false,
     expiresAt: Number(bundle.expiresAt) || 0,
     maxDownloads: Number(bundle.maxDownloads) || 0,
     downloadCount: Number(bundle.downloadCount) || 0,
@@ -298,6 +352,42 @@ export async function deleteBundle(env, slug) {
   } catch (error) {
     console.warn('Failed to delete bundle index:', error?.message || error);
   }
+}
+
+/**
+ * 实时列举某个目录下的文件成员 —— 「文件夹分享」实现实时同步的核心。
+ *
+ * 与 `share-bundle.js` 写入端点里「目录来源」的扫 KV 逻辑完全一致：
+ * 按 `folderPath` 前缀过滤 `folderPath` 元数据，支持「仅本目录」或「含子目录」。
+ * 区别在于**不落盘、不快照**——每次调用都反映 KV 当前真实状态，
+ * 因此分享页/管理面板看到的就是文件夹此刻的内容，上传新文件后会自动出现。
+ *
+ * `listAllKeys` 带 2 秒短缓存，故上传后最多 2 秒即在列举中可见，足以满足
+ * 分享场景的"实时"预期，同时避免高频全量扫 KV 造成的成本。
+ *
+ * @param env - Pages 环境。
+ * @param folderPath - 目录路径（空串表示根目录）。
+ * @param includeSubfolders - 是否包含子目录。
+ * @returns 归一化后的文件条目数组（每条含 `name` 与 `metadata`）。
+ */
+export async function listFolderMembersLive(env, folderPath, includeSubfolders = false) {
+  if (!env?.img_url) return [];
+  const normalized = normalizeFolderPath(folderPath || '');
+
+  const all = await listAllKeys(env);
+  return all
+    .filter(shouldIncludeKey)
+    .map(normalizeKey)
+    .filter((entry) => {
+      const fp = entry.metadata.folderPath || '';
+      if (normalized === '') {
+        // 根目录：folderPath 为空的文件；勾选「包含子目录」时涵盖全部文件。
+        return includeSubfolders ? true : fp === '';
+      }
+      return includeSubfolders
+        ? fp === normalized || fp.startsWith(`${normalized}/`)
+        : fp === normalized;
+    });
 }
 
 /* ============================================================

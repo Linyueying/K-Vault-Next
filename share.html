@@ -1147,10 +1147,18 @@ setTimeout(function () {
       this.loadInfo();
       // 有效期徽章需要走字；每 30 秒刷新一次足够（不是秒级倒计时场景）
       this.tickTimer = setInterval(function () { this.now = Date.now(); }.bind(this), 30000);
+      // 合集 / 文件夹分享：定时静默刷新，使上传后的新文件「实时」出现在列表里。
+      // 仅当合集已就绪且页面可见时刷新，避免后台标签页空耗请求。
+      this.bundleRefreshTimer = setInterval(function () {
+        if (this.isBundle && this.state === 'ready' && !document.hidden) {
+          this.loadInfo({ silent: true });
+        }
+      }.bind(this), 20000);
     },
 
     beforeUnmount: function () {
       if (this.tickTimer) clearInterval(this.tickTimer);
+      if (this.bundleRefreshTimer) clearInterval(this.bundleRefreshTimer);
     },
 
     methods: {

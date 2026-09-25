@@ -47,6 +47,7 @@ import {
 import {
   isBundleExhausted,
   isBundleExpired,
+  listFolderMembersLive,
   readBundle,
   verifyBundlePassword,
 } from '../utils/share-bundle.js';
@@ -305,28 +306,47 @@ async function respondBundle(env, slug, url, request) {
 
     // ---------- 4. 组装成员清单 ----------
     const files = [];
-    for (const fileId of bundle.fileIds) {
-      try {
-        const { record, kvKey } = await getRecordWithKey(env, fileId);
-        if (!record?.metadata) continue;
+    const isFolder = bundle.type === 'folder';
+    if (isFolder) {
+      // 实时文件夹分享：按 folderPath 实时扫 KV，反映目录此刻的真实内容。
+      // 上传/删除文件后无需重新分享，访客刷新即见最新状态。
+      const members = await listFolderMembersLive(env, bundle.folderPath, bundle.includeSubfolders);
+      for (const member of members) {
         files.push({
-          fileName: record.metadata.fileName || String(kvKey || fileId),
-          fileSize: Number(record.metadata.fileSize) || 0,
-          fileType: record.metadata.fileType || 'document',
-          // 与单文件分支同理：这是访问文件流所必需的标识，
-          // 只对已通过密码校验的访问者返回。
-          fileUrl: `/file/${encodeURIComponent(kvKey)}`,
+          fileName: member.metadata.fileName || String(member.name),
+          fileSize: Number(member.metadata.fileSize) || 0,
+          fileType: member.metadata.fileType || 'document',
+          fileUrl: `/file/${encodeURIComponent(member.name)}`,
         });
-      } catch (error) {
-        console.warn('Failed to resolve bundle member:', error?.message || error);
+      }
+    } else {
+      for (const fileId of bundle.fileIds) {
+        try {
+          const { record, kvKey } = await getRecordWithKey(env, fileId);
+          if (!record?.metadata) continue;
+          files.push({
+            fileName: record.metadata.fileName || String(kvKey || fileId),
+            fileSize: Number(record.metadata.fileSize) || 0,
+            fileType: record.metadata.fileType || 'document',
+            // 与单文件分支同理：这是访问文件流所必需的标识，
+            // 只对已通过密码校验的访问者返回。
+            fileUrl: `/file/${encodeURIComponent(kvKey)}`,
+          });
+        } catch (error) {
+          console.warn('Failed to resolve bundle member:', error?.message || error);
+        }
       }
     }
 
-    // 成员可能在上传后被逐个删除。全部失效时给 404 而不是返回空清单 ——
-    // 一个「零文件的分享页」没有意义，且会让人误以为页面坏了。
+    // 成员可能在上传后被逐个删除（或实时目录当前为空）。全部失效/为空时给 404
+    // 而不是返回空清单 —— 一个「零文件的分享页」没有意义，且会让人误以为页面坏了。
     if (!files.length) {
       return jsonResponse(
-        { error: 'SHARE_NOT_FOUND', message: '该分享中的文件已全部失效。' },
+        {
+          error: 'SHARE_NOT_FOUND',
+          message: isFolder ? '该文件夹目前没有任何文件。' : '该分享中的文件已全部失效。',
+          folderShare: isFolder,
+        },
         404
       );
     }
@@ -336,8 +356,13 @@ async function respondBundle(env, slug, url, request) {
       bundle: true,
       slug: bundle.slug,
       fileCount: files.length,
-      // 声明期望的成员数，便于前端提示"部分文件已失效"
-      expectedCount: bundle.fileIds.length,
+      // 实时目录分享时，期望成员数即当前实时数；文件快照型沿用 fileIds 长度。
+      expectedCount: isFolder ? files.length : bundle.fileIds.length,
+      // 透传类型，便于前端区分「文件夹实时分享」与「文件合集」。
+      type: bundle.type,
+      folderShare: isFolder,
+      folderPath: isFolder ? bundle.folderPath : '',
+      includeSubfolders: isFolder ? Boolean(bundle.includeSubfolders) : false,
       files,
       // 后续请求文件流时若合集设了密码，必须带上，否则 file 路由会 401。
       // 注意：合集密码并不存在于文件元数据上，因此这里显式告知前端要以
