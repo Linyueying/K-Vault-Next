@@ -2366,6 +2366,34 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       const PARALLEL_MAX_LIGHT = 1;
       const PARALLEL_OFF_CONCURRENCY = 1;
 
+      /* ===== 分片上传 =====
+         同一文件的分片同时在传的路数。原来是 1（严格串行），这里放开。
+         真正的上限由 Worker 内存决定，不是想开多少就开多少：
+           Cloudflare isolate 内存上限 128MB 且被并发请求共享；
+           分片走 FormData，request.formData() 会先把整片缓冲进内存，
+           紧接着 chunk.arrayBuffer() 又复制一份 —— 单片瞬时峰值约 2× 分片大小。
+           故硬约束是：分片大小 × 2 × 并发 <= 96MB（给 Worker 留约 25% 余量）。
+           注意分片大小会随文件变大而放大（见 resolveChunkSizeForMode），
+           所以并发数不能写死 —— 必须按实际分片大小反推，见 MEMORY_BUDGET_BYTES。 */
+      const PARALLEL_MAX_CHUNKS = 6;
+
+      /* 内存预算：Worker 128MB 上限，这里按 96MB 封顶留约 25% 余量
+         （同一个 isolate 上还可能有静态资源、其它文件的分片在跑）。 */
+      const MEMORY_BUDGET_BYTES = 96 * 1024 * 1024;
+      /* 单片在 Worker 侧的份数：formData 缓冲一份 + arrayBuffer() 复制一份。
+         若将来改成 raw body 流式透传，这个值降到 ~0，并发即可大幅放开。 */
+      const CHUNK_MEMORY_FACTOR = 2;
+
+      /* 分片数硬上限，必须与服务端 MAX_TOTAL_CHUNKS（chunk-limits.js）一致。
+         分片变小的代价就是片数变多，超过这个数 init 会直接拒绝，
+         所以分片大小必须按文件大小回放大，不能一律用最小值。 */
+      const MAX_TOTAL_CHUNKS = 256;
+
+      /* R2/S3 multipart 要求：除最后一片外每片不小于 5MB。
+         这是服务端协议下限，前端不能低于它。 */
+      const MIN_CHUNK_SIZE = 5 * 1024 * 1024;
+
+
       /* ===== 存储节点元数据（唯一真相来源，合并原 getStorageIcon + storageLabel） =====
          注意：auto 的 label 为 "智能"，用于顶栏胶囊；设置列表里的行标题是硬编码的
          "智能节点"，不受这里影响。 */
@@ -3171,11 +3199,23 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             }
             return preferred || "r2";
           },
-          resolveChunkSizeForMode(mode) {
+          /* 分片大小：小文件用小分片换取高并发，大文件按片数上限自动回放大分片。
+             不能一律取最小值 —— 分片数有 MAX_TOTAL_CHUNKS(256) 硬上限，
+             5GB 的文件若也用 8MB 分片会切出 640 片，init 阶段就被拒。
+             因此这里取三者最大值：想要的最小值 / 片数约束推出的下限 / multipart 协议下限，
+             最后再被后端上限夹住。
+             后端上限与原逻辑一致：R2 可用时 50MB，否则 KV 的 20MB。
+             ⚠️ 服务端 chunk.js 是按任务声明的 fileSize/totalChunks 反推单片大小做校验的，
+                不依赖任何全局常量，所以这里改小分片不需要同步改后端。 */
+          resolveChunkSizeForMode(mode, fileSize) {
             const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
             const CHUNK_SIZE_KV = 20 * 1024 * 1024;
-            if (mode === "r2") return CHUNK_SIZE_R2;
-            return this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
+            const PREFERRED_CHUNK_SIZE = 8 * 1024 * 1024;
+            const capByBackend = (mode === "r2" || this.r2Available) ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
+            const size = Number(fileSize) || 0;
+            const minByChunkCount = size > 0 ? Math.ceil(size / MAX_TOTAL_CHUNKS) : 0;
+            const lower = Math.max(PREFERRED_CHUNK_SIZE, minByChunkCount, MIN_CHUNK_SIZE);
+            return Math.min(capByBackend, lower);
           },
           isSmartModeAvailable() { return this.largeStorageOptions.some((o) => this.isStorageAvailable(o.value)); },
 
@@ -4165,6 +4205,11 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               try {
                 const pr = this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, formData, (loadedChunk) => {
                   if (item.runToken !== ctx.token) return;
+                  /* 分片并行后每片都在各自的连接里回调进度。若继续按「已完成字节 + 本片」
+                     各自计算，多路会互相覆盖 item.progress，而速度只反映其中一路 ——
+                     用户会看到速度没变快，误以为并行没生效。
+                     故调用方注入 ctx.track，由它汇总全部在飞分片后再写回 item。 */
+                  if (ctx.track) { ctx.track(index, loadedChunk); return; }
                   const currentTotal = ctx.uploadedBase + loadedChunk;
                   const now = Date.now();
                   const diff = (now - ctx.lastTime) / 1000;
@@ -4219,7 +4264,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           async chunkedUpload(item, token) {
             const file = item.file;
             const mode = item.targetMode || this.storageMode;
-            const chunkSize = this.resolveChunkSizeForMode(mode);
+            const chunkSize = this.resolveChunkSizeForMode(mode, file.size);
             const totalChunks = Math.ceil(file.size / chunkSize);
             if (!item.fileId) { item.statusText = "计算文件指纹..."; item.fileId = await this.computeFileId(file); }
             this.assertTaskRunning(item, token);
@@ -4263,32 +4308,103 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               item.progress = Math.min(99, Math.round((uploadedBase / file.size) * 99));
               item.statusText = serverResumed ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片` : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`;
             }
-            const lastTime = Date.now();
-            const lastLoaded = uploadedBase;
-            item.statusText = "上传中";
-            this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
-            for (let i = 0; i < totalChunks; i++) {
-              if (doneSet.has(i)) continue;
-              /* 每个分片开传前再校验一次：暂停/重试后不再往下发新分片 */
-              this.assertTaskRunning(item, token);
-              const start = i * chunkSize;
-              const end = Math.min(start + chunkSize, file.size);
-              const chunk = file.slice(start, end);
-              const chunkBytes = end - start;
-              const fd = new FormData();
-              fd.append("chunk", chunk);
-              fd.append("uploadId", uploadId);
-              fd.append("chunkIndex", i);
-              const chunkResp = await this.uploadChunkWithRetry(item, fd, i, { uploadedBase, lastTime, lastLoaded, fileSize: file.size, token });
-              this.assertTaskRunning(item, token);
-              if (chunkResp && typeof chunkResp.etag === "string" && Number.isInteger(chunkResp.partNumber)) collectedParts.push({ partNumber: chunkResp.partNumber, etag: chunkResp.etag });
-              uploadedBase += chunkBytes;
-              item.uploadedBytes = uploadedBase;
-              doneSet.add(i);
+            /* ===== 分片并发上传 =====
+               原实现是逐个 await 的串行循环：每片都要等上一片走完完整往返
+               （含 Worker 侧接收与 R2 写入）才发下一片，等待窗口内链路完全闲置。
+               这里改成 N 路 worker 共享游标取片，把等待窗口互相填满。
+               几个必须注意的点：
+               - collectedParts 的入队顺序无所谓：服务端 mergeParts() 会按
+                 partNumber 排序后再合并，并发不会打乱分片次序。
+               - 任一片失败立刻置 failed，其余 worker 下一轮循环检查到就收手，
+                 不再发新片；避免失败后还继续占带宽。
+               - 进度与速度走中央累加器（ctx.track），否则多路会互相覆盖。
+               - 续传状态节流写入：原来是每片一次 JSON.stringify + localStorage，
+                 片数变多后是 O(n²)，这里改成至多 500ms 一次，收尾再强制写一次。 */
+            const pending = [];
+            for (let i = 0; i < totalChunks; i++) if (!doneSet.has(i)) pending.push(i);
+
+            const inflight = new Map();
+            const sumInflight = () => { let s = 0; for (const v of inflight.values()) s += v; return s; };
+            let speedTime = Date.now();
+            let speedLoaded = uploadedBase;
+            let failed = null;
+            let lastResumeWrite = 0;
+            const flushResume = (force) => {
+              const now = Date.now();
+              if (!force && now - lastResumeWrite < 500) return;
+              lastResumeWrite = now;
               item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
               item.parts = collectedParts.slice();
               this.writeResumeState(item.fileId, { uploadId, doneIndices: item.chunkDone, parts: collectedParts, fileName: file.name, size: file.size, mode });
-            }
+            };
+            const track = (index, loaded) => {
+              inflight.set(index, loaded);
+              const total = uploadedBase + sumInflight();
+              item.uploadedBytes = total;
+              item.progress = Math.min(99, Math.round((total / file.size) * 99));
+              const now = Date.now();
+              const diff = (now - speedTime) / 1000;
+              if (diff >= 0.4) {
+                item.speed = this.formatSpeed((total - speedLoaded) / diff);
+                speedTime = now;
+                speedLoaded = total;
+              }
+            };
+
+            /* 并发数按实际分片大小反推，不能写死：
+               8MB 分片 → 96MB/(8MB×2) = 6 路；
+               但分片会随文件变大而放大（10GB 文件时是 40MB），
+               此时 96MB/(40MB×2) = 1 路 —— 大文件必须自动退化为串行，
+               否则 40MB × 2 × 6 = 480MB 会直接把 isolate 打爆（Error 1102）。 */
+            const safeByMemory = Math.max(1, Math.floor(MEMORY_BUDGET_BYTES / (chunkSize * CHUNK_MEMORY_FACTOR)));
+            const workerCount = Math.max(1, Math.min(PARALLEL_MAX_CHUNKS, safeByMemory, pending.length));
+            item.statusText = workerCount > 1 ? `上传中（${workerCount} 路并行）` : "上传中";
+            flushResume(true);
+            let cursor = 0;
+            const runWorker = async () => {
+              while (!failed) {
+                /* 每个分片开传前再校验一次：暂停/重试后不再往下发新分片 */
+                this.assertTaskRunning(item, token);
+                const slot = cursor++;
+                if (slot >= pending.length) return;
+                const i = pending[slot];
+                const start = i * chunkSize;
+                const end = Math.min(start + chunkSize, file.size);
+                const chunkBytes = end - start;
+                const fd = new FormData();
+                fd.append("chunk", file.slice(start, end));
+                fd.append("uploadId", uploadId);
+                fd.append("chunkIndex", i);
+                inflight.set(i, 0);
+                try {
+                  const chunkResp = await this.uploadChunkWithRetry(item, fd, i, {
+                    uploadedBase, lastTime: Date.now(), lastLoaded: uploadedBase,
+                    fileSize: file.size, token, track,
+                  });
+                  this.assertTaskRunning(item, token);
+                  if (chunkResp && typeof chunkResp.etag === "string" && Number.isInteger(chunkResp.partNumber)) {
+                    collectedParts.push({ partNumber: chunkResp.partNumber, etag: chunkResp.etag });
+                  }
+                  uploadedBase += chunkBytes;
+                  inflight.delete(i);
+                  doneSet.add(i);
+                  item.uploadedBytes = uploadedBase;
+                  flushResume(false);
+                } catch (err) {
+                  inflight.delete(i);
+                  if (!failed) failed = err;
+                  throw err;
+                }
+              }
+            };
+
+            const results = await Promise.allSettled(
+              Array.from({ length: workerCount }, () => runWorker())
+            );
+            this.assertTaskRunning(item, token);
+            flushResume(true);
+            const rejected = results.find((r) => r.status === "rejected");
+            if (rejected) throw rejected.reason;
             this.assertTaskRunning(item, token);
             item.status = "processing";
             item.statusText = "校验与合并中...";
