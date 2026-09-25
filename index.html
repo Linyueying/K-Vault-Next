@@ -2366,15 +2366,19 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       const PARALLEL_MAX_LIGHT = 1;
       const PARALLEL_OFF_CONCURRENCY = 1;
 
-      /* ===== 分片上传 =====
-         同一文件的分片同时在传的路数。原来是 1（严格串行），这里放开。
-         真正的上限由 Worker 内存决定，不是想开多少就开多少：
+      /* ===== 分片并发 =====
+         同一文件的分片同时在传的路数，上限由 Worker 内存决定：
            Cloudflare isolate 内存上限 128MB 且被并发请求共享；
            分片走 FormData，request.formData() 会先把整片缓冲进内存，
            紧接着 chunk.arrayBuffer() 又复制一份 —— 单片瞬时峰值约 2× 分片大小。
            故硬约束是：分片大小 × 2 × 并发 <= 96MB（给 Worker 留约 25% 余量）。
-           注意分片大小会随文件变大而放大（见 resolveChunkSizeForMode），
-           所以并发数不能写死 —— 必须按实际分片大小反推，见 MEMORY_BUDGET_BYTES。 */
+
+         ⚠️ 当前分片大小固定 50MB（见 resolveChunkSizeForMode，必须与 init.js
+            一致），代入后 96MB/(50MB×2) = 0 → 实际并发恒为 1，即仍是串行。
+            也就是说：下面的多路机制已经就位，但只有在分片能调小的前提下
+            才会真正生效；在那之前它只是把串行循环换成等价的 worker 池。
+            要让并行真正生效，必须先让 init.js 接受前端声明的 chunkSize
+            （现在是后端单方面定 50MB 再强校验 totalChunks，前端无权改小）。 */
       const PARALLEL_MAX_CHUNKS = 6;
 
       /* 内存预算：Worker 128MB 上限，这里按 96MB 封顶留约 25% 余量
@@ -2383,15 +2387,6 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       /* 单片在 Worker 侧的份数：formData 缓冲一份 + arrayBuffer() 复制一份。
          若将来改成 raw body 流式透传，这个值降到 ~0，并发即可大幅放开。 */
       const CHUNK_MEMORY_FACTOR = 2;
-
-      /* 分片数硬上限，必须与服务端 MAX_TOTAL_CHUNKS（chunk-limits.js）一致。
-         分片变小的代价就是片数变多，超过这个数 init 会直接拒绝，
-         所以分片大小必须按文件大小回放大，不能一律用最小值。 */
-      const MAX_TOTAL_CHUNKS = 256;
-
-      /* R2/S3 multipart 要求：除最后一片外每片不小于 5MB。
-         这是服务端协议下限，前端不能低于它。 */
-      const MIN_CHUNK_SIZE = 5 * 1024 * 1024;
 
       /* 单个任务的自动重试预算（不含首次尝试）。
          调度器 canRun() 允许 status === "error" 且 want === "run" 的任务重新入队，
@@ -3205,23 +3200,21 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             }
             return preferred || "r2";
           },
-          /* 分片大小：小文件用小分片换取高并发，大文件按片数上限自动回放大分片。
-             不能一律取最小值 —— 分片数有 MAX_TOTAL_CHUNKS(256) 硬上限，
-             5GB 的文件若也用 8MB 分片会切出 640 片，init 阶段就被拒。
-             因此这里取三者最大值：想要的最小值 / 片数约束推出的下限 / multipart 协议下限，
-             最后再被后端上限夹住。
-             后端上限与原逻辑一致：R2 可用时 50MB，否则 KV 的 20MB。
-             ⚠️ 服务端 chunk.js 是按任务声明的 fileSize/totalChunks 反推单片大小做校验的，
-                不依赖任何全局常量，所以这里改小分片不需要同步改后端。 */
-          resolveChunkSizeForMode(mode, fileSize) {
+          /* ⚠️ 分片大小必须与服务端 init.js 逐字一致，不能自行调小。
+             init.js 会用它自己推导的 chunkSize 反算 expectedTotalChunks，
+             并要求与前端声明的 totalChunks 完全相等（否则 400
+             CHUNK_COUNT_MISMATCH）。即后端是「先定 chunkSize 再推片数」，
+             而不是按前端声明的片数反推 —— 所以这里改小分片会 100% 上传失败。
+             后端规则见 init.js：resolveChunkSizeForBackend(chunkBackend === 'r2')
+               - r2 → 50MB
+               - kv → 20MB（KV 单值上限 25MB）
+             前端没有 resolveChunkBackend 的服务端视角，只能用「目标模式 + R2 可用性」
+             近似，这一点与原实现一致。 */
+          resolveChunkSizeForMode(mode) {
             const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
             const CHUNK_SIZE_KV = 20 * 1024 * 1024;
-            const PREFERRED_CHUNK_SIZE = 8 * 1024 * 1024;
-            const capByBackend = (mode === "r2" || this.r2Available) ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
-            const size = Number(fileSize) || 0;
-            const minByChunkCount = size > 0 ? Math.ceil(size / MAX_TOTAL_CHUNKS) : 0;
-            const lower = Math.max(PREFERRED_CHUNK_SIZE, minByChunkCount, MIN_CHUNK_SIZE);
-            return Math.min(capByBackend, lower);
+            if (mode === "r2") return CHUNK_SIZE_R2;
+            return this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
           },
           isSmartModeAvailable() { return this.largeStorageOptions.some((o) => this.isStorageAvailable(o.value)); },
 
@@ -4277,7 +4270,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           async chunkedUpload(item, token) {
             const file = item.file;
             const mode = item.targetMode || this.storageMode;
-            const chunkSize = this.resolveChunkSizeForMode(mode, file.size);
+            const chunkSize = this.resolveChunkSizeForMode(mode);
             const totalChunks = Math.ceil(file.size / chunkSize);
             if (!item.fileId) { item.statusText = "计算文件指纹..."; item.fileId = await this.computeFileId(file); }
             this.assertTaskRunning(item, token);
