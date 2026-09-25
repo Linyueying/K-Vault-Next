@@ -587,21 +587,28 @@ Apple 风格动效 · 应用层（首屏错峰入场）
              color .45s var(--ease-apple);
 }
 
-/* .batch-dock 例外：它同时是 <transition name="bar"> 的目标，进出场的下滑淡出
-   由 design-system.css 的 .bar-* 提供（opacity / transform）。若把主题过渡也直接
-   落在 .batch-dock 上，两者权重相等（都是 0,1,0）、而本文件在 design-system.css
-   之后加载 —— 会把 .bar-*-active 里的 transition 整个顶掉，于是取消选择时底栏
-   「啪」地瞬间消失、没有下滑淡出。这里把主题过渡限制在「非过渡态」，把控制权让回 .bar-*。 */
-.batch-dock:not(.bar-enter-active):not(.bar-leave-active){
+/* 底部批量操作栏是 <transition name="bar"> 的目标，进出场（下滑淡出）由
+   design-system.css 的 .bar-* 提供 opacity / transform 过渡。
+   这里用「显式高优先级 (0,2,0) 的 active 规则」兜底：进场、离场，以及「进场途中
+   被点掉」这类打断瞬间，元素都一定能拿到 opacity / transform 过渡。之前用
+   .batch-dock:not(.bar-*-active) 限定，个别浏览器对 :not()+transition 简写的边界
+   处理有差异，打断的中间窗口可能把过渡顶掉，导致底栏瞬间消失。换成显式 active 规则
+   后，权重 (0,2,0) 恒压过下方静态态的 (0,1,0) 规则，过渡不会再被抢走。 */
+.batch-dock{
   transition:background-color .45s var(--ease-apple),
              border-color .45s var(--ease-apple),
              box-shadow .45s var(--ease-apple),
              color .45s var(--ease-apple);
 }
-
+.batch-dock.bar-enter-active{
+  transition:opacity .24s var(--ease-apple),transform .34s var(--ease-spring);
+}
+.batch-dock.bar-leave-active{
+  transition:opacity .16s var(--ease-press),transform .2s var(--ease-press);
+}
 /* .batch-dock 靠 translateX(-50%) 做水平居中；design-system.css 的 .bar-*-from/to
    用 translate3d(0,18px,0) 直接覆写 transform，会把这 50% 偏移抹掉 —— 进出场那一瞬
-   底栏会先跳到屏幕中线右侧再滑回。这条权重更高（0,2,0），把居中偏移补回去。 */
+   底栏会先跳到屏幕中线右侧再滑回。这两条 (0,2,0) 把居中偏移补回去。 */
 .batch-dock.bar-enter-from,
 .batch-dock.bar-leave-to{
   transform:translateX(-50%) translate3d(0,18px,0) scale(.98);
