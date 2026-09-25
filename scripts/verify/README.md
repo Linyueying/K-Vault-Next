@@ -236,6 +236,53 @@ BASE=http://127.0.0.1:8099 node scripts/verify/select-bar-actions.mjs
 - `selectedFiles` 是**计算属性**不是方法，写成 `this.selectedFiles()` 会抛
   `is not a function`（页面错误，按钮点了没反应）。
 
+### `share-page.mjs` —— 分享详情页（share.html）改写后的行为回归
+
+```bash
+BASE=http://127.0.0.1:8099 node scripts/verify/share-page.mjs
+
+# 故障注入（证明脚本能抓到故障）
+BREAK_TONE=1    BASE=http://127.0.0.1:8099 node scripts/verify/share-page.mjs
+BREAK_ALLPICK=1 BASE=http://127.0.0.1:8099 node scripts/verify/share-page.mjs
+```
+
+六组、65 条断言，走真实分享（单文件 + 6 文件合集 + 带密码合集）：
+
+1. **A 双栏骨架**：桌面 1280 左右并排且顶部对齐、右栏 ≥292px；窄屏 390 上下堆叠；
+   390/768/1440 三档都不横向溢出。
+2. **B 单文件概览**：hero 文件名 / 类型 / 大小 / 相对时间；图标是 FontAwesome
+   （class + `::before` 的 font-family 双重确认）；**正文无 emoji**；元信息面板
+   6 行齐全；下载主按钮的 href 带 `dl=1`。
+3. **C 阻断态**：过期 / 次数用尽时先出阻断条 + 换成 disabled 的「无法下载」，
+   而不是放一条点了才 410 的链接。
+4. **D 合集**：图标按类型分色（≥5 种实际渲染色）、按扩展名细分标签（PDF / 压缩包 /
+   表格）、搜索（含空态）、按名称 / 大小 / 类型排序、多选批量下载（探针计数 +
+   间隔 ≥400ms）、「全选」只作用于当前筛选结果。
+5. **E**：静默刷新（下载后回查剩余次数）不能清掉已勾选项。
+6. **F**：密码门（错密码留在门内并报错、对密码放行）、失效态有重试按钮、无参数
+   时明确提示、全程无 JS 报错。
+
+**坑（都踩过）**：
+- **不能把 Vue 根实例 evaluate 出来**。`document.querySelector('#app')._vnode
+  .component.proxy` 带着整棵树的循环引用，直接 return 会报
+  `object reference chain is too long`。统一在页面内取好原始值再回传
+  （本脚本的 `peek()` / `peekAll()`）。
+- **入场动画期间量位置会得到假偏差**。`.layout .card` 挂 `riseIn`（含 translateY），
+  动画没跑完时主栏 rect 比侧栏低 16px，「两栏顶部对齐」会误判失败。落地后要等
+  ≈800ms 再量。
+- **Vue 的 options methods 是 `bind(publicThis)` 过的**，而模板里
+  `@click="methodName"` 走的是裸调用。故障注入时若直接
+  `app.method = function(){ this.xxx }`，`this` 会落到 `window` 上（非严格模式），
+  症状是 handler 静默抛 `Cannot read properties of undefined`。注入必须**闭包捕获
+  实例**，不能依赖 `this`。
+- **排序断言要防假通过**：种子文件的名称序、大小序、类型序必须互相错开，
+  否则「按名称」和「按大小」会给出同一个顺序，脚本永远绿。
+- **中文标签排序**在 `localeCompare(…, 'zh-Hans-CN')` 下的绝对次序依赖 ICU 版本，
+  不要钉死；只断言「同标签聚在一起」+「结果确实不同于按名称」。
+- 服务端在 `share-info` 上就已经拦了过期 / 超次（410 → 页面进 error 态），所以
+  `blockReason` 那条路径要**推进 `app.now`** 才能走到 —— 它对应的正是「页面开着
+  的时候走到临界点」这个真实场景（30s tick 会重算同一个 computed）。
+
 ### `overflow-x.mjs` —— 移动端横向溢出验证（真实上传全链路）
 
 ```bash
@@ -373,9 +420,15 @@ node scripts/verify/smoke.mjs
 `node scripts/verify/select-bar-actions.mjs`（需本地全栈）。它自带
 `BREAK_DELETE=1` 故障注入开关，用来证明脚本确实能抓到「删除没真调接口」。
 
+改动涉及**分享页**（share.html：布局 / 元信息 / 合集清单 / 下载）时**额外**跑：
+`node scripts/verify/share-page.mjs`（需本地全栈）。它自带 `BREAK_TONE=1`
+（抹掉类型配色）与 `BREAK_ALLPICK=1`（全选不受搜索限制）两个注入开关。
+
 **新脚本的铁律：先证明它能捕捉故障。** 写完之后回退/注入一次对应 bug，
 确认脚本确实变红 —— 一个永远绿的测试等于没有测试。`share-bundle.mjs`
-就是靠这一步确认「slug 不生成」和「配额不计数」这两类故障都跑不掉。
+就是靠这一步确认「slug 不生成」和「配额不计数」这两类故障都跑不掉；
+`share-page.mjs` 靠 `BREAK_TONE` / `BREAK_ALLPICK` 确认「配色丢了」和
+「全选越界」两类故障都跑不掉（各红 2 条）。
 
 清理/重构 CSS 时**额外**做：`dead-selectors.mjs` 确认可删 → 改 → `visual-snapshot` + `visual-diff` 确认零差异。
 

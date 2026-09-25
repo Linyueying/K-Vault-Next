@@ -26,7 +26,11 @@ function findDb() {
 
 /**
  * 确保给定的文件名在 KV 里存在（内容不重要，只需要是可下载的记录）。
- * @param {string[]} names - 文件名列表。
+ *
+ * @param {(string|{name:string,fileType?:string,fileSize?:number,folder?:string})[]} names
+ *   文件名列表。传字符串时按 `document` + 实际字节数落库（旧行为）；
+ *   需要验证图标 / 配色 / 按类型排序时，传对象显式指定 fileType 与 fileSize ——
+ *   服务端只按 fileType 分类，清单页的细分靠扩展名，两者都得能造出来。
  * @param {{ folder?: string }} [opts] - 可选，指定 folderPath（用于「分享目录」用例）。
  * @returns {{ok: boolean, reason?: string, written?: string[]}}
  */
@@ -47,19 +51,26 @@ export async function ensureSeedFiles(names, opts = {}) {
   const db = new DatabaseSync(dbPath);
   const written = [];
   try {
-    for (const name of names) {
+    for (const entry of names) {
+      const spec = typeof entry === 'string' ? { name: entry } : entry || {};
+      const name = String(spec.name || '');
+      if (!name) throw new Error('seed 文件名不能为空');
+
       const body = Buffer.from(`verify-bundle seed for ${name}\n`);
       // blob 文件名沿用 miniflare 的 <hex><suffix> 形状
       const blobId = crypto.createHash('sha256').update(name + '-verify').digest('hex') + '000001a0d2cd58c0';
       fs.writeFileSync(path.join(BLOBS, blobId), body);
 
+      const folder = spec.folder || opts.folder || '';
       const metadata = JSON.stringify({
         fileName: name,
-        fileSize: body.length,
-        fileType: 'document',
-        TimeStamp: Date.now(),
+        // fileSize 允许显式指定：清单页的「按大小排序」需要可区分的量级，
+        // 全靠真实字节数的话几个种子文件几乎一样大，排序断言会假通过。
+        fileSize: Number.isFinite(spec.fileSize) ? spec.fileSize : body.length,
+        fileType: spec.fileType || 'document',
+        TimeStamp: spec.timeStamp || Date.now(),
         // 可选：把文件归入某个目录，供「分享目录」用例按 folderPath 解析成员。
-        ...(opts.folder ? { folderPath: opts.folder } : {}),
+        ...(folder ? { folderPath: folder } : {}),
       });
 
       db.prepare('REPLACE INTO _mf_entries (key, blob_id, expiration, metadata) VALUES (?, ?, ?, ?)')
