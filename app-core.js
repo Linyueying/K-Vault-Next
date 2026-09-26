@@ -589,9 +589,37 @@
    *   CSS 已在 design-system.css 顶部 @import，无需此处再引。
    *   @returns {Promise<boolean>} 是否成功加载
    * ------------------------------------------------------------------ */
+  /* 加载门控：几种情况下干脆不加载 glassfx 的 JS 那一半。
+     实测：glassfx 的指针 bloom 与 .glass 的 backdrop-filter 叠加后，即使页面
+     静止也在持续消耗合成资源（60 FPS -> 37 FPS）；而只阻断 JS、或只阻断 CSS，
+     都能回到满帧 —— 说明是两者叠加才产生的常驻成本，减掉一半就够。
+     撤掉 JS 侧的取舍是：bloom 跟随光标的效果消失，静态的模糊/描边/高光仍在。 */
+  function glassShouldLoad() {
+    if (typeof window === "undefined") return false;
+    /* 已是低性能档：整体都已降级，加载无意义 */
+    if (document.documentElement.getAttribute("data-perf") === "low") return false;
+    /* 用户显式开启过灵动引擎：尊重选择，照常加载 */
+    try {
+      if (localStorage.getItem("liveEngine") === "1") return true;
+    } catch (e) { /* noop */ }
+    var mq = window.matchMedia;
+    if (mq) {
+      /* 小屏（断点与项目响应式一致）：移动端没有指针，bloom 无从谈起，
+         而 GPU 恰恰更弱 —— 正是最该省掉这层的地方 */
+      if (mq("(max-width: 680px)").matches) return false;
+      /* 用户明确要求减少动效 */
+      if (mq("(prefers-reduced-motion: reduce)").matches) return false;
+    }
+    return true;
+  }
+
   function glassInit() {
     if (typeof document === "undefined") return Promise.resolve(false);
     if (glassInit._p) return glassInit._p; // 幂等：多页调用只加载一次
+    if (!glassShouldLoad()) {
+      glassInit._p = Promise.resolve(false);
+      return glassInit._p;
+    }
 
     glassInit._p = import("/vendor/glassfx/index.js")
       .then(function () { return true; })
