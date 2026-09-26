@@ -9,7 +9,7 @@
     "pages:deploy": "npx wrangler pages deploy .",
     "d1:setup": "bash scripts/setup-d1.sh",
     "d1:migrations": "python3 scripts/gen-migrations.py",
-    "test": "node scripts/test-file-record.mjs && node scripts/test-file-record-upload.mjs && node scripts/test-list-d1.mjs && node scripts/test-quota.mjs && node scripts/test-folders-shares.mjs && node scripts/test-bundles.mjs && node scripts/test-schema.mjs"
+    "test": "node scripts/test-file-record.mjs && node scripts/test-file-record-upload.mjs && node scripts/test-list-d1.mjs && node scripts/test-quota.mjs && node scripts/test-folders-shares.mjs && node scripts/test-bundles.mjs && node scripts/test-schema.mjs && node scripts/test-usage-d1.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.98.0"

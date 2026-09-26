@@ -425,22 +425,59 @@ npx wrangler d1 execute k_vault --remote --command \
 
 ---
 
-## 9. 本地回归测试
+## 9. D1 用量监控
+
+后台「用量」面板已支持 D1，与 KV / R2 并列展示。**存储部分零配置就能看**。
+
+### 数据从哪来
+
+| 指标 | 来源 | 是否需要配置 |
+| :--- | :--- | :--- |
+| 数据库大小 | 每次查询返回的 `meta.size_after`（Cloudflare 官方计费口径） | **不需要** |
+| 各表行数、表数 | 本地 `COUNT(*)`（复用 `schemaStatus`） | **不需要** |
+| 今日/本周期读写行数 | GraphQL `d1AnalyticsAdaptiveGroups` | 需要 `D1_DATABASE_ID` |
+| 查询次数（读/写） | 同上 | 需要 `D1_DATABASE_ID` |
+
+想看读写行数的话，在 Pages 的 Settings → Environment variables 加一条：
+
+```
+D1_DATABASE_ID = <你的 database_id>
+```
+
+这个值就是 `wrangler.toml` 里那个 `database_id`，也可以用 `npx wrangler d1 list` 查到。
+**不配也完全能用**——只是读写行数那两栏会空着，并提示原因，其他指标照常显示。
+
+### 额度参照
+
+| 计划 | 存储 | 行数读取 | 行数写入 | 重置 |
+| :--- | :--- | :--- | :--- | :--- |
+| Free | 5 GB（账户总量） | 500 万 / 日 | 10 万 / 日 | 每日 00:00 UTC |
+| Paid | 含 5 GB，超出 $0.75/GB-月 | 250 亿 / 月 | 5000 万 / 月 | 按月 |
+
+> ⚠️ 免费计划超了每日读写额度，D1 会直接返回错误、查询跑不动（不是限速）。
+> 存储满了则无法再插入数据。面板里进度条 >90% 会变红，留意一下。
+>
+> **索引能显著降低 rows read**——`files` 表已经建好了
+> `uploaded_at` / `folder_path` / `content_sha` / `share_slug` / `storage` 等索引，
+> 列表与查询都走索引，不会全表扫描。
+
+---
+
+## 10. 本地回归测试
 
 改动后跑一遍全部测试套件，确保没有回归：
 
 ```bash
-for t in test-file-record test-file-record-upload test-quota \
-         test-list-d1 test-folders-shares test-bundles; do
-  printf "%-32s" "$t"
-  node "scripts/$t.mjs" 2>&1 | grep "结果:"
-done
+npm test
 ```
 
-期望：**6 套件全部 0 失败**（合计 180 个用例）。
+期望：**8 套件全部 0 失败**（合计 286 个用例）。
 
 这些测试基于 `node:sqlite` 在内存里跑真实 SQL，并自动加载 `migrations/` 下**全部**
 迁移文件——所以新增迁移后无需改测试，schema 会自动跟上。
+
+其中 `test-usage-d1.mjs` 专门覆盖用量监控：D1 未绑定、缺 API 凭据、
+缺 `D1_DATABASE_ID`、GraphQL 失败降级、免费/付费额度差异等 41 个用例。
 
 ---
 
