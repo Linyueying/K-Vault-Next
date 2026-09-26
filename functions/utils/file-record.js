@@ -572,11 +572,12 @@ export async function refundQuota(env, kvKey, options = {}) {
 /**
  * 取文件夹统计（D1 版，直接给出 buildFolderNodes 所需的 folders 映射）。
  * @param {any} env
+ * @param {{storage?: string}} [options] - 可选的存储类型筛选，下推到 SQL
  * @returns {Promise<{folders: object, disabled?: boolean}>}
  */
-export async function listFolderStats(env) {
+export async function listFolderStats(env, options = {}) {
   if (!isD1Enabled(env)) return { folders: {}, disabled: true };
-  return folderFileCounts(env);
+  return folderFileCounts(env, options);
 }
 
 /**

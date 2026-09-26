@@ -192,7 +192,8 @@ export async function applyShareOptions(env, key, originalMetadata, options) {
   // `functions/api/v1/upload.js` 的 applyApiUploadMetadata() 保持完全一致
   // —— 此前这里漏了这一步，导致经分享路径写入的文件在按裸 ID 访问时
   // 退化成"逐前缀串行探测"，虽然结果正确但多花 5~10 次 KV 读。
-  await putRecordIndex(env, key);
+  // 顺带把 nextMetadata 交给 D1，省掉登记时的 KV 回读。
+  await putRecordIndex(env, key, { metadata: nextMetadata });
 
   if (options.slug && oldSlug && oldSlug !== options.slug) {
     try {
@@ -496,7 +497,8 @@ export async function patchShareOptions(env, key, metadata = {}, patch = {}) {
   }
 
   await env.img_url.put(key, '', { metadata: nextMetadata });
-  await putRecordIndex(env, key);
+  // 顺带把 nextMetadata 交给 D1，省掉登记时的 KV 回读
+  await putRecordIndex(env, key, { metadata: nextMetadata });
 
   // 旧 slug 的映射在「改名」与「清除 slug」两种情况下都要回收。
   if (oldSlug && oldSlug !== newSlug) {

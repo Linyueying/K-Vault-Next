@@ -91,7 +91,8 @@ async function getRecordWithKey(env, fileId) {
   if (matchCount === 1 && matched?.name) {
     const record = await env.img_url.getWithMetadata(matched.name);
     if (record?.metadata) {
-      await putRecordIndex(env, matched.name);
+      // metadata 刚读出来就在手边，直接交给 D1，省掉登记时的二次回读
+      await putRecordIndex(env, matched.name, { metadata: record.metadata });
       return { record, kvKey: matched.name };
     }
   }

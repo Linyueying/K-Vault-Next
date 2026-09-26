@@ -7,6 +7,9 @@
   clearFolder,
   folderHasContent,
 } from '../../utils/file-record.js';
+// nodesFromFolderMap 已下沉到 file-list.js：/api/manage/list 把 folders
+// 下推给 SQL 之后也要用同一份转换，两处必须产出完全一致的目录树。
+import { nodesFromFolderMap } from '../../utils/file-list.js';
 
 const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
 // idxt: 记录索引、dlc: 下载计数、fstat: 文件夹统计 —— 均为内部辅助键，不参与文件/文件夹判定。
@@ -273,43 +276,6 @@ function snapshotToNodes(snapshot, storageFilter) {
   });
 }
 
-/**
- * 把 D1 的 folders 映射（{ "<path>": {count, marker} }）转成节点数组。
- *
- * 输出字段与 `buildFolderNodes()` 完全对齐（path/name/parentPath/depth/fileCount），
- * 排序规则也一致（先按深度、再按字典序），保证前端拿到的东西与 KV 版逐字段相同。
- *
- * @param {object} folderMap - listFolderStats() 返回的 folders
- * @param {Array} markers - listMarkers() 返回的标记数组（此处仅用于兜底补路径）
- */
-function nodesFromFolderMap(folderMap = {}, markers = []) {
-  const paths = new Set(Object.keys(folderMap));
-
-  // 标记可能在 folderMap 中缺席（如无文件的空目录），补进来
-  for (const marker of markers) {
-    const path = normalizeFolderPath(marker?.path || '');
-    if (path) paths.add(path);
-  }
-
-  return [...paths]
-    .sort((a, b) => {
-      const depthA = a.split('/').length;
-      const depthB = b.split('/').length;
-      if (depthA !== depthB) return depthA - depthB;
-      return a.localeCompare(b, 'en', { sensitivity: 'base' });
-    })
-    .map((pathValue) => {
-      const parts = pathValue.split('/');
-      return {
-        path: pathValue,
-        name: parts[parts.length - 1] || pathValue,
-        parentPath: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
-        depth: parts.length,
-        fileCount: folderMap[pathValue]?.count || 0,
-      };
-    });
-}
-
 function folderStartsWith(pathValue, parentPath) {
   const normalizedPath = normalizeFolderPath(pathValue);
   const normalizedParent = normalizeFolderPath(parentPath);
@@ -345,9 +311,14 @@ export async function onRequestGet(context) {
   // 扫描（计费 + 延迟随文件数线性增长）。D1 用一条 GROUP BY 就能算出每个目录
   // 的文件数，快照这层缓存自然消失 —— 连带 fresh=1 那个"绕开快照缓存"
   // 的参数也失去意义（SQL 查询无边缘缓存，天然强一致）。
+  //
+  // storage 筛选同样下推给 SQL：files 表有 storage 列与 idx_files_storage
+  // 索引，一条 WHERE 即可，无需为了筛选退回路径 B 全量扫 KV。
+  // （早先这里带 `&& !storageFilter`，是因为 KV 快照没记 storage 维度；
+  //   D1 不受该限制，保留该条件只会让筛选请求白白退化成全量扫描。）
   // ==========================================================================
-  const d1Stats = await listFolderStats(env);
-  if (!d1Stats.disabled && !storageFilter) {
+  const d1Stats = await listFolderStats(env, { storage: storageFilter });
+  if (!d1Stats.disabled) {
     const markers = await listMarkers(env);
     const nodes = nodesFromFolderMap(d1Stats.folders, markers.folders || []);
     return baseResponse(nodes);

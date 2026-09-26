@@ -42,6 +42,7 @@
  */
 
 import { BUNDLE_SLUG_KEY_PREFIX } from '../utils/share-bundle.js';
+import { bundleSlugExists } from '../utils/bundle-store.js';
 
 /** 分享页路径。集中在此便于未来调整。 */
 const SHARE_PAGE_PATH = '/share.html';
@@ -60,6 +61,26 @@ function decodePathParam(rawValue = '') {
 /**
  * 判断 slug 是否属于合集命名空间。
  *
+ * ## 查 D1 而不是 KV
+ *
+ * 原实现读 `bundle_slug:<slug>` 这个「存在性索引键」。它是纯冗余：
+ * `bundles.slug` 本身就是主键，一次主键查询即可判定，没有理由再维护一份
+ * 需要同步、会过期、且每次访问都要付费的 KV 副本。
+ *
+ * 更关键的是额度结构：**KV 读 10 万/天，D1 rows read 500 万/天**。
+ * `/s/:slug` 是分享链路的第一跳，每一次点击都要走一次判定 —— 把最高频的
+ * 路径放在最窄的额度上，是这份配额最先被打爆的地方。
+ *
+ * ## 什么时候读 KV
+ *
+ * 只在 **D1 给出"不可用"信号**时回落（`disabled: true`，即未绑定或查询报错）。
+ * D1 可用且明确回答"没有"时采信结果、不再读 KV —— 否则每次文件短链访问
+ * 都要白搭一次 KV 读，等于没优化。
+ *
+ * 唯一的风险窗口是「D1 写入失败、只有 KV 有数据」的存量脏记录。
+ * `writeBundle()` 目前是 KV 先写、D1 后镜像（失败不致命），所以这种情况
+ * 理论上存在；待 P3 停止双写后自然消失。
+ *
  * 读失败时返回 `false`（按单文件处理）：两个分支都会跳到分享页，最坏情况
  * 是分享页显示「链接不存在」，而不是抛出 500 把整个入口打挂。
  *
@@ -67,7 +88,13 @@ function decodePathParam(rawValue = '') {
  * @param slug - 归一化前的 slug 原值。
  */
 async function isBundleSlug(env, slug) {
-  if (!env?.img_url || !slug) return false;
+  if (!slug) return false;
+
+  const d1 = await bundleSlugExists(env, slug);
+  if (!d1.disabled) return d1.exists;
+
+  // D1 不可用 → 回落 KV 索引键
+  if (!env?.img_url) return false;
   try {
     const mapped = await env.img_url.get(`${BUNDLE_SLUG_KEY_PREFIX}${slug}`);
     return Boolean(mapped);

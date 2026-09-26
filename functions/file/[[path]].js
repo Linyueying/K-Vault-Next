@@ -776,23 +776,23 @@ async function backfillSignedTelegramMetadata(env, signedMeta) {
     const existing = await getRecordWithKey(env, kvKey);
     if (existing?.record?.metadata) return;
 
-    await env.img_url.put(kvKey, '', {
-      metadata: {
-        TimeStamp: signedMeta.timestamp || Date.now(),
-        ListType: 'None',
-        Label: 'None',
-        liked: false,
-        fileName: signedMeta.fileName || `${signedMeta.fileId}.${fileExtension}`,
-        fileSize: signedMeta.fileSize || 0,
-        storageType: 'telegram',
-        telegramFileId: signedMeta.fileId,
-        telegramMessageId: signedMeta.messageId || undefined,
-        signedLink: true,
-        source: 'signed-backfill',
-      },
-    });
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = {
+      TimeStamp: signedMeta.timestamp || Date.now(),
+      ListType: 'None',
+      Label: 'None',
+      liked: false,
+      fileName: signedMeta.fileName || `${signedMeta.fileId}.${fileExtension}`,
+      fileSize: signedMeta.fileSize || 0,
+      storageType: 'telegram',
+      telegramFileId: signedMeta.fileId,
+      telegramMessageId: signedMeta.messageId || undefined,
+      signedLink: true,
+      source: 'signed-backfill',
+    };
+    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
     // 回填后登记索引，后续同 ID 请求走快路径
-    await putRecordIndex(env, kvKey);
+    await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   } catch (error) {
     console.warn('Signed metadata backfill skipped:', error.message);
   }

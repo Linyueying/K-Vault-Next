@@ -13,13 +13,14 @@
  */
 
 import { listAllRecords, listRecordsPage } from './file-record.js';
+import { inferFileType } from './file-type.js';
 
 // idxt: 为记录索引键、dlc: 为下载计数键 —— 均属内部辅助数据，不得出现在文件列表中。
 export const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'idxt:', 'dlc:'];
 
-export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'ico', 'svg', 'heic', 'heif', 'avif']);
-export const VIDEO_EXTS = new Set(['mp4', 'webm', 'ogg', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'm4v', '3gp', 'ts']);
-export const AUDIO_EXTS = new Set(['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma', 'ape', 'opus']);
+// 判定下沉到 file-type.js（metadata-d1.js 写库时也要用同一份），
+// 此处 re-export 是为了不动既有 import 方。
+export { inferFileType, IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS, FILE_TYPES } from './file-type.js';
 
 /**
  * 归一化文件夹路径：统一斜杠、去掉空段与 `.`、解析 `..`。
@@ -56,19 +57,6 @@ export function inferStorageType(name, metadata = {}) {
   if (keyName.startsWith('webdav:')) return 'webdav';
   if (keyName.startsWith('github:')) return 'github';
   return 'telegram';
-}
-
-/**
- * 按扩展名推断文件大类（image / video / audio / document）。
- */
-export function inferFileType(name, metadata = {}) {
-  const sourceName = metadata.fileName || name || '';
-  const segments = String(sourceName).split('.');
-  const ext = segments.length > 1 ? segments.pop().toLowerCase() : '';
-  if (IMAGE_EXTS.has(ext)) return 'image';
-  if (VIDEO_EXTS.has(ext)) return 'video';
-  if (AUDIO_EXTS.has(ext)) return 'audio';
-  return 'document';
 }
 
 /** 是否为文件夹占位标记（不应出现在文件列表里）。 */
@@ -244,4 +232,93 @@ export async function listFilesPage(env, options = {}) {
     source: 'kv',
     total: filtered.length,
   };
+}
+
+/**
+ * 统计一批文件的类型 / 存储分布（后台面板的 stats 块）。
+ *
+ * 原为 `list.js` 的私有函数，下沉到这里是为了让测试能直接拿它与
+ * `aggregateFileStats()`（SQL 版）逐字段对拍 —— 下推 SQL 最大的风险就是
+ * 两条路径口径漂移，能对比才守得住。
+ *
+ * 口径要点（SQL 版必须与之完全一致）：
+ *   · fileType 缺失 → 记入 document
+ *   · storageType 缺失 → 记入 telegram
+ *   · 未知取值 → **不计入**任何 byStorage 桶（hasOwnProperty 检查）
+ *
+ * @param {Array} files - 已过 normalizeKey 的条目
+ */
+export function computeStats(files = []) {
+  const stats = {
+    total: 0,
+    byType: { image: 0, video: 0, audio: 0, document: 0 },
+    byStorage: {
+      telegram: 0,
+      r2: 0,
+      s3: 0,
+      discord: 0,
+      huggingface: 0,
+      webdav: 0,
+      github: 0,
+    },
+  };
+
+  for (const file of files) {
+    const fileType = file?.metadata?.fileType || 'document';
+    const storageType = file?.metadata?.storageType || 'telegram';
+
+    stats.total += 1;
+    if (Object.prototype.hasOwnProperty.call(stats.byType, fileType)) {
+      stats.byType[fileType] += 1;
+    } else {
+      stats.byType.document += 1;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(stats.byStorage, storageType)) {
+      stats.byStorage[storageType] += 1;
+    }
+  }
+
+  return stats;
+}
+
+/**
+ * 把 D1 的 folders 映射（{ "<path>": {count, marker} }）转成节点数组。
+ *
+ * 原为 `folders.js` 的私有函数。下沉到这里是因为 `/api/manage/list` 在
+ * 把 folders 计算下推给 SQL 后也需要它 —— 两个接口必须产出完全一致的
+ * 目录树形状，各写一份迟早漂移。
+ *
+ * 输出字段与 `buildFolderNodes()` 完全对齐（path / name / parentPath /
+ * depth / fileCount），排序规则也一致（先按深度、再按字典序）。
+ *
+ * @param {object} folderMap - listFolderStats() 返回的 folders
+ * @param {Array} markers - listMarkers() 返回的标记数组（仅用于补进空目录）
+ */
+export function nodesFromFolderMap(folderMap = {}, markers = []) {
+  const paths = new Set(Object.keys(folderMap));
+
+  // 标记可能在 folderMap 中缺席（如无文件的空目录），补进来
+  for (const marker of markers) {
+    const path = normalizeFolderPath(marker?.path || '');
+    if (path) paths.add(path);
+  }
+
+  return [...paths]
+    .sort((a, b) => {
+      const depthA = a.split('/').length;
+      const depthB = b.split('/').length;
+      if (depthA !== depthB) return depthA - depthB;
+      return a.localeCompare(b, 'en', { sensitivity: 'base' });
+    })
+    .map((pathValue) => {
+      const parts = pathValue.split('/');
+      return {
+        path: pathValue,
+        name: parts[parts.length - 1] || pathValue,
+        parentPath: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
+        depth: parts.length,
+        fileCount: folderMap[pathValue]?.count || 0,
+      };
+    });
 }

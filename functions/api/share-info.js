@@ -38,6 +38,7 @@
  */
 
 import { getRecordWithKey } from '../utils/file-record.js';
+import { getFileRecordByShareSlug } from '../utils/metadata-d1.js';
 import {
   buildShareRecord,
   findShareSlugOwner,
@@ -113,15 +114,28 @@ export async function onRequest(context) {
     // ---------- 1. 解析标识：先当自定义短链查映射，未命中再当文件 ID ----------
     // 与 `functions/s/[slug].js` 的行为保持一致，保证「自定义短链」与
     // 「/s/<文件ID>」两类链接都能打开。
+    //
+    // 短链解析走 D1 而不是 KV：`files.share_slug` 有唯一索引，且 D1 直接把
+    // **整行记录**带回来，因此命中时第 2 步可以整个跳过 —— 一次解析只要
+    // 一次 D1 读（原先是 1 次 KV 读 + 1 次 D1 读）。
+    // 这对额度很关键：KV 读 10 万/天，D1 rows read 500 万/天，而分享页是
+    // 全站最容易产生外部流量的入口。
     let fileId = rawValue;
+    let d1Hit = null;
     const normalizedSlug = sanitizeShareSlug(rawValue);
     if (normalizedSlug) {
-      const mapped = await findShareSlugOwner(env, normalizedSlug);
-      if (mapped) fileId = mapped;
+      d1Hit = await getFileRecordByShareSlug(env, normalizedSlug);
+      if (d1Hit) {
+        fileId = d1Hit.kvKey || fileId;
+      } else {
+        // D1 未命中仍回落 KV：D1 写入失败过的存量记录可能只有 KV 有映射。
+        const mapped = await findShareSlugOwner(env, normalizedSlug);
+        if (mapped) fileId = mapped;
+      }
     }
 
     // ---------- 2. 定位记录 ----------
-    const { record, kvKey } = await getRecordWithKey(env, fileId);
+    const { record, kvKey } = d1Hit || (await getRecordWithKey(env, fileId));
     if (!record?.metadata) {
       return jsonResponse({ error: 'SHARE_NOT_FOUND', message: '分享链接不存在。' }, 404);
     }

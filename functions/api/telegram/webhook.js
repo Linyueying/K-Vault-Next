@@ -68,22 +68,22 @@ export async function onRequestPost(context) {
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
     const telegramKvKey = `${media.fileId}.${media.fileExtension}`;
-    await env.img_url.put(telegramKvKey, '', {
-      metadata: {
-        TimeStamp: Date.now(),
-        ListType: 'None',
-        Label: 'None',
-        liked: false,
-        fileName: media.fileName,
-        fileSize: media.fileSize,
-        storageType: 'telegram',
-        telegramFileId: media.fileId,
-        telegramMessageId: media.messageId || undefined,
-        fromWebhook: true,
-        signedLink: useSigned,
-      },
-    });
-    await putRecordIndex(env, telegramKvKey);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = {
+      TimeStamp: Date.now(),
+      ListType: 'None',
+      Label: 'None',
+      liked: false,
+      fileName: media.fileName,
+      fileSize: media.fileSize,
+      storageType: 'telegram',
+      telegramFileId: media.fileId,
+      telegramMessageId: media.messageId || undefined,
+      fromWebhook: true,
+      signedLink: useSigned,
+    };
+    await env.img_url.put(telegramKvKey, '', { metadata: recordMetadata });
+    await putRecordIndex(env, telegramKvKey, { metadata: recordMetadata });
   }
 
   const directLink = buildTelegramDirectLink(env, directId, new URL(request.url).origin);

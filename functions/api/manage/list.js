@@ -5,6 +5,8 @@
   normalizeKey,
   listAllKeys,
   listFilesPage,
+  nodesFromFolderMap,
+  computeStats,
 } from '../../utils/file-list.js';
 
 function matchStorage(storageType, storageFilter) {
@@ -26,40 +28,6 @@ function compareByFileSizeAsc(a, b) {
   const leftTs = Number(a?.metadata?.TimeStamp || 0);
   const rightTs = Number(b?.metadata?.TimeStamp || 0);
   return rightTs - leftTs;
-}
-
-function computeStats(files) {
-  const stats = {
-    total: 0,
-    byType: { image: 0, video: 0, audio: 0, document: 0 },
-    byStorage: {
-      telegram: 0,
-      r2: 0,
-      s3: 0,
-      discord: 0,
-      huggingface: 0,
-      webdav: 0,
-      github: 0,
-    },
-  };
-
-  for (const file of files) {
-    const fileType = file.metadata?.fileType || 'document';
-    const storageType = file.metadata?.storageType || 'telegram';
-
-    stats.total += 1;
-    if (Object.prototype.hasOwnProperty.call(stats.byType, fileType)) {
-      stats.byType[fileType] += 1;
-    } else {
-      stats.byType.document += 1;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(stats.byStorage, storageType)) {
-      stats.byStorage[storageType] += 1;
-    }
-  }
-
-  return stats;
 }
 
 function collectFolderPaths(files, folderMarkers = []) {
@@ -195,11 +163,18 @@ export async function onRequest(context) {
       });
     }
 
-    // 取全集（用于 stats / folders），走 D1 全量分页
-    const { listAllRecords } = await import('../../utils/file-record.js');
-    const full = await listAllRecords(env, { storage: storageFilter || undefined, sort });
-    const normalizedFiles = full.disabled ? allKeys.keys : full.files.map(normalizeKey);
-
+    // ======================================================================
+    // stats / folders 全部下推给 SQL
+    //
+    // 旧实现是 listAllRecords() 把**全部行**取回内存再算。而 listAllRecords
+    // 按 200 一批 OFFSET 翻页、且每批都重跑一次 COUNT(*)，扫描量是 O(N²)
+    // ——1 万个文件就要约 75 万 rows read，一次列表请求就能烧掉免费额度的 15%。
+    //
+    // 现在：
+    //   · stats   → aggregateFileStats()，一条条件聚合 SQL 一次扫描算完
+    //   · folders → folderFileCounts()，本就是 GROUP BY
+    // 两者合计 rows read 为 O(N)，且不传输任何行数据。
+    // ======================================================================
     const payload = {
       keys: allKeys.keys,
       pageCount: allKeys.keys.length,
@@ -208,8 +183,37 @@ export async function onRequest(context) {
       total: allKeys.total,
       source: 'd1',
     };
-    if (includeStats) payload.stats = computeStats(normalizedFiles);
-    if (includeFolders) payload.folders = buildFolderNodes(normalizedFiles, []);
+
+    // 兜底用的全量数据：只在 SQL 聚合失败时才真正加载。
+    // 正常路径不会走到 —— 分页能走 D1 说明 D1 可用，聚合没理由失败。
+    let fallbackFiles = null;
+    const loadFallbackFiles = async () => {
+      if (fallbackFiles) return fallbackFiles;
+      const { listAllRecords } = await import('../../utils/file-record.js');
+      const full = await listAllRecords(env, { storage: storageFilter || undefined, sort });
+      fallbackFiles = full.disabled ? allKeys.keys : full.files.map(normalizeKey);
+      return fallbackFiles;
+    };
+
+    if (includeStats) {
+      const { aggregateFileStats } = await import('../../utils/metadata-d1.js');
+      const agg = await aggregateFileStats(env, { storage: storageFilter || undefined });
+      // 回落到全量内存计算（而非当前页）——stats 的语义是全集统计，
+      // 用当前页算会让 total 变成页大小，与 KV 路径口径不一致。
+      payload.stats = agg.disabled ? computeStats(await loadFallbackFiles()) : agg.stats;
+    }
+
+    if (includeFolders) {
+      const { listFolderStats, listMarkers } = await import('../../utils/file-record.js');
+      const folderStats = await listFolderStats(env, { storage: storageFilter || undefined });
+      if (!folderStats.disabled) {
+        const markers = await listMarkers(env);
+        payload.folders = nodesFromFolderMap(folderStats.folders, markers.folders || []);
+      } else {
+        payload.folders = buildFolderNodes(await loadFallbackFiles(), []);
+      }
+    }
+
     return jsonResponse(payload);
   }
 

@@ -302,6 +302,41 @@ export async function incrementBundleCount(env, slug) {
  * @param {string} slug
  * @returns {Promise<{taken: boolean, disabled?: boolean}>}
  */
+/**
+ * 判断 slug 是否是一个已存在的**合集**（只看 bundles，不看文件短链）。
+ *
+ * ## 为什么单独出一个函数
+ *
+ * `isSlugTaken()` 查两张表（bundles + files），用于**创建时判重**；
+ * 而 `/s/:slug` 只需要知道「这是不是合集」，查一张表就够 —— 少一次查询，
+ * 也少一次 rows read。
+ *
+ * ## 与 KV 版的对比
+ *
+ * 原实现是 `env.img_url.get('bundle_slug:' + slug)`：每次访问短链都要
+ * 消耗一次 KV 读。而 KV 读额度（10 万/天）比 D1 rows read（500 万/天）
+ * 窄 50 倍，短链解析恰恰是最该从 KV 上挪走的高频路径。
+ *
+ * @param {any} env
+ * @param {string} slug
+ * @returns {Promise<{exists: boolean, disabled?: boolean, error?: string}>}
+ *   `disabled: true` 表示 D1 不可用（未绑定 / 报错），调用方应回落 KV；
+ *   `disabled` 缺失表示 D1 给出了确定答案，可以采信。
+ */
+export async function bundleSlugExists(env, slug) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env) || !slug) return { exists: false, disabled: true };
+
+  try {
+    const row = await env.DB.prepare('SELECT 1 AS x FROM bundles WHERE slug = ? LIMIT 1')
+      .bind(String(slug)).first();
+    return { exists: Boolean(row) };
+  } catch (error) {
+    console.warn('D1 bundleSlugExists failed:', error?.message || error);
+    return { exists: false, disabled: true, error: error?.message };
+  }
+}
+
 export async function isSlugTaken(env, slug) {
   await ensureSchema(env);
   if (!isD1Enabled(env) || !slug) return { taken: false, disabled: true };

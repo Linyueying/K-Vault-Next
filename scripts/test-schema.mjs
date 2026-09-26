@@ -31,6 +31,15 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
+/**
+ * files 表的期望列数。
+ *
+ * 随迁移增加而变：0001 建 22 列，0002 加 is_folder，0004 加 file_type。
+ * 这里写成常量是为了让新增迁移时只改一处 —— 若直接散落字面量，
+ * 每加一个迁移都要翻遍整个测试文件找硬编码的数字。
+ */
+const FILE_COLUMN_COUNT = 24;
+
 let pass = 0;
 let fail = 0;
 function check(label, cond, detail = '') {
@@ -96,9 +105,10 @@ async function main() {
     check('三张表全部建出',
       ['bundle_files', 'bundles', 'files'].every((t) => tables(env).includes(t)),
       tables(env).join(','));
-    check('files 表有 23 列', columns(env, 'files').length === 23, String(columns(env, 'files').length));
+    check(`files 表有 ${FILE_COLUMN_COUNT} 列`, columns(env, 'files').length === FILE_COLUMN_COUNT, String(columns(env, 'files').length));
     check('files 表含 is_folder', columns(env, 'files').includes('is_folder'));
-    check('applied 含三个迁移', res.applied?.length === 3, JSON.stringify(res.applied));
+    check('files 表含 file_type', columns(env, 'files').includes('file_type'));
+    check(`applied 含 ${MIGRATIONS.length} 个迁移`, res.applied?.length === MIGRATIONS.length, JSON.stringify(res.applied));
   }
 
   // ==========================================================================
@@ -144,7 +154,9 @@ async function main() {
     // 安全的前提是所有 DDL 都幂等（IF NOT EXISTS + guard），
     // 因此"多跑一次"只增加一次性开销，不产生副作用。
     check('0001 被重跑但无副作用（表结构仍正确）',
-      columns(env, 'files').length === 23 && columns(env, 'files').includes('is_folder'));
+      columns(env, 'files').length === FILE_COLUMN_COUNT
+        && columns(env, 'files').includes('is_folder')
+        && columns(env, 'files').includes('file_type'));
   }
 
   // ==========================================================================
@@ -222,7 +234,7 @@ async function main() {
     await ensureSchema(env);
     const rows = env._db.prepare('SELECT version FROM schema_migrations ORDER BY version').all();
     const versions = rows.map((r) => r.version);
-    check('三个版本全部记录', versions.length === 3, versions.join(','));
+    check(`${MIGRATIONS.length} 个版本全部记录`, versions.length === MIGRATIONS.length, versions.join(','));
     check('与 MIGRATIONS 清单一致',
       MIGRATIONS.every((m) => versions.includes(m.id)),
       `清单=${MIGRATIONS.map((m) => m.id).join(',')} 实际=${versions.join(',')}`);
@@ -281,7 +293,7 @@ async function main() {
     check('[10b] missing 为空', s1.missing.length === 0);
     check('[10b] applied 记录齐全', s1.applied.length === MIGRATIONS.length);
     check('[10b] files 行数 = 1', s1.counts?.files === 1, JSON.stringify(s1.counts));
-    check('[10b] schema_migrations 也被统计', s1.counts?.schema_migrations === 3);
+    check('[10b] schema_migrations 也被统计', s1.counts?.schema_migrations === MIGRATIONS.length, String(s1.counts?.schema_migrations));
     check('[10b] is_folder 列存在', s1.columns['files.is_folder'] === true);
 
     // 10c counts=0 时跳过统计
@@ -344,7 +356,7 @@ async function main() {
     const c = await call(fresh, '?apply=1');
     check('[11c] apply 后 healthy=true', c.body.d1?.healthy === true, JSON.stringify(c.body.d1));
     check('[11c] appliedNow 列出本次执行的迁移',
-      Array.isArray(c.body.migrations?.appliedNow) && c.body.migrations.appliedNow.length === 3,
+      Array.isArray(c.body.migrations?.appliedNow) && c.body.migrations.appliedNow.length === MIGRATIONS.length,
       JSON.stringify(c.body.migrations));
     check('[11c] verdict 为已就绪', c.body.verdict.includes('已就绪'), c.body.verdict);
 

@@ -159,6 +159,27 @@ const M0003_SHARE_BUNDLES = [
 ];
 
 // ============================================================================
+// Migration 0004 — 文件大类（file_type 列）
+// ============================================================================
+//
+// 动机：后台列表的 stats.byType 需要按 image / video / audio / document 计数。
+// 这个值原本只能由 file-list.js 的 inferFileType() 在内存里按扩展名算，
+// 于是每次请求都得把**全部行**取回内存再数（见 list.js 旧实现）。
+//
+// 把它物化成列之后，一条带 SUM(CASE WHEN ...) 的 SQL 就能一次扫描算完全部
+// 统计，rows read 从 O(N²) 降到 O(N)（N 为文件数）。
+//
+// 判定逻辑复用 file-type.js 的 inferFileType()，与内存侧共用同一份实现，
+// 保证「库里存的」和「内存算的」永远同口径。
+
+const M0004_FILE_TYPE = [
+  // ⚠️ 这条 ALTER 不幂等，靠 guard 保护（列已存在则整段跳过）
+  `ALTER TABLE files ADD COLUMN file_type TEXT NOT NULL DEFAULT 'document'`,
+  `CREATE INDEX IF NOT EXISTS idx_files_file_type
+  ON files(file_type)`,
+];
+
+// ============================================================================
 // 迁移清单（**顺序即执行顺序**）
 // ============================================================================
 
@@ -179,6 +200,11 @@ export const MIGRATIONS = [
     statements: M0002_FOLDER_MARKERS,
   },
   { id: '0003_share_bundles', statements: M0003_SHARE_BUNDLES },
+  {
+    id: '0004_file_type',
+    guard: { type: 'column', table: 'files', column: 'file_type' },
+    statements: M0004_FILE_TYPE,
+  },
 ];
 
 // ============================================================================

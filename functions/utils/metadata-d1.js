@@ -1,4 +1,5 @@
 import { ensureSchema } from './schema.js';
+import { inferFileType } from './file-type.js';
 
 /**
  * 元数据访问层（D1）— file-record.js 的 D1 版本，并列存在、可逐点切换。
@@ -153,6 +154,9 @@ function metadataToColumns(metadata = {}, kvKey = '') {
     storage,
     storage_key: storageKey,
     storage_extra: storageExtra,
+    // 文件大类按扩展名推断后物化入库：让后台 stats 能一条 SQL 聚合出来，
+    // 不必把全部行取回内存再数。判定复用 file-type.js，与列表侧同口径。
+    file_type: inferFileType(kvKey, metadata),
     // 文件夹标记无文件名，但 file_name 列为 NOT NULL，
     // 用路径填充（同时让列表查询的 file_name != '' 过滤自然排除标记行）
     file_name: folderMarker
@@ -198,19 +202,20 @@ export async function putFileRecord(env, id, kvKey, metadata) {
   try {
     await env.DB.prepare(
       `INSERT INTO files (
-         id, kv_key, is_folder, storage, storage_key, storage_extra,
+         id, kv_key, is_folder, storage, storage_key, storage_extra, file_type,
          file_name, file_size, mime, folder_path, uploaded_at, content_sha,
          list_type, label, liked,
          share_slug, share_password_salt, share_password_hash,
          share_expires_at, share_max_downloads,
          created_at, updated_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          kv_key = excluded.kv_key,
          is_folder = excluded.is_folder,
          storage = excluded.storage,
          storage_key = excluded.storage_key,
          storage_extra = excluded.storage_extra,
+         file_type = excluded.file_type,
          file_name = excluded.file_name,
          file_size = excluded.file_size,
          mime = excluded.mime,
@@ -227,7 +232,7 @@ export async function putFileRecord(env, id, kvKey, metadata) {
          share_max_downloads = excluded.share_max_downloads,
          updated_at = excluded.updated_at`
     ).bind(
-      id, kvKey || null, c.is_folder, c.storage, c.storage_key, c.storage_extra,
+      id, kvKey || null, c.is_folder, c.storage, c.storage_key, c.storage_extra, c.file_type,
       c.file_name, c.file_size, c.mime, c.folder_path, c.uploaded_at, c.content_sha,
       c.list_type, c.label, c.liked,
       c.share_slug, c.share_password_salt, c.share_password_hash,
@@ -261,6 +266,46 @@ export async function getFileRecord(env, id) {
     return { record: rowToRecord(row), kvKey: row.kv_key || String(id) };
   } catch (error) {
     console.warn('D1 getFileRecord failed:', error?.message || error);
+    return null;
+  }
+}
+
+/**
+ * 按自定义短链读取记录 —— `files.share_slug` 上有唯一索引，一次主键级查询即可。
+ *
+ * ## 为什么需要它
+ *
+ * 短链解析原先只有 KV 实现（`share-options.js` 的 `findShareSlugOwner`）：
+ * 每次访问 `/s/<slug>` 都要读一次 `share_slug:<slug>`。**KV 读额度是
+ * 10 万/天，D1 rows read 是 500 万/天** —— 短链是分享页的热路径，
+ * 把它留在 KV 上等于拿最窄的那份额度去扛最高频的流量。
+ *
+ * 这里直接返回**整行记录**（而不是只返回 kvKey），调用方拿到后无需再
+ * `getRecordWithKey()` 二次查询 —— 一次解析 = 一次 D1 读。
+ *
+ * ## 与 getFileRecord 的关系
+ *
+ * 形状完全一致（`{record, kvKey}` / `null`），因此 `share-info.js` 里两种
+ * 解析结果可以互换，无需分支适配。
+ *
+ * @param {any} env
+ * @param {string} slug - 已归一化的短链
+ * @returns {Promise<{record: {metadata: object}, kvKey: string}|null>}
+ *   未命中 / D1 未绑定 / 查询失败均返回 null —— 调用方据此回落 KV。
+ */
+export async function getFileRecordByShareSlug(env, slug) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env) || !slug) return null;
+
+  try {
+    const row = await env.DB.prepare(
+      'SELECT * FROM files WHERE share_slug = ? LIMIT 1'
+    ).bind(String(slug)).first();
+
+    if (!row) return null;
+    return { record: rowToRecord(row), kvKey: row.kv_key || String(row.id || '') };
+  } catch (error) {
+    console.warn('D1 getFileRecordByShareSlug failed:', error?.message || error);
     return null;
   }
 }
@@ -406,7 +451,10 @@ export async function listFileRecords(env, options = {}) {
 
   const where = [];
   const params = [];
-  if (options.storage) { where.push('storage = ?'); params.push(String(options.storage)); }
+  // 与 KV 路径的 matchStorage() 对齐：'kv' 与 'telegram' 同义，
+  // 不归一化会导致 ?storage=kv 拿 'kv' 去比对 'telegram' 而永远查空。
+  const storage = normalizeStorageFilter(options.storage);
+  if (storage) { where.push('storage = ?'); params.push(storage); }
   if (options.folderPath !== undefined) {
     // folderPath === '' 语义为"根目录"，对应表中 folder_path 为 NULL
     where.push('folder_path IS ?');
@@ -448,6 +496,88 @@ export async function listFileRecords(env, options = {}) {
   } catch (error) {
     console.warn('D1 listFileRecords failed:', error?.message || error);
     return { rows: [], total: 0, error: error?.message };
+  }
+}
+
+/**
+ * 一次扫描算出后台面板需要的全部统计（total / byType / byStorage）。
+ *
+ * 替代原先「取回全部行 → 内存 computeStats」的做法。后者经 listAllRecords
+ * 分页批取，每批都要跑一次 COUNT(*) 且 OFFSET 递增，扫描量是 **O(N²)**；
+ * 这里用条件聚合把三份统计压进**一次**扫描，rows read 降为 O(N)。
+ *
+ * 口径与 list.js 的 computeStats() 严格对齐：
+ *   · 只数真实文件（is_folder = 0 且 file_name 非空）
+ *   · byType 取 files.file_type（由 inferFileType 按扩展名物化，与内存侧同函数）
+ *   · byStorage 只统计已知的七种取值，未知值不计入
+ *     （与内存侧 hasOwnProperty 检查保持一致 —— 那边的实现就是忽略未知键）
+ *
+ * @param {any} env
+ * @param {{storage?: string}} [options] - 可选的存储类型筛选
+ * @returns {Promise<{stats: object|null, disabled?: boolean, error?: string}>}
+ *   stats 形状与 computeStats() 完全一致；D1 不可用 / 查询失败时返回
+ *   disabled=true，调用方应回落到内存计算。
+ */
+export async function aggregateFileStats(env, options = {}) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env)) return { stats: null, disabled: true };
+
+  const storage = normalizeStorageFilter(options.storage);
+  const where = [
+    'is_folder = 0',
+    "file_name IS NOT NULL AND file_name != ''",
+  ];
+  const params = [];
+  if (storage) {
+    where.push('storage = ?');
+    params.push(storage);
+  }
+
+  // 一次扫描算完 12 个计数。
+  // 用 SUM(CASE WHEN ...) 而不是 3 条 GROUP BY —— 后者会把全表扫三遍。
+  const sql = `SELECT
+      COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN file_type = 'image'    THEN 1 ELSE 0 END), 0) AS image,
+      COALESCE(SUM(CASE WHEN file_type = 'video'    THEN 1 ELSE 0 END), 0) AS video,
+      COALESCE(SUM(CASE WHEN file_type = 'audio'    THEN 1 ELSE 0 END), 0) AS audio,
+      COALESCE(SUM(CASE WHEN file_type = 'document' THEN 1 ELSE 0 END), 0) AS document,
+      COALESCE(SUM(CASE WHEN storage = 'telegram'    THEN 1 ELSE 0 END), 0) AS telegram,
+      COALESCE(SUM(CASE WHEN storage = 'r2'          THEN 1 ELSE 0 END), 0) AS r2,
+      COALESCE(SUM(CASE WHEN storage = 's3'          THEN 1 ELSE 0 END), 0) AS s3,
+      COALESCE(SUM(CASE WHEN storage = 'discord'     THEN 1 ELSE 0 END), 0) AS discord,
+      COALESCE(SUM(CASE WHEN storage = 'huggingface' THEN 1 ELSE 0 END), 0) AS huggingface,
+      COALESCE(SUM(CASE WHEN storage = 'webdav'      THEN 1 ELSE 0 END), 0) AS webdav,
+      COALESCE(SUM(CASE WHEN storage = 'github'      THEN 1 ELSE 0 END), 0) AS github
+    FROM files
+   WHERE ${where.join(' AND ')}`;
+
+  try {
+    const row = await env.DB.prepare(sql).bind(...params).first();
+    if (!row) return { stats: null, disabled: true };
+
+    return {
+      stats: {
+        total: Number(row.total) || 0,
+        byType: {
+          image: Number(row.image) || 0,
+          video: Number(row.video) || 0,
+          audio: Number(row.audio) || 0,
+          document: Number(row.document) || 0,
+        },
+        byStorage: {
+          telegram: Number(row.telegram) || 0,
+          r2: Number(row.r2) || 0,
+          s3: Number(row.s3) || 0,
+          discord: Number(row.discord) || 0,
+          huggingface: Number(row.huggingface) || 0,
+          webdav: Number(row.webdav) || 0,
+          github: Number(row.github) || 0,
+        },
+      },
+    };
+  } catch (error) {
+    console.warn('D1 aggregateFileStats failed:', error?.message || error);
+    return { stats: null, disabled: true, error: error?.message };
   }
 }
 
@@ -553,6 +683,23 @@ export async function listFolderMarkers(env) {
 }
 
 /**
+ * 归一化外部传入的 storage 筛选值到 D1 `files.storage` 的实际取值。
+ *
+ * KV 时代由键名前缀推断出的 `telegram`，在 UI 与 API 上也被叫做 `kv`
+ * （见 file-list.js 的 matchStorage：两者同义）。下推 SQL 前必须先折叠成
+ * 同一种取值，否则 `?storage=kv` 会拿 'kv' 去比对 'telegram' 而永远查空。
+ *
+ * @param {string} value - 外部传入的 storage 筛选值
+ * @returns {string} 归一化后的取值；空串表示「不筛选」
+ */
+export function normalizeStorageFilter(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'kv') return 'telegram';
+  return normalized;
+}
+
+/**
  * 按 folder_path 统计每个目录的文件数。
  *
  * 输出形状与 folders.js 的 `buildFolderSnapshot()` 的 `folders` 字段一致：
@@ -560,20 +707,32 @@ export async function listFolderMarkers(env) {
  * 差别是这里由 SQL GROUP BY 一次算完，不再全量扫 KV。
  *
  * @param {any} env
+ * @param {{storage?: string}} [options] - 可选的存储类型筛选，下推到 SQL
  * @returns {Promise<{folders: object, disabled?: boolean}>}
  */
-export async function folderFileCounts(env) {
+export async function folderFileCounts(env, options = {}) {
   await ensureSchema(env);
   if (!isD1Enabled(env)) return { folders: {}, disabled: true };
 
+  const storage = normalizeStorageFilter(options.storage);
+
   try {
+    const where = [
+      'is_folder = 0',
+      "folder_path IS NOT NULL AND folder_path != ''",
+    ];
+    const params = [];
+    if (storage) {
+      where.push('storage = ?');
+      params.push(storage);
+    }
+
     const rows = await env.DB.prepare(
       `SELECT folder_path AS path, COUNT(*) AS n
          FROM files
-        WHERE is_folder = 0
-          AND folder_path IS NOT NULL AND folder_path != ''
+        WHERE ${where.join(' AND ')}
         GROUP BY folder_path`
-    ).all();
+    ).bind(...params).all();
 
     const folders = {};
     const touch = (path) => {
@@ -599,6 +758,14 @@ export async function folderFileCounts(env) {
     for (const marker of markers.folders || []) {
       const path = String(marker.path || '');
       if (!path) continue;
+      if (storage) {
+        // 筛选模式：标记只给「已由筛选后文件推导出的目录」补 marker 标志，
+        // 不凭空造出 count=0 的目录节点。这与 KV 版一致 —— KV 路径里标记行
+        // 同样要过 matchStorage()，筛选 r2 时标记是被过滤掉的。
+        const existing = folders[path];
+        if (existing) existing.marker = true;
+        continue;
+      }
       includeAll(path);
       const entry = touch(path);
       if (entry) entry.marker = true;

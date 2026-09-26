@@ -238,21 +238,21 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
     : `${telegramFileId}.${extension}`;
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
-    await env.img_url.put(`${telegramFileId}.${extension}`, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(),
-        ListType: 'None',
-        Label: 'None',
-        liked: false,
-        fileName,
-        fileSize,
-        storageType: 'telegram',
-        telegramFileId,
-        telegramMessageId: messageId || undefined,
-        signedLink: shouldUseSignedTelegramLinks(env),
-      }, folderPath),
-    });
-    await putRecordIndex(env, `${telegramFileId}.${extension}`);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(),
+      ListType: 'None',
+      Label: 'None',
+      liked: false,
+      fileName,
+      fileSize,
+      storageType: 'telegram',
+      telegramFileId,
+      telegramMessageId: messageId || undefined,
+      signedLink: shouldUseSignedTelegramLinks(env),
+    }, folderPath);
+    await env.img_url.put(`${telegramFileId}.${extension}`, '', { metadata: recordMetadata });
+    await putRecordIndex(env, `${telegramFileId}.${extension}`, { metadata: recordMetadata });
   }
 
   try {
@@ -279,13 +279,13 @@ async function uploadToR2Storage(env, { bytes, mime, fileName, extension, fileSi
     customMetadata: { fileName, uploadTime: Date.now().toString() },
   });
   if (env.img_url) {
-    await env.img_url.put(`r2:${objectKey}`, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
-        fileName, fileSize, storageType: 'r2', r2Key: objectKey,
-      }, folderPath),
-    });
-    await putRecordIndex(env, `r2:${objectKey}`);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
+      fileName, fileSize, storageType: 'r2', r2Key: objectKey,
+    }, folderPath);
+    await env.img_url.put(`r2:${objectKey}`, '', { metadata: recordMetadata });
+    await putRecordIndex(env, `r2:${objectKey}`, { metadata: recordMetadata });
   }
   return { fileId: objectKey, directId: `r2:${objectKey}` };
 }
@@ -300,13 +300,13 @@ async function uploadToS3Storage(env, { bytes, mime, fileName, extension, fileSi
     metadata: { 'x-amz-meta-filename': fileName, 'x-amz-meta-uploadtime': Date.now().toString() },
   });
   if (env.img_url) {
-    await env.img_url.put(`s3:${objectKey}`, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
-        fileName, fileSize, storageType: 's3', s3Key: objectKey,
-      }, folderPath),
-    });
-    await putRecordIndex(env, `s3:${objectKey}`);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
+      fileName, fileSize, storageType: 's3', s3Key: objectKey,
+    }, folderPath);
+    await env.img_url.put(`s3:${objectKey}`, '', { metadata: recordMetadata });
+    await putRecordIndex(env, `s3:${objectKey}`, { metadata: recordMetadata });
   }
   return { fileId: objectKey, directId: `s3:${objectKey}` };
 }
@@ -318,16 +318,16 @@ async function uploadToDiscordStorage(env, { bytes, mime, fileName, extension, f
   const fileId = randomId('discord');
   const kvKey = `discord:${fileId}.${extension}`;
   if (env.img_url) {
-    await env.img_url.put(kvKey, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
-        fileName, fileSize, storageType: 'discord',
-        discordChannelId: result.channelId, discordMessageId: result.messageId,
-        discordAttachmentId: result.attachmentId, discordUploadMode: result.mode,
-        discordSourceUrl: result.sourceUrl,
-      }, folderPath),
-    });
-    await putRecordIndex(env, kvKey);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
+      fileName, fileSize, storageType: 'discord',
+      discordChannelId: result.channelId, discordMessageId: result.messageId,
+      discordAttachmentId: result.attachmentId, discordUploadMode: result.mode,
+      discordSourceUrl: result.sourceUrl,
+    }, folderPath);
+    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: `${fileId}.${extension}`, directId: kvKey };
 }
@@ -340,13 +340,13 @@ async function uploadToHuggingFaceStorage(env, { bytes, mime, fileName, extensio
   if (!result.success) throw new ImportError('UPLOAD_FAILED', `HuggingFace upload failed: ${result.error}`, 502);
   const kvKey = `hf:${fileId}.${extension}`;
   if (env.img_url) {
-    await env.img_url.put(kvKey, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
-        fileName, fileSize, storageType: 'huggingface', hfPath,
-      }, folderPath),
-    });
-    await putRecordIndex(env, kvKey);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
+      fileName, fileSize, storageType: 'huggingface', hfPath,
+    }, folderPath);
+    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: `${fileId}.${extension}`, directId: kvKey };
 }
@@ -359,15 +359,15 @@ async function uploadToWebDAVStorage(env, { bytes, mime, fileName, extension, fi
   const result = await uploadToWebDAV(bytes, webdavPath, mime || 'application/octet-stream', env);
   const kvKey = `webdav:${publicId}`;
   if (env.img_url) {
-    await env.img_url.put(kvKey, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
-        fileName, fileSize, storageType: 'webdav',
-        webdavPath: normalizeWebDAVPath(result.path || webdavPath),
-        webdavEtag: result.etag || undefined,
-      }, folderPath),
-    });
-    await putRecordIndex(env, kvKey);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
+      fileName, fileSize, storageType: 'webdav',
+      webdavPath: normalizeWebDAVPath(result.path || webdavPath),
+      webdavEtag: result.etag || undefined,
+    }, folderPath);
+    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: publicId, directId: kvKey };
 }
@@ -380,15 +380,15 @@ async function uploadToGitHubStorage(env, { bytes, mime, fileName, extension, fi
   const result = await uploadToGitHub(bytes, normalizeGitHubStoragePath(githubStorageKey), fileName, mime || 'application/octet-stream', env);
   const kvKey = `github:${publicId}`;
   if (env.img_url) {
-    await env.img_url.put(kvKey, '', {
-      metadata: appendCommonMetadata({
-        TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
-        fileName, fileSize, storageType: 'github',
-        githubStorageKey: normalizeGitHubStoragePath(result.storagePath || githubStorageKey),
-        ...(result.metadata || {}),
-      }, folderPath),
-    });
-    await putRecordIndex(env, kvKey);
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata({
+      TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
+      fileName, fileSize, storageType: 'github',
+      githubStorageKey: normalizeGitHubStoragePath(result.storagePath || githubStorageKey),
+      ...(result.metadata || {}),
+    }, folderPath);
+    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: publicId, directId: kvKey };
 }

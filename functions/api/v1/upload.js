@@ -191,8 +191,9 @@ async function applyApiUploadMetadata(env, key, originalMetadata, options = {}) 
   }
 
   await env.img_url.put(key, '', { metadata: nextMetadata });
-  // 登记记录索引，使后续按裸 ID 的查找走快路径
-  await putRecordIndex(env, key, { prefixes: STORAGE_PREFIXES });
+  // 登记记录索引，使后续按裸 ID 的查找走快路径。
+  // 顺带把 nextMetadata 交给 D1，省掉登记时的 KV 回读。
+  await putRecordIndex(env, key, { prefixes: STORAGE_PREFIXES, metadata: nextMetadata });
 
   if (slug && oldSlug && oldSlug !== slug) {
     await env.img_url.delete(`${SHARE_SLUG_KEY_PREFIX}${oldSlug}`);
