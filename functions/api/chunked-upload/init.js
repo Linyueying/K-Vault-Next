@@ -307,19 +307,55 @@ export async function onRequestPost(context) {
     }
 
     // ============================================
-    // 6. 【P0 修复】先确定分片暂存后端，再据此推导 chunkSize
-    //    与 totalChunks 校验
+    // 6. 分片大小：允许前端声明（自适应 + 多路并发），否则用后端默认
     //
-    //    分片大小必须由"分片暂存后端"决定，而不是全局 CHUNK_SIZE。
-    //    否则前端非 R2 分支（20MB/片）与后端期望（50MB/片）对不上，
-    //    所有非 R2 分片上传会 100% 返回 CHUNK_COUNT_MISMATCH。
+    //    旧逻辑（P0 修复）：后端自己定死 chunkSize（r2→50MB / kv→20MB），
+    //    再反算 expectedTotalChunks 要求前端 totalChunks 完全相等，
+    //    前端无权改小，否则 CHUNK_COUNT_MISMATCH。
     //
-    //    规则（前后端必须完全一致）：
-    //      - chunkBackend === 'r2' → 50MB
-    //      - chunkBackend === 'kv' → 20MB（KV 单值上限 25MB）
+    //    新逻辑：前端可声明 chunkSize（用于自适应分片 + 多路并发提速），
+    //    后端只做范围与片数校验，不再定死：
+    //      - 5MB ≤ chunkSize ≤ 后端能力上限（r2→50MB / kv→20MB）
+    //      - 由 chunkSize 推出的片数 ≤ MAX_TOTAL_CHUNKS(256)
+    //    校验通过后，用前端声明的 chunkSize 算 expectedTotalChunks
+    //    与声明比对；前端必须保证 totalChunks === ceil(fileSize/chunkSize)。
+    //    chunk.js 的 softMax 校验对任意 5MB~后端上限的分片都通过，无需改动。
     // ============================================
     const chunkBackend = await resolveChunkBackend(env);
-    const chunkSize = resolveChunkSizeForBackend(chunkBackend === 'r2');
+    const backendChunkCap = resolveChunkSizeForBackend(chunkBackend === 'r2');
+    const MIN_CHUNK_SIZE = 5 * 1024 * 1024; // R2/S3 multipart 协议下限
+
+    const requestedChunkSize = Number(body?.chunkSize) || 0;
+    let chunkSize;
+    if (requestedChunkSize > 0) {
+      if (requestedChunkSize < MIN_CHUNK_SIZE || requestedChunkSize > backendChunkCap) {
+        return jsonResponse(
+          {
+            error:
+              `分片大小超出允许范围：声明 ${requestedChunkSize}，` +
+              `允许 ${MIN_CHUNK_SIZE} ~ ${backendChunkCap}` +
+              `（chunkBackend=${chunkBackend}）`,
+            code: 'CHUNK_SIZE_OUT_OF_RANGE',
+          },
+          400
+        );
+      }
+      const chunksBySize = Math.ceil(normalizedFileSize / requestedChunkSize);
+      if (chunksBySize > MAX_TOTAL_CHUNKS) {
+        return jsonResponse(
+          {
+            error:
+              `分片过小导致片数超限：声明 ${requestedChunkSize}，` +
+              `推出 ${chunksBySize} 片 > 上限 ${MAX_TOTAL_CHUNKS}`,
+            code: 'CHUNK_COUNT_OVER_LIMIT',
+          },
+          400
+        );
+      }
+      chunkSize = requestedChunkSize;
+    } else {
+      chunkSize = backendChunkCap; // 老客户端 / 未声明：沿用后端默认
+    }
 
     const expectedTotalChunks = Math.ceil(normalizedFileSize / chunkSize);
     if (normalizedTotalChunks !== expectedTotalChunks) {
