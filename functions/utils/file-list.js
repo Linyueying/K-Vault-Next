@@ -12,6 +12,8 @@
  * @module file-list
  */
 
+import { listAllRecords, listRecordsPage } from './file-record.js';
+
 // idxt: 为记录索引键、dlc: 为下载计数键 —— 均属内部辅助数据，不得出现在文件列表中。
 export const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'idxt:', 'dlc:'];
 
@@ -151,13 +153,95 @@ export async function listAllKeys(env, prefix = '') {
 /**
  * 一次性拿到「全部归一化后的文件条目」。
  *
- * 分享总览等只读接口的通用入口：拉取 → 过滤内部键 → 归一化。
+ * 分享总览等只读接口的通用入口。
  *
- * @param env - Pages 环境（需绑定 `img_url`）。
- * @param options.prefix - 可选前缀过滤。
+ * **数据源策略（D1 优先 / KV 兜底）**：
+ *   1. D1 已绑定 → 走 SQL 取回全部行（分页批取），转成 KV 同形状 key 后归一化。
+ *      收益：不再全量扫 KV 命名空间；`idxt:` / `dlc:` 等内部键天然不存在于表中，
+ *      过滤规则从"必须排除"退化为"无需排除"。
+ *   2. D1 未绑定 / 查询失败 → 回落原有 `listAllKeys` 扫 KV。
+ *
+ * 两条路径产出的条目形状完全一致（都经 `normalizeKey`），调用方无感。
+ *
+ * @param env - Pages 环境（D1 走 `DB`，兜底走 `img_url`）。
+ * @param options.prefix - 可选前缀过滤（仅 KV 路径生效；D1 路径由 storage 列表达）。
  * @returns {Promise<Array>} 归一化后的文件条目数组。
  */
 export async function listNormalizedFiles(env, options = {}) {
+  // ---------- 路径 A：D1 ----------
+  if (!options.prefix) {
+    const page = await listAllRecords(env, options);
+    if (!page.disabled) {
+      return page.files.map(normalizeKey);
+    }
+    // disabled / error → 落到 KV 路径
+  }
+
+  // ---------- 路径 B：KV 兜底 ----------
   const allKeys = await listAllKeys(env, options.prefix || '');
   return allKeys.filter(shouldIncludeKey).map(normalizeKey);
+}
+
+/**
+ * 【新函数】分页列出文件（D1 优先 / KV 兜底），供 `/api/manage/list` 使用。
+ *
+ * 与 `listNormalizedFiles` 的区别：D1 路径下分页**下推到 SQL**，
+ * 不会为了取第 N 页而把整个命名空间读一遍。
+ *
+ * 返回体与 `list.js` 原有响应结构对齐（keys / pageCount / list_complete），
+ * 并额外返回 `source` 便于排查当前走的是哪条路径。
+ *
+ * @param env
+ * @param {{
+ *   limit?: number, offset?: number, prefix?: string,
+ *   storage?: string, sort?: string, folderPath?: string
+ * }} options
+ * @returns {Promise<{keys: Array, list_complete: boolean, cursor: string|null, source: string, total?: number, disabled?: boolean}>}
+ */
+export async function listFilesPage(env, options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit) || 100, 1), 1000);
+  const offset = Math.max(Number(options.offset) || 0, 0);
+  const prefix = options.prefix || '';
+
+  // ---------- 路径 A：D1（SQL 分页） ----------
+  if (!prefix) {
+    const page = await listRecordsPage(env, {
+      storage: options.storage,
+      folderPath: options.folderPath,
+      sort: options.sort,
+      limit,
+      offset,
+    });
+
+    if (!page.disabled) {
+      const items = page.files.map(normalizeKey);
+      const nextOffset = offset + items.length < page.total ? offset + items.length : null;
+      return {
+        keys: items,
+        list_complete: nextOffset == null,
+        cursor: nextOffset == null ? null : String(nextOffset),
+        source: 'd1',
+        total: page.total,
+      };
+    }
+    // disabled / error → 落到 KV 路径
+  }
+
+  // ---------- 路径 B：KV 兜底 ----------
+  const allKeys = await listAllKeys(env, prefix);
+  const filtered = allKeys
+    .filter(shouldIncludeKey)
+    .map(normalizeKey)
+    .sort((a, b) => Number(b?.metadata?.TimeStamp || 0) - Number(a?.metadata?.TimeStamp || 0));
+
+  const items = filtered.slice(offset, offset + limit);
+  const nextOffset = offset + limit < filtered.length ? offset + limit : null;
+
+  return {
+    keys: items,
+    list_complete: nextOffset == null,
+    cursor: nextOffset == null ? null : String(nextOffset),
+    source: 'kv',
+    total: filtered.length,
+  };
 }
