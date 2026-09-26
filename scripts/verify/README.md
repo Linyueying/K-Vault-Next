@@ -82,6 +82,34 @@ BASE=http://localhost:8099 SIM_LATENCY=1 LAT_MS=800 node scripts/verify/folder-o
 >
 > ⚠️ **本地验证的局限**：本地 KV 是 SQLite 同步写，"并发 vs 串行"几乎没有差异。
 > **不要用本地 DELETE 耗时去证明并发优化有效**；并发收益要看微基准或线上。
+
+### `sync-status.mjs` —— 同步状态点：三态 + 失败自动重试 + 点击说明
+
+```bash
+# 前置：wrangler pages dev 跑在 8099
+BASE=http://localhost:8099 node scripts/verify/sync-status.mjs
+```
+
+覆盖 **admin.html 与 index.html 两个页面**，共 27 项。验证顶栏的同步状态圆点：
+
+- **黄点**（`.is-syncing`）：目录写入进行中可被捕获
+- **绿点**（`.is-synced`）：成功后到达（成功链路）
+- **红点**（`.is-failed`）+ **自动重试**：把 POST/PUT/DELETE 拦成 500 后，
+  必须观察到**恰好 3 次写请求**（1 次原始 + 2 次重试，退避 600/1500ms），
+  红点约 2.1s 后亮起且**常驻不自动消失**，并弹出「同步失败」toast
+- **点击圆点**弹出说明弹窗，文案含「网络往返」等延迟不可避免的核心解释
+
+> **实现分层**（防止两页漂移）：`.sync-dot` 四态样式与三条关键帧只在
+> `design-system.css`；状态机 / 重试 / 说明文案只在 `app-core.js` 的
+> `KVault.createSyncTracker()`；两页只把网络动作包进 `track()` 并绑定 class。
+>
+> **一个值得记住的坑**：HTTP 500 不会让 `fetch` reject。若「成功判定」写在
+> 被 `track()` 包装的函数**外面**（如 `const r = await track(() => fetch(...).then(r=>r.json())); if (!r.success) throw`），
+> tracker 视角全是成功 —— 不重试、不亮红点。成功判定必须在追踪函数**内部**抛错。
+>
+> 另外 `k_vault_session` cookie 带 `Secure` 属性：浏览器对 localhost 有豁免，
+> 但 playwright 的 APIRequestContext 在 http:// 下不会自动携带 —— 服务端校验
+> 类请求要显式带登录拿到的 Cookie 头（folder-ops.mjs 的 `AUTH` 即此用法）。
 > 本脚本用 `SIM_LATENCY` 证明的是「前端乐观更新」，这一点本地完全可测。
 
 ### `guest-banner-login.mjs` —— 访客横幅「登录账户」跳转回归

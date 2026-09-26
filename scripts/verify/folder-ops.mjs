@@ -49,6 +49,45 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
 
+// 会话 cookie：wrangler 签发的 k_vault_session 带 Secure 属性，
+// playwright 的 APIRequestContext 在 http:// 下不会自动携带（浏览器对
+// localhost 有豁免、独立 request 上下文没有），导致建目录/查询悄悄 401。
+// 这里登录一次显式读出来，凡「服务端校验」类请求手动带上。
+const AUTH = await (async () => {
+  const r = await fetch(`${BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: USER, password: PASS }),
+  });
+  const cookie = (r.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) throw new Error('登录失败：拿不到会话 cookie');
+  return { Cookie: cookie };
+})();
+
+// 建目录（不经 UI，保证前置数据存在），返回是否成功
+async function apiCreateFolder(path) {
+  const r = await fetch(`${BASE}/api/manage/folders`, {
+    method: 'POST',
+    headers: { ...AUTH, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  }).catch(() => null);
+  return !!(r && r.ok);
+}
+
+// 查询目录列表（带会话），失败返回 {}
+async function apiListFolders() {
+  return fetch(`${BASE}/api/manage/folders`, { headers: AUTH })
+    .then((r) => r.json())
+    .catch(() => ({}));
+}
+
+// 清理测试目录
+async function apiDeleteFolder(path) {
+  await fetch(`${BASE}/api/manage/folders?path=${encodeURIComponent(path)}&recursive=1`, {
+    method: 'DELETE', headers: AUTH,
+  }).catch(() => {});
+}
+
 const results = [];
 const log = (ok, name, detail) => {
   results.push({ ok, name, detail });
@@ -116,10 +155,10 @@ async function testAdmin({ latency = 0, label = '' } = {}) {
     log(errors.length === 0, `admin 新建目录无 JS 报错${label}`, errors.join(' | ') || '无');
     // 落库校验
     await page.waitForTimeout(1200);
-    const fj = await (await ctx.request.get(`${BASE}/api/manage/folders`)).json().catch(() => ({}));
+    const fj = await apiListFolders();
     const persisted = (fj.folders || []).some((f) => f.path === name);
     log(persisted, `admin 新建目录已落库${label}`, persisted ? '后端可见' : '后端不可见');
-    if (persisted) await ctx.request.delete(`${BASE}/api/manage/folders?path=${encodeURIComponent(name)}&recursive=1`);
+    if (persisted) await apiDeleteFolder(name);
     await ctx.close();
   }
 
@@ -127,11 +166,10 @@ async function testAdmin({ latency = 0, label = '' } = {}) {
   {
     const created = `vfy-admindel-${Date.now()}`;
     // 直接用请求建目录（不经 UI，保证前置数据存在）
-    const setupCtx = await browser.newContext();
-    await setupCtx.request.post(`${BASE}/api/auth/login`, { data: { username: USER, password: PASS } });
-    await setupCtx.request.post(`${BASE}/api/manage/folders`, { data: { path: created } });
-    await setupCtx.close();
-
+    const createdOk = await apiCreateFolder(created);
+    if (!createdOk) {
+      log(false, `admin 删除目录${label}`, '前置建目录失败（API 401/500）');
+    } else {
     const { ctx, page, errors } = await newPage('admin.html', { latency });
     const row = page.locator('.folder-tree-row').filter({ hasText: created }).first();
     if (!(await row.count())) {
@@ -147,6 +185,7 @@ async function testAdmin({ latency = 0, label = '' } = {}) {
       log(errors.length === 0, `admin 删除目录无 JS 报错${label}`, errors.join(' | ') || '无');
     }
     await ctx.close();
+    }
   }
 
   // --- 失败回滚 ---
@@ -187,20 +226,20 @@ async function testIndex({ latency = 0, label = '' } = {}) {
     log(ms >= 0 && ms <= OPTIMISTIC_MAX_MS, `index 新建目录${label}`, ms < 0 ? '未出现' : `${ms}ms`);
     log(errors.length === 0, `index 新建目录无 JS 报错${label}`, errors.join(' | ') || '无');
     await page.waitForTimeout(1200);
-    const fj = await (await ctx.request.get(`${BASE}/api/manage/folders`)).json().catch(() => ({}));
+    const fj = await apiListFolders();
     const persisted = (fj.folders || []).some((f) => f.path === name);
     log(persisted, `index 新建目录已落库${label}`, persisted ? '后端可见' : '后端不可见');
-    if (persisted) await ctx.request.delete(`${BASE}/api/manage/folders?path=${encodeURIComponent(name)}&recursive=1`);
+    if (persisted) await apiDeleteFolder(name);
     await ctx.close();
   }
 
   // --- 删除目录 ---
   {
     const created = `vfy-indexdel-${Date.now()}`;
-    const setupCtx = await browser.newContext();
-    await setupCtx.request.post(`${BASE}/api/auth/login`, { data: { username: USER, password: PASS } });
-    await setupCtx.request.post(`${BASE}/api/manage/folders`, { data: { path: created } });
-    await setupCtx.close();
+    const createdOk = await apiCreateFolder(created);
+    if (!createdOk) {
+      log(false, `index 删除目录${label}`, '前置建目录失败（API 401/500）');
+    }
 
     const { ctx, page, errors } = await newPage('index.html', { latency });
     await page.locator('[data-dock-slot="2"]').first().click({ force: true }).catch(() => {});

@@ -1353,6 +1353,11 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           </div>
         </div>
         <div class="top-actions">
+          <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败。点击查看「延迟为何不可避免」 -->
+          <button class="sync-dot-btn" type="button" @click="showSyncExplain"
+                  :title="syncDotTitle" aria-label="同步状态">
+            <span class="sync-dot" :class="syncDotClass"></span>
+          </button>
           <div class="status-pill" @click="openDrawer('storage')" :title="'切换存储节点 (当前: ' + storageTarget + ')'">
             <span class="status-pill__pulse" :class="{ 'is-settling': nodeResolving }"></span>
             <transition name="label" mode="out-in">
@@ -2549,6 +2554,13 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             toasts: [],
             toastKey: 0,
 
+            /* 同步状态点（黄=同步中 / 绿=已同步 / 红=失败）
+               状态机与重试逻辑在共享层 KVault.createSyncTracker()，本页只做绑定。
+               追踪范围：上传目录的新建/重命名/删除 + 目录列表拉取。 */
+            syncState: "idle",
+            syncDetail: { attempts: 0, lastError: null },
+            syncTracker: null,
+
             PARALLEL_MAX_LIGHT,
             PARALLEL_MAX_HEAVY,
 
@@ -2628,6 +2640,21 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           };
         },
         computed: {
+          /* 同步状态点（绑到 .sync-dot 的 class / title） */
+          syncDotClass() {
+            const map = { syncing: "is-syncing", synced: "is-synced", failed: "is-failed" };
+            return map[this.syncState] || "";
+          },
+          syncDotTitle() {
+            if (this.syncState === "syncing") return "同步中…（点击查看说明）";
+            if (this.syncState === "synced") return "已同步（点击查看说明）";
+            if (this.syncState === "failed") {
+              const err = this.syncDetail && this.syncDetail.lastError;
+              return `同步失败：${(err && err.message) || "网络异常"}（点击查看详情）`;
+            }
+            return "同步状态（点击查看说明）";
+          },
+
           selectedCount() { return this.uploadedFiles.filter((f) => f.selected).length; },
           selectedFiles() { return this.uploadedFiles.filter((f) => f.selected); },
           isAllSelected() { return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected); },
@@ -2969,6 +2996,36 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             this.toastKey++;
             /* 时长改由共享层统一计算（长的消息停久一点），与其它页面一致 */
             setTimeout(() => { this.toasts.shift(); }, KVault.toastDelay(message));
+          },
+
+          /* ===== 同步状态点 ===== */
+          /* 把一次网络动作交给共享状态机：自动「同步中→已同步/失败+重试2次」。
+             失败时给错误打上 _syncedShown，调用方的 catch 据此避免重复弹 toast。 */
+          _syncTrack(fn, label) {
+            if (!this.syncTracker) return Promise.resolve().then(fn);
+            return this.syncTracker.track(fn, { label }).catch((err) => {
+              if (err && typeof err === "object") {
+                try { err._syncedShown = true; } catch (e) { /* 边角情况 */ }
+              }
+              throw err;
+            });
+          },
+          /* 点击圆点：解释「为什么会有延迟、为什么无法避免」 */
+          async showSyncExplain() {
+            /* 文案在共享层，保证 admin / index 两页口径完全一致 */
+            const base = this.syncTracker ? this.syncTracker.explain() : "";
+            let head = "";
+            if (this.syncState === "failed") {
+              const err = this.syncDetail && this.syncDetail.lastError;
+              const tries = (this.syncDetail && this.syncDetail.attempts) || 0;
+              head = `上次同步失败，已自动重试 ${Math.max(tries - 1, 0)} 次仍失败：`
+                + `${(err && err.message) || "网络异常"}\n\n`;
+            } else if (this.syncState === "synced") {
+              head = "当前内容已与云端同步。\n\n";
+            } else if (this.syncState === "syncing") {
+              head = "正在同步中，界面已先行更新，写入在后台进行。\n\n";
+            }
+            await this.alertDialog(head + base, { title: "关于同步与延迟" });
           },
 
           /* =====================================================
@@ -3658,9 +3715,12 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             this.persistExpanded();
 
             try {
-              const res = await fetch("/api/manage/folders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: createdPath }) });
-              const data = await res.json();
-              if (!res.ok || !data.success) throw new Error(data.error || "创建失败");
+              const data = await this._syncTrack(async () => {
+                const res = await fetch("/api/manage/folders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: createdPath }) });
+                const d = await res.json();
+                if (!res.ok || !d.success) throw new Error(d.error || "创建失败");
+                return d;
+              }, "新建目录");
               this.showToast(`已创建目录：${createdPath}`, "success");
             } catch (err) {
               // 回滚到操作前状态
@@ -3671,7 +3731,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               this.persistFolderPath();
               this.showUploadFolderCreator = true;
               this.newUploadFolderPath = createdPath;
-              this.showToast(err.message, "error");
+              if (!err || !err._syncedShown) this.showToast(err.message, "error");
             }
             finally { this.uploadFolderCreating = false; }
           },
@@ -3707,15 +3767,18 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             }
 
             try {
-              const res = await fetch("/api/manage/folders", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourcePath: node.path, targetPath }) });
-              const data = await res.json();
-              if (!res.ok || !data.success) throw new Error(data.error || "重命名失败");
+              const data = await this._syncTrack(async () => {
+                const res = await fetch("/api/manage/folders", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourcePath: node.path, targetPath }) });
+                const d = await res.json();
+                if (!res.ok || !d.success) throw new Error(d.error || "重命名失败");
+                return d;
+              }, "重命名目录");
               this.showToast(`已重命名：${targetPath}`, "success");
             } catch (err) {
               this.uploadFolders = foldersSnapshot;
               this.folderPath = pathSnapshot;
               this.persistFolderPath();
-              this.showToast(err.message, "error");
+              if (!err || !err._syncedShown) this.showToast(err.message, "error");
             }
           },
           async handleDeleteFolder(node) {
@@ -3736,15 +3799,18 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             if (inDeleted) this.selectUploadFolder("", true);
 
             try {
-              const res = await fetch(`/api/manage/folders?path=${encodeURIComponent(node.path)}&recursive=1`, { method: "DELETE", credentials: "include" });
-              const data = await res.json();
-              if (!res.ok || !data.success) throw new Error(data.error || "删除失败");
+              const data = await this._syncTrack(async () => {
+                const res = await fetch(`/api/manage/folders?path=${encodeURIComponent(node.path)}&recursive=1`, { method: "DELETE", credentials: "include" });
+                const d = await res.json();
+                if (!res.ok || !d.success) throw new Error(d.error || "删除失败");
+                return d;
+              }, "删除目录");
               this.showToast(`已删除目录：${node.path}`, "success");
             } catch (err) {
               this.uploadFolders = foldersSnapshot;
               this.folderPath = pathSnapshot;
               this.persistFolderPath();
-              this.showToast(err.message, "error");
+              if (!err || !err._syncedShown) this.showToast(err.message, "error");
             }
           },
           applyOptimisticFolderAdd(path) {
@@ -3779,13 +3845,15 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             if (this.uploadFoldersFetched && !force) return;
             this.uploadFoldersLoading = true;
             try {
-              const res = await fetch("/api/manage/folders", { credentials: "include" });
-              if (res.ok) {
-                const data = await res.json();
-                this.uploadFolders = data.folders || [];
-                this.uploadFoldersFetched = true;
-                if (this.folderPath) this.autoExpandAncestors(this.folderPath);
-              }
+              /* 目录列表拉取纳入同步追踪：失败会自动重试 2 次 */
+              const data = await this._syncTrack(async () => {
+                const res = await fetch("/api/manage/folders", { credentials: "include" });
+                if (!res.ok) throw new Error(`目录列表获取失败（HTTP ${res.status}）`);
+                return res.json();
+              }, "目录列表");
+              this.uploadFolders = data.folders || [];
+              this.uploadFoldersFetched = true;
+              if (this.folderPath) this.autoExpandAncestors(this.folderPath);
             } catch (e) {}
             finally { this.uploadFoldersLoading = false; }
           },
@@ -5618,6 +5686,27 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             }));
           },
         },
+        created() {
+          /* 同步状态点：状态机在共享层，这里只创建 + 订阅。
+             失败重试 2 次由 track() 内部完成（退避 600ms / 1500ms），
+             重试期间保持「同步中」不闪红，只有真正耗尽才置红。 */
+          try {
+            this.syncTracker = KVault.createSyncTracker({ maxRetries: 2 });
+            this._syncUnsub = this.syncTracker.subscribe((state, detail) => {
+              const prev = this.syncState;
+              this.syncState = state;
+              this.syncDetail = detail || { attempts: 0, lastError: null };
+              /* 只在「刚转为失败」的那一次提示，避免重试期间的中间态也弹 toast */
+              if (state === "failed" && prev !== "failed") {
+                const err = this.syncDetail.lastError;
+                const msg = (err && err.message) ? err.message : "网络异常";
+                this.showToast(`同步失败（已自动重试 2 次）：${msg}`, "error");
+              }
+            });
+          } catch (e) {
+            this.syncTracker = null;
+          }
+        },
         async mounted() {
           /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
           this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
@@ -5668,6 +5757,8 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             window.removeEventListener("keydown", this._dlgKeyHandler, true);
             this._dlgKeyHandler = null;
           }
+          /* 解除同步状态订阅，避免组件销毁后回调仍改已卸载的响应式状态 */
+          try { if (this._syncUnsub) this._syncUnsub(); } catch (e) {}
           /* 卸载时兜底放行所有仍在等待的对话框请求，避免 Promise 永久挂起 */
           if (this.dlgQueue && this.dlgQueue.length) {
             for (const job of this.dlgQueue) { try { job.resolve(false); } catch (_) {} }

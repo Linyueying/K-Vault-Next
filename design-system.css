@@ -609,6 +609,63 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .progress--lg { height: 8px; margin-top: var(--sp-2); }
 
 /* ==========================================================================
+   10.5 同步状态点 —— 全站唯一实现（.sync-dot）
+   ---------------------------------------------------------------------------
+   语义（四态，与「存储连接状态」的 .status-pulse 严格区分）：
+     is-idle     灰   — 尚无同步动作（初始态，不呼吸）
+     is-syncing  黄   — 同步中（向外扩散的警示环）
+     is-synced   绿   — 已同步（向外扩散的确认环，短暂停留后自然回到 idle）
+     is-failed   红   — 同步失败（重试耗尽；只做明暗呼吸，不扩散）
+
+   为什么必须放在共享层、而不是各页各写一份：
+     本组件在 admin.html 与 index.html 都要用，且外观必须一致。
+     一旦两页各写一份，就会重演历史上「改一页、另一页漂移」的老问题
+     （见 check_shared.py 的 [C]/[D] 检查）。
+
+   宿主：任意 inline-flex 容器即可。它是「纯展示 + 可点击」的原子组件，
+   状态机与重试逻辑在 app-core.js 的 KVault.createSyncTracker()，
+   CSS 只负责把状态映射成颜色与动画。 */
+.sync-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  transition: background var(--dur-base) var(--ease-apple),
+              box-shadow var(--dur-base) var(--ease-apple);
+}
+.sync-dot.is-syncing {
+  background: var(--c-warn);
+  animation: syncPulseWarn 1.5s var(--ease-apple) infinite;
+}
+.sync-dot.is-synced {
+  background: var(--c-success);
+  animation: syncPulseOk 2.2s var(--ease-apple) infinite;
+}
+.sync-dot.is-failed {
+  background: var(--c-danger);
+  animation: syncAlarmBreath 1.6s var(--ease-apple) infinite;
+}
+
+/* 可点击态：把圆点扩成一个有热区的按钮，避免 9px 难以点中。
+   注意热区靠 padding 撑开、视觉尺寸不变（内层仍是 .sync-dot）。 */
+.sync-dot-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px; margin: -6px;      /* 负 margin 抵消，视觉占位不变 */
+  border: 0; background: none; cursor: pointer;
+  border-radius: var(--r-pill);
+  line-height: 0;
+  transition: background var(--dur-base) var(--ease-apple);
+}
+.sync-dot-btn:hover { background: var(--glass-subtle); }
+.sync-dot-btn:active { transform: scale(0.92); transition-duration: 0.09s; }
+.sync-dot-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
    11. 关键帧 —— Apple 风格（全站共用，禁止页面再单独定义同名关键帧）
    ========================================================================== */
 @keyframes riseIn {
@@ -780,7 +837,25 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    原先还留着 fadeInUp / fadeUp / slideDown 三个别名，随各页面迁移到
    riseIn / riseInSm 后已无任何引用，故删除（check_tokens.py 会拦这类死定义）。 */
 @keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
-@keyframes dockRise  { from { opacity: 0; transform: translate3d(-50%, 26px, 0) scale(0.96); } to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); } }
+
+/* 同步状态点（.sync-dot）——三态各自的呼吸/告警节奏
+   与 pulseRing 的区别：pulseRing 是「已连接」的固定绿环（存储连接状态），
+   这里的三条是「数据同步」的过程状态，颜色随态变化，故不能复用。 */
+@keyframes syncPulseWarn {
+  0%   { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+@keyframes syncPulseOk {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+/* 失败：不扩散，只做轻微明暗呼吸 —— 与「进行中」的扩散状形成明确的语义区分 */
+@keyframes syncAlarmBreath {
+  0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.45); }
+  50%      { opacity: 0.72; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0); }
+}
 
 /* ==========================================================================
    12. 入场编排 —— 首屏元素错峰浮现（替代各页面手写的 boot 规则）
@@ -1258,6 +1333,13 @@ html[data-perf="low"] .spinner-ring,
 html[data-perf="low"] .fa-spin,
 html[data-perf="low"] [class*="pulse"],
 html[data-perf="low"] [class*="float"] {
+  animation: none !important;
+}
+
+/* 同步状态点：低性能档停掉循环动画，但**颜色必须保留** ——
+   颜色是语义本体（黄=同步中/绿=已同步/红=失败），停掉动画只是省掉呼吸，
+   绝不能连颜色一起丢，否则用户会彻底看不到同步状态。 */
+html[data-perf="low"] .sync-dot {
   animation: none !important;
 }
 

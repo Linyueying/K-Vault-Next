@@ -167,6 +167,177 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * 同步状态追踪器（sync tracker）
+   *   全站「数据同步状态」的唯一实现：黄=同步中 / 绿=已同步 / 红=失败。
+   *   在 admin.html 与 index.html 共用；两页只负责把网络动作包进 track()，
+   *   状态机、重试、去抖、原因文案都在这里，避免各写一份后互相漂移。
+   *
+   *   设计要点
+   *     1. 引用计数：并发多个同步动作时，只有全部结束才算「已同步」，
+   *        否则先完成的一个会把还在跑的另一个错误地标绿。
+   *     2. 短暂延迟后自动重试 2 次（共最多 3 次尝试），退避为 600ms / 1500ms。
+   *        重试期间保持「同步中」，不闪红 —— 用户只该看到真正的最终结果。
+   *     3. 终态：成功 -> synced（短暂高亮后回 idle）；三次都失败 -> failed（常驻）。
+   *     4. 订阅式：onChange(state) 回调，页面把 state 绑到 .sync-dot 的 class 上。
+   * ------------------------------------------------------------------ */
+
+  // 重试退避（毫秒）。第 N 次失败后等待 RETRY_BACKOFF[N-1] 再试下一次。
+  var SYNC_RETRY_BACKOFF = [600, 1500];
+  // 成功后绿点停留时长：够看清「刚刚同步成功」，又不会一直亮着干扰。
+  var SYNC_SETTLED_HOLD = 2200;
+
+  /**
+   * 创建一个同步状态追踪器。
+   *
+   * @param {Object} opts
+   *   - maxRetries {number}   失败后的额外重试次数，默认 2（即最多尝试 3 次）
+   *   - backoff    {number[]} 每次重试前的等待毫秒数，默认 [600, 1500]
+   *   - holdMs     {number}   成功后绿点停留时长，默认 2200
+   *   - onChange   {Function} (state, detail) => void，状态变化时回调
+   * @returns {Object} tracker
+   *   - track(fn, meta)  {Function} 包住一个异步动作，返回其 Promise
+   *   - state            {string} 当前态：idle | syncing | synced | failed
+   *   - detail           {Object} 最近一次的结果细节（含 attempts / lastError）
+   *   - subscribe(fn)    {Function} 注册回调，返回取消函数
+   *   - reset()          {Function} 手动回到 idle（清掉红点）
+   */
+  function createSyncTracker(opts) {
+    var o = opts || {};
+    var maxRetries = o.maxRetries == null ? 2 : o.maxRetries;
+    var backoff = o.backoff || SYNC_RETRY_BACKOFF;
+    var holdMs = o.holdMs == null ? SYNC_SETTLED_HOLD : o.holdMs;
+
+    var listeners = [];
+    // 并发计数：>0 视为「同步中」。用计数而非布尔，避免并发互相覆盖。
+    var pending = 0;
+    var state = "idle";
+    var detail = { attempts: 0, lastError: null, at: 0 };
+    var holdTimer = null;
+
+    function emit() {
+      var snapshot = state;
+      var info = detail;
+      listeners.forEach(function (fn) {
+        try { fn(snapshot, info); } catch (e) { /* 订阅者出错不影响状态机 */ }
+      });
+    }
+
+    function set(newState, extra) {
+      if (extra) detail = Object.assign({}, detail, extra);
+      if (state === newState) { emit(); return; }
+      state = newState;
+      emit();
+    }
+
+    function clearHold() {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+    }
+
+    function sleep(ms) {
+      return new Promise(function (r) { setTimeout(r, ms); });
+    }
+
+    /**
+     * 包住一个异步动作，自动处理「同步中 -> 已同步 / 失败 + 重试」。
+     *
+     * @param {Function} fn    () => Promise，真正的网络动作
+     * @param {Object}   meta  可选，{ label: '目录列表' }，仅用于 detail 描述
+     * @returns {Promise}      与 fn 同解；失败时抛出最后一次的错误
+     */
+    function track(fn, meta) {
+      clearHold();
+      pending += 1;
+      set("syncing", {
+        label: (meta && meta.label) || "",
+        attempts: 0,
+        lastError: null,
+      });
+
+      var attempts = 0;
+      // 递归重试：attempts 记的是「已经尝试过的次数」
+      function attempt() {
+        attempts += 1;
+        return Promise.resolve()
+          .then(fn)
+          .then(function (res) {
+            detail = Object.assign({}, detail, { attempts: attempts, lastError: null, at: Date.now() });
+            pending -= 1;
+            if (pending <= 0) {
+              pending = 0;
+              set("synced");
+              // 绿点只作短暂确认，随后自然回到 idle（灰）
+              holdTimer = setTimeout(function () {
+                if (state === "synced" && pending === 0) set("idle");
+              }, holdMs);
+            }
+            return res;
+          })
+          .catch(function (err) {
+            if (attempts <= maxRetries) {
+              var wait = backoff[Math.min(attempts - 1, backoff.length - 1)] || 600;
+              detail = Object.assign({}, detail, { attempts: attempts, lastError: err, at: Date.now() });
+              return sleep(wait).then(attempt);
+            }
+            // 重试耗尽：真正的失败
+            detail = Object.assign({}, detail, { attempts: attempts, lastError: err, at: Date.now() });
+            pending -= 1;
+            if (pending <= 0) pending = 0;
+            set("failed");
+            throw err;
+          });
+      }
+
+      return attempt();
+    }
+
+    function subscribe(fn) {
+      if (typeof fn !== "function") return function () {};
+      listeners.push(fn);
+      // 立即回放当前状态，订阅方无需先判断初始值
+      try { fn(state, detail); } catch (e) { /* noop */ }
+      return function () {
+        var i = listeners.indexOf(fn);
+        if (i > -1) listeners.splice(i, 1);
+      };
+    }
+
+    function reset() {
+      clearHold();
+      if (pending === 0) set("idle", { attempts: 0, lastError: null });
+    }
+
+    /* 供页面渲染「为什么会有延迟」的说明文案。
+       内容是产品层面的解释（同步为什么要走后端、延迟为何不可避免），
+       不是错误堆栈 —— 所以放在共享层，保证两页口径一致。 */
+    function explain() {
+      return [
+        "同步需要把改动写到云端存储，这一趟往返是躲不掉的：",
+        "",
+        "1. 网络往返 —— 你的操作要先送到 Cloudflare 边缘节点，再由它写进存储。物理距离决定了最低延迟，无法在前端消除。",
+        "2. 云端写入 —— 目录的增删改会逐个改写其中文件的元数据；文件越多，这一步越久。",
+        "3. 列表刷新 —— 为了让界面和云端一致，需要重新拉取一次列表。",
+        "",
+        "所以界面会先把改动立刻显示出来（乐观更新），同时后台静默完成真正的写入。",
+        "圆点就是这条后台链路的进度：黄=同步中，绿=已同步，红=失败（已自动重试 2 次）。",
+      ].join("\n");
+    }
+
+    return {
+      track: track,
+      subscribe: subscribe,
+      reset: reset,
+      explain: explain,
+      get state() { return state; },
+      get detail() { return detail; },
+      get pending() { return pending; },
+      STATE_IDLE: "idle",
+      STATE_SYNCING: "syncing",
+      STATE_SYNCED: "synced",
+      STATE_FAILED: "failed",
+    };
+  }
+
+  /* ------------------------------------------------------------------ *
    * 时间格式化
    *   统一为「本地化的 YYYY-MM-DD HH:mm」，各页展示口径一致
    * ------------------------------------------------------------------ */
@@ -261,7 +432,7 @@
   }
 
   window.KVault = {
-    version: "1.1.0",
+    version: "1.2.0",
     formatBytes: formatBytes,
     formatSize: formatBytes, // 别名：多数页面用这个名字
     formatTime: formatTime,
@@ -276,6 +447,7 @@
     debounce: debounce,
     glassInit: glassInit,
     revealOnScroll: revealOnScroll,
+    createSyncTracker: createSyncTracker,
   };
 
   /* 自动初始化：纯增强、可失败。
