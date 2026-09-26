@@ -184,14 +184,23 @@ async function testAdmin() {
     await ctx.close();
   }
 
-  // --- E. 点击圆点 -> 说明弹窗（idle 时点是隐藏的，先触发一次同步让它现身） ---
+  // --- E. 读操作不驱动状态点 + 点击圆点 -> 说明弹窗 ---
   {
     const { ctx, page, errors } = await openPage('admin.html');
     await page.waitForTimeout(1500);
-    // 触发一次真实同步：点目录面板的「刷新」按钮 -> 黄/绿点出现
+    /* 核心语义断言：读操作（刷新列表）【不】点亮状态点 ——
+       绿点只由用户写操作驱动，否则后台刷新会给过期数据"背书" */
     await page.locator('button[title="刷新"]').first().click({ force: true }).catch(() => {});
-    /* 点可见才可点（idle 时 visibility:hidden）；一次点击可能落在状态切换的
-       空隙上，轮询「可见就点、弹窗没开就再等再点」，10s 兜底 */
+    await page.waitForTimeout(2000);
+    const stAfterRead = await dotState(page);
+    log(stAfterRead === 'idle', 'admin 读操作不驱动状态点（保持隐藏）', stAfterRead);
+
+    /* 触发一次真实【写】操作让点现身，然后点击圆点 */
+    const name = `sync-admex-${Date.now()}`;
+    await page.locator('button[title="新建目录"]').first().click({ force: true });
+    await page.waitForTimeout(400);
+    await page.locator('.dialog-input').fill(name);
+    await page.locator('.dialog-actions .btn--primary').click({ force: true });
     let opened = false;
     const t0 = Date.now();
     while (Date.now() - t0 < 10000 && !opened) {
@@ -293,10 +302,20 @@ async function testIndex() {
   {
     const { ctx, page, errors } = await openPage('index.html');
     await page.waitForTimeout(1500);
-    /* 打开上传抽屉的目录 Tab，点「从云端同步目录」触发一次同步，让点现身 */
+    /* 打开上传抽屉的目录 Tab：读操作（点「从云端同步目录」）不应点亮状态点 */
     await page.locator('[data-dock-slot="2"]').first().click({ force: true }).catch(() => {});
     await page.waitForTimeout(900);
     await page.locator('button[title="从云端同步目录"]').first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(2000);
+    const stAfterRead = await dotState(page);
+    log(stAfterRead === 'idle', 'index 读操作不驱动状态点（保持隐藏）', stAfterRead);
+
+    /* 触发一次真实【写】操作让点现身，然后点击圆点 */
+    const name = `sync-indexex-${Date.now()}`;
+    await page.locator('.folder-new-trigger').click({ force: true });
+    await page.waitForTimeout(300);
+    await page.locator('.folder-new input').first().fill(name);
+    await page.locator('.folder-new .btn--primary').click({ force: true });
     let opened = false;
     const t0 = Date.now();
     while (Date.now() - t0 < 10000 && !opened) {

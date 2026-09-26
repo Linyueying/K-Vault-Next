@@ -274,6 +274,12 @@ export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);
   const storageFilter = String(url.searchParams.get('storage') || '').toLowerCase();
+  // fresh=1：跳过 fstat: 快照直扫全表。用于「写操作成功后的静默校正」——
+  // KV 是最终一致且边缘有读缓存（最长 60s），刚失效的快照键仍可能被读到旧值，
+  // 把已删除的目录刷回界面。绕开快照虽不能 100% 消除跨 POP 延迟，
+  // 但避开了「快照键缓存」这个最大的旧值来源；
+  // 且 fresh 模式不把扫描结果写回快照，避免把传播中的旧状态固化下来。
+  const fresh = url.searchParams.get('fresh') === '1';
 
   if (!env.img_url) {
     return json({ success: false, error: 'KV binding img_url is not configured.' }, 500);
@@ -287,7 +293,7 @@ export async function onRequestGet(context) {
 
   // 快路径：读 fstat: 快照（1 次读），直接给出文件夹树，不再全表扫描。
   // 带 storage 过滤时快照不含该维度，退回全量扫描以保证筛选正确。
-  if (!storageFilter) {
+  if (!storageFilter && !fresh) {
     const snapshot = await readFolderSnapshot(env);
     if (snapshot) {
       const nodes = snapshotToNodes(snapshot, storageFilter);
@@ -313,8 +319,9 @@ export async function onRequestGet(context) {
     .filter(isFolderMarker)
     .filter((item) => matchStorage(inferStorageType(item.name, item.metadata || {}), storageFilter));
 
-  // 仅在无过滤时重建快照（否则快照会丢失 storage 维度语义）
-  if (!storageFilter) {
+  // 仅在无过滤且非 fresh 时重建快照（否则快照会丢失 storage 维度语义；
+  // fresh 模式下写回会把传播中的旧状态固化成快照，见函数顶部说明）
+  if (!storageFilter && !fresh) {
     await writeFolderSnapshot(env, buildFolderSnapshot(allKeys));
   }
 

@@ -3001,7 +3001,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
 
           /* ===== 同步状态点 ===== */
           /* 把一次网络动作交给共享状态机：自动「同步中→已同步/失败+重试2次」。
-             失败时给错误打上 _syncedShown，调用方的 catch 据此避免重复弹 toast。 */
+             失败时给错误打上 _syncedShown，调用方的 catch 据此避免重复弹 toast。
+             只有【写操作】走这里 —— 读操作（目录列表刷新）不驱动状态点，
+             否则后台刷新会给过期数据"背书"（误以为同步成功）。 */
           _syncTrack(fn, label) {
             if (!this.syncTracker) return Promise.resolve().then(fn);
             return this.syncTracker.track(fn, { label }).catch((err) => {
@@ -3010,6 +3012,25 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               }
               throw err;
             });
+          },
+          /* ===== 写后校正的防回退登记（与 admin.html 同一套约定） ===== */
+          rememberFolderOp(op, ms = 8000) {
+            if (!this._recentFolderOps) this._recentFolderOps = [];
+            this._recentFolderOps.push(Object.assign({ until: Date.now() + ms }, op));
+          },
+          folderDataIsStale(incoming) {
+            const ops = this._recentFolderOps || [];
+            if (!ops.length) return false;
+            const now = Date.now();
+            const has = (p) => (incoming || []).some((f) => this.normalizeFolderPath(f.path) === p);
+            for (const op of ops) {
+              if (op.until < now) continue;
+              if (op.type === "delete" && has(op.path)) return true;    /* 刚删的又回来 */
+              if (op.type === "create" && !has(op.path)) return true;   /* 刚建的不在   */
+              if (op.type === "rename" && !has(op.to)) return true;     /* 刚改名的没变 */
+            }
+            this._recentFolderOps = ops.filter((o) => o.until >= now);
+            return false;
           },
           /* 点击圆点：解释「为什么会有延迟、为什么无法避免」 */
           async showSyncExplain() {
@@ -3723,6 +3744,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                 return d;
               }, "新建目录");
               this.showToast(`已创建目录：${createdPath}`, "success");
+              /* 登记 + fresh 静默校正：绕开快照缓存，防止过期快照把新目录"刷丢" */
+              this.rememberFolderOp({ type: "create", path: createdPath });
+              this.fetchUploadFolders(true, { fresh: 1, silent: true });
             } catch (err) {
               // 回滚到操作前状态
               this.uploadFolders = foldersSnapshot;
@@ -3775,6 +3799,8 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                 return d;
               }, "重命名目录");
               this.showToast(`已重命名：${targetPath}`, "success");
+              this.rememberFolderOp({ type: "rename", path: node.path, to: targetPath });
+              this.fetchUploadFolders(true, { fresh: 1, silent: true });
             } catch (err) {
               this.uploadFolders = foldersSnapshot;
               this.folderPath = pathSnapshot;
@@ -3796,6 +3822,11 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             const foldersSnapshot = this.uploadFolders;
             const pathSnapshot = this.folderPath;
             const inDeleted = this.folderPath === node.path || this.folderPath.startsWith(node.path + "/");
+            /* 先捕获将被乐观移除的目录（含子目录），供写后校正做防回退比对 */
+            const removedN = this.normalizeFolderPath(node.path);
+            const removedPaths = (this.uploadFolders || [])
+              .map((f) => this.normalizeFolderPath(f.path))
+              .filter((p) => p === removedN || p.startsWith(removedN + "/"));
             this.applyOptimisticFolderDelete(node.path);
             if (inDeleted) this.selectUploadFolder("", true);
 
@@ -3807,6 +3838,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                 return d;
               }, "删除目录");
               this.showToast(`已删除目录：${node.path}`, "success");
+              /* 登记 + fresh 静默校正：绕开快照缓存，防止过期快照把刚删的目录刷回来 */
+              removedPaths.forEach((p) => this.rememberFolderOp({ type: "delete", path: p }));
+              this.fetchUploadFolders(true, { fresh: 1, silent: true });
             } catch (err) {
               this.uploadFolders = foldersSnapshot;
               this.folderPath = pathSnapshot;
@@ -3840,23 +3874,30 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               return p !== oldN && !p.startsWith(oldN + "/");
             });
           },
-          async fetchUploadFolders(force = false) {
+          async fetchUploadFolders(force = false, opts = {}) {
             if (force && !this.isGuest) this.pulseNodeSettle();
             if (this.isGuest) { this.uploadFoldersLoading = false; return; }
             if (this.uploadFoldersFetched && !force) return;
-            this.uploadFoldersLoading = true;
+            /* silent：写后静默校正不转圈，不打扰用户 */
+            if (!opts.silent) this.uploadFoldersLoading = true;
             try {
-              /* 目录列表拉取纳入同步追踪：失败会自动重试 2 次 */
-              const data = await this._syncTrack(async () => {
-                const res = await fetch("/api/manage/folders", { credentials: "include" });
-                if (!res.ok) throw new Error(`目录列表获取失败（HTTP ${res.status}）`);
-                return res.json();
-              }, "目录列表");
-              this.uploadFolders = data.folders || [];
-              this.uploadFoldersFetched = true;
-              if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+              /* 目录列表是读操作，【不】走同步状态点 —— 绿点只由用户写操作驱动。
+                 fresh=1：写后校正绕开后端 fstat: 快照直扫 KV（快照键在 KV
+                 最终一致/边缘缓存下可能读到旧值，把刚删的目录刷回界面） */
+              const p = new URLSearchParams({ _t: String(Date.now()) });
+              if (opts.fresh) p.set("fresh", "1");
+              const res = await fetch("/api/manage/folders?" + p, { credentials: "include" });
+              if (!res.ok) throw new Error(`目录列表获取失败（HTTP ${res.status}）`);
+              const data = await res.json();
+              /* 防回退：与「刚完成的乐观写操作」矛盾（刚删的目录复活/刚建的丢失）
+                 说明是过期数据，丢弃本次刷新，保持乐观状态 */
+              if (!this.folderDataIsStale(data.folders || [])) {
+                this.uploadFolders = data.folders || [];
+                this.uploadFoldersFetched = true;
+                if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+              }
             } catch (e) {}
-            finally { this.uploadFoldersLoading = false; }
+            finally { if (!opts.silent) this.uploadFoldersLoading = false; }
           },
 
           /* ===== 上传入口 ===== */

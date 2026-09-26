@@ -2862,14 +2862,11 @@ Vue.createApp({
       if (this.storage !== 'all') p.set('storage', this.storage);
 
       try {
-        /* 文件列表拉取同样纳入同步追踪；成功判定在追踪函数内部，
-           否则 HTTP 500 会被 .json() 吞掉，状态机永远走不到失败/重试 */
-        const r = await this._syncTrack(async () => {
-          const res = await fetch('./api/manage/list?' + p, { credentials: 'include' });
-          const d = await res.json();
-          if (!res.ok || (d && d.error)) throw new Error((d && d.error) || `列表获取失败（HTTP ${res.status}）`);
-          return d;
-        }, '文件列表');
+        /* 文件列表是读操作，【不】走同步状态点 —— 绿点只由用户写操作驱动，
+           否则后台刷新的成功/失败会稀释「我的操作已同步」的语义 */
+        const res = await fetch('./api/manage/list?' + p, { credentials: 'include' });
+        const r = await res.json();
+        if (!res.ok) throw new Error((r && r.error) || `列表获取失败（HTTP ${res.status}）`);
         const arr = (r.keys || []).map(x => ({
           ...x,
           selected: false,
@@ -2882,31 +2879,60 @@ Vue.createApp({
         this.loadError = e.message || '网络异常';
         this.files = [];
         this.total = 0;
-        if (!e || !e._syncedShown) this.showToast('加载文件失败', 'error');
+        this.showToast('加载文件失败', 'error');
       } finally {
         this.loadingMore = false;
       }
     },
 
-    async loadFolders() {
+    async loadFolders(opts = {}) {
       this.folderLoading = true;
       try {
         const p = new URLSearchParams();
         p.set('_t', Date.now());
         if (this.storage !== 'all') p.set('storage', this.storage);
-        /* 目录列表拉取纳入同步追踪：失败会自动重试 2 次 */
-        const run = () => fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => {
+        /* fresh=1：写操作成功后的静默校正专用。绕开后端 fstat: 快照直扫 KV ——
+           快照键在 KV 最终一致/边缘缓存（最长 60s）下可能读到旧值，
+           把刚删的目录刷回界面。读操作【不】走同步状态点：
+           绿点只由用户的写操作驱动，否则后台刷新会给过期数据"背书"。 */
+        if (opts.fresh) p.set('fresh', '1');
+        const r = await fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => {
           if (!r.ok) throw new Error(`目录列表获取失败（HTTP ${r.status}）`);
           return r.json();
         });
-        const r = await (this.syncTracker ? this.syncTracker.track(run, { label: '目录列表' }) : run());
-        this.folders = Array.isArray(r.folders) ? r.folders : [];
+        const incoming = Array.isArray(r.folders) ? r.folders : [];
+        /* 防回退：结果与「刚完成的乐观写操作」矛盾（如刚删的目录复活）
+           说明拿到的是过期数据 —— 丢弃本次刷新，保持乐观状态不动 */
+        if (this.folderDataIsStale(incoming)) return;
+        this.folders = incoming;
       } catch (e) {
-        /* 追踪器已负责提示失败，这里保持原有「清空列表」的兜底行为 */
         this.folders = [];
       } finally {
         this.folderLoading = false;
       }
+    },
+
+    /* ============ 写后校正的防回退登记 ============ */
+    /* 近期乐观写操作：[{ type: 'create'|'delete'|'rename', path, to?, until }]。
+       写成功后登记；loadFolders 应用数据前比对，矛盾即判定为过期快照并丢弃。 */
+    rememberFolderOp(op, ms = 8000) {
+      if (!this._recentFolderOps) this._recentFolderOps = [];
+      this._recentFolderOps.push(Object.assign({ until: Date.now() + ms }, op));
+    },
+    folderDataIsStale(incoming) {
+      const ops = this._recentFolderOps || [];
+      if (!ops.length) return false;
+      const now = Date.now();
+      const has = (p) => incoming.some(f => this.normalizeFolderPath(f.path) === p);
+      for (const op of ops) {
+        if (op.until < now) continue;
+        if (op.type === 'delete' && has(op.path)) return true;    /* 刚删的又回来 */
+        if (op.type === 'create' && !has(op.path)) return true;   /* 刚建的不在   */
+        if (op.type === 'rename' && !has(op.to)) return true;     /* 刚改名的没变 */
+      }
+      /* 清理已过期的登记 */
+      this._recentFolderOps = ops.filter(o => o.until >= now);
+      return false;
     },
 
     async refresh() {
@@ -3038,8 +3064,9 @@ Vue.createApp({
           return d;
         }, '新建目录');
         this.showToast('目录已创建', 'success');
-        // 后台静默校正（走 fstat 快照，开销极小），不阻塞、不重拉文件全量
-        this.loadFolders();
+        /* 登记 + fresh 校正：绕开快照缓存，防止过期快照把新目录"刷丢" */
+        this.rememberFolderOp({ type: 'create', path });
+        this.loadFolders({ fresh: 1 });
       } catch (e) {
         this.folders = foldersSnapshot;
         /* 追踪器失败时已弹过 toast（e._syncedShown），这里不再重复提示 */
@@ -3088,7 +3115,9 @@ Vue.createApp({
           return d;
         }, '重命名目录');
         this.showToast('目录已重命名', 'success');
-        this.loadFolders();
+        /* 登记 + fresh 校正：绕开快照缓存，防止过期快照把旧目录名刷回来 */
+        this.rememberFolderOp({ type: 'rename', path: source, to: target });
+        this.loadFolders({ fresh: 1 });
       } catch (e) {
         this.folders = foldersSnapshot;
         this.folderPath = pathSnapshot;
@@ -3119,6 +3148,10 @@ Vue.createApp({
 
       // ① 乐观更新：立即从侧栏移除该目录及其子目录，并跳回父目录
       const prefix = target + '/';
+      /* 先捕获将被乐观移除的目录（含子目录），供写后校正做防回退比对 */
+      const removedPaths = this.folders
+        .filter(f => f.path === target || f.path.startsWith(prefix))
+        .map(f => f.path);
       this.folders = this.folders.filter(f => f.path !== target && !f.path.startsWith(prefix));
       this.folderPath = parent;
       this.currentPage = 1;
@@ -3146,8 +3179,10 @@ Vue.createApp({
         }, '删除目录');
         const moved = Number(r.clearedFiles || 0);
         this.showToast(moved ? `目录已删除，${moved} 个文件已移回根目录` : '目录已删除', 'success');
-        // 仅后台静默校正目录树（走 fstat 快照，开销极小），不阻塞、不重拉文件全量
-        this.loadFolders();
+        /* 登记 + fresh 校正：绕开快照缓存。否则 KV 边缘缓存可能把刚删的目录
+           连同旧快照一起刷回来，看起来就像「乐观更新失效」 */
+        removedPaths.forEach(p => this.rememberFolderOp({ type: 'delete', path: p }));
+        this.loadFolders({ fresh: 1 });
       } catch (e) {
         // 回滚到操作前状态
         this.folders = foldersSnapshot;
