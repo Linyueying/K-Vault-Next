@@ -2373,12 +2373,10 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
            紧接着 chunk.arrayBuffer() 又复制一份 —— 单片瞬时峰值约 2× 分片大小。
            故硬约束是：分片大小 × 2 × 并发 <= 96MB（给 Worker 留约 25% 余量）。
 
-         ⚠️ 当前分片大小固定 50MB（见 resolveChunkSizeForMode，必须与 init.js
-            一致），代入后 96MB/(50MB×2) = 0 → 实际并发恒为 1，即仍是串行。
-            也就是说：下面的多路机制已经就位，但只有在分片能调小的前提下
-            才会真正生效；在那之前它只是把串行循环换成等价的 worker 池。
-            要让并行真正生效，必须先让 init.js 接受前端声明的 chunkSize
-            （现在是后端单方面定 50MB 再强校验 totalChunks，前端无权改小）。 */
+         ⚠️ 分片大小现在由前端自适应声明（见 resolveChunkSizeForMode），
+            并经 init.js 放行（范围 5MB~后端上限、片数 ≤256）。默认 10MB 分片
+            代入 96MB/(10MB×2) = 4 路，多路机制真正生效；大文件分片被放大后
+            会自动退化回串行（如 40MB → 1 路），不会打爆 128MB isolate。 */
       const PARALLEL_MAX_CHUNKS = 6;
 
       /* 内存预算：Worker 128MB 上限，这里按 96MB 封顶留约 25% 余量
@@ -2387,6 +2385,13 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       /* 单片在 Worker 侧的份数：formData 缓冲一份 + arrayBuffer() 复制一份。
          若将来改成 raw body 流式透传，这个值降到 ~0，并发即可大幅放开。 */
       const CHUNK_MEMORY_FACTOR = 2;
+
+      /* 分片数硬上限，必须与后端 init.js / chunk.js 的 MAX_TOTAL_CHUNKS(256) 一致。
+         分片变小的代价是片数变多，超过这个数 init 会直接拒绝，
+         所以 resolveChunkSizeForMode 的下限里夹了 ceil(fileSize/本值)。 */
+      const MAX_TOTAL_CHUNKS = 256;
+      /* R2/S3 multipart 协议下限：除最后一片外每片不得小于 5MB。 */
+      const MIN_CHUNK_SIZE = 5 * 1024 * 1024;
 
       /* 单个任务的自动重试预算（不含首次尝试）。
          调度器 canRun() 允许 status === "error" 且 want === "run" 的任务重新入队，
@@ -3200,21 +3205,29 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             }
             return preferred || "r2";
           },
-          /* ⚠️ 分片大小必须与服务端 init.js 逐字一致，不能自行调小。
-             init.js 会用它自己推导的 chunkSize 反算 expectedTotalChunks，
-             并要求与前端声明的 totalChunks 完全相等（否则 400
-             CHUNK_COUNT_MISMATCH）。即后端是「先定 chunkSize 再推片数」，
-             而不是按前端声明的片数反推 —— 所以这里改小分片会 100% 上传失败。
-             后端规则见 init.js：resolveChunkSizeForBackend(chunkBackend === 'r2')
-               - r2 → 50MB
-               - kv → 20MB（KV 单值上限 25MB）
+          /* 分片大小由前端自适应声明，并经 init.js 放行：
+             init.js 接受前端声明的 chunkSize，只做范围（5MB~后端上限）与
+             片数（≤256）校验，不再自己定死。故这里可以调小分片换并发。
+             前端把算出的 chunkSize 一并传给 init，后端用同样的值反算
+             expectedTotalChunks 与声明比对。后端规则见 init.js：
+               - r2 上限 50MB / kv 上限 20MB（KV 单值上限 25MB）
              前端没有 resolveChunkBackend 的服务端视角，只能用「目标模式 + R2 可用性」
              近似，这一点与原实现一致。 */
-          resolveChunkSizeForMode(mode) {
+          resolveChunkSizeForMode(mode, fileSize) {
             const CHUNK_SIZE_R2 = 50 * 1024 * 1024;
             const CHUNK_SIZE_KV = 20 * 1024 * 1024;
-            if (mode === "r2") return CHUNK_SIZE_R2;
-            return this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
+            const PREFERRED_CHUNK_SIZE = 10 * 1024 * 1024; // 期望 10MB：配合 4 路并发，峰值 80MB
+            const capByBackend = (mode === "r2" || this.r2Available) ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV;
+            const size = Number(fileSize) || 0;
+            /* 下限取三者最大：
+                 - 想要的较小分片（换高并发）
+                 - 片数约束推出的下限 ceil(size/256)：保证片数 ≤ MAX_TOTAL_CHUNKS
+                 - multipart 协议下限 5MB
+               5GB 若也用 10MB 会切出 512 片被 init 拒，故必须随文件放大。
+               上限沿用后端能力（r2 50MB / kv 20MB），与 init.js 一致。 */
+            const byChunkCount = size > 0 ? Math.ceil(size / MAX_TOTAL_CHUNKS) : 0;
+            const lower = Math.max(PREFERRED_CHUNK_SIZE, byChunkCount, MIN_CHUNK_SIZE);
+            return Math.min(capByBackend, lower);
           },
           isSmartModeAvailable() { return this.largeStorageOptions.some((o) => this.isStorageAvailable(o.value)); },
 
@@ -4270,7 +4283,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           async chunkedUpload(item, token) {
             const file = item.file;
             const mode = item.targetMode || this.storageMode;
-            const chunkSize = this.resolveChunkSizeForMode(mode);
+            const chunkSize = this.resolveChunkSizeForMode(mode, file.size);
             const totalChunks = Math.ceil(file.size / chunkSize);
             if (!item.fileId) { item.statusText = "计算文件指纹..."; item.fileId = await this.computeFileId(file); }
             this.assertTaskRunning(item, token);
@@ -4282,7 +4295,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 fileName: file.name, fileSize: file.size, fileType: file.type,
-                totalChunks: totalChunks, storageMode: mode, folderPath: this.folderPath,
+                totalChunks: totalChunks, chunkSize: chunkSize, storageMode: mode, folderPath: this.folderPath,
                 shareOptions: this.buildShareOptions(),
                 fileId: item.fileId, resume: true, uploadId: item.uploadId || undefined,
               }),
