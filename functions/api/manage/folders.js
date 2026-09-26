@@ -173,6 +173,30 @@ function buildFolderSnapshot(allKeys) {
 const FSTAT_KEY = 'fstat:__index__';
 
 /**
+ * 分批并发执行异步任务，避免一次性打爆 KV 的并发/写入速率限制。
+ *
+ * 背景：目录删除需要逐个改写目录内所有文件的 metadata（把 folderPath 清空）。
+ * 早期实现是 `for (const item of list) await put(...)` 的串行写法 —— 每个文件
+ * 都是一次完整的 KV 网络往返，文件多时耗时线性增长（线上数百个文件可达数秒）。
+ * 改为分批并发后，同样是 N 次写，但并行发起，整体耗时降到 ≈ (N/批次) 个往返。
+ *
+ * 每批用 allSettled：单个失败不影响其余，最后统计成功数即可。
+ *
+ * @param {Array} items 待处理项
+ * @param {(item:any)=>Promise<any>} worker 单项处理函数
+ * @param {number} [size] 每批并发数
+ * @returns {Promise<number>} 成功（fulfilled）的数量
+ */
+async function runBatched(items, worker, size = 16) {
+  let ok = 0;
+  for (let i = 0; i < items.length; i += size) {
+    const results = await Promise.allSettled(items.slice(i, i + size).map(worker));
+    ok += results.filter((r) => r.status === 'fulfilled').length;
+  }
+  return ok;
+}
+
+/**
  * 读取文件夹统计快照。
  * @returns {Promise<{version:number, folders:object}|null>}
  */
@@ -460,21 +484,17 @@ export async function onRequestDelete(context) {
 
   let clearedFiles = 0;
   if (recursive) {
-    for (const item of filesInFolder) {
-      const metadata = {
+    // 分批并发改写：把目录内文件移回根目录（清空 folderPath，文件本身不删）
+    clearedFiles = await runBatched(filesInFolder, (item) => env.img_url.put(item.name, '', {
+      metadata: {
         ...(item.metadata || {}),
         folderPath: '',
-      };
-      await env.img_url.put(item.name, '', { metadata });
-      clearedFiles += 1;
-    }
+      },
+    }));
   }
 
-  let deletedMarkers = 0;
-  for (const marker of markersInFolder) {
-    await env.img_url.delete(marker.name);
-    deletedMarkers += 1;
-  }
+  // 分批并发删除目录标记
+  let deletedMarkers = await runBatched(markersInFolder, (marker) => env.img_url.delete(marker.name));
 
   if (!recursive) {
     await env.img_url.delete(`folder:${path}`);

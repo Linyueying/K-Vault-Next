@@ -2963,6 +2963,10 @@ Vue.createApp({
       }
     },
 
+    /* 删除目录：把目录内文件移回根目录（文件不删、直链不失效）。
+       后端要逐个改写目录内所有文件的 metadata，文件多时为串行耗时可达数秒。
+       因此这里采用【乐观更新】：先本地移除目录并跳回父目录，界面即时响应；
+       请求在后台进行，成功静默校正、失败回滚。 */
     async deleteFolder() {
       if (!this.folderPath) return;
       const ok = await this.askConfirm(
@@ -2970,17 +2974,46 @@ Vue.createApp({
         '删除目录', true
       );
       if (!ok) return;
+
       const target = this.folderPath;
+      const parent = target.split('/').slice(0, -1).join('/');
+
+      // 快照供失败回滚
+      const foldersSnapshot = this.folders;
+      const filesSnapshot = this.files;
+      const pathSnapshot = this.folderPath;
+
+      // ① 乐观更新：立即从侧栏移除该目录及其子目录，并跳回父目录
+      const prefix = target + '/';
+      this.folders = this.folders.filter(f => f.path !== target && !f.path.startsWith(prefix));
+      this.folderPath = parent;
+      this.currentPage = 1;
+      try { localStorage.setItem('adminFolderPath', parent); } catch (e) {}
+
+      // ② 本地就地更新受影响文件：后端恒把目录内文件移回【根目录】，
+      //    故把 folderPath 清空即可（省掉一次 list?limit=1000 全量刷新）
+      this.files = this.files.map(f => {
+        const fp = this.normalizeFolderPath((f.metadata && f.metadata.folderPath) || '');
+        return (fp === target || fp.startsWith(prefix))
+          ? Object.assign({}, f, { metadata: Object.assign({}, f.metadata, { folderPath: '' }) })
+          : f;
+      });
+
+      // ③ 后台真正执行
       try {
         const r = await fetch('./api/manage/folders?path=' + encodeURIComponent(target) + '&recursive=1', {
           method: 'DELETE', credentials: 'include'
         }).then(r => r.json());
         if (!r.success) throw new Error(r.error || '删除失败');
-        this.folderPath = target.split('/').slice(0, -1).join('/');
-        try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
-        await this.refresh();
-        this.showToast('目录已删除', 'success');
+        const moved = Number(r.clearedFiles || 0);
+        this.showToast(moved ? `目录已删除，${moved} 个文件已移回根目录` : '目录已删除', 'success');
+        // 仅后台静默校正目录树（走 fstat 快照，开销极小），不阻塞、不重拉文件全量
+        this.loadFolders();
       } catch (e) {
+        // 回滚到操作前状态
+        this.folders = foldersSnapshot;
+        this.files = filesSnapshot;
+        this.folderPath = pathSnapshot;
         this.showToast(e.message || '删除失败', 'error');
       }
     },
