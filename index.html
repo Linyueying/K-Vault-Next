@@ -3640,20 +3640,39 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           cancelUploadFolderCreator() { this.showUploadFolderCreator = false; this.newUploadFolderPath = ""; },
           async createUploadFolder() {
             if (!this.newUploadFolderPath.trim()) return;
+            const createdPath = this.normalizeFolderPath(this.newUploadFolderPath);
+            if (!createdPath) return;
             this.uploadFolderCreating = true;
+
+            // 乐观更新：先本地建目录并选中，界面即时响应；请求转后台，失败回滚
+            const foldersSnapshot = this.uploadFolders;
+            const fetchedSnapshot = this.uploadFoldersFetched;
+            const pathSnapshot = this.folderPath;
+            const expandedSnapshot = { ...this.expandedFolders };
+
+            this.showUploadFolderCreator = false;
+            this.newUploadFolderPath = "";
+            this.applyOptimisticFolderAdd(createdPath);
+            this.selectUploadFolder(createdPath, true);
+            this.expandedFolders[createdPath] = true;
+            this.persistExpanded();
+
             try {
-              const res = await fetch("/api/manage/folders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: this.newUploadFolderPath }) });
+              const res = await fetch("/api/manage/folders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: createdPath }) });
               const data = await res.json();
               if (!res.ok || !data.success) throw new Error(data.error || "创建失败");
-              const createdPath = this.normalizeFolderPath(this.newUploadFolderPath);
-              this.showUploadFolderCreator = false;
-              this.newUploadFolderPath = "";
-              this.applyOptimisticFolderAdd(createdPath);
-              this.selectUploadFolder(createdPath, true);
-              this.expandedFolders[createdPath] = true;
-              this.persistExpanded();
               this.showToast(`已创建目录：${createdPath}`, "success");
-            } catch (err) { this.showToast(err.message, "error"); }
+            } catch (err) {
+              // 回滚到操作前状态
+              this.uploadFolders = foldersSnapshot;
+              this.uploadFoldersFetched = fetchedSnapshot;
+              this.folderPath = pathSnapshot;
+              this.expandedFolders = expandedSnapshot;
+              this.persistFolderPath();
+              this.showUploadFolderCreator = true;
+              this.newUploadFolderPath = createdPath;
+              this.showToast(err.message, "error");
+            }
             finally { this.uploadFolderCreating = false; }
           },
           async handleRenameFolder(node) {
@@ -3676,17 +3695,28 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             if (newPath === null) return;
             const targetPath = this.normalizeFolderPath(newPath);
             if (!targetPath || targetPath === node.path) { this.showToast("新路径与原路径相同或无效", "error"); return; }
+
+            // 乐观更新：先本地改路径，界面即时响应；请求转后台，失败回滚
+            const foldersSnapshot = this.uploadFolders;
+            const pathSnapshot = this.folderPath;
+            const inRenamed = this.folderPath === node.path || this.folderPath.startsWith(node.path + "/");
+            this.applyOptimisticFolderRename(node.path, targetPath);
+            if (inRenamed) {
+              const suffix = this.folderPath.slice(node.path.length);
+              this.selectUploadFolder(targetPath + suffix, true);
+            }
+
             try {
               const res = await fetch("/api/manage/folders", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourcePath: node.path, targetPath }) });
               const data = await res.json();
               if (!res.ok || !data.success) throw new Error(data.error || "重命名失败");
               this.showToast(`已重命名：${targetPath}`, "success");
-              this.applyOptimisticFolderRename(node.path, targetPath);
-              if (this.folderPath === node.path || this.folderPath.startsWith(node.path + "/")) {
-                const suffix = this.folderPath.slice(node.path.length);
-                this.selectUploadFolder(targetPath + suffix, true);
-              }
-            } catch (err) { this.showToast(err.message, "error"); }
+            } catch (err) {
+              this.uploadFolders = foldersSnapshot;
+              this.folderPath = pathSnapshot;
+              this.persistFolderPath();
+              this.showToast(err.message, "error");
+            }
           },
           async handleDeleteFolder(node) {
             const delOk = await this.confirmDanger(`即将删除目录 "${node.path}" 及其所有子目录和文件。\n\n删除后无法恢复。`, {
@@ -3697,14 +3727,25 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               note: "此操作不可撤销",
             });
             if (!delOk) return;
+
+            // 乐观更新：先本地移除目录，界面即时响应；请求转后台，失败回滚
+            const foldersSnapshot = this.uploadFolders;
+            const pathSnapshot = this.folderPath;
+            const inDeleted = this.folderPath === node.path || this.folderPath.startsWith(node.path + "/");
+            this.applyOptimisticFolderDelete(node.path);
+            if (inDeleted) this.selectUploadFolder("", true);
+
             try {
               const res = await fetch(`/api/manage/folders?path=${encodeURIComponent(node.path)}&recursive=1`, { method: "DELETE", credentials: "include" });
               const data = await res.json();
               if (!res.ok || !data.success) throw new Error(data.error || "删除失败");
               this.showToast(`已删除目录：${node.path}`, "success");
-              this.applyOptimisticFolderDelete(node.path);
-              if (this.folderPath === node.path || this.folderPath.startsWith(node.path + "/")) this.selectUploadFolder("", true);
-            } catch (err) { this.showToast(err.message, "error"); }
+            } catch (err) {
+              this.uploadFolders = foldersSnapshot;
+              this.folderPath = pathSnapshot;
+              this.persistFolderPath();
+              this.showToast(err.message, "error");
+            }
           },
           applyOptimisticFolderAdd(path) {
             const normalized = this.normalizeFolderPath(path);

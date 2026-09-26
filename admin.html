@@ -2924,6 +2924,14 @@ Vue.createApp({
       if (val === null) return;
       const path = this.normalizeFolderPath(val);
       if (!path) { this.showToast('目录不能为空', 'error'); return; }
+
+      // 乐观更新：先本地插入目录，界面即时响应；请求转后台，失败回滚
+      const foldersSnapshot = this.folders;
+      const exists = (this.folders || []).some(f => this.normalizeFolderPath(f.path) === path);
+      if (!exists) {
+        this.folders = [...(this.folders || []), { path, name: path.split('/').pop() || path, depth: path.split('/').length, fileCount: 0 }];
+      }
+
       try {
         const r = await fetch('./api/manage/folders', {
           method: 'POST', credentials: 'include',
@@ -2931,9 +2939,11 @@ Vue.createApp({
           body: JSON.stringify({ path })
         }).then(r => r.json());
         if (!r.success) throw new Error(r.error || '创建失败');
-        await this.refresh();
         this.showToast('目录已创建', 'success');
+        // 后台静默校正（走 fstat 快照，开销极小），不阻塞、不重拉文件全量
+        this.loadFolders();
       } catch (e) {
+        this.folders = foldersSnapshot;
         this.showToast(e.message || '创建失败', 'error');
       }
     },
@@ -2947,18 +2957,38 @@ Vue.createApp({
       if (val === null) return;
       const target = this.normalizeFolderPath(pre ? pre + '/' + val : val);
       if (!target || target === this.folderPath) return;
+
+      const source = this.folderPath;
+      const prefix = source + '/';
+
+      // 乐观更新：先本地改目录树与当前路径，界面即时响应；请求转后台，失败回滚
+      const foldersSnapshot = this.folders;
+      const pathSnapshot = this.folderPath;
+      this.folders = this.folders.map(f => {
+        const p = this.normalizeFolderPath(f.path);
+        if (p === source) return Object.assign({}, f, { path: target, name: target.split('/').pop() || target });
+        if (p.startsWith(prefix)) {
+          const np = target + p.slice(source.length);
+          return Object.assign({}, f, { path: np, name: np.split('/').pop() || np });
+        }
+        return f;
+      });
+      this.folderPath = target;
+      try { localStorage.setItem('adminFolderPath', target); } catch (e) {}
+
       try {
         const r = await fetch('./api/manage/folders', {
           method: 'PUT', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sourcePath: this.folderPath, targetPath: target })
+          body: JSON.stringify({ sourcePath: source, targetPath: target })
         }).then(r => r.json());
         if (!r.success) throw new Error(r.error || '重命名失败');
-        this.folderPath = target;
-        try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
-        await this.refresh();
         this.showToast('目录已重命名', 'success');
+        this.loadFolders();
       } catch (e) {
+        this.folders = foldersSnapshot;
+        this.folderPath = pathSnapshot;
+        try { localStorage.setItem('adminFolderPath', pathSnapshot); } catch (e2) {}
         this.showToast(e.message || '重命名失败', 'error');
       }
     },
