@@ -1,3 +1,5 @@
+import { ensureSchema } from './schema.js';
+
 /**
  * 元数据访问层（D1）— file-record.js 的 D1 版本，并列存在、可逐点切换。
  *
@@ -187,6 +189,7 @@ function metadataToColumns(metadata = {}, kvKey = '') {
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
 export async function putFileRecord(env, id, kvKey, metadata) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return { ok: false, error: 'd1-disabled' };
 
   const c = metadataToColumns(metadata, kvKey);
@@ -246,6 +249,7 @@ export async function putFileRecord(env, id, kvKey, metadata) {
  * @returns {Promise<{record: {metadata: object}, kvKey: string}|null>}
  */
 export async function getFileRecord(env, id) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return null;
 
   try {
@@ -284,6 +288,7 @@ export async function getFileRecord(env, id) {
  *   disabled=true D1 未启用（调用方回落 KV 逻辑）
  */
 export async function tryConsumeDownload(env, id) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return { ok: false, disabled: true };
 
   try {
@@ -330,6 +335,7 @@ export async function tryConsumeDownload(env, id) {
  * @returns {Promise<{ok: boolean}>}
  */
 export async function refundDownloadQuota(env, id) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return { ok: false };
 
   try {
@@ -355,6 +361,7 @@ export async function refundDownloadQuota(env, id) {
  * @returns {Promise<{record: {metadata: object}, kvKey: string}|null>}
  */
 export async function findByContentSha(env, sha) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !sha) return null;
 
   try {
@@ -391,6 +398,7 @@ export async function findByContentSha(env, sha) {
  *   `rows` 为原始表行；调用方应经 file-record.js 的 d1FileToKey() 转换。
  */
 export async function listFileRecords(env, options = {}) {
+  await ensureSchema(env);
   if (!isD1Enabled(env)) return { rows: [], total: 0, disabled: true };
 
   const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 200);
@@ -450,6 +458,7 @@ export async function listFileRecords(env, options = {}) {
  * @returns {Promise<boolean>}
  */
 export async function deleteFileRecord(env, id) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return false;
 
   try {
@@ -471,6 +480,7 @@ export async function deleteFileRecord(env, id) {
  * @returns {Promise<{ok: boolean, conflict?: boolean, error?: string}>}
  */
 export async function updateShareOptions(env, id, sharePatch = {}) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return { ok: false, error: 'd1-disabled' };
 
   try {
@@ -519,6 +529,7 @@ export function folderMarkerId(path) {
  * @returns {Promise<{folders: Array<{id: string, path: string, kvKey: string}>, disabled?: boolean}>}
  */
 export async function listFolderMarkers(env) {
+  await ensureSchema(env);
   if (!isD1Enabled(env)) return { folders: [], disabled: true };
 
   try {
@@ -552,6 +563,7 @@ export async function listFolderMarkers(env) {
  * @returns {Promise<{folders: object, disabled?: boolean}>}
  */
 export async function folderFileCounts(env) {
+  await ensureSchema(env);
   if (!isD1Enabled(env)) return { folders: {}, disabled: true };
 
   try {
@@ -606,6 +618,7 @@ export async function folderFileCounts(env) {
  * @returns {Promise<{ok: boolean}>}
  */
 export async function upsertFolderMarker(env, path) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !path) return { ok: false };
   return putFileRecord(env, folderMarkerId(path), folderMarkerId(path), {
     folderMarker: true,
@@ -622,6 +635,7 @@ export async function upsertFolderMarker(env, path) {
  * @returns {Promise<number>} 删除行数
  */
 export async function deleteFolderMarkers(env, path, recursive = false) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !path) return 0;
 
   try {
@@ -656,6 +670,7 @@ export async function deleteFolderMarkers(env, path, recursive = false) {
  * @returns {Promise<{updatedFiles: number, updatedMarkers: number, error?: string}>}
  */
 export async function moveFolderTree(env, sourcePath, targetPath) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !sourcePath || !targetPath) {
     return { updatedFiles: 0, updatedMarkers: 0 };
   }
@@ -709,6 +724,7 @@ export async function moveFolderTree(env, sourcePath, targetPath) {
  * @returns {Promise<number>} 受影响文件数
  */
 export async function clearFolderPath(env, path, recursive = false) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !path) return 0;
 
   try {

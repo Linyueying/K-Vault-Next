@@ -1,3 +1,5 @@
+import { ensureSchema } from './schema.js';
+
 /**
  * 合集分享的 D1 数据访问层（对应 migrations/0003_share_bundles.sql）。
  *
@@ -79,6 +81,7 @@ export function rowToBundle(row, fileIds = []) {
  * @returns {Promise<object|null>} D1 不可用时返回 null（调用方回落 KV）
  */
 export async function readBundleRecord(env, slug) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !slug) return null;
 
   try {
@@ -114,6 +117,7 @@ export async function readBundleRecord(env, slug) {
  * @returns {Promise<{ok: boolean, disabled?: boolean, error?: string}>}
  */
 export async function writeBundleRecord(env, bundle) {
+  await ensureSchema(env);
   if (!isD1Enabled(env)) return { ok: false, disabled: true };
 
   const slug = String(bundle?.slug || '');
@@ -196,6 +200,7 @@ export async function writeBundleRecord(env, bundle) {
  * @returns {Promise<{ok: boolean, disabled?: boolean}>}
  */
 export async function deleteBundleRecord(env, slug) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !slug) return { ok: false, disabled: true };
 
   try {
@@ -221,6 +226,7 @@ export async function deleteBundleRecord(env, slug) {
  * @returns {Promise<{bundles: object[], disabled?: boolean}>}
  */
 export async function listBundleRecords(env) {
+  await ensureSchema(env);
   if (!isD1Enabled(env)) return { bundles: [], disabled: true };
 
   try {
@@ -268,6 +274,7 @@ export async function listBundleRecords(env) {
  * @returns {Promise<{ok: boolean, count: number, disabled?: boolean}>}
  */
 export async function incrementBundleCount(env, slug) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !slug) return { ok: false, count: 0, disabled: true };
 
   try {
@@ -296,6 +303,7 @@ export async function incrementBundleCount(env, slug) {
  * @returns {Promise<{taken: boolean, disabled?: boolean}>}
  */
 export async function isSlugTaken(env, slug) {
+  await ensureSchema(env);
   if (!isD1Enabled(env) || !slug) return { taken: false, disabled: true };
 
   try {
