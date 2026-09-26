@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>K-Vault · 管理后台</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/logo.png">
+<link rel="apple-touch-icon" href="/logo-180.png">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)">
@@ -1180,7 +1180,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <span class="kv-usage-total muted">未绑定</span>
           </div>
           <div class="kv-usage-empty pad-xs">
-            <i class="fas fa-cloud-slash" style="font-size:1.2rem"></i>
+            <i class="fas fa-plug-circle-xmark" style="font-size:1.2rem"></i>
             <span class="tiny-muted">
               未检测到 R2 桶绑定。如需监控 R2 用量，请在 Pages 项目设置中绑定 R2 桶，
               或通过环境变量 <code class="kv-code">R2_BUCKET_NAMES</code> 指定桶名。
@@ -1453,7 +1453,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <!-- 空状态 / 加载中 / 失败重试 -->
       <div v-else class="liquid-card empty-state" key="empty">
         <template v-if="loadError">
-          <i class="fas fa-cloud-exclamation"></i>
+          <i class="fas fa-triangle-exclamation"></i>
           <span>加载失败：{{ loadError }}</span>
           <button class="btn btn--primary" @click="refresh">
             <i class="fas fa-rotate"></i> 重试
@@ -2184,7 +2184,7 @@ Vue.createApp({
     folderPanelCollapsed: false,
     toolHubOpen: false,
 
-    logoSrc: '/logo.png',
+    logoSrc: '/logo-64.png',
 
     drag: { ids: [], target: null },
     preview: null,
