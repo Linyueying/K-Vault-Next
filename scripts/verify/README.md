@@ -90,7 +90,9 @@ BASE=http://localhost:8099 SIM_LATENCY=1 LAT_MS=800 node scripts/verify/folder-o
 BASE=http://localhost:8099 node scripts/verify/sync-status.mjs
 ```
 
-覆盖 **admin.html 与 index.html 两个页面**，共 27 项。验证顶栏的同步状态圆点：
+覆盖 **admin.html 与 index.html 两个页面**，共 29 项。验证目录管理区的同步状态圆点
+（admin 在目录面板头部按钮组、index 在上传抽屉的目录栏；**无同步动作时圆点隐藏**，
+只有黄/绿/红三种有含义的状态才出现）：
 
 - **黄点**（`.is-syncing`）：目录写入进行中可被捕获
 - **绿点**（`.is-synced`）：成功后到达（成功链路）

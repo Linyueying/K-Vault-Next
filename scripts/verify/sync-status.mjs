@@ -115,15 +115,19 @@ async function sawDot(page, want, timeoutMs = 10000) {
 async function testAdmin() {
   console.log('\n=== admin.html ===');
 
-  // --- A. 存在 + 初始 idle ---
+  // --- A. 存在 + 初始 idle（隐藏） ---
   {
     const { ctx, page, errors } = await openPage('admin.html');
     const has = await page.locator('.sync-dot').count();
     log(has > 0, 'admin 存在同步状态点', has > 0 ? `找到 ${has} 个` : '未找到');
-    // 初始应为 idle 或 syncing（首屏会自动拉一次列表，可能已经在同步）
     const st = await dotState(page);
     log(st === 'idle' || st === 'syncing' || st === 'synced',
         'admin 初始态合法', st);
+    /* idle（无同步动作）必须隐藏 —— 灰点常驻会让人误以为异常。
+       等首屏同步结束（绿点 hold 2.2s 后回 idle），点应不可见 */
+    await page.waitForTimeout(2500);
+    const hidden = !(await page.locator('.sync-dot-btn').first().isVisible().catch(() => true));
+    log(hidden, 'admin idle 态圆点自动隐藏', hidden ? '已隐藏' : '仍然可见');
     log(errors.length === 0, 'admin 首屏无 JS 报错', errors.join(' | ') || '无');
     await ctx.close();
   }
@@ -180,15 +184,29 @@ async function testAdmin() {
     await ctx.close();
   }
 
-  // --- E. 点击圆点 -> 说明弹窗 ---
+  // --- E. 点击圆点 -> 说明弹窗（idle 时点是隐藏的，先触发一次同步让它现身） ---
   {
     const { ctx, page, errors } = await openPage('admin.html');
     await page.waitForTimeout(1500);
-    await page.locator('.sync-dot-btn').first().click({ force: true });
-    await page.waitForTimeout(600);
+    // 触发一次真实同步：点目录面板的「刷新」按钮 -> 黄/绿点出现
+    await page.locator('button[title="刷新"]').first().click({ force: true }).catch(() => {});
+    /* 点可见才可点（idle 时 visibility:hidden）；一次点击可能落在状态切换的
+       空隙上，轮询「可见就点、弹窗没开就再等再点」，10s 兜底 */
+    let opened = false;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10000 && !opened) {
+      const visible = await page.locator('.sync-dot-btn').first().isVisible().catch(() => false);
+      if (visible) {
+        await page.locator('.sync-dot-btn').first().click({ force: true }).catch(() => {});
+        await page.waitForTimeout(500);
+        opened = (await page.locator('.dialog-overlay').count()) > 0;
+        if (!opened) await page.waitForTimeout(300);
+      } else {
+        await page.waitForTimeout(200);
+      }
+    }
     const body = await page.evaluate(() => document.body.innerText);
-    const dialogVisible = await page.locator('.dialog-overlay').count();
-    log(dialogVisible > 0, 'admin 点击圆点弹出说明弹窗', dialogVisible > 0 ? '已弹出' : '未弹出');
+    log(opened, 'admin 点击圆点弹出说明弹窗', opened ? '已弹出' : '未弹出（含重试）');
     log(/同步/.test(body) && /网络往返/.test(body),
         'admin 说明文案含「延迟不可避免」的解释',
         /网络往返/.test(body) ? '含网络往返说明' : '缺少关键说明');
@@ -210,8 +228,15 @@ async function testIndex() {
   // --- A ---
   {
     const { ctx, page, errors } = await openPage('index.html');
+    /* 状态点在上传抽屉的目录栏里，先展开目录 Tab 再查 */
+    await page.locator('[data-dock-slot="2"]').first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(900);
     const has = await page.locator('.sync-dot').count();
     log(has > 0, 'index 存在同步状态点', has > 0 ? `找到 ${has} 个` : '未找到');
+    /* 首屏已自动同步过一轮（绿点 hold 2.2s 后回 idle），此刻应为隐藏 */
+    await page.waitForTimeout(2500);
+    const hidden = !(await page.locator('.sync-dot-btn').first().isVisible().catch(() => true));
+    log(hidden, 'index idle 态圆点自动隐藏', hidden ? '已隐藏' : '仍然可见');
     log(errors.length === 0, 'index 首屏无 JS 报错', errors.join(' | ') || '无');
     await ctx.close();
   }
@@ -268,11 +293,25 @@ async function testIndex() {
   {
     const { ctx, page, errors } = await openPage('index.html');
     await page.waitForTimeout(1500);
-    await page.locator('.sync-dot-btn').first().click({ force: true });
-    await page.waitForTimeout(600);
+    /* 打开上传抽屉的目录 Tab，点「从云端同步目录」触发一次同步，让点现身 */
+    await page.locator('[data-dock-slot="2"]').first().click({ force: true }).catch(() => {});
+    await page.waitForTimeout(900);
+    await page.locator('button[title="从云端同步目录"]').first().click({ force: true }).catch(() => {});
+    let opened = false;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10000 && !opened) {
+      const visible = await page.locator('.sync-dot-btn').first().isVisible().catch(() => false);
+      if (visible) {
+        await page.locator('.sync-dot-btn').first().click({ force: true }).catch(() => {});
+        await page.waitForTimeout(500);
+        opened = (await page.locator('.modal--dialog.dlg').count()) > 0;
+        if (!opened) await page.waitForTimeout(300);
+      } else {
+        await page.waitForTimeout(200);
+      }
+    }
     const body = await page.evaluate(() => document.body.innerText);
-    const dialogVisible = await page.locator('.modal--dialog').count();
-    log(dialogVisible > 0, 'index 点击圆点弹出说明弹窗', dialogVisible > 0 ? '已弹出' : '未弹出');
+    log(opened, 'index 点击圆点弹出说明弹窗', opened ? '已弹出' : '未弹出（含重试）');
     log(/同步/.test(body) && /网络往返/.test(body),
         'index 说明文案含「延迟不可避免」的解释',
         /网络往返/.test(body) ? '含网络往返说明' : '缺少关键说明');

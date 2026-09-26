@@ -1353,11 +1353,6 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
           </div>
         </div>
         <div class="top-actions">
-          <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败。点击查看「延迟为何不可避免」 -->
-          <button class="sync-dot-btn" type="button" @click="showSyncExplain"
-                  :title="syncDotTitle" aria-label="同步状态">
-            <span class="sync-dot" :class="syncDotClass"></span>
-          </button>
           <div class="status-pill" @click="openDrawer('storage')" :title="'切换存储节点 (当前: ' + storageTarget + ')'">
             <span class="status-pill__pulse" :class="{ 'is-settling': nodeResolving }"></span>
             <transition name="label" mode="out-in">
@@ -1791,6 +1786,12 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
                   </template>
                 </div>
               </div>
+              <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
+                   点击查看「延迟为何不可避免」。放在目录同步按钮旁，语义即「目录与云端的同步」 -->
+              <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
+                      @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
+                <span class="sync-dot" :class="syncDotClass"></span>
+              </button>
               <button class="btn btn--ghost btn--icon" @click="fetchUploadFolders(true)" title="从云端同步目录"><i class="fas fa-rotate" :class="{ 'fa-spin': uploadFoldersLoading }"></i></button>
             </div>
 

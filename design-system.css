@@ -656,13 +656,24 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   border: 0; background: none; cursor: pointer;
   border-radius: var(--r-pill);
   line-height: 0;
-  transition: background var(--dur-base) var(--ease-apple);
+  transition: background var(--dur-base) var(--ease-apple),
+              opacity 0.25s var(--ease-apple);
 }
 .sync-dot-btn:hover { background: var(--glass-subtle); }
 .sync-dot-btn:active { transform: scale(0.92); transition-duration: 0.09s; }
 .sync-dot-btn:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+/* idle（无同步动作）不显示：灰点只会让人疑惑「这是出问题了吗」。
+   只有黄/绿/红三种有含义的状态才出现。用 opacity + visibility 隐藏
+   （而非 display:none），占位保留，出现/消失时旁边的元素不会跳动。 */
+.sync-dot-btn.is-idle {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease-apple), visibility 0s linear 0.25s;
 }
 
 /* ==========================================================================

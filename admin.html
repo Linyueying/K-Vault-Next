@@ -850,11 +850,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
         <i class="fas fa-cloud-arrow-up"></i>
         <span>上传中心</span>
       </a>
-      <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败。点击查看「延迟为何不可避免」 -->
-      <button class="sync-dot-btn" type="button" @click="showSyncExplain"
-              :title="syncDotTitle" aria-label="同步状态">
-        <span class="sync-dot" :class="syncDotClass"></span>
-      </button>
       <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
         <span class="status-pulse" :class="{'is-settling': statusChecking}"></span>
         <span class="status-chip" v-for="s in statusItems" :key="s.key">
@@ -1268,6 +1263,12 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div class="panel-head">
         <h2 class="panel-title"><i class="fas fa-folder-tree"></i> 目录管理</h2>
         <div class="panel-actions">
+          <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
+               点击查看「延迟为何不可避免」。放在目录操作区旁，语义即「目录与云端的同步」 -->
+          <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
+                  @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
+            <span class="sync-dot" :class="syncDotClass"></span>
+          </button>
           <button class="mini-icon-btn collapse-only" @click="folderPanelCollapsed = !folderPanelCollapsed"
                   :title="folderPanelCollapsed ? '展开目录' : '收起目录'">
             <i class="fas" :class="folderPanelCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
