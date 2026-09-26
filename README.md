@@ -485,6 +485,7 @@ python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号（漏
 | [`docs/openapi.yaml`](docs/openapi.yaml) | API v1 机器可读定义 |
 | [`docs/agent-integration.md`](docs/agent-integration.md) | Agent / 脚本接入指南 |
 | [`docs/cloudflare-pages-r2.md`](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
+| [`docs/d1-migration-checklist.md`](docs/d1-migration-checklist.md) | **D1 迁移部署与灰度验证清单**（建库、绑定、验证 `source` 字段、回滚、故障排查） |
 | [`PROJECT_INTRO.md`](PROJECT_INTRO.md) | 项目定位、架构说明与上游差异 |
 | [`AI-OPERATIONS.md`](AI-OPERATIONS.md) | **写给 AI Agent 的操作手册**（环境搭建、验证方法、调试手册、历史事故复盘、硬约束）——人类用户可跳过 |
 
