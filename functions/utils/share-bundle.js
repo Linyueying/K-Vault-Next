@@ -36,13 +36,21 @@
  * @module share-bundle
  */
 
-import { getRecordWithKey } from './file-record.js';
+import { getRecordWithKey, listRecordsInFolder } from './file-record.js';
 import {
   listAllKeys,
   shouldIncludeKey,
   normalizeKey,
   normalizeFolderPath,
 } from './file-list.js';
+import {
+  readBundleRecord,
+  writeBundleRecord,
+  deleteBundleRecord,
+  listBundleRecords,
+  incrementBundleCount,
+  isSlugTaken,
+} from './bundle-store.js';
 
 /** 合集定义的 KV 前缀。 */
 export const BUNDLE_KEY_PREFIX = 'bundle:';
@@ -128,6 +136,11 @@ export async function isBundleSlugAvailable(env, slug, options = {}) {
   const excluding = sanitizeBundleSlug(options.excludeBundleSlug || '');
   if (excluding && excluding === normalized) return true;
 
+  // D1 优先：两条主键查询即可判定，无需维护 `bundle_slug:` 索引键
+  const d1 = await isSlugTaken(env, normalized);
+  if (!d1.disabled) return !d1.taken;
+
+  // KV 兜底
   try {
     const [fileOwner, bundleOwner] = await Promise.all([
       env.img_url.get(`${SHARE_SLUG_KEY_PREFIX}${normalized}`),
@@ -220,6 +233,10 @@ export async function readBundle(env, slug) {
   const normalized = sanitizeBundleSlug(slug);
   if (!normalized || !env?.img_url) return null;
 
+  // D1 优先：miss 时回落到 KV（D1 写入失败 / 存量数据）
+  const d1 = await readBundleRecord(env, normalized);
+  if (d1) return d1;
+
   try {
     const record = await env.img_url.getWithMetadata(`${BUNDLE_KEY_PREFIX}${normalized}`);
     const metadata = record?.metadata;
@@ -298,6 +315,9 @@ export async function writeBundle(env, bundle) {
       metadata: { slug, updatedAt: Date.now() },
     });
 
+    // D1 镜像（失败不致命，KV 已是事实来源）
+    await writeBundleRecord(env, metadata);
+
     return { ...metadata };
   }
 
@@ -327,6 +347,9 @@ export async function writeBundle(env, bundle) {
     metadata: { slug, updatedAt: Date.now() },
   });
 
+  // D1 镜像（失败不致命）
+  await writeBundleRecord(env, metadata);
+
   return { ...metadata };
 }
 
@@ -341,6 +364,9 @@ export async function writeBundle(env, bundle) {
 export async function deleteBundle(env, slug) {
   const normalized = sanitizeBundleSlug(slug);
   if (!normalized || !env?.img_url) return;
+
+  // D1 优先（disabled 时静默跳过），KV 侧一并清理以兼容存量数据
+  await deleteBundleRecord(env, normalized);
 
   try {
     await env.img_url.delete(`${BUNDLE_KEY_PREFIX}${normalized}`);
@@ -374,6 +400,17 @@ export async function listFolderMembersLive(env, folderPath, includeSubfolders =
   if (!env?.img_url) return [];
   const normalized = normalizeFolderPath(folderPath || '');
 
+  // ---------- 路径 A：D1 ----------
+  // 「实时」语义在两种数据源上都成立：
+  //   · KV 版靠"不落盘 + 2 秒缓存"，代价是每次全量 list()
+  //   · D1 版每次直接查表，天然强一致，且同样不落任何快照
+  // 因此 D1 路径反而是更严格的实时（KV 的 2 秒窗口消失了）。
+  const d1 = await listRecordsInFolder(env, normalized, includeSubfolders);
+  if (!d1.disabled) {
+    return d1.files.map((entry) => normalizeKey(entry));
+  }
+
+  // ---------- 路径 B：KV 兜底 ----------
   const all = await listAllKeys(env);
   return all
     .filter(shouldIncludeKey)
@@ -478,6 +515,11 @@ export function isBundleActive(bundle = {}) {
  * @returns 自增后的计数；读取失败时返回原值。
  */
 export async function incrementBundleDownloadCount(env, slug) {
+  // D1 优先：单条 UPDATE 原子自增，不再有 KV 版的读-改-写丢计数问题
+  const d1 = await incrementBundleCount(env, slug);
+  if (!d1.disabled) return d1.count;
+
+  // KV 兜底：读-改-写（并发下可能丢计数，属已知取舍）
   const bundle = await readBundle(env, slug);
   if (!bundle) return 0;
 
@@ -607,4 +649,19 @@ export function readBundleFileIds(body = {}) {
     out.push(id);
   }
   return out;
+}
+
+/**
+ * 【新函数】列出全部合集（D1 优先）。
+ *
+ * 与 KV 版的区别：KV 要先分页枚举 `bundle_slug:` 前缀，再逐个
+ * `getWithMetadata` 读本体（N+1 次读）。D1 版两条 SQL 一次性取回
+ * 全部合集与全部成员。
+ *
+ * @param {any} env
+ * @returns {Promise<{bundles: Array, disabled?: boolean}>}
+ */
+export async function listAllBundles(env) {
+  if (!env?.img_url) return { bundles: [], disabled: true };
+  return listBundleRecords(env);
 }

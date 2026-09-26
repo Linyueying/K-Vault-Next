@@ -4,6 +4,7 @@
   shouldIncludeKey,
   normalizeKey,
   listAllKeys,
+  listFilesPage,
 } from '../../utils/file-list.js';
 
 function matchStorage(storageType, storageFilter) {
@@ -161,10 +162,64 @@ export async function onRequest(context) {
     String(url.searchParams.get('includeFolders') || '').toLowerCase()
   );
 
-  const allKeys = await listAllKeys(env, prefix);
-  const folderMarkers = allKeys.filter(isFolderMarker);
+  const allKeys = await listFilesPage(env, {
+    limit,
+    offset,
+    prefix,
+    storage: storageFilter || undefined,
+    folderPath: hasFolderFilter ? folderFilter : undefined,
+    sort,
+  });
+  const isD1Source = allKeys.source === 'd1';
 
-  const normalizedFiles = allKeys
+  // ==========================================================================
+  // 下面按「数据源」分流，只为计算 stats / folders 这两个额外块。
+  //
+  // 为什么分开写而不强行统一：
+  //   · D1 路径下 stats 可以由 SQL 聚合，但它要遍历「过滤后的全集」而非当前页，
+  //     为保持与 KV 路径口径严格一致，这里统一回落到内存计算。
+  //     差别在于 D1 路径不必重扫 KV，仅多一次全量 SQL 查询（有索引）。
+  //   · folders（文件夹树）本质需要全集，无法靠单页推导。
+  // ==========================================================================
+
+  if (isD1Source) {
+    // D1 路径：分页已在 SQL 完成，此处只补齐 stats / folders
+    if (!includeStats && !includeFolders) {
+      return jsonResponse({
+        keys: allKeys.keys,
+        pageCount: allKeys.keys.length,
+        cursor: allKeys.cursor,
+        list_complete: allKeys.list_complete,
+        total: allKeys.total,
+        source: 'd1',
+      });
+    }
+
+    // 取全集（用于 stats / folders），走 D1 全量分页
+    const { listAllRecords } = await import('../../utils/file-record.js');
+    const full = await listAllRecords(env, { storage: storageFilter || undefined, sort });
+    const normalizedFiles = full.disabled ? allKeys.keys : full.files.map(normalizeKey);
+
+    const payload = {
+      keys: allKeys.keys,
+      pageCount: allKeys.keys.length,
+      cursor: allKeys.cursor,
+      list_complete: allKeys.list_complete,
+      total: allKeys.total,
+      source: 'd1',
+    };
+    if (includeStats) payload.stats = computeStats(normalizedFiles);
+    if (includeFolders) payload.folders = buildFolderNodes(normalizedFiles, []);
+    return jsonResponse(payload);
+  }
+
+  // ==========================================================================
+  // KV 兜底路径（原有逻辑，保持不变）
+  // ==========================================================================
+  const kvKeys = await listAllKeys(env, prefix);
+  const folderMarkers = kvKeys.filter(isFolderMarker);
+
+  const normalizedFiles = kvKeys
     .filter(shouldIncludeKey)
     .map(normalizeKey)
     .filter((item) => matchStorage(item.metadata?.storageType, storageFilter));
@@ -190,6 +245,7 @@ export async function onRequest(context) {
     pageCount: page.length,
     cursor: nextOffset == null ? null : String(nextOffset),
     list_complete: nextOffset == null,
+    source: 'kv',
   };
 
   if (includeStats) {
@@ -200,6 +256,11 @@ export async function onRequest(context) {
     payload.folders = buildFolderNodes(normalizedFiles, folderMarkers);
   }
 
+  return jsonResponse(payload);
+}
+
+/** 统一的 JSON 响应（no-store，后台数据不得被 CDN 缓存）。 */
+function jsonResponse(payload) {
   return new Response(JSON.stringify(payload), {
     headers: {
       'Content-Type': 'application/json',

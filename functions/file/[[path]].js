@@ -8,6 +8,7 @@ import {
   readDownloadCount,
   incrementDownloadCount,
   putRecordIndex,
+  consumeDownloadQuota,
 } from '../utils/file-record.js';
 import {
   buildTelegramBotApiUrl,
@@ -154,12 +155,51 @@ async function trackDownloadsIfNeeded(context, response) {
   // 真正不该计数的是「响应都没生成」的情况（404 文件不存在、401/403/410
   // 被闸门拦下、OPTIONS 预检）—— 那些在 shouldCountAsDownload 里已排除。
   const counting = shouldCountAsDownload(context.request, response);
+
+  // ---------------------------------------------------------------------------
+  // 预占回滚：D1 原子预占发生在响应生成之前，若最终响应属于「不该计数」的
+  // 情况（404 路径不存在 / 上游 5xx），预占的那一次配额必须补回 ——
+  // 否则用户会为一次失败的访问白付配额。
+  //
+  // 注意这与旧实现的一个细微差异：旧实现是「成功才计数」，天然不会白吃；
+  // 新实现是「先占后核」，因此需要显式回滚。回滚失败只告警，不影响响应。
+  // ---------------------------------------------------------------------------
+  if (context.__kvQuotaConsumed && !counting) {
+    if (typeof context.waitUntil === 'function') {
+      context.waitUntil(refundCheckout(context, pending).catch(() => {}));
+    }
+  }
+
   if (counting && typeof context.waitUntil === 'function') {
     context.waitUntil(settleTrackCounts(context, pending));
   }
 
   // 原生流必须原样直达：任何包装都会让 Content-Length 丢失（见函数头注释）。
   return response;
+}
+
+/**
+ * 补回一次被预占但最终未成立的配额。
+ *
+ * 只在「D1 已原子预占」+「最终响应不该计数」的交叉情况下调用。
+ * D1 里做 -1（下限 0），避免负数。
+ *
+ * @param context - Pages 请求上下文。
+ * @param pending - 暂存对象（需带 file.kvKey）。
+ */
+async function refundCheckout(context, pending) {
+  const kvKey = pending?.file?.kvKey;
+  if (!kvKey) return;
+
+  const env = pending.env || context.env;
+  if (!env?.DB || typeof env.DB.prepare !== 'function') return;
+
+  try {
+    const { refundQuota } = await import('../utils/file-record.js');
+    await refundQuota(env, kvKey);
+  } catch (error) {
+    console.warn('Failed to refund download quota:', error?.message || error);
+  }
 }
 
 /**
@@ -201,7 +241,9 @@ async function settleTrackCounts(context, pending) {
   const env = pending.env || context.env;
 
   const jobs = [];
-  if (pending.file) {
+  // 文件级：若 verifyShareAccess 已用 D1 原子预占过配额，这里不再重复落账。
+  // （D1 未绑定时不会设置该标记，仍走旧的 increment 路径。）
+  if (pending.file && !context.__kvQuotaConsumed) {
     jobs.push(incrementShareDownloadCount(env, pending.file.kvKey, pending.file.metadata));
   }
   if (pending.bundle) {
@@ -413,13 +455,9 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
   }
 
   const maxDownloads = Number(metadata.shareMaxDownloads || 0);
-  // 计数来源改为「独立计数键 + 元数据内联值」合并读取：
-  // 判断条件、阈值比较与 410 响应语义与优化前完全一致，仅数据来源扩展。
-  const currentDownloads = await readDownloadCount(context.env, kvKey, metadata);
-  if (Number.isFinite(maxDownloads) && maxDownloads > 0 && currentDownloads >= maxDownloads) {
-    return { response: errorResponse('File download limit reached', 410) };
-  }
+  const hasLimit = Number.isFinite(maxDownloads) && maxDownloads > 0;
 
+  // 密码先于配额校验：密码不对不应消耗任何配额。
   if (metadata.sharePasswordHash) {
     const providedPassword = getSharePassword(context.request);
     if (!providedPassword) {
@@ -431,9 +469,47 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 配额校验：D1 走「原子预占」，KV 走「读-判断」（旧行为）
+  //
+  // 只有显式下载（`?dl=1`）才消耗配额 —— 预览（视频拖拽产生的 Range 请求）
+  // 不应吃配额。判断在 URL 上就能得出，无需等响应，因此可以在此预占。
+  //
+  // D1 路径把「是否超限」与「计数 +1」压成一条 UPDATE，从根上消除并发超发
+  // （旧 KV 实现两步分离：并发下两个请求可以同时通过「未超限」判断）。
+  // 预占成功后在 context 上标记，外层 trackDownloadsIfNeeded 会跳过重复计次。
+  // ---------------------------------------------------------------------------
+  if (hasLimit) {
+    const counting = isExplicitDownload(context.request);
+
+    if (counting) {
+      const quota = await consumeDownloadQuota(context.env, kvKey);
+      if (quota.limited) {
+        // D1 明确判定已达上限
+        return { response: errorResponse('File download limit reached', 410) };
+      }
+      if (quota.ok) {
+        // 原子预占成功：标记已计次，外层不再重复落账
+        context.__kvQuotaConsumed = true;
+      } else {
+        // D1 未绑定 / 记录不在 D1 → 回落旧的「读-判断」逻辑
+        const currentDownloads = await readDownloadCount(context.env, kvKey, metadata);
+        if (currentDownloads >= maxDownloads) {
+          return { response: errorResponse('File download limit reached', 410) };
+        }
+      }
+    } else {
+      // 非显式下载（预览）：只做只读校验，不消耗配额
+      const currentDownloads = await readDownloadCount(context.env, kvKey, metadata);
+      if (currentDownloads >= maxDownloads) {
+        return { response: errorResponse('File download limit reached', 410) };
+      }
+    }
+  }
+
   return {
     response: null,
-    trackDownload: Number.isFinite(maxDownloads) && maxDownloads > 0,
+    trackDownload: hasLimit,
     kvKey,
     metadata,
   };

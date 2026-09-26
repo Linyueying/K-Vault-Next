@@ -1,4 +1,14 @@
-﻿const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
+﻿import {
+  listFolderStats,
+  listMarkers,
+  ensureFolderMarker,
+  removeFolderMarkers,
+  moveFolder,
+  clearFolder,
+  folderHasContent,
+} from '../../utils/file-record.js';
+
+const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
 // idxt: 记录索引、dlc: 下载计数、fstat: 文件夹统计 —— 均为内部辅助键，不参与文件/文件夹判定。
 const INVALID_PREFIXES = ['session:', 'chunk:', 'upload:', 'temp:', 'idxt:', 'dlc:', 'fstat:'];
 
@@ -263,6 +273,43 @@ function snapshotToNodes(snapshot, storageFilter) {
   });
 }
 
+/**
+ * 把 D1 的 folders 映射（{ "<path>": {count, marker} }）转成节点数组。
+ *
+ * 输出字段与 `buildFolderNodes()` 完全对齐（path/name/parentPath/depth/fileCount），
+ * 排序规则也一致（先按深度、再按字典序），保证前端拿到的东西与 KV 版逐字段相同。
+ *
+ * @param {object} folderMap - listFolderStats() 返回的 folders
+ * @param {Array} markers - listMarkers() 返回的标记数组（此处仅用于兜底补路径）
+ */
+function nodesFromFolderMap(folderMap = {}, markers = []) {
+  const paths = new Set(Object.keys(folderMap));
+
+  // 标记可能在 folderMap 中缺席（如无文件的空目录），补进来
+  for (const marker of markers) {
+    const path = normalizeFolderPath(marker?.path || '');
+    if (path) paths.add(path);
+  }
+
+  return [...paths]
+    .sort((a, b) => {
+      const depthA = a.split('/').length;
+      const depthB = b.split('/').length;
+      if (depthA !== depthB) return depthA - depthB;
+      return a.localeCompare(b, 'en', { sensitivity: 'base' });
+    })
+    .map((pathValue) => {
+      const parts = pathValue.split('/');
+      return {
+        path: pathValue,
+        name: parts[parts.length - 1] || pathValue,
+        parentPath: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
+        depth: parts.length,
+        fileCount: folderMap[pathValue]?.count || 0,
+      };
+    });
+}
+
 function folderStartsWith(pathValue, parentPath) {
   const normalizedPath = normalizeFolderPath(pathValue);
   const normalizedParent = normalizeFolderPath(parentPath);
@@ -291,6 +338,24 @@ export async function onRequestGet(context) {
     return response;
   };
 
+  // ==========================================================================
+  // 路径 A：D1 —— SQL GROUP BY 直接算目录树，无需全表扫描，也无需 fstat: 快照
+  //
+  // KV 版之所以要维护 fstat:__index__ 快照，是因为每次列举都是全量 list()
+  // 扫描（计费 + 延迟随文件数线性增长）。D1 用一条 GROUP BY 就能算出每个目录
+  // 的文件数，快照这层缓存自然消失 —— 连带 fresh=1 那个"绕开快照缓存"
+  // 的参数也失去意义（SQL 查询无边缘缓存，天然强一致）。
+  // ==========================================================================
+  const d1Stats = await listFolderStats(env);
+  if (!d1Stats.disabled && !storageFilter) {
+    const markers = await listMarkers(env);
+    const nodes = nodesFromFolderMap(d1Stats.folders, markers.folders || []);
+    return baseResponse(nodes);
+  }
+
+  // ==========================================================================
+  // 路径 B：KV 兜底（原有逻辑）
+  // ==========================================================================
   // 快路径：读 fstat: 快照（1 次读），直接给出文件夹树，不再全表扫描。
   // 带 storage 过滤时快照不含该维度，退回全量扫描以保证筛选正确。
   if (!storageFilter && !fresh) {
@@ -340,14 +405,18 @@ export async function onRequestPost(context) {
     return json({ success: false, error: 'path is required.' }, 400);
   }
 
-  await env.img_url.put(`folder:${path}`, '', {
-    metadata: {
-      folderMarker: true,
-      folderPath: path,
-      TimeStamp: Date.now(),
-    },
-  });
-  await invalidateFolderSnapshot(env);
+  // D1 优先；未绑定时回落 KV（并失效快照）
+  const d1 = await ensureFolderMarker(env, path);
+  if (d1.disabled) {
+    await env.img_url.put(`folder:${path}`, '', {
+      metadata: {
+        folderMarker: true,
+        folderPath: path,
+        TimeStamp: Date.now(),
+      },
+    });
+    await invalidateFolderSnapshot(env);
+  }
 
   return json({ success: true, path });
 }
@@ -372,6 +441,29 @@ export async function onRequestPut(context) {
     return json({ success: false, error: 'targetPath cannot be inside sourcePath.' }, 400);
   }
 
+  // ==========================================================================
+  // 路径 A：D1 —— 两条 UPDATE 完成整棵目录树的改写
+  //   · 原先 KV 版要遍历目录内每个文件逐个 put（N 次网络往返，数百文件可达数秒）
+  //   · 这里 UPDATE 的 WHERE 用 folder_path = ? OR LIKE 'path/%' 一次命中全部子孙，
+  //     开销与目录大小无关
+  // ==========================================================================
+  const moved = await moveFolder(env, sourcePath, targetPath);
+  if (!moved.disabled) {
+    // 目标目录本身要存在（源目录为空时子路径不会产生任何行）
+    await ensureFolderMarker(env, targetPath);
+    return json({
+      success: true,
+      sourcePath,
+      targetPath,
+      updatedFiles: moved.updatedFiles || 0,
+      updatedMarkers: moved.updatedMarkers || 0,
+      source: 'd1',
+    });
+  }
+
+  // ==========================================================================
+  // 路径 B：KV 兜底（原有逻辑）
+  // ==========================================================================
   const allKeys = await listAllKeys(env);
   let updatedFiles = 0;
   let updatedMarkers = 0;
@@ -456,6 +548,49 @@ export async function onRequestDelete(context) {
     return json({ success: false, error: 'path is required.' }, 400);
   }
 
+  // ==========================================================================
+  // 路径 A：D1 —— 用 SQL 做前置校验 + 批量改写
+  // ==========================================================================
+  const content = await folderHasContent(env, path);
+  if (!content.disabled) {
+    if (!recursive) {
+      if (content.hasFiles) {
+        return json({ success: false, error: 'Folder is not empty. Use recursive=1 to force.' }, 409);
+      }
+      if (content.hasChildFolders) {
+        return json({ success: false, error: 'Folder has child folders. Use recursive=1 to force.' }, 409);
+      }
+    }
+
+    let clearedFiles = 0;
+    if (recursive) {
+      // 目录内文件移回根目录（清空 folder_path，文件本体不删）
+      const cleared = await clearFolder(env, path, true);
+      clearedFiles = cleared.count || 0;
+    }
+
+    // 删除目录标记。非递归时只删自身；递归时连子目录标记一并删。
+    const removed = await removeFolderMarkers(env, path, recursive);
+    let deletedMarkers = removed.count || 0;
+    if (!recursive) {
+      // 上面 deleteFolderMarkers(false) 已删掉自身标记，
+      // 这里保持与 KV 版一致的计数语义（+1）已在 count 内，无需再补。
+      deletedMarkers = deletedMarkers || 1;
+    }
+
+    return json({
+      success: true,
+      path,
+      recursive,
+      clearedFiles,
+      deletedMarkers,
+      source: 'd1',
+    });
+  }
+
+  // ==========================================================================
+  // 路径 B：KV 兜底（原有逻辑）
+  // ==========================================================================
   const allKeys = await listAllKeys(env);
 
   const filesInFolder = allKeys.filter((item) => {

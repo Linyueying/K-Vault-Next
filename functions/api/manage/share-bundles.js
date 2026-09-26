@@ -31,6 +31,7 @@ import {
   isBundleActive,
   isBundleExhausted,
   isBundleExpired,
+  listAllBundles,
   listFolderMembersLive,
   readBundle,
 } from '../../utils/share-bundle.js';
@@ -58,16 +59,25 @@ export async function onRequest(context) {
   );
 
   try {
-    const slugs = await listBundleSlugs(env);
-
-    const bundles = [];
-    for (const slug of slugs) {
-      const bundle = await readBundle(env, slug);
-      if (bundle) bundles.push(bundle);
+    // D1 优先：两条 SQL 取回全部合集 + 全部成员（避免 N+1 次读）
+    const d1 = await listAllBundles(env);
+    let bundles;
+    let source;
+    if (!d1.disabled) {
+      bundles = d1.bundles;
+      source = 'd1';
+    } else {
+      // KV 兜底：枚举 bundle_slug: 前缀再逐个读本体
+      const slugs = await listBundleSlugs(env);
+      bundles = [];
+      for (const slug of slugs) {
+        const bundle = await readBundle(env, slug);
+        if (bundle) bundles.push(bundle);
+      }
+      // 按创建时间倒序，与文件分享列表的默认排序一致
+      bundles.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      source = 'kv';
     }
-
-    // 按创建时间倒序，与文件分享列表的默认排序一致
-    bundles.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
     const rows = [];
     for (let i = 0; i < bundles.length; i += MEMBER_BATCH_SIZE) {
@@ -76,7 +86,7 @@ export async function onRequest(context) {
       for (const row of built) rows.push(row);
     }
 
-    const payload = { success: true, bundles: rows, count: rows.length };
+    const payload = { success: true, bundles: rows, count: rows.length, source };
     if (includeStats) payload.stats = computeBundleStats(rows);
 
     return jsonResponse(payload);

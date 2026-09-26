@@ -25,9 +25,10 @@
  */
 
 import { listNormalizedFiles } from '../../utils/file-list.js';
+import { listSharedRecords } from '../../utils/file-record.js';
 import { buildShareRecord, hasActiveShare } from '../../utils/share-options.js';
 
-/** 计数读取的并发批大小。 */
+/** 计数读取的并发批大小（仅 KV 兜底路径使用）。 */
 const COUNT_BATCH_SIZE = 20;
 
 export async function onRequest(context) {
@@ -48,6 +49,32 @@ export async function onRequest(context) {
   );
 
   try {
+    // ========================================================================
+    // 路径 A：D1 —— 一条 SQL 拿到「所有开启分享的文件 + 实时下载计数」
+    //
+    // KV 版要先全量列举文件，再对每个限次分享逐条读 `dlc:` 计数键
+    // （分批 20 并发，避免打爆 KV 限流）。这里 share_download_count 就在
+    // 同一行里，计数读取的 N 次网络往返直接归零。
+    // ========================================================================
+    const d1 = await listSharedRecords(env);
+    if (!d1.disabled) {
+      const shares = [];
+      for (const item of d1.files) {
+        const record = await buildShareRecord(env, item.metadata, item.name).catch((error) => {
+          console.warn('Failed to build share record:', error?.message || error);
+          return null;
+        });
+        if (record) shares.push(record);
+      }
+
+      const payload = { success: true, shares, count: shares.length, source: 'd1' };
+      if (includeStats) payload.stats = computeShareStats(shares);
+      return jsonResponse(payload);
+    }
+
+    // ========================================================================
+    // 路径 B：KV 兜底（原有逻辑）
+    // ========================================================================
     const files = await listNormalizedFiles(env);
 
     // 只保留真正开启分享的条目。
@@ -77,11 +104,7 @@ export async function onRequest(context) {
     }
 
     const payload = { success: true, shares, count: shares.length };
-
-    if (includeStats) {
-      payload.stats = computeShareStats(shares);
-    }
-
+    if (includeStats) payload.stats = computeShareStats(shares);
     return jsonResponse(payload);
   } catch (error) {
     console.error('Failed to list shares:', error);
