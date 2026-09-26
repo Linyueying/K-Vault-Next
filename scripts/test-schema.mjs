@@ -20,7 +20,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { MIGRATIONS, ensureSchema, resetSchemaCache } from '../functions/utils/schema.js';
+import {
+  MIGRATIONS,
+  TABLES,
+  ensureSchema,
+  resetSchemaCache,
+  schemaStatus,
+} from '../functions/utils/schema.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -243,6 +249,121 @@ async function main() {
         missing.length === 0,
         missing.length ? `漏了: ${missing.join(', ')}` : '');
     }
+  }
+
+  console.log('[10] schemaStatus 只读体检');
+  {
+    // 10a 空库：表都不存在、迁移全缺、healthy=false
+    const blank = emptyEnv();
+    const s0 = await schemaStatus(blank);
+    check('[10a] 空库 enabled=true', s0.enabled === true);
+    check('[10a] 空库 healthy=false', s0.healthy === false);
+    check('[10a] 空库 missing 列出全部迁移',
+      s0.missing.length === MIGRATIONS.length, `missing=${s0.missing}`);
+    check('[10a] 空库所有表都标记为不存在',
+      TABLES.every((t) => s0.tables[t] === false), JSON.stringify(s0.tables));
+    check('[10a] 空库不写任何东西（仍是空库）',
+      blank._db.prepare(
+        "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'"
+      ).get().n === 0);
+
+    // 10b 迁移后：健康
+    resetSchemaCache();
+    const ready = emptyEnv();
+    await ensureSchema(ready);
+    // 造一点数据，确认 counts 有值
+    ready._db.prepare(
+      `INSERT INTO files (id, storage, file_name, file_size, uploaded_at)
+       VALUES ('f1','r2','a.png',10,1)`
+    ).run();
+    const s1 = await schemaStatus(ready);
+    check('[10b] 迁移后 healthy=true', s1.healthy === true, JSON.stringify(s1));
+    check('[10b] missing 为空', s1.missing.length === 0);
+    check('[10b] applied 记录齐全', s1.applied.length === MIGRATIONS.length);
+    check('[10b] files 行数 = 1', s1.counts?.files === 1, JSON.stringify(s1.counts));
+    check('[10b] schema_migrations 也被统计', s1.counts?.schema_migrations === 3);
+    check('[10b] is_folder 列存在', s1.columns['files.is_folder'] === true);
+
+    // 10c counts=0 时跳过统计
+    const s2 = await schemaStatus(ready, { counts: false });
+    check('[10c] counts=0 时不统计行数', s2.counts === null);
+    check('[10c] counts=0 仍判定健康', s2.healthy === true);
+
+    // 10d D1 未绑定
+    const s3 = await schemaStatus({});
+    check('[10d] 未绑定 → enabled=false', s3.enabled === false);
+    check('[10d] 未绑定 → healthy=false', s3.healthy === false);
+    check('[10d] 未绑定给出人类可读原因', typeof s3.reason === 'string' && s3.reason.length > 0);
+
+    // 10e 缺列能被检出（healthy=false 而不是静默降级）
+    const broken = new DatabaseSync(':memory:');
+    broken.exec('CREATE TABLE files (id TEXT PRIMARY KEY, file_name TEXT)');
+    const s4 = await schemaStatus({ DB: wrapAsD1(broken) });
+    check('[10e] 缺 is_folder 列 → 该列标记 false', s4.columns['files.is_folder'] === false);
+    check('[10e] 缺列导致 healthy=false', s4.healthy === false);
+
+    // 10f TABLES 从 DDL 自动提取，不手工维护
+    check('[10f] TABLES 含 files/bundles/bundle_files',
+      ['files', 'bundles', 'bundle_files'].every((t) => TABLES.includes(t)),
+      TABLES.join(','));
+  }
+
+  console.log('[11] /api/admin/db-status 端点冒烟');
+  {
+    const { onRequest } = await import('../functions/api/admin/db-status.js');
+
+    const call = async (env, search = '', method = 'GET') => {
+      const res = await onRequest({
+        request: new Request(`https://example.test/api/admin/db-status${search}`, { method }),
+        env,
+      });
+      return { status: res.status, body: await res.json() };
+    };
+
+    // 11a 未绑定 D1
+    const a = await call({});
+    check('[11a] 200', a.status === 200);
+    check('[11a] d1.enabled=false', a.body.d1?.enabled === false);
+    check('[11a] verdict 提示未绑定',
+      typeof a.body.verdict === 'string' && a.body.verdict.includes('未绑定'),
+      a.body.verdict);
+
+    // 11b 空库：给出"迁移未跑完"的结论
+    const blank = emptyEnv();
+    const b = await call(blank);
+    check('[11b] verdict 指明缺哪些迁移',
+      b.body.verdict.includes('迁移未跑完'), b.body.verdict);
+    check('[11b] 未带 apply 不建表（只读）',
+      blank._db.prepare(
+        "SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'"
+      ).get().n === 0);
+
+    // 11c ?apply=1 立即建表
+    resetSchemaCache();
+    const fresh = emptyEnv();
+    const c = await call(fresh, '?apply=1');
+    check('[11c] apply 后 healthy=true', c.body.d1?.healthy === true, JSON.stringify(c.body.d1));
+    check('[11c] appliedNow 列出本次执行的迁移',
+      Array.isArray(c.body.migrations?.appliedNow) && c.body.migrations.appliedNow.length === 3,
+      JSON.stringify(c.body.migrations));
+    check('[11c] verdict 为已就绪', c.body.verdict.includes('已就绪'), c.body.verdict);
+
+    // 11d 方法限制
+    const d = await call({}, '', 'POST');
+    check('[11d] 非 GET 返回 405', d.status === 405);
+
+    // 11e 不泄露业务数据：响应里不含文件名/路径
+    resetSchemaCache();
+    const withData = emptyEnv();
+    await ensureSchema(withData);
+    withData._db.prepare(
+      `INSERT INTO files (id, storage, file_name, file_size, uploaded_at, folder_path)
+       VALUES ('f1','r2','secret.png',10,1,'/private')`
+    ).run();
+    const e = await call(withData);
+    const dump = JSON.stringify(e.body);
+    check('[11e] 不泄露文件名', !dump.includes('secret.png'), dump.slice(0, 200));
+    check('[11e] 不泄露目录路径', !dump.includes('/private'));
   }
 
   console.log(`\n===== 结果: ${pass} 通过 / ${fail} 失败 =====`);

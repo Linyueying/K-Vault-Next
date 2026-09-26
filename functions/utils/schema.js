@@ -240,15 +240,15 @@ async function runMigrations(env) {
   const applied = [];
 
   try {
-    // meta 表本身也要幂等创建
+    // meta 表本身也要幂等创建（必须先于版本查询建好）
     await env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS schema_migrations (
+      `CREATE TABLE IF NOT EXISTS ${META_TABLE} (
         version     TEXT    PRIMARY KEY,
         applied_at  INTEGER
       )`
     ).run();
 
-    const done = await env.DB.prepare('SELECT version FROM schema_migrations').all();
+    const done = await env.DB.prepare(`SELECT version FROM ${META_TABLE}`).all();
     const doneSet = new Set((done?.results || []).map((r) => String(r.version)));
 
     for (const migration of MIGRATIONS) {
@@ -302,6 +302,136 @@ async function markApplied(env, version) {
     `INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)
      ON CONFLICT(version) DO NOTHING`
   ).bind(version, now()).run();
+}
+
+// ============================================================================
+// 运行状态自检
+// ============================================================================
+
+/** 版本记录表（第 0 号，由 runMigrations 无条件先建，故不进 MIGRATIONS）。 */
+const META_TABLE = 'schema_migrations';
+
+/**
+ * 需要体检的表名：**从 DDL 自动提取** + 版本记录表。
+ *
+ * 表名来自本文件常量，不含外部输入，拼进 SQL 无注入风险。
+ */
+export const TABLES = (() => {
+  const names = new Set([META_TABLE]);
+  const re = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/i;
+  for (const migration of MIGRATIONS) {
+    for (const sql of migration.statements) {
+      const match = re.exec(sql);
+      if (match) names.add(match[1]);
+    }
+  }
+  return [...names];
+})();
+
+/** 关键列检查项（缺了会静默降级，所以显式暴露出来）。 */
+const REQUIRED_COLUMNS = [{ table: 'files', column: 'is_folder' }];
+
+async function columnExists(env, table, column) {
+  try {
+    const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+    return (rows?.results || []).some((r) => String(r.name) === column);
+  } catch (error) {
+    return null; // null = 查不了，区别于 false = 确实没有
+  }
+}
+
+/**
+ * 只读地体检一次 D1，供运维端点 / 部署后验证使用。
+ *
+ * **不触发迁移**（不写任何东西）——想强制建表请用 `?apply=1` 走
+ * `resetSchemaCache()` + `ensureSchema()`。
+ *
+ * @param {any} env
+ * @param {{counts?: boolean}} [options] counts=false 时跳过行数统计（大表更快）
+ */
+export async function schemaStatus(env, options = {}) {
+  const withCounts = options.counts !== false;
+
+  if (!isD1Enabled(env)) {
+    return {
+      enabled: false,
+      healthy: false,
+      reason: 'D1 未绑定（env.DB 不存在）——数据层会整体回落 KV',
+    };
+  }
+
+  const result = {
+    enabled: true,
+    healthy: false,
+    applied: [],
+    missing: [],
+    tables: {},
+    columns: {},
+    counts: null,
+    error: null,
+  };
+
+  // 1) 已应用的迁移版本
+  try {
+    const res = await env.DB.prepare(
+      `SELECT version, applied_at FROM ${META_TABLE} ORDER BY version`
+    ).all();
+    result.applied = (res?.results || []).map((r) => ({
+      version: String(r.version),
+      applied_at: r.applied_at ?? null,
+    }));
+  } catch (error) {
+    // meta 表不存在 = 还没跑过迁移，不是错误
+    const message = error?.message || String(error);
+    if (!/no such table/i.test(message)) {
+      result.error = `无法读取 schema_migrations: ${message}`;
+    }
+  }
+
+  const appliedSet = new Set(result.applied.map((a) => a.version));
+  result.missing = MIGRATIONS.filter((m) => !appliedSet.has(m.id)).map((m) => m.id);
+
+  // 2) 表是否存在（存在则记 true，不存在记 false）
+  for (const table of TABLES) {
+    try {
+      await env.DB.prepare(`SELECT 1 FROM ${table} LIMIT 1`).all();
+      result.tables[table] = true;
+    } catch (error) {
+      result.tables[table] = false;
+    }
+  }
+
+  // 3) 关键列
+  for (const { table, column } of REQUIRED_COLUMNS) {
+    result.columns[`${table}.${column}`] = await columnExists(env, table, column);
+  }
+
+  // 4) 行数（可选）
+  if (withCounts) {
+    result.counts = {};
+    for (const table of TABLES) {
+      if (!result.tables[table]) {
+        result.counts[table] = null;
+        continue;
+      }
+      try {
+        const res = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).all();
+        result.counts[table] = res?.results?.[0]?.n ?? null;
+      } catch (error) {
+        result.counts[table] = null;
+      }
+    }
+  }
+
+  const allTablesExist = TABLES.every((t) => result.tables[t]);
+  const columnsOk = REQUIRED_COLUMNS.every(
+    ({ table, column }) => result.columns[`${table}.${column}`] !== false
+  );
+
+  result.healthy =
+    !result.error && result.missing.length === 0 && allTablesExist && columnsOk;
+
+  return result;
 }
 
 /**
