@@ -6,7 +6,10 @@
     "build": "node -e \"console.log('No build step required. For Cloudflare Pages Git integration, leave Build command and Build output directory empty.')\"",
     "start": "npx wrangler pages dev ./ --kv \"img_url\" --r2=R2_BUCKET --compatibility-date=2026-05-03 --port 8080 --binding BASIC_USER=admin --binding BASIC_PASS=123 --persist-to ./data",
     "pages:r2:doctor": "node scripts/cloudflare-pages-r2-doctor.js",
-    "pages:deploy": "npx wrangler pages deploy ."
+    "pages:deploy": "npx wrangler pages deploy .",
+    "d1:setup": "bash scripts/setup-d1.sh",
+    "d1:migrations": "python3 scripts/gen-migrations.py",
+    "test": "node scripts/test-file-record.mjs && node scripts/test-file-record-upload.mjs && node scripts/test-list-d1.mjs && node scripts/test-quota.mjs && node scripts/test-folders-shares.mjs && node scripts/test-bundles.mjs && node scripts/test-schema.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.98.0"

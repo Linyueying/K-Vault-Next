@@ -7,8 +7,11 @@
 > 完全一致**——所以可以先合代码、后建库，不存在"必须同时切"的压力。
 >
 > **建表是自动的**：应用运行时首次访问 D1 会自动建表并补齐迁移（懒迁移），
-> **不需要手动执行任何 SQL**。你唯一要手动做的是第 1 步的「创建 D1 数据库」
-> ——这是 Cloudflare 的硬限制，CLI 才能建库。详见第 1.4 节。
+> **不需要手动执行任何 SQL**。
+>
+> **建库也是一条命令**：`bash scripts/setup-d1.sh` 自动建库并把 `database_id`
+> 写进 `wrangler.toml`。这是全流程唯一需要你动手的地方——Cloudflare 没有
+> 「部署时建库」的 API，数据库实例本身只能由 CLI 创建。
 
 ---
 
@@ -40,6 +43,26 @@ npx wrangler whoami        # 确认已登录、且是目标账号
 ```
 
 ### 1.2 创建 D1 数据库
+
+**一条命令搞定**（自动建库、解析 `database_id`、写入 `wrangler.toml`）：
+
+```bash
+bash scripts/setup-d1.sh
+```
+
+脚本会：检查 wrangler 与登录 → 创建数据库 → 把 `database_id` 写进 `wrangler.toml`
+第 50 行 → 打印后续步骤。库已存在时会自动复用，不报错。
+
+其他用法：
+
+```bash
+bash scripts/setup-d1.sh --name mydb        # 指定数据库名（默认 k_vault）
+bash scripts/setup-d1.sh --id <uuid>        # 库已存在，只把 id 写进配置
+bash scripts/setup-d1.sh --apply            # 顺带执行 migrations/*.sql（可选兜底）
+bash scripts/setup-d1.sh --dry-run          # 只看会做什么，不改动任何文件
+```
+
+等价的手工命令（想自己来的时候）：
 
 ```bash
 npx wrangler d1 create k_vault
@@ -94,7 +117,44 @@ python3 scripts/gen-migrations.py
 
 ### 1.4 验证建表（部署后做，不是现在）
 
-绑库并部署、产生第一次访问后，确认表确实建出来了：
+**首选：打开自检端点**（需管理员登录，端点挂载在 `/api/admin/**` 下，
+沿用现有 fail-closed 鉴权）：
+
+```
+https://<你的域名>/api/admin/db-status
+```
+
+返回示例：
+
+```json
+{
+  "success": true,
+  "d1": {
+    "enabled": true,
+    "healthy": true,
+    "applied": [{"version": "0001_files", "applied_at": 1730000000000}],
+    "missing": [],
+    "tables": {"files": true, "bundles": true, "bundle_files": true, "schema_migrations": true},
+    "columns": {"files.is_folder": true},
+    "counts": {"files": 42, "bundles": 0, "bundle_files": 0, "schema_migrations": 3}
+  },
+  "verdict": "D1 已就绪，表与迁移均完整。"
+}
+```
+
+看 `verdict` 一句话就知道状态。四种结论：
+
+| verdict | 含义 | 怎么办 |
+| :--- | :--- | :--- |
+| D1 已就绪，表与迁移均完整 | 正常 | 没了 |
+| 迁移未跑完，缺 xxx | 懒迁移还没触发或失败了 | 加 `?apply=1` 再访问一次 |
+| 迁移记录齐全但表/列有缺失 | 表被外部改动过 | 查 `?counts=1` 的 tables 字段定位 |
+| D1 未绑定 | `env.DB` 不存在 | 回第 3 步检查 Pages 的 binding |
+
+端点**只读**（不带 `?apply=1` 时一个字节都不写），也不返回任何文件元数据，
+只有结构与计数，可以放心访问。表很大时加 `?counts=0` 跳过行数统计。
+
+**备选：用 wrangler 查**（不想开浏览器时）：
 
 ```bash
 npx wrangler d1 execute k_vault --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
@@ -126,9 +186,7 @@ npx wrangler d1 execute k_vault --remote --command "SELECT * FROM schema_migrati
 自动迁移失效时的应急手段。正常情况下**不需要跑**：
 
 ```bash
-npx wrangler d1 execute k_vault --remote --file=./migrations/0001_files.sql
-npx wrangler d1 execute k_vault --remote --file=./migrations/0002_folder_markers.sql
-npx wrangler d1 execute k_vault --remote --file=./migrations/0003_share_bundles.sql
+bash scripts/setup-d1.sh --apply
 ```
 
 > **不要跳号、不要乱序**。`0002` 依赖 `0001` 建出的 `files` 表。
