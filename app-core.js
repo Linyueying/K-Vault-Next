@@ -241,14 +241,19 @@
      * 包住一个异步动作，自动处理「同步中 -> 已同步 / 失败 + 重试」。
      *
      * @param {Function} fn    () => Promise，真正的网络动作
-     * @param {Object}   meta  可选，{ label: '目录列表' }，仅用于 detail 描述
+     * @param {Object}   meta  可选，{ label: '目录列表', settle: 'evidence' }
+     *   - settle:'evidence'：请求成功只代表「云端已接受」，绿点改由验证管理器
+     *     在拿到确切 KV 同步证据后点亮（confirmSynced）。KV 最终一致窗口内
+     *     黄点会一直亮着 —— 刻意语义：绿点 = 亲眼确认到变更，不是 = 请求成功。
      * @returns {Promise}      与 fn 同解；失败时抛出最后一次的错误
      */
     function track(fn, meta) {
+      var m = meta || {};
+      var settleEvidence = m.settle === "evidence";
       clearHold();
       pending += 1;
       set("syncing", {
-        label: (meta && meta.label) || "",
+        label: m.label || "",
         attempts: 0,
         lastError: null,
       });
@@ -264,11 +269,24 @@
             pending -= 1;
             if (pending <= 0) {
               pending = 0;
-              set("synced");
-              // 绿点只作短暂确认，随后自然回到 idle（灰）
-              holdTimer = setTimeout(function () {
-                if (state === "synced" && pending === 0) set("idle");
-              }, holdMs);
+              if (settleEvidence) {
+                /* 云端已接受请求，但 KV 传播需要时间：保持黄点，
+                   由验证管理器读到「确切同步证据」后再点亮绿点 */
+                set("syncing", {
+                  label: m.label || "",
+                  attempts: attempts,
+                  lastError: null,
+                  verifying: true,
+                  timedOut: false,
+                  at: Date.now(),
+                });
+              } else {
+                set("synced");
+                // 绿点只作短暂确认，随后自然回到 idle（灰）
+                holdTimer = setTimeout(function () {
+                  if (state === "synced" && pending === 0) set("idle");
+                }, holdMs);
+              }
             }
             return res;
           })
@@ -288,6 +306,28 @@
       }
 
       return attempt();
+    }
+
+    /* 验证管理器专用：保持/回到黄点并更新说明字段。
+       每次传入固定字段集合整体覆盖，避免残留上一轮的 timedOut 等标记。 */
+    function holdPending(extra) {
+      clearHold();
+      set("syncing", Object.assign({
+        label: "", attempts: 0, lastError: null,
+        verifying: true, timedOut: false, at: Date.now(),
+      }, extra || {}));
+    }
+
+    /* 验证管理器专用：拿到确切证据后点亮绿点（短暂停留后回 idle）。
+       仍有 track 在跑（pending > 0）时不点亮，返回 false 供调用方稍后重试。 */
+    function confirmSynced() {
+      clearHold();
+      if (pending > 0) return false;
+      set("synced");
+      holdTimer = setTimeout(function () {
+        if (state === "synced" && pending === 0) set("idle");
+      }, holdMs);
+      return true;
     }
 
     function subscribe(fn) {
@@ -315,10 +355,11 @@
         "",
         "1. 网络往返 —— 你的操作要先送到 Cloudflare 边缘节点，再由它写进存储。物理距离决定了最低延迟，无法在前端消除。",
         "2. 云端写入 —— 目录的增删改会逐个改写其中文件的元数据；文件越多，这一步越久。",
-        "3. 列表刷新 —— 为了让界面和云端一致，需要重新拉取一次列表。",
+        "3. KV 最终一致 —— Cloudflare KV 的写入是全球最终一致的：请求成功后，新状态传播到读取端还需要一点时间（通常几秒，最长约 60 秒），这段时间里读到的仍可能是旧数据。",
+        "4. 同步确认 —— 所以绿点必须等确凿证据：我们会回到云端 KV 重新读取，亲眼确认你的变更已经生效，才把黄点变绿。确认之前黄点一直亮着，绝不提前「报喜」。",
         "",
-        "所以界面会先把改动立刻显示出来（乐观更新），同时后台静默完成真正的写入。",
-        "圆点就是这条后台链路的进度：黄=同步中，绿=已同步，红=失败（已自动重试 2 次）。",
+        "界面会先把改动立刻显示出来（乐观更新），同时后台静默完成真正的写入与验证。",
+        "圆点就是这条后台链路的进度：黄=已提交/确认中，绿=已在云端 KV 确认，红=失败（已自动重试 2 次）。",
       ].join("\n");
     }
 
@@ -327,6 +368,8 @@
       subscribe: subscribe,
       reset: reset,
       explain: explain,
+      holdPending: holdPending,
+      confirmSynced: confirmSynced,
       get state() { return state; },
       get detail() { return detail; },
       get pending() { return pending; },
@@ -335,6 +378,164 @@
       STATE_SYNCED: "synced",
       STATE_FAILED: "failed",
     };
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 同步验证管理器（sync verifier）
+   *   「确切 KV 同步证据」的唯一判定实现：写请求成功（黄点保持）后，
+   *   周期性用 fresh 读回到云端 KV，直到亲眼看到本次变更已生效才点亮绿点。
+   *   admin.html 与 index.html 共用这一份，避免两页判定口径漂移。
+   *
+   *   语义（与用户需求逐字对齐）：
+   *     - 没有收到确切的 KV 目录同步证据 -> 黄点一直亮，绝不变绿；
+   *     - 验证读失败（网络抖动等）不算写失败：不转红，静默继续验证；
+   *     - 长时间未确认（超过 VERIFY_TIMEOUT，覆盖 KV 最长约 60s 的传播窗口）
+   *       转入低频轮询继续等，黄点仍常亮；一旦证据到手立即变绿。
+   *     - 全部证据到手的那一轮读回数据就是云端真实状态，直接应用到界面
+   *       （所见即 KV 所存），并点亮绿点。
+   * ------------------------------------------------------------------ */
+
+  // 写成功后到首次验证读的等待：同边缘节点的写后读通常立即可见，稍等即可
+  var SYNC_VERIFY_FIRST_DELAY = 600;
+  // 验证轮询间隔
+  var SYNC_VERIFY_INTERVAL = 2000;
+  // 高频验证的最长持续时间（覆盖 KV 最长约 60s 的最终一致窗口 + 余量）
+  var SYNC_VERIFY_TIMEOUT = 90000;
+  // 超时后的低频轮询间隔（黄点保持，不放弃）
+  var SYNC_VERIFY_SLOW_INTERVAL = 12000;
+
+  /**
+   * 创建验证管理器。
+   *
+   * @param {Object} opts
+   *   - tracker   {Object}  createSyncTracker() 实例（状态点状态机）
+   *   - fetcher   {Function} () => Promise<{ folders: [...] }>，fresh 读回云端目录
+   *   - onApply   {Function} (folders) => void，证据数据应用到界面（可选）
+   *   - firstDelay/interval/timeout/slowInterval {number} 时序参数（默认见上方常量）
+   * @returns {Object}
+   *   - queueVerify(expected, label)  登记一组待验证的预期变更并启动验证
+   *       expected: [{ type:'create', path } | { type:'delete', path }
+   *                  | { type:'rename', path:旧, to:新 }]
+   */
+  function createSyncVerifier(opts) {
+    var o = opts || {};
+    var tracker = o.tracker;
+    var fetcher = o.fetcher;
+    var onApply = typeof o.onApply === "function" ? o.onApply : null;
+    var firstDelay = o.firstDelay == null ? SYNC_VERIFY_FIRST_DELAY : o.firstDelay;
+    var interval = o.interval == null ? SYNC_VERIFY_INTERVAL : o.interval;
+    var timeout = o.timeout == null ? SYNC_VERIFY_TIMEOUT : o.timeout;
+    var slowInterval = o.slowInterval == null ? SYNC_VERIFY_SLOW_INTERVAL : o.slowInterval;
+
+    // 待验证队列：[{ expected, label, startedAt, tries }]
+    var queue = [];
+    var timer = null;
+    var pollSeq = 0; // 世代号：新登记会重启轮询，旧轮询的迟到回调按号作废
+
+    function clearTimer() {
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+
+    function expectedMet(expected, pathSet) {
+      for (var i = 0; i < expected.length; i += 1) {
+        var e = expected[i];
+        if (!e) return false;
+        if (e.type === "create") { if (!pathSet.has(e.path)) return false; }
+        else if (e.type === "delete") { if (pathSet.has(e.path)) return false; }
+        else if (e.type === "rename") {
+          if (!pathSet.has(e.to) || pathSet.has(e.path)) return false;
+        } else { return false; } // 未知类型保守视为未满足：保持黄点
+      }
+      return true;
+    }
+
+    function confirmWithRetry(left) {
+      if (tracker.confirmSynced()) return;
+      if (left <= 0) return; // 极端情况：放弃点绿，保持黄点（比错误报喜安全）
+      setTimeout(function () { confirmWithRetry(left - 1); }, 400);
+    }
+
+    function loop(seq) {
+      if (seq !== pollSeq) return;
+      if (!queue.length) return;
+
+      Promise.resolve().then(fetcher).then(function (data) {
+        if (seq !== pollSeq) return;
+        var folders = (data && data.folders) || [];
+        var pathSet = new Set();
+        for (var i = 0; i < folders.length; i += 1) {
+          var p = folders[i] && folders[i].path != null ? String(folders[i].path) : "";
+          if (p) pathSet.add(p);
+        }
+
+        var remaining = [];
+        var allTimedOut = true;
+        for (var j = 0; j < queue.length; j += 1) {
+          var item = queue[j];
+          if (expectedMet(item.expected, pathSet)) continue; // 证据到手，移出队列
+          item.tries += 1;
+          if (Date.now() - item.startedAt < timeout) allTimedOut = false;
+          remaining.push(item);
+        }
+
+        if (!remaining.length) {
+          /* 全部证据到手：这一轮读回的数据就是云端 KV 的真实状态，
+             应用到界面（所见即所存），再点亮绿点 */
+          queue = [];
+          if (onApply) { try { onApply(folders); } catch (e) { /* 应用失败不影响状态点 */ } }
+          confirmWithRetry(10);
+          return;
+        }
+
+        queue = remaining;
+        var head = queue[0];
+        tracker.holdPending({
+          label: head.label || "",
+          attempts: head.tries,
+          lastError: null,
+          verifying: true,
+          timedOut: allTimedOut,
+          at: Date.now(),
+        });
+        /* 超时后转低频轮询继续等（黄点常亮，绝不放弃确认） */
+        var wait = allTimedOut ? slowInterval : interval;
+        timer = setTimeout(function () { loop(seq); }, wait);
+      }).catch(function () {
+        /* 验证读失败不是写失败：不转红，保持黄点静默重试 */
+        if (seq !== pollSeq) return;
+        var head = queue[0] || {};
+        for (var k = 0; k < queue.length; k += 1) queue[k].tries += 1;
+        tracker.holdPending({
+          label: head.label || "",
+          attempts: (queue[0] && queue[0].tries) || 0,
+          lastError: null,
+          verifying: true,
+          timedOut: false,
+          at: Date.now(),
+        });
+        timer = setTimeout(function () { loop(seq); }, interval);
+      });
+    }
+
+    function queueVerify(expected, label) {
+      if (!expected || !expected.length) return;
+      queue.push({ expected: expected, label: label || "", startedAt: Date.now(), tries: 0 });
+      /* 重启轮询世代：立即以新队列开始第一轮 fresh 验证 */
+      pollSeq += 1;
+      clearTimer();
+      var seq = pollSeq;
+      tracker.holdPending({
+        label: label || "",
+        attempts: 0,
+        lastError: null,
+        verifying: true,
+        timedOut: false,
+        at: Date.now(),
+      });
+      timer = setTimeout(function () { loop(seq); }, firstDelay);
+    }
+
+    return { queueVerify: queueVerify };
   }
 
   /* ------------------------------------------------------------------ *
@@ -432,7 +633,7 @@
   }
 
   window.KVault = {
-    version: "1.2.0",
+    version: "1.3.0",
     formatBytes: formatBytes,
     formatSize: formatBytes, // 别名：多数页面用这个名字
     formatTime: formatTime,
@@ -448,6 +649,7 @@
     glassInit: glassInit,
     revealOnScroll: revealOnScroll,
     createSyncTracker: createSyncTracker,
+    createSyncVerifier: createSyncVerifier,
   };
 
   /* 自动初始化：纯增强、可失败。

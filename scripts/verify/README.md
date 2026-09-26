@@ -83,28 +83,33 @@ BASE=http://localhost:8099 SIM_LATENCY=1 LAT_MS=800 node scripts/verify/folder-o
 > ⚠️ **本地验证的局限**：本地 KV 是 SQLite 同步写，"并发 vs 串行"几乎没有差异。
 > **不要用本地 DELETE 耗时去证明并发优化有效**；并发收益要看微基准或线上。
 
-### `sync-status.mjs` —— 同步状态点：三态 + 失败自动重试 + 点击说明
+### `sync-status.mjs` —— 同步状态点：三态 + 失败自动重试 + KV 证据验证 + 点击说明
 
 ```bash
 # 前置：wrangler pages dev 跑在 8099
 BASE=http://localhost:8099 node scripts/verify/sync-status.mjs
 ```
 
-覆盖 **admin.html 与 index.html 两个页面**，共 31 项。验证目录管理区的同步状态圆点
+覆盖 **admin.html 与 index.html 两个页面**，共 39 项。验证目录管理区的同步状态圆点
 （admin 在目录面板头部按钮组、index 在上传抽屉的目录栏；**无同步动作时圆点隐藏**）。
 
-语义（v2 修正）：**绿点 = 用户的写操作（新建/重命名/删除）已真正落到云端**。
+语义（v3，KV 证据验证）：**绿点 = 已从云端 KV 亲眼读到你的变更（确切证据），不是「请求成功」**。
 - 只有【写操作】驱动状态点；读操作（目录/文件列表刷新）不驱动 ——
   否则写完成后的静默校正会再黄再绿一次，稀释「我的操作已同步」的语义，
   甚至给过期数据"背书"（回刷的旧数据 + 绿点 = 用户误以为同步成功）。
-- 写成功后的静默校正带 `fresh=1`：后端跳过 `fstat:` 快照直扫 KV（且不回写快照）。
-  KV 最终一致 + 边缘读缓存（最长 60s）下，刚失效的快照键仍可能读到旧值，
-  把刚删的目录刷回界面 —— 看起来就像「乐观更新失效」。
-- 前端再兜一层防回退：写成功时登记乐观操作（rememberFolderOp），
-  校正结果若与之矛盾（刚删的目录复活/刚建的丢失）则整包丢弃，保持乐观状态。
+- 写请求成功（`settle: 'evidence'`）只保持黄点；绿点由
+  `KVault.createSyncVerifier()`（app-core.js，唯一实现）点亮：写成功后周期性
+  `fresh=1` 读回目录列表，直到「确凿证据」到手——新建的路径真的出现、
+  删除的路径真的消失、重命名的新旧路径同时满足。没有证据，黄点一直亮。
+- 证据到手的那一轮读回数据就是云端真实状态，直接应用到界面（所见即所存）；
+  验证读失败（网络抖动）不是写失败——不转红，静默继续验证。
+- 高频验证持续 90s（覆盖 KV 最长约 60s 的最终一致窗口）后转 12s 低频轮询，
+  黄点仍常亮，不放弃确认；一旦证据到手立即变绿。
+- 防回退登记（rememberFolderOp）窗口与验证期对齐（95s）：验证期间普通刷新
+  拿到的旧数据同样被丢弃，乐观界面不被冲掉。
 
-- **黄点**（`.is-syncing`）：目录写入进行中可被捕获
-- **绿点**（`.is-synced`）：成功后到达（成功链路）
+- **黄点**（`.is-syncing`）：目录写入进行中可被捕获；写成功后（验证期）持续亮着
+- **绿点**（`.is-synced`）：拿到确切 KV 证据后到达（成功链路 + B2 传播延迟链路）
 - **红点**（`.is-failed`）+ **自动重试**：把 POST/PUT/DELETE 拦成 500 后，
   必须观察到**恰好 3 次写请求**（1 次原始 + 2 次重试，退避 600/1500ms），
   红点约 2.1s 后亮起且**常驻不自动消失**，并弹出「同步失败」toast
@@ -112,16 +117,24 @@ BASE=http://localhost:8099 node scripts/verify/sync-status.mjs
 
 > **实现分层**（防止两页漂移）：`.sync-dot` 四态样式与三条关键帧只在
 > `design-system.css`；状态机 / 重试 / 说明文案只在 `app-core.js` 的
-> `KVault.createSyncTracker()`；两页只把网络动作包进 `track()` 并绑定 class。
+> `KVault.createSyncTracker()`；证据判定只在 `KVault.createSyncVerifier()`；
+> 两页只把网络动作包进 `track()`、登记 `queueVerify(expected)` 并绑定 class。
 >
 > **一个值得记住的坑**：HTTP 500 不会让 `fetch` reject。若「成功判定」写在
 > 被 `track()` 包装的函数**外面**（如 `const r = await track(() => fetch(...).then(r=>r.json())); if (!r.success) throw`），
 > tracker 视角全是成功 —— 不重试、不亮红点。成功判定必须在追踪函数**内部**抛错。
 >
+> **另一个坑（v3 踩过）**：tracker 新增的低层方法（holdPending/confirmSynced）
+> 若只定义、**忘了在 return 对象里导出**，verifier 一调用就抛 TypeError，
+> 写操作的 catch 会把乐观状态回滚 —— 表面上「乐观更新失效」，实际是导出遗漏。
+> node 冒烟（`window.KVault.createSyncTracker` 全链路）可在改共享层后先跑一把。
+>
 > 另外 `k_vault_session` cookie 带 `Secure` 属性：浏览器对 localhost 有豁免，
 > 但 playwright 的 APIRequestContext 在 http:// 下不会自动携带 —— 服务端校验
 > 类请求要显式带登录拿到的 Cookie 头（folder-ops.mjs 的 `AUTH` 即此用法）。
-> 本脚本用 `SIM_LATENCY` 证明的是「前端乐观更新」，这一点本地完全可测。
+> 本脚本用 `SIM_LATENCY` 证明的是「前端乐观更新」，这一点本地完全可测；
+> B2 用例的「KV 传播延迟」是 route 层模拟（`staleFreshMs`：写后 N ms 内
+> fresh 读一律返回写前旧快照），本地 SQLite KV 本身写后立即可见，模拟是必要的。
 
 ### `guest-banner-login.mjs` —— 访客横幅「登录账户」跳转回归
 

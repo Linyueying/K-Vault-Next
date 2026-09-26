@@ -2557,7 +2557,8 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
 
             /* 同步状态点（黄=同步中 / 绿=已同步 / 红=失败）
                状态机与重试逻辑在共享层 KVault.createSyncTracker()，本页只做绑定。
-               追踪范围：上传目录的新建/重命名/删除 + 目录列表拉取。 */
+               追踪范围：上传目录的新建/重命名/删除（写操作）。读操作不驱动状态点；
+               写请求成功后黄点保持，绿点由 syncVerifier 拿到确切 KV 证据后点亮。 */
             syncState: "idle",
             syncDetail: { attempts: 0, lastError: null },
             syncTracker: null,
@@ -2647,8 +2648,16 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             return map[this.syncState] || "";
           },
           syncDotTitle() {
-            if (this.syncState === "syncing") return "同步中…（点击查看说明）";
-            if (this.syncState === "synced") return "已同步（点击查看说明）";
+            const d = this.syncDetail || {};
+            if (this.syncState === "syncing") {
+              if (d.timedOut) return "云端确认超时，仍在低频重试验证…（点击查看说明）";
+              if (d.verifying) {
+                const n = d.attempts || 0;
+                return `已提交云端，正在确认 KV 同步…${n > 0 ? `（第 ${n} 次验证）` : ""}（点击查看说明）`;
+              }
+              return "同步中…（点击查看说明）";
+            }
+            if (this.syncState === "synced") return "已在云端确认同步（点击查看说明）";
             if (this.syncState === "failed") {
               const err = this.syncDetail && this.syncDetail.lastError;
               return `同步失败：${(err && err.message) || "网络异常"}（点击查看详情）`;
@@ -3004,9 +3013,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
              失败时给错误打上 _syncedShown，调用方的 catch 据此避免重复弹 toast。
              只有【写操作】走这里 —— 读操作（目录列表刷新）不驱动状态点，
              否则后台刷新会给过期数据"背书"（误以为同步成功）。 */
-          _syncTrack(fn, label) {
+          _syncTrack(fn, label, opts = {}) {
             if (!this.syncTracker) return Promise.resolve().then(fn);
-            return this.syncTracker.track(fn, { label }).catch((err) => {
+            return this.syncTracker.track(fn, Object.assign({ label }, opts)).catch((err) => {
               if (err && typeof err === "object") {
                 try { err._syncedShown = true; } catch (e) { /* 边角情况 */ }
               }
@@ -3014,7 +3023,9 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             });
           },
           /* ===== 写后校正的防回退登记（与 admin.html 同一套约定） ===== */
-          rememberFolderOp(op, ms = 8000) {
+          /* 默认窗口与验证期对齐（90s 验证 + 余量）：KV 最终一致窗口内，
+             普通刷新拿到的旧数据同样会被丢弃，防止界面闪回旧状态 */
+          rememberFolderOp(op, ms = 95000) {
             if (!this._recentFolderOps) this._recentFolderOps = [];
             this._recentFolderOps.push(Object.assign({ until: Date.now() + ms }, op));
           },
@@ -3043,9 +3054,16 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
               head = `上次同步失败，已自动重试 ${Math.max(tries - 1, 0)} 次仍失败：`
                 + `${(err && err.message) || "网络异常"}\n\n`;
             } else if (this.syncState === "synced") {
-              head = "当前内容已与云端同步。\n\n";
+              head = "已在云端 KV 确认到你的变更，当前内容与云端一致。\n\n";
             } else if (this.syncState === "syncing") {
-              head = "正在同步中，界面已先行更新，写入在后台进行。\n\n";
+              const d = this.syncDetail || {};
+              if (d.timedOut) {
+                head = "改动已提交云端，但 KV 确认超时（通常 ≤60 秒），仍在低频重试验证，界面保持乐观状态。\n\n";
+              } else if (d.verifying) {
+                head = `改动已提交云端，正在回到 KV 读取确认（已验证 ${d.attempts || 0} 次）。确认到证据前黄点不会变绿。\n\n`;
+              } else {
+                head = "正在同步中，界面已先行更新，写入在后台进行。\n\n";
+              }
             }
             await this.alertDialog(head + base, { title: "关于同步与延迟" });
           },
@@ -3737,16 +3755,19 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             this.persistExpanded();
 
             try {
+              /* settle:"evidence"：请求成功后黄点保持，等验证管理器 fresh 读回
+                 列表里真的出现这个目录才点亮绿点 */
               const data = await this._syncTrack(async () => {
                 const res = await fetch("/api/manage/folders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: createdPath }) });
                 const d = await res.json();
                 if (!res.ok || !d.success) throw new Error(d.error || "创建失败");
                 return d;
-              }, "新建目录");
+              }, "新建目录", { settle: "evidence" });
               this.showToast(`已创建目录：${createdPath}`, "success");
-              /* 登记 + fresh 静默校正：绕开快照缓存，防止过期快照把新目录"刷丢" */
+              /* 防回退登记 + 证据验证：KV 最终一致窗口内普通刷新拿到的旧数据
+                 会被丢弃；绿点要等确凿证据才亮 */
               this.rememberFolderOp({ type: "create", path: createdPath });
-              this.fetchUploadFolders(true, { fresh: 1, silent: true });
+              if (this.syncVerifier) this.syncVerifier.queueVerify([{ type: "create", path: createdPath }], "新建目录");
             } catch (err) {
               // 回滚到操作前状态
               this.uploadFolders = foldersSnapshot;
@@ -3792,15 +3813,29 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             }
 
             try {
+              /* settle:"evidence"：请求成功后黄点保持，等验证管理器确认
+                 「新路径已出现、旧路径已消失」才点亮绿点 */
               const data = await this._syncTrack(async () => {
                 const res = await fetch("/api/manage/folders", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourcePath: node.path, targetPath }) });
                 const d = await res.json();
                 if (!res.ok || !d.success) throw new Error(d.error || "重命名失败");
                 return d;
-              }, "重命名目录");
+              }, "重命名目录", { settle: "evidence" });
               this.showToast(`已重命名：${targetPath}`, "success");
-              this.rememberFolderOp({ type: "rename", path: node.path, to: targetPath });
-              this.fetchUploadFolders(true, { fresh: 1, silent: true });
+              /* 防回退登记 + 证据验证：子目录一并登记/验证（旧路径不该再出现、
+                 新路径必须真的在），否则 KV 传播期间旧子目录可能闪回 */
+              const srcN = this.normalizeFolderPath(node.path);
+              const oldPaths = foldersSnapshot
+                .map((f) => this.normalizeFolderPath(f.path))
+                .filter((p) => p === srcN || p.startsWith(srcN + "/"));
+              const newPaths = oldPaths.map((p) => p === srcN ? targetPath : targetPath + p.slice(srcN.length));
+              oldPaths.forEach((p) => this.rememberFolderOp({ type: "delete", path: p }));
+              newPaths.forEach((p) => this.rememberFolderOp({ type: "create", path: p }));
+              if (this.syncVerifier) {
+                const expected = oldPaths.map((p) => ({ type: "delete", path: p }))
+                  .concat(newPaths.map((p) => ({ type: "create", path: p })));
+                this.syncVerifier.queueVerify(expected, "重命名目录");
+              }
             } catch (err) {
               this.uploadFolders = foldersSnapshot;
               this.folderPath = pathSnapshot;
@@ -3831,16 +3866,21 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
             if (inDeleted) this.selectUploadFolder("", true);
 
             try {
+              /* settle:"evidence"：请求成功后黄点保持，等验证管理器 fresh 读回
+                 列表里真的没有这些路径才点亮绿点 */
               const data = await this._syncTrack(async () => {
                 const res = await fetch(`/api/manage/folders?path=${encodeURIComponent(node.path)}&recursive=1`, { method: "DELETE", credentials: "include" });
                 const d = await res.json();
                 if (!res.ok || !d.success) throw new Error(d.error || "删除失败");
                 return d;
-              }, "删除目录");
+              }, "删除目录", { settle: "evidence" });
               this.showToast(`已删除目录：${node.path}`, "success");
-              /* 登记 + fresh 静默校正：绕开快照缓存，防止过期快照把刚删的目录刷回来 */
+              /* 防回退登记 + 证据验证：KV 边缘缓存可能把刚删的目录连同旧快照
+                 一起刷回来；绿点要等确凿证据才亮 */
               removedPaths.forEach((p) => this.rememberFolderOp({ type: "delete", path: p }));
-              this.fetchUploadFolders(true, { fresh: 1, silent: true });
+              if (this.syncVerifier) {
+                this.syncVerifier.queueVerify(removedPaths.map((p) => ({ type: "delete", path: p })), "删除目录");
+              }
             } catch (err) {
               this.uploadFolders = foldersSnapshot;
               this.folderPath = pathSnapshot;
@@ -5734,6 +5774,22 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
              重试期间保持「同步中」不闪红，只有真正耗尽才置红。 */
           try {
             this.syncTracker = KVault.createSyncTracker({ maxRetries: 2 });
+            /* 验证管理器：写请求成功后黄点保持，周期性 fresh 读回云端 KV，
+               亲眼确认变更已生效才点亮绿点（绿点 = 确切证据，不是请求成功） */
+            this.syncVerifier = KVault.createSyncVerifier({
+              tracker: this.syncTracker,
+              fetcher: () => fetch("/api/manage/folders?fresh=1&_t=" + Date.now(), { credentials: "include" })
+                .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }),
+              onApply: (folders) => {
+                /* 证据数据是云端真实状态，直接应用（与 fetchUploadFolders 成功路径同构） */
+                const list = Array.isArray(folders) ? folders : [];
+                if (!this.folderDataIsStale(list)) {
+                  this.uploadFolders = list;
+                  this.uploadFoldersFetched = true;
+                  if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+                }
+              },
+            });
             this._syncUnsub = this.syncTracker.subscribe((state, detail) => {
               const prev = this.syncState;
               this.syncState = state;
