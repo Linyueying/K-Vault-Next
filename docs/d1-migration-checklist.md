@@ -5,6 +5,10 @@
 >
 > **重要前提**：代码层已实现「D1 优先 / KV 兜底」双路径。**未绑定 D1 时行为与改造前
 > 完全一致**——所以可以先合代码、后建库，不存在"必须同时切"的压力。
+>
+> **建表是自动的**：应用运行时首次访问 D1 会自动建表并补齐迁移（懒迁移），
+> **不需要手动执行任何 SQL**。你唯一要手动做的是第 1 步的「创建 D1 数据库」
+> ——这是 Cloudflare 的硬限制，CLI 才能建库。详见第 1.4 节。
 
 ---
 
@@ -55,30 +59,48 @@ database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 > ⚠️ `binding` 必须是 `DB`，不能改名。代码里所有数据层函数都读 `env.DB`
 > （`metadata-d1.js`、`bundle-store.js` 的 `isD1Enabled()`）。
 
-### 1.3 执行迁移（顺序很重要）
+### 1.3 建表 —— **自动，无需手动执行**
+
+应用运行时会**自动建表并补齐迁移**（懒迁移），所以这一步**什么都不用做**。
+
+机制说明：
+
+- 数据层首次访问 D1 时调用 `ensureSchema(env)`（`functions/utils/schema.js`）
+- 它检查 `schema_migrations` 表，按顺序执行缺失的迁移
+- 同一次 isolate 内只跑一次（module-level 缓存），后续请求零开销
+- **之后每次部署若带了新迁移，也会自动应用**——isolate 重建时重新检查
+
+幂等性是怎么保证的：
+
+| 语句类型 | 幂等方式 |
+| :--- | :--- |
+| `CREATE TABLE / INDEX` | SQL 自带 `IF NOT EXISTS` |
+| `ALTER TABLE ADD COLUMN` | **不自带幂等**。靠 `guard` 前置检查：`PRAGMA table_info()` 查列是否存在，已存在则跳过 |
+
+> ⚠️ 这就是为什么 `ALTER TABLE` 那条（0002 加 `is_folder`）需要特殊处理——
+> 重复执行会抛 `duplicate column name`。运行时有 guard 保护；
+> 若你手动执行 `.sql` 文件，请确认只跑一次。
+
+**DDL 的唯一来源是 `functions/utils/schema.js`**（JS 字符串常量），不是 `migrations/*.sql`。
+原因是 Cloudflare Pages Functions 运行在 Workers 环境、**没有文件系统**，读不到 `.sql` 文件。
+`migrations/*.sql` 只是由 `scripts/gen-migrations.py` 生成的副本，供人工排查与本地兜底，
+**不要手工编辑**（会被覆盖）。
+
+想重新生成 `.sql`：
 
 ```bash
-# 本地（用于 wrangler pages dev 联调）
-npx wrangler d1 execute k_vault --local  --file=./migrations/0001_files.sql
-npx wrangler d1 execute k_vault --local  --file=./migrations/0002_folder_markers.sql
-npx wrangler d1 execute k_vault --local  --file=./migrations/0003_share_bundles.sql
-
-# 线上
-npx wrangler d1 execute k_vault --remote --file=./migrations/0001_files.sql
-npx wrangler d1 execute k_vault --remote --file=./migrations/0002_folder_markers.sql
-npx wrangler d1 execute k_vault --remote --file=./migrations/0003_share_bundles.sql
+python3 scripts/gen-migrations.py
 ```
 
-> **不要跳号、不要乱序**。`0002` 是 `ALTER TABLE files ADD COLUMN is_folder`，
-> 它依赖 `0001` 建出来的 `files` 表。`0003` 的 `bundles` 表独立，但排在最后保持一致性。
+### 1.4 验证建表（部署后做，不是现在）
 
-**验证建表成功**：
+绑库并部署、产生第一次访问后，确认表确实建出来了：
 
 ```bash
 npx wrangler d1 execute k_vault --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
 ```
 
-期望输出三张表：`bundle_files`、`bundles`、`files`。
+期望三张表：`bundle_files`、`bundles`、`files`，外加自动建的 `schema_migrations`。
 
 **验证列齐全**：
 
@@ -86,7 +108,30 @@ npx wrangler d1 execute k_vault --remote --command "SELECT name FROM sqlite_mast
 npx wrangler d1 execute k_vault --remote --command "PRAGMA table_info(files)"
 ```
 
-期望看到 **23 列**，其中必须包含 `is_folder`（第 0002 迁移加的）。
+期望 **23 列**，其中必须包含 `is_folder`。
+
+**验证迁移记录**：
+
+```bash
+npx wrangler d1 execute k_vault --remote --command "SELECT * FROM schema_migrations ORDER BY version"
+```
+
+期望三行：`0001_files`、`0002_folder_markers`、`0003_share_bundles`。
+
+> 如果这里查不到表，说明要么 `DB` 绑定没生效（回到第 3 步），要么首次访问还没触发。
+> 随便上传一个文件就能触发。
+
+### 1.5 （可选）手动兜底
+
+自动迁移失效时的应急手段。正常情况下**不需要跑**：
+
+```bash
+npx wrangler d1 execute k_vault --remote --file=./migrations/0001_files.sql
+npx wrangler d1 execute k_vault --remote --file=./migrations/0002_folder_markers.sql
+npx wrangler d1 execute k_vault --remote --file=./migrations/0003_share_bundles.sql
+```
+
+> **不要跳号、不要乱序**。`0002` 依赖 `0001` 建出的 `files` 表。
 
 ---
 
