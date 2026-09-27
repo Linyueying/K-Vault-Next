@@ -1025,6 +1025,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
           <span class="chip-icon"><i class="fas fa-sliders"></i></span>
           <span>上传设置</span>
         </button>
+        <button class="tool-chip tool-chip--extra" :class="{on: brandingPanelVisible}" @click="handleTool('branding')" title="自定义网站名称与浏览器标题">
+          <span class="chip-icon"><i class="fas fa-signature"></i></span>
+          <span>网站信息</span>
+        </button>
         <button class="tool-chip tool-chip--extra" @click="handleTool('tokens')" title="API Token 管理">
           <span class="chip-icon"><i class="fas fa-key"></i></span>
           <span>Token</span>
@@ -1728,6 +1732,65 @@ html[data-perf="low"] .ambient-orb{animation:none}
           </button>
         </div>
       </template>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ===== 站点品牌（自定义网站名 / 标题） ===== -->
+  <transition name="dialog">
+  <div class="overlay" v-if="brandingPanelVisible" @click.self="closeBrandingPanel">
+    <div class="dialog-panel wide">
+      <h2 class="dialog-title">
+        <i class="fas fa-signature"></i>
+        <span>网站信息</span>
+      </h2>
+      <div class="dialog-message">
+        自定义站点对外的<strong>显示名称</strong>与浏览器<strong>标签标题</strong>。保存在 <code class="kv-code">KV</code> 运行时配置，<strong>保存后立即对所有页面生效</strong>，无需重新部署。留空即恢复默认（{{ brandingEnvBaseline.siteName }}）。
+      </div>
+
+      <div class="token-section">
+        <div class="token-section-head">
+          <h3 class="token-section-title">
+            <i class="fas fa-tag"></i>
+            <span>网站名称与标题</span>
+          </h3>
+          <span class="badge-env" v-if="brandingSource === 'kv'">KV 覆盖中</span>
+          <span class="badge-env" v-else>来自环境变量</span>
+        </div>
+
+        <div class="token-field">
+          <label>网站名字（站点显示名）</label>
+          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteName"
+                 placeholder="如：一云 / My Drive" />
+          <small class="field-hint">显示在首页品牌区、分享页与各类页眉。环境变量基线：{{ brandingEnvBaseline.siteName }}</small>
+        </div>
+
+        <div class="token-field">
+          <label>网站标题（浏览器标签）</label>
+          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
+                 placeholder="如：K-Vault-NEXT" />
+          <small class="field-hint">显示在浏览器标签页与社交分享卡片标题。环境变量基线：{{ brandingEnvBaseline.siteTitle }}</small>
+        </div>
+
+        <div class="settings-note" v-if="brandingSource === 'kv'">
+          <i class="fas fa-circle-info"></i>
+          <span>当前为<strong>后台自定义值</strong>：所有页面会立即使用上方名称与标题。清空输入框并保存即可恢复默认。</span>
+        </div>
+        <div class="settings-note" v-else>
+          <i class="fas fa-circle-info"></i>
+          <span>当前取环境变量（或默认 {{ brandingEnvBaseline.siteName }}）。在此填写并保存将写入 <code class="kv-code">KV</code> 覆盖它。</span>
+        </div>
+      </div>
+
+      <div class="dialog-actions mt">
+        <button class="btn" @click="resetBrandingSettings" :disabled="brandingSaving || brandingSource !== 'kv'"
+                title="清除 KV 覆盖，回退到环境变量 / 默认值">恢复默认</button>
+        <button class="btn" @click="closeBrandingPanel">取消</button>
+        <button class="btn btn--primary" @click="saveBrandingSettings" :disabled="brandingSaving">
+          <i class="fas" :class="brandingSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i>
+          {{ brandingSaving ? '保存中...' : '保存' }}
+        </button>
+      </div>
     </div>
   </div>
   </transition>
@@ -2469,6 +2532,13 @@ Vue.createApp({
     storageSource: 'env',
     storageEnvBaseline: { writeKvLegacy: true },
     hasD1Binding: false,
+
+    /* ---------- 站点品牌（自定义网站名 / 标题） ---------- */
+    brandingPanelVisible: false,
+    brandingSaving: false,
+    brandingSource: 'env',
+    brandingEnvBaseline: { siteName: 'K-Vault-NEXT', siteTitle: 'K-Vault-NEXT' },
+    brandingForm: { siteName: 'K-Vault-NEXT', siteTitle: 'K-Vault-NEXT' },
 
     /* ---------- 分享管理 ---------- */
     sharePanelVisible: false,
@@ -3743,6 +3813,8 @@ Vue.createApp({
         this.openSharePanel();
       } else if (c === 'settings') {
         this.openSettingsPanel();
+      } else if (c === 'branding') {
+        this.openBrandingPanel();
       } else if (c === 'paste') {
         window.open('./paste.html', '_blank', 'noopener');
       } else if (c === 'export') {
@@ -3810,6 +3882,18 @@ Vue.createApp({
       };
       this.storageForm = { writeKvLegacy: storage.writeKvLegacy !== false };
       this.hasD1Binding = Boolean(data.hasD1Binding);
+
+      // 站点品牌：站点显示名与浏览器标题，缺省回落 K-Vault-NEXT
+      const branding = data.branding || {};
+      this.brandingSource = branding.source === 'kv' ? 'kv' : 'env';
+      this.brandingEnvBaseline = {
+        siteName: (data.brandingEnvBaseline && data.brandingEnvBaseline.siteName) || 'K-Vault-NEXT',
+        siteTitle: (data.brandingEnvBaseline && data.brandingEnvBaseline.siteTitle) || 'K-Vault-NEXT'
+      };
+      this.brandingForm = {
+        siteName: branding.siteName || 'K-Vault-NEXT',
+        siteTitle: branding.siteTitle || 'K-Vault-NEXT'
+      };
     },
 
     async saveGuestSettings() {
@@ -3888,6 +3972,72 @@ Vue.createApp({
         this.showToast(e.message || '重置失败', 'error');
       } finally {
         this.settingsSaving = false;
+      }
+    },
+
+    /* ================= 站点品牌（自定义网站名 / 标题） ================= */
+    openBrandingPanel() {
+      this.brandingPanelVisible = true;
+      this.loadSettings();
+    },
+    closeBrandingPanel() {
+      this.brandingPanelVisible = false;
+    },
+
+    async saveBrandingSettings() {
+      const name = String(this.brandingForm.siteName || '').trim();
+      const title = String(this.brandingForm.siteTitle || '').trim();
+      if (!name) { this.showToast('网站名字不能为空', 'error'); return; }
+      if (!title) { this.showToast('网站标题不能为空', 'error'); return; }
+      if (name.length > 120 || title.length > 120) {
+        this.showToast('内容不能超过 120 个字符', 'error');
+        return;
+      }
+
+      this.brandingSaving = true;
+      try {
+        const res = await fetch('./api/manage/settings', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            branding: { siteName: name, siteTitle: title }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '保存失败');
+        this.applySettingsView(data);
+        this.showToast('网站信息已保存，立即生效', 'success');
+        this.closeBrandingPanel();
+      } catch (e) {
+        this.showToast(e.message || '保存失败', 'error');
+      } finally {
+        this.brandingSaving = false;
+      }
+    },
+
+    async resetBrandingSettings() {
+      const ok = await this.askConfirm(
+        '将清除后台保存的网站名称与标题，改回 Cloudflare Pages 环境变量（或默认的 K-Vault-NEXT）。确定继续吗？',
+        '恢复默认网站信息'
+      );
+      if (!ok) return;
+
+      this.brandingSaving = true;
+      try {
+        const res = await fetch('./api/manage/settings?group=branding', {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '恢复失败');
+        this.applySettingsView(data);
+        this.showToast('已恢复为默认网站信息', 'success');
+        this.closeBrandingPanel();
+      } catch (e) {
+        this.showToast(e.message || '恢复失败', 'error');
+      } finally {
+        this.brandingSaving = false;
       }
     },
 

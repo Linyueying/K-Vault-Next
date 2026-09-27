@@ -11,6 +11,7 @@
  *   - cors     API CORS 来源白名单（替代环境变量 API_CORS_ORIGINS）
  *   - upload   分片上传暂存后端（替代环境变量 CHUNK_BACKEND）
  *   - storage  存储回滚模式（writeKvLegacy，替代环境变量 KV_LEGACY_WRITE）
+ *   - branding 站点品牌（siteName / siteTitle，替代环境变量 SITE_NAME / SITE_TITLE）
  *
  * 这些分组写入 KV 后即时生效，不必改环境变量并重新部署。
  *
@@ -23,6 +24,7 @@ import {
     resetRuntimeConfig,
     readGuestConfigFromEnv,
     readStorageConfigFromEnv,
+    readBrandingConfigFromEnv,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
 
@@ -41,11 +43,12 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload, storage] = await Promise.all([
+    const [guest, cors, upload, storage, branding] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
         getRuntimeConfig(env, 'upload'),
-        getRuntimeConfig(env, 'storage')
+        getRuntimeConfig(env, 'storage'),
+        getRuntimeConfig(env, 'branding')
     ]);
 
     return {
@@ -67,10 +70,17 @@ async function buildView(env) {
             writeKvLegacy: storage.writeKvLegacy !== false,
             source: storage.source
         },
+        branding: {
+            siteName: branding.siteName || 'K-Vault-NEXT',
+            siteTitle: branding.siteTitle || 'K-Vault-NEXT',
+            source: branding.source
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
         // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
         storageEnvBaseline: readStorageConfigFromEnv(env),
+        // 站点品牌的环境变量基线（SITE_NAME / SITE_TITLE，缺省 K-Vault-NEXT）
+        brandingEnvBaseline: readBrandingConfigFromEnv(env),
         hasKvBinding: Boolean(env?.img_url),
         // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
         hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
@@ -146,6 +156,32 @@ function validateStorage(input) {
     return { ok: true, value: { writeKvLegacy: input.writeKvLegacy } };
 }
 
+/**
+ * 校验站点品牌配置。
+ *
+ * 两个字段都是自由文本，但必须落在合理长度内（1 ~ 120 字符，空白会被归一化
+ * 层 trim / 截断）。这里只负责"非字符串 / 超长"这类硬错误；空串在归一化时
+ * 回落到环境变量基线（= K-Vault-NEXT），所以不算错误 —— 那是"恢复默认"的正常操作。
+ */
+function validateBranding(input) {
+    if (!input || typeof input !== 'object') return { error: 'branding 必须是对象。' };
+    if (input.siteName === undefined && input.siteTitle === undefined) {
+        return { ok: true, value: {} };
+    }
+    const check = (val, field) => {
+        if (val === undefined) return null;
+        if (typeof val !== 'string') return `branding.${field} 必须是字符串。`;
+        if (val.trim().length === 0) return null; // 空 = 恢复默认，放行
+        if (val.length > 120) return `branding.${field} 不能超过 120 个字符。`;
+        return null;
+    };
+    const errName = check(input.siteName, 'siteName');
+    if (errName) return { error: errName };
+    const errTitle = check(input.siteTitle, 'siteTitle');
+    if (errTitle) return { error: errTitle };
+    return { ok: true, value: {} };
+}
+
 export async function onRequestGet(context) {
     const { env } = context;
     try {
@@ -170,9 +206,10 @@ export async function onRequestPost(context) {
     const corsInput = body?.cors;
     const uploadInput = body?.upload;
     const storageInput = body?.storage;
+    const brandingInput = body?.branding;
 
-    if (!guestInput && !corsInput && !uploadInput && !storageInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -181,6 +218,7 @@ export async function onRequestPost(context) {
     if (corsInput) checks.push(['cors', validateCors(corsInput), corsInput]);
     if (uploadInput) checks.push(['upload', validateUpload(uploadInput), uploadInput]);
     if (storageInput) checks.push(['storage', validateStorage(storageInput), storageInput]);
+    if (brandingInput) checks.push(['branding', validateBranding(brandingInput), brandingInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);

@@ -16,6 +16,7 @@
  *   - cors     API CORS 允许的来源白名单
  *   - upload   分片上传暂存后端（auto / r2 / kv）
  *   - storage  存储回滚模式（是否继续把文件元数据写进 KV）
+ *   - branding 站点品牌（网站显示名 siteName / 浏览器标题 siteTitle）
  *
  * ============================================================================
  * storage 组：为什么它是一个「回滚模式」而不是「迁移开关」
@@ -46,8 +47,11 @@ export const GUEST_CONFIG_KEY = 'config:guest';
 /** 存储策略配置在 KV 中的 key */
 export const STORAGE_CONFIG_KEY = 'config:storage';
 
+/** 站点品牌配置在 KV 中的 key（网站名 / 网站标题） */
+export const BRANDING_CONFIG_KEY = 'config:branding';
+
 /** 所有配置组的名字，供后台设置接口遍历 */
-export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage'];
+export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding'];
 
 const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
@@ -241,6 +245,16 @@ const GROUPS = {
       writeKvLegacy: toBool(env?.KV_LEGACY_WRITE, true)
     }),
     normalize: (raw, base) => normalizeStorageConfig(raw, base)
+  },
+  branding: {
+    key: BRANDING_CONFIG_KEY,
+    // 环境变量基线：缺省即 K-Vault-NEXT。SITE_NAME 是站点对外显示名
+    // （如原「一云」），SITE_TITLE 是浏览器标签标题。
+    fromEnv: (env) => ({
+      siteName: String(env?.SITE_NAME ?? '').trim() || 'K-Vault-NEXT',
+      siteTitle: String(env?.SITE_TITLE ?? '').trim() || 'K-Vault-NEXT'
+    }),
+    normalize: (raw, base) => normalizeBrandingConfig(raw, base)
   }
 };
 
@@ -279,9 +293,36 @@ export function normalizeStorageConfig(raw, fallback) {
   };
 }
 
+/**
+ * 归一化站点品牌配置。
+ *
+ * 规则：
+ *   · 两个字段都是**字符串**，前后空白会被 trim。
+ *   · 空串 / 纯空白 / 非字符串 → 回落 base（环境变量基线，缺省 K-Vault-NEXT）。
+ *     这样后台把输入框清空 = "恢复默认"，而不是写进一个空名字。
+ *   · 超长会被截断到 120 字符，避免把异常长字符串塞进 KV 与页面 <title>。
+ */
+export function normalizeBrandingConfig(raw, fallback) {
+  const base = fallback || { siteName: 'K-Vault-NEXT', siteTitle: 'K-Vault-NEXT' };
+  if (!raw || typeof raw !== 'object') return { ...base };
+  const clean = (v, d) => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    return s ? s.slice(0, 120) : (typeof d === 'string' && d.trim() ? d : 'K-Vault-NEXT');
+  };
+  return {
+    siteName: clean(raw.siteName, base.siteName),
+    siteTitle: clean(raw.siteTitle, base.siteTitle)
+  };
+}
+
 /** 从环境变量读取存储策略（部署期设定的基线，缺省 true） */
 export function readStorageConfigFromEnv(env) {
   return GROUPS.storage.fromEnv(env);
+}
+
+/** 从环境变量读取站点品牌（部署期设定的基线，缺省 K-Vault-NEXT） */
+export function readBrandingConfigFromEnv(env) {
+  return GROUPS.branding.fromEnv(env);
 }
 
 /**
@@ -432,6 +473,11 @@ export async function getUploadConfigResolved(env) {
 /** 存储回滚模式配置（含 source 标记） */
 export async function getStorageConfigResolved(env) {
   return getRuntimeConfig(env, 'storage');
+}
+
+/** 站点品牌配置（含 source 标记） */
+export async function getBrandingConfigResolved(env) {
+  return getRuntimeConfig(env, 'branding');
 }
 
 /**

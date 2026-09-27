@@ -477,7 +477,7 @@ D1_DATABASE_ID = <你的 database_id>
 npm test
 ```
 
-期望：**18 套件全部 0 失败**（合计 732 个用例）。
+期望：**19 套件全部 0 失败**（含 branding 套件，合计约 760+ 用例）。
 
 这些测试基于 `node:sqlite` 在内存里跑真实 SQL，并自动加载 `migrations/` 下**全部**
 迁移文件——所以新增迁移后无需改测试，schema 会自动跟上。
