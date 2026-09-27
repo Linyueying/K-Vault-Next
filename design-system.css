@@ -1367,6 +1367,20 @@ html:has(.modal-mask) .selection-bar {
   -webkit-backdrop-filter: none !important;
 }
 
+/* dock 被遮罩盖住后，玻璃折射滤镜 + glassfx 的 bloom/rim 持续动画纯属白算：
+   它们每帧重算会连带触发整屏遮罩模糊（.modal-mask blur(4px)）每帧重绘。
+   关掉 bloom/rim 的绘制与动画、关掉 dock 自身动画，仅保留点击所需的布局与按钮，
+   避免「看不见的东西」拖垮抽屉打开后的帧率。弹层关闭后 :has() 条件消失，
+   dock 的玻璃观感自动恢复（正常态完全不受影响）。点击逻辑在 .dock__btn 上，与样式无关。 */
+html:has(.modal-mask) .dock {
+  animation: none !important;
+}
+html:has(.modal-mask) .dock.glass::after,
+html:has(.modal-mask) .dock.glass::before {
+  display: none !important;
+  animation: none !important;
+}
+
 /* 低端设备：去掉模糊 */
 html[data-perf="low"] .card,
 html[data-perf="low"] .menu,
