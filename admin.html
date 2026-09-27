@@ -1428,8 +1428,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div class="view-stage">
 
       <!-- 网格视图 -->
-      <transition :name="viewTransition">
-      <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" key="grid">
+      <!-- mode="out-in"：旧内容完全离场后新内容才入场。
+           默认的交叉模式（enter+leave 同时）会让「旧卡片」与「新内容/空状态」
+           在同一位置同框——实测能持续约 175ms，就是切目录时的「抽搐」。
+           key 带上 folderPath：grid→grid 的目录切换若 key 不变，Vue 会判定
+           节点未变、跳过转场，只原地替换 v-for 的卡片，导致新旧动画相撞；
+           带目录后 key 变化，切换时正确走 out-in 串行过渡。 -->
+      <transition :name="viewTransition" mode="out-in">
+      <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" :key="'grid:'+folderPath">
         <div v-for="item in pageData" :key="item.name"
              class="vault-card"
              :class="{selected:item.selected, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
@@ -1488,7 +1494,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       </div>
 
       <!-- 列表视图 -->
-      <div v-else-if="viewMode==='list' && pageData.length" class="vault-list" key="list">
+      <div v-else-if="viewMode==='list' && pageData.length" class="vault-list" :key="'list:'+folderPath">
         <div v-for="item in pageData" :key="item.name"
              class="vault-row"
              :class="{selected:item.selected, 'menu-open': openMenu==='row:'+item.name}">
@@ -1538,7 +1544,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       </div>
 
       <!-- 空状态 / 加载中 / 失败重试 -->
-      <div v-else class="liquid-card empty-state" key="empty">
+      <div v-else class="liquid-card empty-state" :key="'empty:'+folderPath">
         <template v-if="loadError">
           <i class="fas fa-triangle-exclamation"></i>
           <span>加载失败：{{ loadError }}</span>

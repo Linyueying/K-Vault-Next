@@ -1088,21 +1088,18 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-forward-enter-active > *:nth-child(n + 5),
 .view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
 
-/* 无方向「淡入淡出」转场：目录切换专用。
-   网格 ⇄ 列表用 .view-forward/.view-back 的水平位移做方向感知；
-   而切目录（换一批文件）没有左右方向语义，用位移反而让新旧内容交错
-   覆盖，配合旧卡片错峰动画就会出现错位残影。这里用纯淡出 + 轻微上浮，
-   离场元素同样绝对定位、入场内容整体淡入，观感干净不跳。 */
+/* 无方向「淡出淡入」转场：目录切换专用。
+   配合模板的 mode="out-in"（旧内容完全离场后新内容才入场），
+   彻底避免「旧卡片与新内容同框」——那正是切目录抽搐的根因。
+   leave 快（0.14s）让切换不拖沓，enter 稍缓（0.22s）纯淡入，无位移。 */
 .view-fade-enter-active {
-  transition: opacity 0.26s var(--ease-apple),
-              transform 0.34s var(--ease-fluid);
-  will-change: transform, opacity;
+  transition: opacity 0.22s var(--ease-apple);
+  will-change: opacity;
 }
 .view-fade-leave-active {
-  transition: opacity 0.16s var(--ease-press);
-  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
+  transition: opacity 0.14s var(--ease-press);
 }
-.view-fade-enter-from { opacity: 0; transform: translate3d(0, 8px, 0); }
+.view-fade-enter-from { opacity: 0; }
 .view-fade-leave-to   { opacity: 0; }
 /* 淡入转场不做逐格错峰：目录切换是「同一批视图换内容」，
    逐格 riseIn 会让首帧出现大片空白，故整块淡入即可。 */
