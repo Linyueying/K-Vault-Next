@@ -699,6 +699,76 @@ export async function updateShareOptions(env, id, sharePatch = {}) {
   }
 }
 
+/**
+ * 局部更新文件元数据列（改文件名 / 改所在目录等）。
+ *
+ * ============================================================================
+ * 为什么必须有这个函数
+ * ============================================================================
+ *
+ * 此前 `editName` / `move-folder` 这两个接口**只写 KV**：
+ *
+ *     await env.img_url.put(kvKey, '', { metadata });   // 只改了 KV
+ *
+ * 而读侧 `getRecordWithKey` 是 **D1 优先**。于是 D1 绑定后会出现：
+ * 用户改了文件名，接口返回成功，但刷新列表**还是旧名字** ——
+ * 因为读的是 D1，而 D1 从来没被更新。
+ *
+ * 这不是"优化空间"，是**现存的正确性 bug**，只是在 D1 全面接管读侧之后
+ * 才暴露出来。所以这里补上 D1 写入，而不是等 P3。
+ *
+ * ============================================================================
+ * 只更新显式传入的列
+ * ============================================================================
+ *
+ * 与 updateShareOptions 的 COALESCE 写法同源：未传入的字段保持原值。
+ * 这样"改名字"不会顺手把 folderPath 清空，"换目录"也不会重置文件名 ——
+ * 整行覆盖式写入在这里同样会造成并发回退。
+ *
+ * @param {any} env
+ * @param {string} id - 裸 ID（已剥离存储前缀）
+ * @param {object} patch - 允许的键：fileName / folderPath
+ * @returns {Promise<{ok: boolean, updated?: number, disabled?: boolean, error?: string}>}
+ */
+export async function updateFileMetadataFields(env, id, patch = {}) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env) || !id) return { ok: false, disabled: true };
+
+  const assignments = [];
+  const values = [];
+
+  // 白名单：列名与 patch 键的映射。不在这里的键一律忽略，
+  // 防止调用方手滑把任意列写成用户输入。
+  const COLUMN_FOR = {
+    fileName: 'file_name',
+    folderPath: 'folder_path',
+  };
+
+  for (const [key, column] of Object.entries(COLUMN_FOR)) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    const value = patch[key];
+    assignments.push(`${column} = ?`);
+    // folderPath 允许显式置空（移到根目录）；fileName 不允许为空
+    values.push(value == null ? null : String(value));
+  }
+
+  if (assignments.length === 0) return { ok: true, updated: 0 };
+
+  assignments.push('updated_at = ?');
+  values.push(now());
+  values.push(String(id));
+
+  try {
+    const res = await env.DB.prepare(
+      `UPDATE files SET ${assignments.join(', ')} WHERE id = ?`
+    ).bind(...values).run();
+    return { ok: true, updated: Number(res?.changes) || 0 };
+  } catch (error) {
+    console.warn('D1 updateFileMetadataFields failed:', error?.message || error);
+    return { ok: false, error: error?.message };
+  }
+}
+
 // ============================================================================
 // 文件夹操作（0002 迁移引入 is_folder 列后启用）
 // ============================================================================

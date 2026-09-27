@@ -1,8 +1,15 @@
 ﻿import {
   getRecordWithKey as findRecordWithKey,
   putRecordIndex,
+  deriveIndexId,
   STORAGE_PREFIXES as SHARED_STORAGE_PREFIXES,
 } from '../../../utils/file-record.js';
+import { updateFileMetadataFields, upsertFolderMarker } from '../../../utils/metadata-d1.js';
+
+/** D1 是否可用（绑定名 DB）。 */
+function isD1Enabled(env) {
+  return Boolean(env && env.DB && typeof env.DB.prepare === 'function');
+}
 
 const STORAGE_PREFIXES = SHARED_STORAGE_PREFIXES;
 
@@ -103,8 +110,8 @@ async function getRecordWithKey(env, fileId) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  if (!env.img_url) {
-    return jsonResponse({ success: false, error: 'KV binding img_url is not configured.' }, 500);
+  if (!env.img_url && !isD1Enabled(env)) {
+    return jsonResponse({ success: false, error: 'Storage not configured (need img_url or DB).' }, 500);
   }
 
   const body = await request.json().catch(() => ({}));
@@ -129,8 +136,33 @@ export async function onRequestPost(context) {
       ...(record.metadata || {}),
       folderPath: targetFolderPath,
     };
-    await env.img_url.put(kvKey, '', { metadata });
-    moved += 1;
+
+    // ---------- 路径 A：D1 ----------
+    // 与 editName 同一个 bug：读侧 D1 优先，写侧却只写 KV，
+    // 结果是"移动成功但刷新后文件还在原目录"。
+    // 用裸 ID 定位（D1 的 files.id 已剥离存储前缀）。
+    let handledByD1 = false;
+    if (isD1Enabled(env)) {
+      const bareId = deriveIndexId(kvKey || id);
+      const res = await updateFileMetadataFields(env, bareId, { folderPath: targetFolderPath });
+      if (res.ok && res.updated > 0) {
+        handledByD1 = true;
+        moved += 1;
+      }
+    }
+
+    // ---------- 路径 B：KV ----------
+    // D1 未绑定、或该记录只在 KV 里（D1 写入失败过的存量）时才写 KV。
+    if (!handledByD1 && env?.img_url?.put) {
+      await env.img_url.put(kvKey, '', { metadata });
+      moved += 1;
+      continue;
+    }
+
+    // D1 成功了、且 KV 也绑定时保持双写（P3 停写后去掉）
+    if (handledByD1 && env?.img_url?.put) {
+      await env.img_url.put(kvKey, '', { metadata }).catch(() => {});
+    }
   }
 
   if (moved === 0) {
@@ -145,13 +177,22 @@ export async function onRequestPost(context) {
   }
 
   if (targetFolderPath) {
-    await env.img_url.put(`folder:${targetFolderPath}`, '', {
-      metadata: {
-        folderMarker: true,
-        folderPath: targetFolderPath,
-        TimeStamp: Date.now(),
-      },
-    });
+    // 目录标记：D1 优先（folderMarkerId + upsertFolderMarker），
+    // 未绑定时才写 KV 的 `folder:<path>` 键。
+    let markedByD1 = false;
+    if (isD1Enabled(env)) {
+      const res = await upsertFolderMarker(env, targetFolderPath);
+      markedByD1 = res.ok === true;
+    }
+    if (!markedByD1 && env?.img_url?.put) {
+      await env.img_url.put(`folder:${targetFolderPath}`, '', {
+        metadata: {
+          folderMarker: true,
+          folderPath: targetFolderPath,
+          TimeStamp: Date.now(),
+        },
+      });
+    }
   }
 
   return jsonResponse({
