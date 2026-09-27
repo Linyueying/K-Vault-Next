@@ -326,6 +326,12 @@ export async function onRequestGet(context) {
 
   // ==========================================================================
   // 路径 B：KV 兜底（原有逻辑）
+  //
+  // ⚠️ 仅在 D1 未绑定时才会走到这里。D1 可用时上面已 return。
+  //
+  // 保留 fstat: 快照这层缓存是**降级态专用**的取舍：D1 不可用时，每次列举
+  // 都是全量 KV list()，快照能把「N 次 list」压成「1 次 get」。D1 一旦绑回，
+  // 下面的写侧就不会再触发 —— 这正是它曾经是「死键」的原因。
   // ==========================================================================
   // 快路径：读 fstat: 快照（1 次读），直接给出文件夹树，不再全表扫描。
   // 带 storage 过滤时快照不含该维度，退回全量扫描以保证筛选正确。
@@ -337,7 +343,7 @@ export async function onRequestGet(context) {
     }
   }
 
-  // 回落：全量扫描，顺带重建快照供后续请求使用
+  // 回落：全量扫描。是否需要顺带重建快照见下方 rebuildSnapshot 的判定。
   const allKeys = await listAllKeys(env);
   const fileRecords = allKeys
     .filter(shouldIncludeFileRecord)
@@ -355,9 +361,18 @@ export async function onRequestGet(context) {
     .filter(isFolderMarker)
     .filter((item) => matchStorage(inferStorageType(item.name, item.metadata || {}), storageFilter));
 
-  // 仅在无过滤且非 fresh 时重建快照（否则快照会丢失 storage 维度语义；
-  // fresh 模式下写回会把传播中的旧状态固化成快照，见函数顶部说明）
-  if (!storageFilter && !fresh) {
+  // 重建条件：无筛选（快照不含 storage 维度，写回会丢语义）
+  //          且 `!fresh`（写回会把传播中的旧状态固化成快照，见函数顶部说明）
+  //
+  // 注意 `fresh` 是**双重排除**，两个方向都不能漏：
+  //   · 读侧：`fresh=1` 跳过读快照 —— 不许拿可能过期的缓存充当"确切证据"
+  //   · 写侧：`fresh=1` 也跳过**写**快照 —— 但这个方向极易漏掉。
+  //     若只跳过读、仍照写，`fresh=1` 的语义就自相矛盾了：一边说"我不信任
+  //     快照"，一边把手上这份扫描结果固化成新快照。而 `fresh=1` 恰恰是
+  //     **写操作后的校正读**，此刻 KV 正处于传播中（边缘缓存最长 60s），
+  //     写回等于把旧状态盖上"新鲜"的戳，让错误状态活得更久。
+  const rebuildSnapshot = !storageFilter && !fresh;
+  if (rebuildSnapshot) {
     await writeFolderSnapshot(env, buildFolderSnapshot(allKeys));
   }
 
