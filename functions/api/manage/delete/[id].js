@@ -10,6 +10,8 @@ import {
   getRecordWithKey as findRecordWithKey,
   deleteRecordIndex,
   deleteDownloadCount,
+  removeFileRecord,
+  deriveIndexId,
 } from '../../../utils/file-record.js';
 import { cleanupShareSlugMapping } from '../../../utils/share-options.js';
 
@@ -258,13 +260,29 @@ function jsonResponse(body, status = 200) {
 
 /**
  * 删除文件记录时的统一清理：
- *   1. 文件记录本体（kvKey）
+ *   1. 文件记录本体 —— D1（主源）与 KV（降级/双写副本）
  *   2. share_slug 反向映射（复用 utils/share-options.js，判归属后才删）
  *   3. idxt: 索引键（新增，避免索引残留导致列表出现"幽灵条目"）
  *   4. dlc: 下载计数键（新增）
+ *
+ * ⚠️ D1 侧的删除**不受回滚模式开关影响**：删除是"记录不该再存在"，
+ * 不是"要不要多写一份副本"。开关只管写入冗余，管不着删除。
+ * 此前这里完全没碰 D1，导致 D1 接管读侧后"删除成功但列表里文件还在"。
  */
 async function cleanupRecordArtifacts(env, metadata = {}, kvKey = '') {
   await cleanupShareSlugMapping(env, metadata, kvKey);
+
+  // D1 主源：用裸 ID 删（kvKey 带存储前缀，当主键会删 0 行且不报错）。
+  if (env?.DB && typeof env.DB.prepare === 'function') {
+    const bareId = deriveIndexId(kvKey || metadata?.fileId || '');
+    if (bareId) {
+      const removed = await removeFileRecord(env, bareId).catch(() => false);
+      if (!removed) {
+        console.warn('cleanupRecordArtifacts: D1 delete failed for', bareId);
+      }
+    }
+  }
+
   await env.img_url.delete(kvKey);
   await deleteRecordIndex(env, kvKey || metadata?.fileId || '');
   await deleteDownloadCount(env, kvKey);

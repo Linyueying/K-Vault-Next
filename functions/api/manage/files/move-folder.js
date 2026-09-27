@@ -1,6 +1,7 @@
 ﻿import {
   getRecordWithKey as findRecordWithKey,
   putRecordIndex,
+  putKvFileMetadata,
   deriveIndexId,
   STORAGE_PREFIXES as SHARED_STORAGE_PREFIXES,
 } from '../../../utils/file-record.js';
@@ -153,15 +154,18 @@ export async function onRequestPost(context) {
 
     // ---------- 路径 B：KV ----------
     // D1 未绑定、或该记录只在 KV 里（D1 写入失败过的存量）时才写 KV。
+    // 注意这里**不受回滚模式开关约束**：D1 没写成，KV 是唯一记录，
+    // 此时停写等于把这次移动彻底丢掉。开关管的是「D1 已成功后要不要
+    // 再冗余写一份」，不是「拒绝一切 KV 写」。
     if (!handledByD1 && env?.img_url?.put) {
       await env.img_url.put(kvKey, '', { metadata });
       moved += 1;
       continue;
     }
 
-    // D1 成功了、且 KV 也绑定时保持双写（P3 停写后去掉）
-    if (handledByD1 && env?.img_url?.put) {
-      await env.img_url.put(kvKey, '', { metadata }).catch(() => {});
+    // D1 成功了、且 KV 也绑定时保持双写（受回滚模式开关控制）
+    if (handledByD1) {
+      await putKvFileMetadata(env, kvKey, metadata);
     }
   }
 

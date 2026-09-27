@@ -4,12 +4,13 @@
  *   GET    /api/manage/settings            → 读取当前设置（含来源标记：kv / env）
  *   POST   /api/manage/settings            → 保存设置（写入 KV，覆盖环境变量基线）
  *   DELETE /api/manage/settings            → 清除 guest 组的 KV 覆盖，回退环境变量
- *   DELETE /api/manage/settings?group=cors → 清除指定分组（cors / upload）
+ *   DELETE /api/manage/settings?group=cors → 清除指定分组（cors / upload / storage）
  *
  * 可管理分组见 runtime-config.js 的 CONFIG_GROUPS：
- *   - guest   访客上传开关 / 单文件大小 / 每日上限
- *   - cors    API CORS 来源白名单（替代环境变量 API_CORS_ORIGINS）
- *   - upload  分片上传暂存后端（替代环境变量 CHUNK_BACKEND）
+ *   - guest    访客上传开关 / 单文件大小 / 每日上限
+ *   - cors     API CORS 来源白名单（替代环境变量 API_CORS_ORIGINS）
+ *   - upload   分片上传暂存后端（替代环境变量 CHUNK_BACKEND）
+ *   - storage  存储回滚模式（writeKvLegacy，替代环境变量 KV_LEGACY_WRITE）
  *
  * 这些分组写入 KV 后即时生效，不必改环境变量并重新部署。
  *
@@ -21,6 +22,7 @@ import {
     saveRuntimeConfig,
     resetRuntimeConfig,
     readGuestConfigFromEnv,
+    readStorageConfigFromEnv,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
 
@@ -39,10 +41,11 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload] = await Promise.all([
+    const [guest, cors, upload, storage] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
-        getRuntimeConfig(env, 'upload')
+        getRuntimeConfig(env, 'upload'),
+        getRuntimeConfig(env, 'storage')
     ]);
 
     return {
@@ -60,9 +63,17 @@ async function buildView(env) {
             chunkBackend: upload.chunkBackend,
             source: upload.source
         },
+        storage: {
+            writeKvLegacy: storage.writeKvLegacy !== false,
+            source: storage.source
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
-        hasKvBinding: Boolean(env?.img_url)
+        // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
+        storageEnvBaseline: readStorageConfigFromEnv(env),
+        hasKvBinding: Boolean(env?.img_url),
+        // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
+        hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
     };
 }
 
@@ -117,6 +128,24 @@ function validateUpload(input) {
     return { ok: true, value: { chunkBackend: mode } };
 }
 
+/**
+ * 校验存储回滚模式。
+ *
+ * `writeKvLegacy` 必须是真布尔值 —— 不接受 `'false'` / `0` / `null` 这类
+ * "假值"。因为这个开关决定**KV 会不会被写**，一旦把用户明确输入的
+ * `'false'` 当假值放行、又在归一化时按 `=== false` 之外的处理回退成默认
+ * `true`，就会出现「后台关了但 KV 还在写」的静默错配。
+ * 显式要求布尔，让前端传错类型时立刻 400，而不是悄悄按默认值走。
+ */
+function validateStorage(input) {
+    if (!input || typeof input !== 'object') return { error: 'storage 必须是对象。' };
+    if (input.writeKvLegacy === undefined) return { ok: true, value: {} };
+    if (typeof input.writeKvLegacy !== 'boolean') {
+        return { error: 'storage.writeKvLegacy 必须是布尔值（true / false）。' };
+    }
+    return { ok: true, value: { writeKvLegacy: input.writeKvLegacy } };
+}
+
 export async function onRequestGet(context) {
     const { env } = context;
     try {
@@ -140,9 +169,10 @@ export async function onRequestPost(context) {
     const guestInput = body?.guest;
     const corsInput = body?.cors;
     const uploadInput = body?.upload;
+    const storageInput = body?.storage;
 
-    if (!guestInput && !corsInput && !uploadInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -150,6 +180,7 @@ export async function onRequestPost(context) {
     if (guestInput) checks.push(['guest', validateGuest(guestInput), guestInput]);
     if (corsInput) checks.push(['cors', validateCors(corsInput), corsInput]);
     if (uploadInput) checks.push(['upload', validateUpload(uploadInput), uploadInput]);
+    if (storageInput) checks.push(['storage', validateStorage(storageInput), storageInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);

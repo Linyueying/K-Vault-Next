@@ -6,10 +6,16 @@
   moveFolder,
   clearFolder,
   folderHasContent,
+  putKvFileMetadata,
 } from '../../utils/file-record.js';
 // nodesFromFolderMap 已下沉到 file-list.js：/api/manage/list 把 folders
 // 下推给 SQL 之后也要用同一份转换，两处必须产出完全一致的目录树。
 import { nodesFromFolderMap } from '../../utils/file-list.js';
+
+/** D1 是否可用（绑定名 DB）。 */
+function isD1Enabled(env) {
+  return Boolean(env && env.DB && typeof env.DB.prepare === 'function');
+}
 
 const STORAGE_PREFIXES = ['img:', 'vid:', 'aud:', 'doc:', 'r2:', 's3:', 'discord:', 'hf:', 'webdav:', 'github:', ''];
 // idxt: 记录索引、dlc: 下载计数、fstat: 文件夹统计 —— 均为内部辅助键，不参与文件/文件夹判定。
@@ -228,8 +234,14 @@ async function readFolderSnapshot(env) {
 
 /**
  * 写入文件夹统计快照。失败不影响主流程（下次仍走全表扫描）。
+ *
+ * ⚠️ 快照是**纯 KV 缓存**：它没有 D1 对应物，读侧 readFolderSnapshot 也只读
+ * KV。因此这里的写入**不受回滚模式开关约束** —— 关掉它只会让快照永远
+ * 写不进去、每次都退回全量扫描，白白多烧 D1 的 rows read 而没有收益。
+ * 回滚模式管的是「文件元数据是否需要 KV 冗余」，不是「所有 KV 写都停」。
  */
 async function writeFolderSnapshot(env, snapshot) {
+  if (!env?.img_url?.put) return;
   try {
     await env.img_url.put(FSTAT_KEY, '', { metadata: snapshot });
   } catch (error) {
@@ -465,7 +477,7 @@ export async function onRequestPut(context) {
         ...(item.metadata || {}),
         folderPath: normalizeFolderPath(nextFolder),
       };
-      await env.img_url.put(item.name, '', { metadata });
+      await putKvFileMetadata(env, item.name, metadata);
       updatedFiles += 1;
       continue;
     }
@@ -613,11 +625,9 @@ export async function onRequestDelete(context) {
   let clearedFiles = 0;
   if (recursive) {
     // 分批并发改写：把目录内文件移回根目录（清空 folderPath，文件本身不删）
-    clearedFiles = await runBatched(filesInFolder, (item) => env.img_url.put(item.name, '', {
-      metadata: {
-        ...(item.metadata || {}),
-        folderPath: '',
-      },
+    clearedFiles = await runBatched(filesInFolder, (item) => putKvFileMetadata(env, item.name, {
+      ...(item.metadata || {}),
+      folderPath: '',
     }));
   }
 

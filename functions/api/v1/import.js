@@ -17,7 +17,7 @@ import {
 import { apiError, apiSuccess } from '../../utils/api-v1.js';
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
 import { MAX_REDIRECTS, sniffImageMime, validateRedirectLocation, validateRemoteUrl } from '../../utils/ssrf-guard.js';
-import { deriveIndexId, putRecordIndex } from '../../utils/file-record.js';
+import { deriveIndexId, putRecordIndex, putKvFileMetadata } from '../../utils/file-record.js';
 import { findDuplicate, recordDuplicate } from '../../utils/dedup-index.js';
 
 /**
@@ -252,7 +252,7 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
       telegramMessageId: messageId || undefined,
       signedLink: shouldUseSignedTelegramLinks(env),
     }, folderPath);
-    await env.img_url.put(`${telegramFileId}.${extension}`, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, `${telegramFileId}.${extension}`, recordMetadata);
     await putRecordIndex(env, `${telegramFileId}.${extension}`, { metadata: recordMetadata });
   }
 
@@ -285,7 +285,7 @@ async function uploadToR2Storage(env, { bytes, mime, fileName, extension, fileSi
       TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
       fileName, fileSize, storageType: 'r2', r2Key: objectKey,
     }, folderPath);
-    await env.img_url.put(`r2:${objectKey}`, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, `r2:${objectKey}`, recordMetadata);
     await putRecordIndex(env, `r2:${objectKey}`, { metadata: recordMetadata });
   }
   return { fileId: objectKey, directId: `r2:${objectKey}` };
@@ -306,7 +306,7 @@ async function uploadToS3Storage(env, { bytes, mime, fileName, extension, fileSi
       TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
       fileName, fileSize, storageType: 's3', s3Key: objectKey,
     }, folderPath);
-    await env.img_url.put(`s3:${objectKey}`, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, `s3:${objectKey}`, recordMetadata);
     await putRecordIndex(env, `s3:${objectKey}`, { metadata: recordMetadata });
   }
   return { fileId: objectKey, directId: `s3:${objectKey}` };
@@ -327,7 +327,7 @@ async function uploadToDiscordStorage(env, { bytes, mime, fileName, extension, f
       discordAttachmentId: result.attachmentId, discordUploadMode: result.mode,
       discordSourceUrl: result.sourceUrl,
     }, folderPath);
-    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, kvKey, recordMetadata);
     await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: `${fileId}.${extension}`, directId: kvKey };
@@ -346,7 +346,7 @@ async function uploadToHuggingFaceStorage(env, { bytes, mime, fileName, extensio
       TimeStamp: Date.now(), ListType: 'None', Label: 'None', liked: false,
       fileName, fileSize, storageType: 'huggingface', hfPath,
     }, folderPath);
-    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, kvKey, recordMetadata);
     await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: `${fileId}.${extension}`, directId: kvKey };
@@ -367,7 +367,7 @@ async function uploadToWebDAVStorage(env, { bytes, mime, fileName, extension, fi
       webdavPath: normalizeWebDAVPath(result.path || webdavPath),
       webdavEtag: result.etag || undefined,
     }, folderPath);
-    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, kvKey, recordMetadata);
     await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: publicId, directId: kvKey };
@@ -388,7 +388,7 @@ async function uploadToGitHubStorage(env, { bytes, mime, fileName, extension, fi
       githubStorageKey: normalizeGitHubStoragePath(result.storagePath || githubStorageKey),
       ...(result.metadata || {}),
     }, folderPath);
-    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, kvKey, recordMetadata);
     await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   }
   return { fileId: publicId, directId: kvKey };

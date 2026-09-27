@@ -1,4 +1,4 @@
-import { getRecordWithKey as findRecordWithKey, deriveIndexId } from '../../../utils/file-record.js';
+import { getRecordWithKey as findRecordWithKey, deriveIndexId, putKvFileMetadata } from '../../../utils/file-record.js';
 import { updateFileMetadataFields } from '../../../utils/metadata-d1.js';
 
 function decodeFileId(raw) {
@@ -61,10 +61,9 @@ export async function onRequest(context) {
     const id = deriveIndexId(kvKey || fileId);
     const res = await updateFileMetadataFields(env, id, { fileName: requestedName });
     if (res.ok && res.updated > 0) {
-      // 同步 KV（若绑定了）：P3 之前保持双写，停写后再去掉这一段。
-      if (env?.img_url?.put) {
-        await env.img_url.put(kvKey, '', { metadata }).catch(() => {});
-      }
+      // 同步 KV（若绑定了）：受「存储回滚模式」开关控制，
+      // 关闭后 KV 不再是数据源，D1 就是唯一事实。
+      await putKvFileMetadata(env, kvKey, metadata);
       return jsonResponse({ success: true, fileName: metadata.fileName, key: kvKey });
     }
     if (res.ok && res.updated === 0) {
@@ -78,7 +77,7 @@ export async function onRequest(context) {
     return jsonResponse({ success: false, error: 'Storage not configured.' }, 500);
   }
 
-  await env.img_url.put(kvKey, '', { metadata });
+  await putKvFileMetadata(env, kvKey, metadata);
 
   return jsonResponse({ success: true, fileName: metadata.fileName, key: kvKey });
 }

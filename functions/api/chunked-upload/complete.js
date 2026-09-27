@@ -108,10 +108,21 @@ import {
   MAX_IN_MEMORY_ASSEMBLY,
   MAX_FILE_SIZE_R2,
 } from '../../utils/chunk-limits.js';
+import {
+  registerFileRecord,
+  putKvFileMetadata,
+  deriveIndexId,
+  STORAGE_PREFIXES,
+} from '../../utils/file-record.js';
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
+
+/** D1 是否可用（绑定名 DB）。 */
+function isD1Enabled(env) {
+  return Boolean(env && env.DB && typeof env.DB.prepare === 'function');
+}
 
 // 存储类型白名单
 const VALID_STORAGE_TYPES = ['telegram', 'r2', 's3', 'discord', 'huggingface', 'webdav', 'github'];
@@ -1003,6 +1014,20 @@ async function removePendingMultipart(env, ownerId, uploadId) {
  * - 完整元数据写入 KV value（JSON）
  * - metadata 仅保留列表索引所需的最小字段
  * - 写入前校验最小 metadata 的 UTF-8 字节数 <= KV_METADATA_SAFE_LIMIT
+ *
+ * ============================================================================
+ * 回滚模式与「元数据提交」语义的冲突（重要）
+ * ============================================================================
+ *
+ * 本函数是分片上传的**事务提交点**：写成功 = 文件记录已落地，写失败 =
+ * 上层会回滚已上传的对象并让用户重试。因此这里对 D1 与 KV 的处理不同：
+ *
+ *   · D1 必须写成功（且无 D1 时退回 KV），否则抛错走回滚 —— 这是契约。
+ *   · KV 侧的写入是**可选冗余**，受「存储回滚模式」开关控制。
+ *
+ * 关键点：`putKvFileMetadata` 在开关关闭时**返回 false 但不抛错**。
+ * 这里绝不能把 `false` 当成失败 —— 那会让「关闭回滚模式」直接导致
+ * 所有分片上传被回滚。开关关闭时 KV 只是不再被写，不是写挂了。
  */
 async function writeFileMetadata(env, metadataKey, fileMetadata, shareOptions) {
   if (hasShareOptions(shareOptions)) {
@@ -1016,6 +1041,21 @@ async function writeFileMetadata(env, metadataKey, fileMetadata, shareOptions) {
   const minimalMetadata = buildMinimalMetadata(fileMetadata);
   assertMetadataSizeSafe(minimalMetadata);
 
+  // D1 优先：作为事务提交的直接目标 —— 抛错即触发上层回滚。
+  if (isD1Enabled(env)) {
+    const id = deriveIndexId(metadataKey, STORAGE_PREFIXES);
+    const res = await registerFileRecord(env, metadataKey, minimalMetadata, { indexId: id });
+    if (!res.ok) {
+      throw new Error(res.error || 'D1 写入文件元数据失败。');
+    }
+    // D1 已落地 —— KV 侧只是冗余副本，失败/跳过都不影响本次提交成功。
+    await putKvFileMetadata(env, metadataKey, minimalMetadata);
+    return fileMetadata;
+  }
+
+  // 未绑定 D1：KV 是唯一数据源，此时写入是硬要求。
+  // 注意走 env.img_url.put 而非 putKvFileMetadata —— 回滚模式开关
+  // 不应该让「唯一数据源」也停写。
   await env.img_url.put(metadataKey, value, {
     metadata: minimalMetadata,
   });

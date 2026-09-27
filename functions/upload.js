@@ -7,7 +7,7 @@ import { uploadToDiscord } from "./utils/discord.js";
 import { hasHuggingFaceConfig, uploadToHuggingFace } from "./utils/huggingface.js";
 import { hasWebDAVConfig, normalizeWebDAVPath, uploadToWebDAV } from "./utils/webdav.js";
 import { hasGitHubConfig, normalizeGitHubStoragePath, uploadToGitHub } from "./utils/github.js";
-import { putRecordIndex } from "./utils/file-record.js";
+import { putRecordIndex, putKvFileMetadata } from "./utils/file-record.js";
 import {
   buildTelegramDirectLink,
   buildTelegramBotApiUrl,
@@ -576,7 +576,7 @@ async function uploadToR2(file, fileName, fileExtension, env, folderPath = "") {
         },
         folderPath
       );
-      await env.img_url.put(`r2:${objectKey}`, "", { metadata: recordMetadata });
+      await putKvFileMetadata(env, `r2:${objectKey}`, recordMetadata);
       await putRecordIndex(env, `r2:${objectKey}`, { metadata: recordMetadata });
     }
 
@@ -620,7 +620,7 @@ async function uploadToS3(file, fileName, fileExtension, env, folderPath = "") {
         },
         folderPath
       );
-      await env.img_url.put(`s3:${objectKey}`, "", { metadata: recordMetadata });
+      await putKvFileMetadata(env, `s3:${objectKey}`, recordMetadata);
       await putRecordIndex(env, `s3:${objectKey}`, { metadata: recordMetadata });
     }
 
@@ -665,7 +665,7 @@ async function uploadToDiscordStorage(file, fileName, fileExtension, env, folder
         },
         folderPath
       );
-      await env.img_url.put(kvKey, "", { metadata: recordMetadata });
+      await putKvFileMetadata(env, kvKey, recordMetadata);
       await putRecordIndex(env, kvKey, { metadata: recordMetadata });
     }
 
@@ -708,7 +708,7 @@ async function uploadToHFStorage(file, fileName, fileExtension, env, folderPath 
         },
         folderPath
       );
-      await env.img_url.put(kvKey, "", { metadata: recordMetadata });
+      await putKvFileMetadata(env, kvKey, recordMetadata);
       await putRecordIndex(env, kvKey, { metadata: recordMetadata });
     }
 
@@ -748,7 +748,7 @@ async function uploadToWebDAVStorage(file, fileName, fileExtension, env, folderP
         },
         folderPath
       );
-      await env.img_url.put(kvKey, "", { metadata: recordMetadata });
+      await putKvFileMetadata(env, kvKey, recordMetadata);
       await putRecordIndex(env, kvKey, { metadata: recordMetadata });
     }
 
@@ -794,7 +794,7 @@ async function uploadToGitHubStorage(file, fileName, fileExtension, env, folderP
         },
         folderPath
       );
-      await env.img_url.put(kvKey, "", { metadata: recordMetadata });
+      await putKvFileMetadata(env, kvKey, recordMetadata);
       await putRecordIndex(env, kvKey, { metadata: recordMetadata });
     }
 

@@ -2,7 +2,7 @@ import { onRequestPost as uploadInternal } from '../../upload.js';
 import { parseSignedTelegramFileId, shouldWriteTelegramMetadata } from '../../utils/telegram.js';
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
 import { apiError, apiSuccess, buildAbsoluteUrl, parsePositiveInt } from '../../utils/api-v1.js';
-import { getRecordWithKey, putRecordIndex } from '../../utils/file-record.js';
+import { getRecordWithKey, putRecordIndex, putKvFileMetadata } from '../../utils/file-record.js';
 import { findDuplicate, recordDuplicate } from '../../utils/dedup-index.js';
 
 // 注意：本文件原有的前缀顺序以 r2: 开头，与其他文件不同。
@@ -200,9 +200,9 @@ async function applyApiUploadMetadata(env, key, originalMetadata, options = {}) 
     }
   }
 
-  await env.img_url.put(key, '', { metadata: nextMetadata });
-  // 登记记录索引，使后续按裸 ID 的查找走快路径。
+  // 回滚模式闸门：关闭时跳过 KV 元数据写入（D1 已是唯一数据源）。
   // 顺带把 nextMetadata 交给 D1，省掉登记时的 KV 回读。
+  await putKvFileMetadata(env, key, nextMetadata);
   await putRecordIndex(env, key, { prefixes: STORAGE_PREFIXES, metadata: nextMetadata });
 
   if (slug && oldSlug && oldSlug !== slug) {

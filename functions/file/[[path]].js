@@ -8,6 +8,7 @@ import {
   readDownloadCount,
   incrementDownloadCount,
   putRecordIndex,
+  putKvFileMetadata,
   consumeDownloadQuota,
 } from '../utils/file-record.js';
 import {
@@ -790,7 +791,7 @@ async function backfillSignedTelegramMetadata(env, signedMeta) {
       signedLink: true,
       source: 'signed-backfill',
     };
-    await env.img_url.put(kvKey, '', { metadata: recordMetadata });
+    await putKvFileMetadata(env, kvKey, recordMetadata);
     // 回填后登记索引，后续同 ID 请求走快路径
     await putRecordIndex(env, kvKey, { metadata: recordMetadata });
   } catch (error) {

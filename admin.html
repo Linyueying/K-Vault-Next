@@ -412,6 +412,9 @@ API Token 管理面板
 .settings-note{display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:var(--r-md);background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.28);font-size:var(--fs-xs);color:#92400e;line-height:1.6}
 html[data-theme="dark"] .settings-note{color:#fbbf24}
 .settings-note i{margin-top:2px;flex:none}
+/* 危险提示：与基础琥珀色区分开，用于"双写已关闭/未绑定 D1"这类需要盯一眼的状态 */
+.settings-note--warn{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.32);color:#b91c1c}
+html[data-theme="dark"] .settings-note--warn{color:#f87171}
 .token-section-title{font-size:.86rem;font-weight:800;display:flex;align-items:center;gap:var(--sp-2)}
 .token-section-title i{color:var(--primary)}
 .token-field{margin-bottom:var(--sp-3)}
@@ -1673,8 +1676,50 @@ html[data-perf="low"] .ambient-orb{animation:none}
           </div>
         </div>
 
+        <!-- 存储回滚模式 -->
+        <div class="token-section">
+          <div class="token-section-head">
+            <h3 class="token-section-title">
+              <i class="fas fa-clock-rotate-left"></i>
+              <span>存储回滚模式</span>
+            </h3>
+            <span class="badge-env" v-if="storageSource === 'kv'">KV 覆盖中</span>
+            <span class="badge-env" v-else>来自环境变量</span>
+          </div>
+
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>同时把文件元数据写入 KV</strong>
+              <span>
+                开启时每次上传 / 改名 / 移动都会在 <code class="kv-code">D1</code> 与 <code class="kv-code">KV</code>
+                各写一份，互为备份；关闭后只写 D1，KV 不再接收文件记录。
+                <strong>关闭前请确认 D1 工作正常</strong>，因为此时 D1 会成为唯一数据源。
+              </span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="storageForm.writeKvLegacy" role="switch"
+                     :aria-checked="String(storageForm.writeKvLegacy)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
+          </div>
+
+          <div class="settings-note" v-if="storageForm.writeKvLegacy">
+            <i class="fas fa-circle-info"></i>
+            <span>当前为<strong>回滚模式</strong>：KV 与 D1 双写。任何时候把本开关关掉即可让 D1 独占写入，无需重新部署；重新打开也会立即恢复双写。</span>
+          </div>
+          <div class="settings-note settings-note--warn" v-else-if="hasD1Binding">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>已关闭双写：文件记录只存在于 D1。若 D1 不可用，将无法读取或恢复文件列表 —— 遇到异常请重新打开本开关。</span>
+          </div>
+          <div class="settings-note settings-note--warn" v-else>
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>当前部署<strong>未绑定 D1</strong>（缺少 <code class="kv-code">DB</code> 绑定）。此时 KV 是唯一数据源，关闭本开关不会生效，文件记录仍会写入 KV。</span>
+          </div>
+        </div>
+
         <div class="dialog-actions mt">
-          <button class="btn" @click="resetGuestSettings" :disabled="settingsSaving || settingsSource !== 'kv'"
+          <button class="btn" @click="resetGuestSettings" :disabled="settingsSaving || (settingsSource !== 'kv' && storageSource !== 'kv')"
                   title="清除 KV 覆盖，回退到环境变量取值">恢复默认</button>
           <button class="btn" @click="closeSettingsPanel">取消</button>
           <button class="btn btn--primary" @click="saveGuestSettings" :disabled="settingsSaving">
@@ -2410,7 +2455,7 @@ Vue.createApp({
       enabled: true
     },
 
-    /* ---------- 上传设置（访客上传） ---------- */
+    /* ---------- 上传设置（访客上传 + 存储回滚模式） ---------- */
     settingsPanelVisible: false,
     settingsLoading: false,
     settingsSaving: false,
@@ -2418,6 +2463,12 @@ Vue.createApp({
     settingsSource: 'env',
     settingsEnvBaseline: { enabled: false, maxFileSize: 5 * 1024 * 1024, dailyLimit: 10 },
     guestForm: { enabled: false, maxFileSizeMb: 5, dailyLimit: 10 },
+
+    /* 存储回滚模式：true = 继续把文件元数据写进 KV（默认，行为与迁移前一致） */
+    storageForm: { writeKvLegacy: true },
+    storageSource: 'env',
+    storageEnvBaseline: { writeKvLegacy: true },
+    hasD1Binding: false,
 
     /* ---------- 分享管理 ---------- */
     sharePanelVisible: false,
@@ -3748,6 +3799,17 @@ Vue.createApp({
         maxFileSizeMb: Math.max(1, Math.round((guest.maxFileSize || 5 * 1024 * 1024) / 1024 / 1024)),
         dailyLimit: Number(guest.dailyLimit) || 10
       };
+
+      // 存储回滚模式：只有明确返回 false 才算"已停写"，其余一律按开启处理
+      // —— 与后端 `writeKvLegacy !== false` 的判定保持同一口径，
+      // 避免"后端说开着、前端显示关了"这类显示层错配。
+      const storage = data.storage || {};
+      this.storageSource = storage.source === 'kv' ? 'kv' : 'env';
+      this.storageEnvBaseline = {
+        writeKvLegacy: !(data.storageEnvBaseline && data.storageEnvBaseline.writeKvLegacy === false)
+      };
+      this.storageForm = { writeKvLegacy: storage.writeKvLegacy !== false };
+      this.hasD1Binding = Boolean(data.hasD1Binding);
     },
 
     async saveGuestSettings() {
@@ -3755,6 +3817,15 @@ Vue.createApp({
       const limit = Number(this.guestForm.dailyLimit);
       if (!Number.isFinite(mb) || mb <= 0) { this.showToast('单文件上限需为正数（MB）', 'error'); return; }
       if (!Number.isInteger(limit) || limit <= 0) { this.showToast('每日次数需为正整数', 'error'); return; }
+
+      // 关闭双写是不可逆风险操作 —— 先让用户确认一次
+      if (!this.storageForm.writeKvLegacy && this.storageSource !== 'kv') {
+        const ok = await this.askConfirm(
+          '关闭后文件元数据将只写入 D1，KV 不再保留副本。请确认 D1 已正常工作 —— 若 D1 出问题，KV 里的旧记录不足以恢复新上传的文件。确定关闭吗？',
+          '关闭 KV 双写'
+        );
+        if (!ok) return;
+      }
 
       this.settingsSaving = true;
       try {
@@ -3767,13 +3838,21 @@ Vue.createApp({
               enabled: this.guestForm.enabled,
               maxFileSize: Math.round(mb * 1024 * 1024),
               dailyLimit: limit
+            },
+            storage: {
+              writeKvLegacy: this.storageForm.writeKvLegacy
             }
           })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '保存失败');
         this.applySettingsView(data);
-        this.showToast('访客上传设置已保存，立即生效', 'success');
+        this.showToast(
+          this.storageForm.writeKvLegacy
+            ? '设置已保存，立即生效'
+            : '设置已保存：KV 双写已关闭，仅写 D1',
+          'success'
+        );
       } catch (e) {
         this.showToast(e.message || '保存失败', 'error');
       } finally {
@@ -3783,17 +3862,27 @@ Vue.createApp({
 
     async resetGuestSettings() {
       const ok = await this.askConfirm(
-        '将清除后台保存的访客上传配置，改为使用 Cloudflare Pages 上配置的环境变量。确定继续吗？',
+        '将清除后台保存的设置（访客上传 + 存储回滚模式），改为使用 Cloudflare Pages 上配置的环境变量。确定继续吗？',
         '恢复默认设置'
       );
       if (!ok) return;
 
       this.settingsSaving = true;
       try {
-        const res = await fetch('./api/manage/settings', { method: 'DELETE', credentials: 'include' });
+        // 逐组清除：两个组可能只有一个被 KV 覆盖过，
+        // 全量 DELETE 会把没保存过的那组也无谓地"重置"一遍。
+        const res = await fetch('./api/manage/settings?group=guest', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '重置失败');
         this.applySettingsView(data);
+
+        if (this.storageSource === 'kv') {
+          const res2 = await fetch('./api/manage/settings?group=storage', { method: 'DELETE', credentials: 'include' });
+          const data2 = await res2.json();
+          if (!res2.ok) throw new Error(data2.error || '重置存储设置失败');
+          this.applySettingsView(data2);
+        }
+
         this.showToast('已恢复为环境变量配置', 'success');
       } catch (e) {
         this.showToast(e.message || '重置失败', 'error');

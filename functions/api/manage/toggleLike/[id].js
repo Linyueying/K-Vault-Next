@@ -1,4 +1,4 @@
-﻿import { getRecordWithKey as findRecordWithKey } from '../../../utils/file-record.js';
+﻿import { getRecordWithKey as findRecordWithKey, deriveIndexId, putKvFileMetadata, registerFileRecord } from '../../../utils/file-record.js';
 
 function decodeFileId(raw) {
   try {
@@ -20,6 +20,11 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+/** D1 是否可用（绑定名 DB）。 */
+function isD1Enabled(env) {
+  return Boolean(env && env.DB && typeof env.DB.prepare === 'function');
+}
+
 export async function onRequest(context) {
   const { params, env } = context;
 
@@ -39,7 +44,25 @@ export async function onRequest(context) {
     liked: !Boolean(record.metadata.liked),
   };
 
-  await env.img_url.put(kvKey, '', { metadata });
+  // ---------- 路径 A：D1 ----------
+  // 读侧 getRecordWithKey 是 D1 优先，所以这里必须同步写 D1 ——
+  // 否则会出现「点赞成功但刷新列表还是未点赞」的静默不一致
+  // （与 editName / move-folder 同类的问题）。
+  if (isD1Enabled(env)) {
+    // 用裸 ID 定位：D1 的 files.id 已剥离存储前缀，kvKey 直接当主键会更新 0 行。
+    const id = deriveIndexId(kvKey || fileId);
+    // 手里已有完整 metadata，走全字段 upsert（不发生 KV 回读）。
+    const res = await registerFileRecord(env, kvKey, metadata, { indexId: id });
+    if (res.ok) {
+      await putKvFileMetadata(env, kvKey, metadata);
+      return jsonResponse({ success: true, liked: metadata.liked, key: kvKey });
+    }
+    // D1 写失败 → 落到 KV 兜底，不让一次抖动阻断点赞
+    console.warn('toggleLike: D1 write failed, falling back to KV:', res.error);
+  }
+
+  // ---------- 路径 B：KV 兜底 ----------
+  await putKvFileMetadata(env, kvKey, metadata);
 
   return jsonResponse({ success: true, liked: metadata.liked, key: kvKey });
 }

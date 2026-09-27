@@ -54,6 +54,7 @@ import {
   moveFolderTree,
   clearFolderPath,
 } from './metadata-d1.js';
+import { shouldWriteKvLegacySync } from './runtime-config.js';
 
 /**
  * 存储前缀列表。顺序与调用点原有实现保持一致（v1/upload.js 另有顺序，
@@ -72,6 +73,76 @@ export const STORAGE_PREFIXES = [
   'github:',
   '',
 ];
+
+// ============================================================================
+// 回滚模式：KV 元数据写入的统一闸门
+// ============================================================================
+
+/**
+ * 写入文件元数据到 KV —— 受「存储回滚模式」开关控制。
+ *
+ * ============================================================================
+ * 为什么需要这个函数（而不是在 9 个写入点各自 if 一下）
+ * ============================================================================
+ *
+ * 全部上传 / 改名 / 移动 / 删除路径都是同一个动作：
+ *
+ *     await env.img_url.put(kvKey, '', { metadata });
+ *
+ * 如果让每个调用点各自写 `if (await shouldWriteKvLegacy(env)) {...}`，
+ * 就会有两个问题：
+ *
+ *   1. **判定方式漂移**。总有人会写成 `if (env.KV_LEGACY_WRITE)`，
+ *      从而完全绕过后台开关 —— 这类「以为关了其实没关」的回归极难发现。
+ *   2. **每次多一次 KV 读**。`shouldWriteKvLegacy` 是异步的（要回源 KV
+ *      读 `config:storage`），而它要保护的正是稀缺的 KV 额度。
+ *      用读额度换写额度，账面上不划算。
+ *
+ * 这里同时解决两者：判定收敛到唯一一处，且优先走
+ * `shouldWriteKvLegacySync()` 的**分组配置镜像**（零 KV 往返）。
+ * 只有镜像未命中（本 isolate 还没读过任何运行时配置）才回源一次。
+ *
+ * ============================================================================
+ * 与 `putRecordIndex` 的写序不能颠倒
+ * ============================================================================
+ *
+ * 调用点当前是「先写 KV，再 putRecordIndex」。**保持这个顺序**：
+ * `putRecordIndex` 的慢路径（未传 metadata）依赖 KV 里已有记录。
+ * 关掉开关后 KV 写被跳过，慢路径会拿不到记录 —— 所以本函数返回
+ * 一个布尔值 `wrote`，调用点应据此走 `metadata` 快路径（见下）。
+ *
+ * @param {any} env
+ * @param {string} kvKey
+ * @param {object} metadata
+ * @returns {Promise<boolean>} 是否真的写了 KV（false = 回滚模式已关闭）
+ */
+export async function putKvFileMetadata(env, kvKey, metadata) {
+  if (!env?.img_url?.put || !kvKey) return false;
+
+  // 先试零成本判定；未命中镜像才付一次 KV 读。
+  const mirrored = shouldWriteKvLegacySync(env);
+  let allow = mirrored;
+  if (allow === null) {
+    try {
+      const { shouldWriteKvLegacy } = await import('./runtime-config.js');
+      allow = await shouldWriteKvLegacy(env);
+    } catch (e) {
+      // 判定失败 → 保守起来继续写（多花额度比丢记录安全）
+      console.warn('putKvFileMetadata: fallback to write, reason:', e?.message || e);
+      allow = true;
+    }
+  }
+
+  if (!allow) {
+    // 明确关闭：**不再写 KV**。D1 是唯一数据源，这是用户的显式选择。
+    // 不在这里 "顺手写一次兜底" —— 那会让开关失去意义，也会让监控里
+    // 的 KV 写量分不清是开关没生效还是 D1 在抖动。
+    return false;
+  }
+
+  await env.img_url.put(kvKey, '', { metadata });
+  return true;
+}
 
 /**
  * 分享下载计数键前缀 —— **降级态专用**。
