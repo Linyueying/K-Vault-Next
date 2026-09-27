@@ -191,6 +191,9 @@ async function buildBundleRecord(env, bundle) {
   return {
     slug: bundle.slug,
     sharePath: `/s/${encodeURIComponent(bundle.slug)}`,
+    // 展示文案：面板列表按标题辨认合集（没有标题时前端回退到默认文案）
+    title: String(bundle.title || ''),
+    description: String(bundle.description || ''),
     type: isFolder ? 'folder' : 'files',
     folderShare: isFolder,
     folderPath,

@@ -191,12 +191,15 @@
         resultBatchBusy: false,
         historyBatchBusy: false,
 
-        /* 分享（上传时注入，恒为 false） */
+        /* ---- 上传时注入分享参数的老通道 ----
+           shareEnabled / showSharePanel / shareShowPassword 曾经服务于
+           「上传前先配好分享」，但模板里从未有过对应控件，三个字段现在
+           恒为 false 且无人读取。保留字段会让人误以为存在这条路径。
+           shareExpiresIn 等其余字段仍在用（buildShareOptions / previewShareText
+           读取），因此只清掉确认无人消费的这几个。 */
         shareEnabled: false,
-        showSharePanel: false,
         shareExpiresIn: 0,
         sharePassword: "",
-        shareShowPassword: false,
         shareMaxDownloads: "",
         shareSlug: "",
 
@@ -210,16 +213,24 @@
         shareDialogItems: [],
         shareDialogMode: "create",
         shareDialogBusy: false,
+        /* 本次弹窗是否刚刚新建过分享。成功创建后 mode 会切到 manage
+           （便于"再改一次"走 update），结果面板要靠它区分
+           「分享链接已生成」与「分享设置已生效」两种文案。 */
+        shareDialogCreated: false,
         shareDialogError: "",
         shareDialogResult: null,
         shareDialogRevoking: false,
-        shareDialogForm: { expiresIn: 0, maxDownloads: "", password: "", slug: "", keepPassword: true, keepSlug: true },
+        shareDialogForm: { expiresIn: 0, maxDownloads: "", password: "", slug: "", keepPassword: true, keepSlug: true, title: "", description: "" },
         shareDialogShowPassword: false,
         /* 分享目录模式：非空表示本次弹窗在分享某个 folderPath。
            结构：{ path, name, fileCount, includeSubfolders }。
            与 shareDialogItems 互斥 —— 目录分享走服务端按 folderPath 解析成员，
            前端不需要预先收集文件 ID。 */
         shareDialogFolder: null,
+        /* 合集 / 目录分享创建成功后回写的 slug。
+           有它才能把「再改一次短链 / 标题」变成一次 update，
+           而不是又建出一个新分享（旧实现里合集建完就没法改了）。 */
+        shareDialogSlug: "",
 
         /* 统一自定义对话框状态与队列 */
         dlg: Object.assign({}, DLG_DEFAULTS),
@@ -362,6 +373,24 @@
       },
       normalizedShareSlug() {
         return String(this.shareSlug || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+      },
+      /* 分享弹窗里"当前生效的短链"——单文件取自条目，合集/目录取自创建结果。
+         模板用它判断是否展示「保留当前短链」勾选框：
+         没有短链可保留时，那个勾选框是纯噪音。 */
+      shareDialogCurrentSlug() {
+        if (this.shareDialogItem) return String(this.shareDialogItem.shareSlug || "").trim();
+        return String(this.shareDialogSlug || "").trim();
+      },
+      /* 分享二维码。内容就是分享链接本身，纯前端生成（vendor/qrcode.js），
+         不请求任何外部服务 —— 分享链接属于敏感信息，不该过第三方。 */
+      shareDialogQr() {
+        const url = this.shareDialogResult && this.shareDialogResult.url;
+        if (!url || typeof window === "undefined" || !window.QRCode) return "";
+        try {
+          return window.QRCode.toSvg(url, { ecl: "M", margin: 1, dark: "currentColor" });
+        } catch (err) {
+          return "";
+        }
       },
       failedCount() { return this.uploadingFiles.filter((f) => f.status === "error").length; },
       /* 队列里还有「想跑但没跑完」的任务（含等待中）→ 可以整体暂停 */
@@ -538,7 +567,7 @@
         const expiresIn = Number(this.shareDialogForm.expiresIn) || 0;
         if (this.shareDialogMode === "manage" && expiresIn === 0) return "保持不变。选择具体时长才会覆盖当前设置。";
         if (expiresIn === 0) return "永久有效。";
-        return `从此刻起 ${this.formatShareDuration(expiresIn).replace("有效期 ", "")}内可访问。`;
+        return `从此刻起 ${this.formatShareDuration(expiresIn)}内可访问。`;
       },
       sharePasswordPlaceholder() {
         if (this.shareDialogMode !== "manage") return "留空表示不加密";
@@ -549,6 +578,17 @@
         if (this.shareDialogMode !== "manage") return "留空则自动生成";
         if (!this.shareDialogForm.keepSlug) return "留空即取消自定义短链";
         return "留空则不修改";
+      },
+      /* 标题 / 说明的占位文案：直接把"不填会显示什么"写在框里，
+         用户不用猜——这比另起一行小字说明更有效。 */
+      shareTitlePlaceholder() {
+        if (this.shareDialogFolder) return `留空则显示「${this.shareDialogFolder.name}」`;
+        if (this.isShareDialogBundle) return `留空则显示「${this.shareDialogItems.length} 个文件的合集」`;
+        if (this.shareDialogItem) return `留空则显示「${this.getDisplayName(this.shareDialogItem)}」`;
+        return "给这次分享起个名字";
+      },
+      shareDescriptionPlaceholder() {
+        return "选填。访客会在文件上方看到这句话（例如：原图未压缩，单张约 8MB）";
       },
     },
     methods: {
@@ -595,11 +635,13 @@
         if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`;
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
       },
+      /* 单位是**秒**（下拉选项给的原始值），与 admin.html 的同名方法（毫秒）
+         不同 —— 两页各调各的，不会互相污染，但改的时候别抄错单位。 */
       formatShareDuration(seconds) {
         const map = { 3600: "1 小时", 86400: "1 天", 604800: "7 天", 2592000: "30 天", 31536000: "365 天" };
-        if (map[seconds]) return `有效期 ${map[seconds]}`;
+        if (map[seconds]) return map[seconds];
         const days = Math.round(seconds / 86400);
-        return days >= 1 ? `有效期 ${days} 天` : "有效期 1 小时内";
+        return days >= 1 ? `${days} 天` : "1 小时内";
       },
       safeDecodeFileName(str) {
         if (!str) return "";
@@ -2478,6 +2520,10 @@
         target.shareMaxDownloads = payload.shareMaxDownloads || 0;
         target.shareProtected = Boolean(payload.sharePasswordProtected);
         target.shareDownloadCount = Number(payload.shareDownloadCount) || 0;
+        /* 分享文案回写。payload 里没有这两个键时不改动（服务端未返回＝本次没碰），
+           显式空串才清除 —— 与 slug / password 的哨兵语义保持一致。 */
+        if (payload.shareTitle !== undefined) target.shareTitle = payload.shareTitle || "";
+        if (payload.shareDescription !== undefined) target.shareDescription = payload.shareDescription || "";
         return target;
       },
       hasShare(item) {
@@ -2517,6 +2563,8 @@
         this.shareDialogMode = mode;
         this.shareDialogError = "";
         this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogSlug = "";
         this.shareDialogBusy = false;
         this.shareDialogRevoking = false;
         this.shareDialogShowPassword = false;
@@ -2527,6 +2575,9 @@
           slug: mode === "manage" ? "" : String(item.shareSlug || ""),
           keepPassword: true,
           keepSlug: true,
+          /* 标题 / 说明回填当前值 —— 所见即所得，清空＝删除。 */
+          title: String(item.shareTitle || ""),
+          description: String(item.shareDescription || ""),
         };
         this.shareDialogVisible = true;
       },
@@ -2548,6 +2599,8 @@
         this.shareDialogMode = "create";
         this.shareDialogError = "";
         this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogSlug = "";
         this.shareDialogBusy = false;
         this.shareDialogRevoking = false;
         this.shareDialogShowPassword = false;
@@ -2558,6 +2611,9 @@
           slug: "",
           keepPassword: true,
           keepSlug: true,
+          /* 目录名天然就是个好标题，但用户可能想换个说法，所以只做预填。 */
+          title: folder.name || "",
+          description: "",
         };
         this.shareDialogVisible = true;
       },
@@ -2575,12 +2631,13 @@
         this.shareDialogMode = "create";
         this.shareDialogError = "";
         this.shareDialogResult = null;
+        this.shareDialogCreated = false;
         this.shareDialogBusy = false;
         this.shareDialogRevoking = false;
         this.shareDialogShowPassword = false;
         /* 合集统一套用一套参数，因此从空表单起步 ——
            成员各自已有的分享设置不参与合并（那会产生"以谁为准"的歧义）。
-           自定义短链在合集模式下不可用（见模板里的 isShareDialogBundle 判断）。 */
+           短链、标题、说明现在与单文件完全一致：可自定义，留空由服务端生成。 */
         this.shareDialogForm = {
           expiresIn: 0,
           maxDownloads: "",
@@ -2588,7 +2645,10 @@
           slug: "",
           keepPassword: true,
           keepSlug: true,
+          title: "",
+          description: "",
         };
+        this.shareDialogSlug = "";
         this.shareDialogVisible = true;
       },
       closeShareDialog() {
@@ -2597,6 +2657,8 @@
         this.shareDialogItems = [];
         this.shareDialogFolder = null;
         this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogSlug = "";
         this.shareDialogError = "";
         this.shareDialogBusy = false;
         this.shareDialogRevoking = false;
@@ -2620,46 +2682,63 @@
         const maxDownloads = maxRaw === "" ? 0 : Number(maxRaw);
         if (maxRaw !== "" && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) { this.shareDialogError = "下载次数上限必须是非负整数（0 表示不限）。"; return; }
         const expiresIn = Number(form.expiresIn) || 0;
+        const isManage = this.shareDialogMode === "manage";
+
+        /* 分享文案：标题 / 说明。留空表示"不设置"（分享页回退到默认标题、
+           不渲染说明块）—— 因此 manage 模式下清空输入框就是"删掉标题"，
+           不需要额外的「保留」勾选框：表单打开时已填入当前值，所见即所得。 */
+        const title = String(form.title || "").trim();
+        const description = String(form.description || "").trim();
+        if (title.length > 200) { this.shareDialogError = "分享标题最多 200 个字符。"; return; }
+        if (description.length > 2000) { this.shareDialogError = "分享说明最多 2000 个字符。"; return; }
+
+        const slugRaw = String(form.slug || "").trim();
+        const slug = slugRaw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+        if (slugRaw && !slug) { this.shareDialogError = "短链只能包含字母、数字、下划线或短横线。"; return; }
 
         /* 目录分享分支：按 folderPath 让服务端解析成员，前端无需收集文件 ID。
            必须在下方「识别单文件」校验之前分流 —— 目录分享没有 item / targetId。 */
         if (this.shareDialogFolder) {
-          await this.submitDirectoryShare({ expiresIn, maxDownloads, password });
+          await this.submitDirectoryShare({ expiresIn, maxDownloads, password, slug, title, description, isManage });
           return;
         }
 
         /* 合集分支：多选时走合集接口。必须在下方「识别单文件」校验之前分流 ——
            批量分享时 shareDialogItem 为 null，若先校验 item 会被「无法识别该文件」误拦。 */
         if (this.isShareDialogBundle) {
-          await this.submitBundleShare({ expiresIn, maxDownloads, password });
+          await this.submitBundleShare({ expiresIn, maxDownloads, password, slug, title, description, isManage });
           return;
         }
 
         const item = this.shareDialogItem;
         const targetId = this.shareDialogTargetId();
         if (!item || !targetId) { this.shareDialogError = "无法识别该文件，请刷新后重试。"; return; }
-        const isManage = this.shareDialogMode === "manage";
-        let slugRaw = String(form.slug || "").trim();
-        if (!slugRaw && !isManage) {
+
+        let submittedSlug = slug;
+        if (!slug && !isManage) {
+          /* 单文件分享没有"服务端生成短链"这条路径（接口把 slug 直接写进文件
+             元数据），所以前端补一个随机值 —— 否则 /s/<裸文件ID> 会很长。 */
           const timestamp = Date.now().toString(36).slice(-4);
           const random = Math.random().toString(36).substring(2, 6);
-          slugRaw = timestamp + random;
+          submittedSlug = timestamp + random;
         }
-        const slug = slugRaw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
-        if (slugRaw && !slug) { this.shareDialogError = "短链只能包含字母、数字、下划线或短横线。"; return; }
 
         const body = { action: isManage ? "update" : "create" };
         if (isManage) {
           body.expiresIn = Number(form.expiresIn) > 0 ? Number(form.expiresIn) : -1;
           body.maxDownloads = maxRaw === "" ? -1 : maxDownloads;
           body.password = password === "" && form.keepPassword ? -1 : password;
-          body.slug = slugRaw === "" && form.keepSlug ? -1 : slug;
+          body.slug = slugRaw === "" && form.keepSlug ? -1 : submittedSlug;
         } else {
           body.expiresIn = Number(form.expiresIn) || 0;
           body.maxDownloads = maxDownloads;
           body.password = password;
-          body.slug = slug;
+          body.slug = submittedSlug;
         }
+        /* 标题 / 说明直接下发：空串即清除。与 slug / password 的 -1 哨兵不同，
+           这两个字段在表单里始终显示当前值，清空就是明确的删除动作。 */
+        body.title = title;
+        body.description = description;
         this.shareDialogBusy = true;
         this.shareDialogError = "";
         try {
@@ -2685,9 +2764,17 @@
             maxDownloads: data.shareMaxDownloads || 0,
             passwordProtected: Boolean(data.sharePasswordProtected),
             active: Boolean(data.active),
+            title: data.shareTitle || "",
+            description: data.shareDescription || "",
           };
           if (resolvedPath) item.sharePath = resolvedPath;
+          /* 创建成功后立刻切到 manage：表单里"当前值"就是刚提交的值，
+             再点一次「保存修改」是幂等的，而不是又建一个分享。 */
+          this.shareDialogCreated = !isManage;
           this.shareDialogMode = "manage";
+          this.shareDialogForm.slug = "";
+          this.shareDialogForm.keepSlug = true;
+          this.shareDialogForm.keepPassword = true;
           this.persistHistory();
           this.showToast(isManage ? "分享设置已更新" : "分享已创建", "success");
         } catch (err) {
@@ -2696,17 +2783,43 @@
         } finally { this.shareDialogBusy = false; }
       },
       /* 合集分享提交。
-         与单文件路径的关键差异：
-           · 自定义短链不可用 —— 合集统一套用一套参数，逐个命名没有意义，
-             且要额外处理批量冲突。短链由服务端自动生成。
-           · 「管理/取消分享」不适用 —— 合集不是"某个文件的分享属性"，
-             重置表单即可视为管理，无需 revoke 流程。
-           · 部分文件失效不阻塞整批：服务端把失效项放进 missing，
-             这里把结果如实汇总给用户，不静默丢弃。 */
-      async submitBundleShare({ expiresIn, maxDownloads, password }) {
+         现在与单文件分享共用同一份表单语义：自定义短链、标题、说明都可用，
+         manage 模式下 `-1` 表示「保持不变」，空串表示「清除」。
+
+         这消除了旧实现里两条最刺眼的不一致：
+           · 旧版合集不能自定义短链 —— 只因为表单里挂了个 v-if；
+           · 旧版合集创建完就再也改不了 —— 没有回写 slug，第二次提交必然是新建。 */
+      async submitBundleShare({ expiresIn, maxDownloads, password, slug, title, description, isManage }) {
         const items = this.shareDialogItems;
-        const fileIds = items.map((it) => this.shareTargetIdOf(it)).filter(Boolean);
-        if (!fileIds.length) { this.shareDialogError = "无法识别所选文件，请刷新后重试。"; return; }
+        const currentSlug = String(this.shareDialogSlug || "").trim();
+        const isUpdate = Boolean(isManage && currentSlug);
+
+        /* 新建必须带成员；update 不传 fileIds 即为「只改参数不动成员」。 */
+        let fileIds = [];
+        if (!isUpdate) {
+          fileIds = items.map((it) => this.shareTargetIdOf(it)).filter(Boolean);
+          if (!fileIds.length) { this.shareDialogError = "无法识别所选文件，请刷新后重试。"; return; }
+        }
+
+        const maxRaw = String(maxDownloads === undefined ? this.shareDialogForm.maxDownloads : maxDownloads).trim();
+        const body = { action: isUpdate ? "update" : "create" };
+        if (isUpdate) {
+          /* ⚠️ slug 是「定位」用的，改名走 newSlug。服务端若把两者混用，
+             会拿新短链去查一个还不存在的合集，返回误导性的「短链不存在」。 */
+          body.slug = currentSlug;
+          body.newSlug = slug || currentSlug;
+          body.expiresIn = Number(expiresIn) > 0 ? Number(expiresIn) : -1;
+          body.maxDownloads = maxRaw === "" ? -1 : Number(maxRaw);
+          body.password = String(password || "") === "" && this.shareDialogForm.keepPassword ? -1 : String(password || "");
+        } else {
+          if (slug) body.slug = slug;
+          body.fileIds = fileIds;
+          body.expiresIn = Number(expiresIn) || 0;
+          body.maxDownloads = Number(maxRaw) || 0;
+          body.password = String(password || "");
+        }
+        body.title = title;
+        body.description = description;
 
         this.shareDialogBusy = true;
         this.shareDialogError = "";
@@ -2715,7 +2828,7 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
-            body: JSON.stringify({ action: "create", fileIds, expiresIn, maxDownloads, password }),
+            body: JSON.stringify(body),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || data.success === false) {
@@ -2742,20 +2855,31 @@
             expiresAt: data.expiresAt || 0,
             maxDownloads: data.maxDownloads || 0,
             passwordProtected: Boolean(data.passwordProtected),
-            active: Boolean(data.active),
+            active: Boolean(data.active !== false),
+            title: data.title || "",
+            description: data.description || "",
             bundle: true,
-            bundleCount: Number(data.accepted) || 0,
+            bundleCount: Number(data.fileCount) || Number(data.accepted) || 0,
             bundleMissing: missingNames.length,
             bundleMissingNames: missingNames,
           };
+          /* 回写 slug 后，下一次提交就是 update 而不是又建一个分享。 */
+          this.shareDialogSlug = data.slug || currentSlug;
+          this.shareDialogCreated = !isUpdate;
+          this.shareDialogMode = "manage";
+          this.shareDialogForm.slug = "";
+          this.shareDialogForm.keepSlug = true;
+          this.shareDialogForm.keepPassword = true;
           this.showToast(
-            missingNames.length
-              ? `合集已创建，${missingNames.length} 个文件未加入`
-              : `已创建 ${data.fileCount || fileIds.length} 个文件的合集分享`,
+            isUpdate
+              ? "合集分享已更新"
+              : missingNames.length
+                ? `合集已创建，${missingNames.length} 个文件未加入`
+                : `已创建 ${data.fileCount || fileIds.length} 个文件的合集分享`,
             "success"
           );
         } catch (err) {
-          console.error("合集分享创建失败:", err);
+          console.error("合集分享提交失败:", err);
           this.shareDialogError = "网络错误，请稍后重试。";
         } finally { this.shareDialogBusy = false; }
       },
@@ -2763,9 +2887,34 @@
          与 submitBundleShare 的唯一差别：成员来源不是前端的 fileIds，而是
          请求体里的 folderPath —— 服务端会按目录自行解析出成员文件。其余的
          参数、结果展示、错误回显逻辑完全复用合集的语义。 */
-      async submitDirectoryShare({ expiresIn, maxDownloads, password }) {
+      async submitDirectoryShare({ expiresIn, maxDownloads, password, slug, title, description, isManage }) {
         const folder = this.shareDialogFolder;
         if (!folder) { this.shareDialogError = "未指定要分享的目录。"; return; }
+
+        const currentSlug = String(this.shareDialogSlug || "").trim();
+        const isUpdate = Boolean(isManage && currentSlug);
+
+        const maxRaw = String(maxDownloads === undefined ? this.shareDialogForm.maxDownloads : maxDownloads).trim();
+        const body = { action: isUpdate ? "update" : "create" };
+        if (isUpdate) {
+          body.slug = currentSlug;
+          body.newSlug = slug || currentSlug;
+          body.expiresIn = Number(expiresIn) > 0 ? Number(expiresIn) : -1;
+          body.maxDownloads = maxRaw === "" ? -1 : Number(maxRaw);
+          body.password = String(password || "") === "" && this.shareDialogForm.keepPassword ? -1 : String(password || "");
+        } else {
+          if (slug) body.slug = slug;
+          body.folderPath = folder.path;
+          body.includeSubfolders = folder.includeSubfolders;
+          // 目录分享默认「实时同步」：分享的是目录本身，而非创建时刻的文件快照。
+          // 之后往该目录上传/删除文件，分享页会自动反映最新内容。
+          body.live = true;
+          body.expiresIn = Number(expiresIn) || 0;
+          body.maxDownloads = Number(maxRaw) || 0;
+          body.password = String(password || "");
+        }
+        body.title = title;
+        body.description = description;
 
         this.shareDialogBusy = true;
         this.shareDialogError = "";
@@ -2774,17 +2923,7 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "same-origin",
-          body: JSON.stringify({
-            action: "create",
-            folderPath: folder.path,
-            includeSubfolders: folder.includeSubfolders,
-            // 目录分享默认「实时同步」：分享的是目录本身，而非创建时刻的文件快照。
-            // 之后往该目录上传/删除文件，分享页会自动反映最新内容。
-            live: true,
-            expiresIn,
-            maxDownloads,
-            password,
-          }),
+            body: JSON.stringify(body),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok || data.success === false) {
@@ -2803,7 +2942,9 @@
             expiresAt: data.expiresAt || 0,
             maxDownloads: data.maxDownloads || 0,
             passwordProtected: Boolean(data.passwordProtected),
-            active: Boolean(data.active),
+            active: Boolean(data.active !== false),
+            title: data.title || "",
+            description: data.description || "",
             bundle: true,
             // 实时文件夹分享标记：template 据此提示"目录内容会实时同步"。
             live: Boolean(data.live),
@@ -2814,14 +2955,20 @@
             bundleMissing: 0,
             bundleMissingNames: [],
           };
+          this.shareDialogSlug = data.slug || currentSlug;
+          this.shareDialogCreated = !isUpdate;
+          this.shareDialogMode = "manage";
+          this.shareDialogForm.slug = "";
+          this.shareDialogForm.keepSlug = true;
+          this.shareDialogForm.keepPassword = true;
           this.showToast(
-            data.live
-              ? `已创建目录「${folder.name}」的实时分享（当前 ${data.fileCount || 0} 个文件，后续上传会实时同步）`
-              : `已创建目录「${folder.name}」的合集分享（${data.fileCount || 0} 个文件）`,
+            isUpdate
+              ? `目录「${folder.name}」的分享已更新`
+              : `已创建目录「${folder.name}」的实时分享（当前 ${data.fileCount || 0} 个文件，后续上传会实时同步）`,
             "success"
           );
         } catch (err) {
-          console.error("目录分享创建失败:", err);
+          console.error("目录分享提交失败:", err);
           this.shareDialogError = "网络错误，请稍后重试。";
         } finally { this.shareDialogBusy = false; }
       },
@@ -2865,6 +3012,41 @@
           console.error("取消分享失败:", err);
           this.shareDialogError = "网络错误，请稍后重试。";
         } finally { this.shareDialogRevoking = false; }
+      },
+      /* 取消合集 / 目录分享。与单文件 revoke 的差别只是端点与定位键：
+         合集没有"文件 ID"，slug 就是它的身份。 */
+      async revokeBundleShare() {
+        const slug = String(this.shareDialogSlug || (this.shareDialogResult && this.shareDialogResult.slug) || "").trim();
+        if (!slug) { this.shareDialogError = "无法定位该分享，请刷新后重试。"; return; }
+        this.shareDialogRevoking = true;
+        this.shareDialogError = "";
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/share-bundle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ action: "revoke", slug }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) { this.shareDialogError = data.message || data.error || `请求失败（HTTP ${res.status}）`; return; }
+          this.showToast("已取消分享", "success");
+          this.closeShareDialog();
+        } catch (err) {
+          console.error("取消合集分享失败:", err);
+          this.shareDialogError = "网络错误，请稍后重试。";
+        } finally { this.shareDialogRevoking = false; }
+      },
+      /* 「继续修改」：收起结果面板，把刚创建出来的分享重新变成可编辑表单。
+         前提是 shareDialogSlug 已回写且 mode 已切成 manage ——
+         否则下一次提交会再建一个分享，用户会以为"修改没生效"。 */
+      editShareAgain() {
+        this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogError = "";
+        this.shareDialogMode = "manage";
+        this.shareDialogForm.slug = "";
+        this.shareDialogForm.keepSlug = true;
+        this.shareDialogForm.keepPassword = true;
       },
       copyShareDialogUrl() {
         const url = this.shareDialogResult && this.shareDialogResult.url;

@@ -96,6 +96,9 @@ export function rowToRecord(row) {
   if (row.share_password_hash) metadata.sharePasswordHash = row.share_password_hash;
   if (row.share_expires_at) metadata.shareExpiresAt = row.share_expires_at;
   if (row.share_max_downloads) metadata.shareMaxDownloads = row.share_max_downloads;
+  // 分享文案：允许为空，空即"回退默认标题 / 无描述"
+  if (row.share_title) metadata.shareTitle = row.share_title;
+  if (row.share_description) metadata.shareDescription = row.share_description;
 
   return { metadata };
 }
@@ -178,6 +181,8 @@ function metadataToColumns(metadata = {}, kvKey = '') {
     share_password_hash: metadata.sharePasswordHash || null,
     share_expires_at: metadata.shareExpiresAt || null,
     share_max_downloads: Number(metadata.shareMaxDownloads || 0),
+    share_title: metadata.shareTitle || null,
+    share_description: metadata.shareDescription || null,
   };
 }
 
@@ -208,8 +213,9 @@ export async function putFileRecord(env, id, kvKey, metadata) {
          list_type, label, liked,
          share_slug, share_password_salt, share_password_hash,
          share_expires_at, share_max_downloads,
+         share_title, share_description,
          created_at, updated_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          kv_key = excluded.kv_key,
          is_folder = excluded.is_folder,
@@ -231,6 +237,8 @@ export async function putFileRecord(env, id, kvKey, metadata) {
          share_password_hash = excluded.share_password_hash,
          share_expires_at = excluded.share_expires_at,
          share_max_downloads = excluded.share_max_downloads,
+         share_title = excluded.share_title,
+         share_description = excluded.share_description,
          updated_at = excluded.updated_at`
     ).bind(
       id, kvKey || null, c.is_folder, c.storage, c.storage_key, c.storage_extra, c.file_type,
@@ -238,6 +246,7 @@ export async function putFileRecord(env, id, kvKey, metadata) {
       c.list_type, c.label, c.liked,
       c.share_slug, c.share_password_salt, c.share_password_hash,
       c.share_expires_at, c.share_max_downloads,
+      c.share_title, c.share_description,
       ts, ts
     ).run();
 

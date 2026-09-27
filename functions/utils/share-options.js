@@ -287,6 +287,11 @@ export function buildShareSummary(metadata, key) {
     shareExpiresAt: expiresAt || null,
     shareMaxDownloads: maxDownloads || null,
     sharePasswordProtected: hasPassword,
+    shareTitle: sanitizeShareText(metadata.shareTitle || '', SHARE_TEXT_LIMITS.title),
+    shareDescription: sanitizeShareText(
+      metadata.shareDescription || '',
+      SHARE_TEXT_LIMITS.description
+    ),
   };
 }
 
@@ -312,7 +317,29 @@ const SHARE_METADATA_FIELDS = [
   'shareDownloadCount',
   'sharePasswordSalt',
   'sharePasswordHash',
+  'shareTitle',
+  'shareDescription',
 ];
+
+/** 分享标题 / 描述的字数上限（与合集侧 LIMITS 保持一致）。 */
+export const SHARE_TEXT_LIMITS = { title: 200, description: 2000 };
+
+/**
+ * 归一化一段分享文案。
+ *
+ * 只做两件事：截断到上限、去掉首尾空白。刻意**不做** HTML 转义或字符过滤
+ * —— 文案最终由前端以文本节点渲染（Vue 的 `{{ }}` 本就转义），在这里转义
+ * 反而会让用户看到 `&amp;` 这类字面量。
+ *
+ * @param rawValue - 用户输入。
+ * @param maxLength - 允许的最大字符数。
+ * @returns 归一化后的字符串（空串表示"不设置"）。
+ */
+export function sanitizeShareText(rawValue = '', maxLength = 200) {
+  const text = String(rawValue ?? '').replace(/\s+$/g, '').replace(/^\s+/g, '');
+  if (!text) return '';
+  return Array.from(text).slice(0, maxLength).join('');
+}
 
 /**
  * Delete the `share_slug:<slug>` mapping, but only when it still points at the
@@ -501,6 +528,19 @@ export async function patchShareOptions(env, key, metadata = {}, patch = {}) {
     }
   }
 
+  // 分享文案：空串 = 清除（回退到"显示真实文件名"），与 slug / password 同语义
+  if (Object.prototype.hasOwnProperty.call(patch, 'title')) {
+    const title = sanitizeShareText(patch.title, SHARE_TEXT_LIMITS.title);
+    if (title) nextMetadata.shareTitle = title;
+    else delete nextMetadata.shareTitle;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'description')) {
+    const description = sanitizeShareText(patch.description, SHARE_TEXT_LIMITS.description);
+    if (description) nextMetadata.shareDescription = description;
+    else delete nextMetadata.shareDescription;
+  }
+
   let newSlug = oldSlug;
   if (Object.prototype.hasOwnProperty.call(patch, 'slug')) {
     const requested = sanitizeShareSlug(patch.slug || '');
@@ -584,6 +624,8 @@ export async function buildShareRecord(env, metadata = {}, kvKey = '') {
     shareMaxDownloads: maxDownloads || null,
     downloadCount,
     passwordProtected: Boolean(metadata.sharePasswordHash),
+    shareTitle: String(metadata.shareTitle || ''),
+    shareDescription: String(metadata.shareDescription || ''),
     createdAt: Number(metadata.TimeStamp) || null,
     active: !expired && !exhausted,
     expired,

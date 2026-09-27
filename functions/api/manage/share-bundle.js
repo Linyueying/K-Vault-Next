@@ -294,14 +294,19 @@ async function handleWrite(env, body, action) {
   }
 
   // ---------- 4. 短链 ----------
-  // 没指定就自动生成：合集短链是系统产物，用户界面上根本不提供输入框
-  // （合集不暴露自定义短链），所以「留空」是正常路径而非错误。
+  // 没指定就自动生成：合集短链可以由用户自定义（与单文件分享一致），
+  // 但也可以留空交给服务端 —— 这是正常路径而非错误。
   // 生成后必须查重 —— 与文件短链共用命名空间，随机值可能撞上。
   let slug;
   if (isUpdate) {
-    // update 只在显式传了 slug 且与当前不同时才换链。
-    const requested = Object.prototype.hasOwnProperty.call(options, 'slug') ? options.slug : '';
-    slug = requested && requested !== current.slug ? requested : current.slug;
+    // ⚠️ update 时 `body.slug` 用于**定位**合集，改名要用 `newSlug`。
+    // 两者必须分开：如果拿新短链当定位条件，服务端会去读一个还不存在的
+    // 合集，返回 404 —— 用户看到的是"短链不存在"，而真实原因只是字段复用。
+    // `options.slug` 是旧前端的用法（未传 newSlug 时仍兼容）。
+    const rename = Object.prototype.hasOwnProperty.call(body, 'newSlug')
+      ? String(body.newSlug ?? '').trim().toLowerCase()
+      : Object.prototype.hasOwnProperty.call(options, 'slug') ? options.slug : '';
+    slug = rename && rename !== current.slug ? rename : current.slug;
   } else if (options.slug) {
     slug = options.slug;
   } else {
@@ -362,6 +367,13 @@ async function handleWrite(env, body, action) {
     maxDownloads: maxDownloads === null ? current?.maxDownloads || 0 : maxDownloads,
     passwordSalt: current?.passwordSalt || '',
     passwordHash: current?.passwordHash || '',
+    // 展示文案：出现即覆盖（空串 = 清除并回退默认标题），未提及则沿用现值。
+    title: Object.prototype.hasOwnProperty.call(options, 'title')
+      ? options.title
+      : String(current?.title || current?.label || ''),
+    description: Object.prototype.hasOwnProperty.call(options, 'description')
+      ? options.description
+      : String(current?.description || ''),
   };
 
   if (Object.prototype.hasOwnProperty.call(options, 'password')) {
@@ -407,6 +419,9 @@ async function handleWrite(env, body, action) {
     maxDownloads: saved.maxDownloads || null,
     passwordProtected: Boolean(saved.passwordHash),
     createdAt: saved.createdAt || null,
+    // 展示文案：创建结果面板要原样回显，让用户确认"我填的就是这个"
+    title: String(saved.title || ''),
+    description: String(saved.description || ''),
   });
 }
 

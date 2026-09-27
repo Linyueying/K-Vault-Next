@@ -835,11 +835,18 @@
 
           <transition name="rise" mode="out-in">
           <div class="share-result" v-if="shareDialogResult" key="result">
-            <div class="share-result__head"><i class="fas fa-circle-check"></i><span>{{ shareDialogMode === 'manage' ? '分享设置已生效' : '分享链接已生成' }}</span></div>
+            <div class="share-result__head"><i class="fas fa-circle-check"></i><span>{{ shareDialogCreated ? '分享链接已生成' : '分享设置已生效' }}</span></div>
+            <!-- 回显存下来的标题 / 说明：让用户确认"我填的就是这个"，
+                 而不是等到打开分享页才发现打错字。 -->
+            <div class="share-result__title" v-if="shareDialogResult.title">{{ shareDialogResult.title }}</div>
+            <div class="share-result__desc" v-if="shareDialogResult.description">{{ shareDialogResult.description }}</div>
             <div class="share-result__url">
               <code>{{ shareDialogResult.url }}</code>
               <button class="btn btn--ghost btn--icon" @click="copyShareDialogUrl" title="复制链接"><i class="fas fa-copy"></i></button>
             </div>
+            <!-- 二维码：手机上"给旁边的人扫一下"比"复制一串链接再发过去"快得多。
+                 由 vendor/qrcode.js 纯前端生成，不依赖任何外部服务。 -->
+            <div class="share-result__qr" v-if="shareDialogQr" v-html="shareDialogQr" @click="copyShareDialogUrl" title="点击复制链接"></div>
             <div class="share-result__tags">
               <span class="share-tag" v-if="shareDialogResult.passwordProtected"><i class="fas fa-lock"></i> 密码保护</span>
               <span class="share-tag" v-if="shareDialogResult.maxDownloads">限 {{ shareDialogResult.maxDownloads }} 次下载</span>
@@ -860,6 +867,38 @@
           </div>
 
           <div class="share-fields" v-else key="fields">
+            <!-- 标题 / 说明：三种形态（单文件 / 多选 / 目录）都可用。
+                 以前分享页只能显示"系统给的名字"，分享者想解释一句
+                 "这是未压缩原图"都无处可写。 -->
+            <div class="field">
+              <label>分享标题<span class="field__opt">选填</span></label>
+              <input class="input" type="text" v-model="shareDialogForm.title" :placeholder="shareTitlePlaceholder" maxlength="200" />
+            </div>
+
+            <div class="field">
+              <label>分享说明<span class="field__opt">选填</span></label>
+              <textarea class="textarea" rows="2" v-model="shareDialogForm.description"
+                :placeholder="shareDescriptionPlaceholder" maxlength="2000"></textarea>
+            </div>
+
+            <div class="field">
+              <label>自定义短链</label>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <span class="mono" style="font-size: 0.76rem; color: var(--text-muted); flex: none;">/s/</span>
+                <input class="input" type="text" v-model="shareDialogForm.slug"
+                  :disabled="shareDialogMode === 'manage' && !shareDialogForm.keepSlug"
+                  :placeholder="shareSlugPlaceholder" maxlength="64"
+                  @input="shareDialogForm.slug = shareDialogForm.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '')" />
+              </div>
+              <label class="share-keep" v-if="shareDialogMode === 'manage' && shareDialogCurrentSlug">
+                <input type="checkbox" v-model="shareDialogForm.keepSlug" />
+                保留当前短链（不勾选则改为下方新短链，留空即取消自定义）
+              </label>
+              <div style="font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px;">
+                只能包含小写字母、数字、下划线与短横线。留空则由系统自动生成。
+              </div>
+            </div>
+
             <div class="share-fields__row">
               <div class="field">
                 <label>有效期</label>
@@ -893,22 +932,6 @@
               </label>
             </div>
 
-            <div class="field" v-if="!isShareDialogBundle">
-              <label>自定义短链</label>
-              <div style="display: flex; gap: 6px; align-items: center;">
-                <span class="mono" style="font-size: 0.76rem; color: var(--text-muted); flex: none;">/s/</span>
-                <input class="input" type="text" v-model="shareDialogForm.slug"
-                  :disabled="shareDialogMode === 'manage' && !shareDialogForm.keepSlug"
-                  :placeholder="shareSlugPlaceholder" maxlength="64"
-                  @input="shareDialogForm.slug = shareDialogForm.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '')" />
-              </div>
-              <label class="share-keep" v-if="shareDialogMode === 'manage' && shareDialogItem && shareDialogItem.shareSlug">
-                <input type="checkbox" v-model="shareDialogForm.keepSlug" />
-                保留当前短链（不勾选则改为下方新短链，留空即取消自定义）
-              </label>
-              <div style="font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px;">只能包含小写字母、数字、下划线与短横线。</div>
-            </div>
-
             <label class="share-keep" v-if="shareDialogFolder" style="margin-top: 2px;">
               <input type="checkbox" v-model="shareDialogFolder.includeSubfolders" />
               同时包含子目录中的文件
@@ -920,15 +943,18 @@
           </transition>
 
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <button class="btn btn--danger" v-if="shareDialogMode === 'manage' && !isShareDialogBundle" :disabled="shareDialogRevoking || shareDialogBusy" @click="revokeShare">
+            <!-- 取消分享对三种形态都可用：合集与目录此前只能建不能撤，
+                 链接一旦发出去就收不回来了。 -->
+            <button class="btn btn--danger" v-if="shareDialogMode === 'manage'" :disabled="shareDialogRevoking || shareDialogBusy" @click="isShareDialogBundle ? revokeBundleShare() : revokeShare()">
               <i :class="shareDialogRevoking ? 'fas fa-circle-notch fa-spin' : 'fas fa-ban'"></i>
               <span>{{ shareDialogRevoking ? '处理中…' : '取消分享' }}</span>
             </button>
             <span class="grow"></span>
+            <button class="btn" v-if="shareDialogResult" @click="editShareAgain"><i class="fas fa-pen"></i><span>继续修改</span></button>
             <button class="btn" :disabled="shareDialogBusy" @click="closeShareDialog"><span>{{ shareDialogResult ? '完成' : '取消' }}</span></button>
             <button class="btn btn--primary" v-if="!shareDialogResult" :disabled="shareDialogBusy" @click="submitShareDialog">
               <i :class="shareDialogBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-share-nodes'"></i>
-              <span>{{ shareDialogBusy ? '提交中…' : (shareDialogMode === 'manage' && !isShareDialogBundle ? '保存修改' : '生成分享链接') }}</span>
+              <span>{{ shareDialogBusy ? '提交中…' : (shareDialogMode === 'manage' ? '保存修改' : '生成分享链接') }}</span>
             </button>
           </div>
         </div>
@@ -1012,6 +1038,9 @@
     </div>
 
     <script defer src="/vendor/vue.global.prod.min.js"></script>
+    <!-- 二维码生成器（零依赖，分享结果面板用）。必须在 index.js 之前加载：
+         它在 index.js 的 computed 里被同步调用。 -->
+    <script defer src="/vendor/qrcode.js"></script>
     <script defer src="/index.js"></script>
     <script defer src="/branding.js?v=20260927"></script>
   </body>

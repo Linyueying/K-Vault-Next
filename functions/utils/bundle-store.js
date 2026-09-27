@@ -71,6 +71,9 @@ export function rowToBundle(row, fileIds = []) {
     passwordHash: String(row.password_hash || ''),
     createdAt: Number(row.created_at) || 0,
     label: String(row.label || ''),
+    // 展示文案：title 优先用新列，为空时回退历史 label（老数据迁移前写在 label 上）
+    title: String(row.title || row.label || ''),
+    description: String(row.description || ''),
   };
 }
 
@@ -140,8 +143,9 @@ export async function writeBundleRecord(env, bundle) {
       `INSERT INTO bundles (
          slug, type, folder_path, include_subfolders,
          expires_at, max_downloads, download_count,
-         password_salt, password_hash, label, created_at, updated_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         password_salt, password_hash, label, created_at, updated_at,
+         title, description
+       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(slug) DO UPDATE SET
          type = excluded.type,
          folder_path = excluded.folder_path,
@@ -152,7 +156,9 @@ export async function writeBundleRecord(env, bundle) {
          password_salt = excluded.password_salt,
          password_hash = excluded.password_hash,
          label = excluded.label,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at,
+         title = excluded.title,
+         description = excluded.description`
     ).bind(
       slug,
       type,
@@ -165,7 +171,9 @@ export async function writeBundleRecord(env, bundle) {
       String(bundle?.passwordHash || ''),
       String(bundle?.label || ''),
       createdAt,
-      ts
+      ts,
+      String(bundle?.title || ''),
+      String(bundle?.description || '')
     ).run();
 
     // 成员全量替换（仅快照型有意义）

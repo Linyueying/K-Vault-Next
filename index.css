@@ -1187,9 +1187,36 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       .share-tag--muted { color: var(--text-muted); }
       .share-result__hint { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.55; }
 
+      /* 结果面板里的标题 / 说明回显。标题加粗是"这个分享叫什么"，
+         说明压低对比度是给访客看的旁白，两者层级必须一眼可分。 */
+      .share-result__title { font-size: var(--fs-base); font-weight: 800; color: var(--text-main); line-height: 1.4; word-break: break-word; }
+      .share-result__desc { font-size: var(--fs-sm); color: var(--text-sub); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+
+      /* 二维码。背景强制纯白、模块强制深色 —— 扫描器对反色码的兼容性参差，
+         跟着主题换色会让一部分手机扫不出来。这不是配色偏好，是可用性要求。
+         svg 只有 viewBox 没有 width/height，尺寸完全由这里决定。 */
+      .share-result__qr {
+        align-self: center;
+        width: 132px; height: 132px;
+        padding: 7px;
+        border-radius: var(--r-md);
+        background: #fff;
+        color: #0f172a;
+        border: 1px solid rgba(var(--primary-rgb), 0.28);
+        cursor: pointer;
+        transition: transform var(--dur-fast) var(--ease-apple), box-shadow var(--dur-fast) var(--ease-apple);
+      }
+      .share-result__qr:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); }
+      .share-result__qr:active { transform: scale(0.97); }
+      .share-result__qr svg { display: block; width: 100%; height: 100%; }
+
       .share-fields { display: flex; flex-direction: column; gap: var(--sp-3); }
       .share-fields__row { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
       .share-fields__row .field { flex: 1; min-width: 130px; }
+      /* 标签后面的「选填」小字：不加会让人以为标题/说明是必填项。 */
+      .field__opt { margin-left: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+      /* 说明框两行即可，design-system 的默认 min-height 88px 对一句话太长。 */
+      .share-fields .textarea { min-height: 60px; font-size: var(--fs-sm); }
       .share-hint { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.55; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); border: 1px dashed var(--glass-border-ice); background: var(--glass-subtle); display: flex; gap: 7px; }
       .share-hint i { color: var(--primary); margin-top: 2px; flex: none; }
       .share-error { display: flex; gap: 7px; align-items: flex-start; font-size: var(--fs-sm); color: var(--c-danger); line-height: 1.5; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--c-danger-soft); border: 1px solid rgba(239, 68, 68, 0.25); animation: shakeIn 0.45s var(--ease-apple) backwards; }

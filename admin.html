@@ -371,25 +371,19 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 /* =========================================================
 弹层（对齐 index .modal-mask / .modal--dialog / .modal--preview）
 ========================================================= */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.42);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:2000;display:flex;align-items:center;justify-content:center;padding:var(--sp-5);}
 /* 通用确认/输入/信息对话框（askConfirm / askPrompt / showInfo）。
-   它可能从任意面板内部触发 —— 分享管理里取消分享、令牌面板里轮换密钥、
-   设置面板里恢复默认…… 但模板里它排在所有面板之前，与 .overlay 同为
-   z-index:2000 时会按 DOM 顺序被后出现的面板整块压住（用户看到的就是
-   「点了红色禁用按钮没弹窗，要关掉面板才冒出来」）。
+   .overlay / .dialog-panel / .dialog-title / .dialog-message / .dialog-actions /
+   .qr-panel 的**基类**已上收到 design-system.css（13.9b），本页只留变体增量。
+
+   层级为什么要单独提到 2300：对话框可能从任意面板内部触发 —— 分享管理里
+   取消分享、令牌面板里轮换密钥、设置面板里恢复默认…… 但模板里它排在所有
+   面板之前，与 .overlay 同为 z-index:2000 时会按 DOM 顺序被后出现的面板
+   整块压住（用户看到的就是「点了红色禁用按钮没弹窗，要关掉面板才冒出来」）。
    提到 2300：恒高于全部面板(2000)，仍低于 toast/lightbox(9999)。 */
 .overlay.dialog-overlay{z-index:2300}
-.dialog-panel{width:min(560px,100%);max-height:86dvh;overflow-y:auto;border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(32px);-webkit-backdrop-filter:blur(32px);border:1.5px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);padding:22px 24px;will-change:transform,opacity;}
 .dialog-panel.wide{width:min(880px,100%)}
-.dialog-title{font-size:var(--fs-lg);font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:9px}
-.dialog-title i{color:var(--primary)}
 .dialog-title.danger i{color:var(--c-danger-strong)}
-.dialog-message{font-size:var(--fs-sm);color:var(--text-sub);line-height:1.65;margin-bottom:14px}
 .dialog-message strong{color:var(--primary-text);font-weight:700}
-.dialog-hint{font-size:var(--fs-xs);color:var(--text-muted)}
-.dialog-input{width:100%;padding:10px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-main);font-size:.86rem;font-family:inherit;outline:none;transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);margin-bottom:14px;}
-.dialog-input:focus,.token-input:focus,.token-select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
-.dialog-actions{display:flex;gap:var(--sp-2);justify-content:flex-end;flex-wrap:wrap;margin-top:var(--sp-1)}
 .dialog-actions.mt{margin-top:var(--sp-4)}
 .row-inline{display:flex;gap:var(--sp-2);flex-wrap:wrap}
 /* 合集分享对话框：带标签的表单列。
@@ -402,6 +396,36 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .dialog-error{padding:9px 13px;border-radius:var(--r-sm);font-size:.8rem;color:var(--c-danger);background:var(--c-danger-soft);border:1px solid rgba(239,68,68,.25);line-height:1.5;margin-bottom:10px}
 .bundle-result{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:var(--r-md);background:rgba(var(--primary-rgb),.07);border:1px solid rgba(var(--primary-rgb),.22);margin-bottom:10px}
 .bundle-result__head{display:flex;align-items:center;gap:7px;font-size:var(--fs-sm);font-weight:800;color:var(--primary)}
+
+/* =========================================================
+分享：形态切换 / 二维码 / 目录行内按钮
+========================================================= */
+.share-mode-switch{display:flex;gap:6px;margin-bottom:10px}
+.share-mode-chip{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border-ice);background:transparent;color:var(--text-sub);font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:all .18s var(--ease-apple)}
+.share-mode-chip:hover:not(:disabled){background:rgba(var(--primary-rgb),.08);color:var(--primary)}
+.share-mode-chip.on{border-color:var(--primary);background:rgba(var(--primary-rgb),.14);color:var(--primary-dark);font-weight:800}
+html[data-theme="dark"] .share-mode-chip.on{color:var(--primary-light)}
+.share-mode-chip:disabled{opacity:.45;cursor:not-allowed}
+/* 「选填」小字：不标出来会让人以为标题/说明是必填项 */
+.field-label__opt{font-weight:600;color:var(--text-muted)}
+.share-textarea{height:auto;min-height:58px;line-height:1.6;resize:vertical}
+
+/* 二维码：背景强制纯白、模块强制深色。扫描器对反色码兼容性参差，
+   跟着主题换色会让一部分手机扫不出来 —— 这是可用性要求，不是配色偏好。
+   svg 只有 viewBox，尺寸完全由这里决定。 */
+.share-result__qr,.qr-stage{align-self:center;width:132px;height:132px;padding:7px;border-radius:var(--r-md);background:#fff;color:#0f172a;border:1px solid rgba(var(--primary-rgb),.28);cursor:pointer;transition:transform .18s var(--ease-apple),box-shadow .18s var(--ease-apple)}
+.share-result__qr:hover,.qr-stage:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.14)}
+.share-result__qr:active,.qr-stage:active{transform:scale(.97)}
+.share-result__qr svg,.qr-stage svg{display:block;width:100%;height:100%}
+.qr-stage{width:180px;height:180px;margin-top:4px}
+/* 分享管理里表示"自定义标题"的徽章：与路径/短链徽章区分开 */
+.token-badge.title{background:rgba(2,132,199,.14);color:#0369a1;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+html[data-theme="dark"] .token-badge.title{color:#7dd3fc}
+/* 目录树行内的分享按钮：默认隐藏，悬停/聚焦时出现，
+   避免每一行都挂一个图标把目录名挤没。 */
+.folder-tree-act{margin-left:auto;flex:none;width:22px;height:22px;display:none;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font-size:.68rem;cursor:pointer;opacity:.75}
+.folder-tree-row:hover .folder-tree-act,.folder-tree-act:focus-visible{display:inline-flex}
+.folder-tree-act:hover{background:rgba(var(--primary-rgb),.16);color:var(--primary);opacity:1}
 /* =========================================================
 API Token 管理面板
 ========================================================= */
@@ -1382,6 +1406,9 @@ html[data-perf="low"] .ambient-orb{animation:none}
             <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
           </button>
           <button class="mini-icon-btn" @click="createFolder" title="新建目录"><i class="fas fa-plus"></i></button>
+          <!-- 目录分享：与 index 对齐。分享的是目录本身（实时同步），
+               之后往该目录增删文件，已发出的链接会自动反映。 -->
+          <button class="mini-icon-btn" @click="shareCurrentFolder" title="分享当前目录"><i class="fas fa-share-nodes"></i></button>
           <button class="mini-icon-btn" @click="renameFolder" :disabled="!folderPath" title="重命名当前目录"><i class="fas fa-pen"></i></button>
           <button class="mini-icon-btn danger" @click="deleteFolder" :disabled="!folderPath" title="删除当前目录"><i class="fas fa-trash"></i></button>
         </div>
@@ -1396,6 +1423,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
           <span class="folder-tree-arrow empty"></span>
           <i class="fas fa-house folder-tree-icon icon-home"></i>
           <span class="folder-tree-name">根目录</span>
+          <button class="folder-tree-act" @click.stop="openFolderShare('', '根目录')"
+                  title="分享根目录"><i class="fas fa-share-nodes"></i></button>
         </div>
 
         <div v-for="f in folderTreeNodes" :key="f.path"
@@ -1410,6 +1439,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
           <i class="fas folder-tree-icon" :class="folderPath===f.path ? 'fa-folder-open' : 'fa-folder'"></i>
           <span class="folder-tree-name" :title="f.path">{{ f.name }}</span>
           <span class="folder-tree-count" v-if="f.fileCount">{{ f.fileCount }}</span>
+          <button class="folder-tree-act" @click.stop="shareFolderNode(f)"
+                  :title="'分享目录 ' + f.path"><i class="fas fa-share-nodes"></i></button>
         </div>
 
         <div class="folder-tree-empty" v-if="folderLoading && !folderTreeNodes.length">
@@ -2066,6 +2097,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
                  :class="{disabled: !s.active}">
               <div class="token-row-top">
                 <span class="token-name" :title="s.fileName">{{ s.fileName }}</span>
+                <!-- 自定义标题：分享页顶部显示的就是它。没有则是系统名，
+                     这里就不必再占一行徽章位置。 -->
+                <span class="token-badge title" v-if="s.shareTitle" :title="s.shareTitle">
+                  <i class="fas fa-heading"></i> {{ s.shareTitle }}
+                </span>
                 <span class="token-preview">{{ formatShareSize(s.fileSize) }}</span>
                 <span class="token-badge" v-if="s.shareSlug">/s/{{ s.shareSlug }}</span>
                 <span class="token-badge off" v-else>自动短链</span>
@@ -2073,8 +2109,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
                 <span class="token-badge warn" v-if="s.expired">已过期</span>
                 <span class="token-badge warn" v-else-if="s.exhausted">次数用尽</span>
                 <div class="token-row-actions">
+                  <button class="mini-icon-btn" @click="editShareFromPanel(s)" title="修改分享（标题 / 短链 / 有效期…）">
+                    <i class="fas fa-pen"></i>
+                  </button>
                   <button class="mini-icon-btn" @click="copyShareLink(s)" title="复制分享链接">
                     <i class="fas fa-link"></i>
+                  </button>
+                  <button class="mini-icon-btn" @click="showShareQr(shareFullUrl(s), s.shareTitle || s.fileName)" title="二维码">
+                    <i class="fas fa-qrcode"></i>
                   </button>
                   <button class="mini-icon-btn" @click="openSharePage(s)" title="打开分享页">
                     <i class="fas fa-arrow-up-right-from-square"></i>
@@ -2137,14 +2179,25 @@ html[data-perf="low"] .ambient-orb{animation:none}
                     {{ b.folderShare ? (b.folderPath || '根目录') : ((b.files[0] && b.files[0].fileName) || ('合集 ' + b.slug)) }}
                   </span>
                   <span class="token-preview">{{ b.fileCount }} 个文件</span>
+                  <!-- 自定义标题：合集/目录分享的第一眼标识。
+                       没有标题时退化为路径或首文件名，这里就不重复占位。 -->
+                  <span class="token-badge title" v-if="b.title" :title="b.title">
+                    <i class="fas fa-heading"></i> {{ b.title }}
+                  </span>
                   <span class="token-badge" v-if="b.folderShare"><i class="fas fa-arrows-rotate"></i> 实时</span>
                   <span class="token-badge" v-if="b.folderShare && b.includeSubfolders">含子目录</span>
                   <span class="token-badge" v-if="b.passwordProtected"><i class="fas fa-lock"></i> 密码</span>
                   <span class="token-badge warn" v-if="b.expired">已过期</span>
                   <span class="token-badge warn" v-else-if="b.exhausted">次数用尽</span>
                   <div class="token-row-actions">
+                    <button class="mini-icon-btn" @click="editBundleFromPanel(b)" title="修改分享（标题 / 短链 / 有效期…）">
+                      <i class="fas fa-pen"></i>
+                    </button>
                     <button class="mini-icon-btn" @click="copyBundleLink(b)" title="复制分享链接">
                       <i class="fas fa-link"></i>
+                    </button>
+                    <button class="mini-icon-btn" @click="showShareQr(bundleFullUrl(b), b.title || (b.folderShare ? b.folderPath : b.slug))" title="二维码">
+                      <i class="fas fa-qrcode"></i>
                     </button>
                     <button class="mini-icon-btn" @click="openBundlePage(b)" title="打开分享页">
                       <i class="fas fa-arrow-up-right-from-square"></i>
@@ -2230,21 +2283,77 @@ html[data-perf="low"] .ambient-orb{animation:none}
     <div class="dialog-panel">
       <h2 class="dialog-title">
         <i class="fas fa-share-nodes"></i>
-        <span>{{ bundleFiles.length === 1 ? '创建文件分享' : '创建合集分享' }}</span>
+        <span>{{ bundleDialogTitle }}</span>
       </h2>
+
+      <!-- 形态切换：目录分享此前只存在于 index，admin 完全没有入口。
+           两个形态共用同一个对话框与同一套后端接口，切换只是改成员来源。 -->
+      <div class="share-mode-switch" v-if="!bundleEditKind">
+        <button type="button" class="share-mode-chip"
+                :class="{on: bundleMode === 'files'}"
+                :disabled="!bundleFiles.length"
+                @click="bundleMode = 'files'">
+          <i class="fas fa-layer-group"></i> 选中的文件<template v-if="bundleFiles.length">（{{ bundleFiles.length }}）</template>
+        </button>
+        <button type="button" class="share-mode-chip"
+                :class="{on: bundleMode === 'folder'}"
+                @click="bundleMode = 'folder'">
+          <i class="fas fa-folder-tree"></i> 整个目录
+        </button>
+      </div>
+
       <div class="dialog-message">
-        已选 <strong>{{ bundleFileNames.length }}</strong> 个文件，将{{ bundleFiles.length === 1 ? '为其生成' : '合并为' }}一个分享链接。
+        <template v-if="bundleMode === 'folder'">
+          将把<strong>{{ (bundleFolder && (bundleFolder.path || '根目录')) || '当前目录' }}</strong>
+          作为一个实时分享链接：之后往该目录增删文件，分享页会自动同步。
+        </template>
+        <template v-else>
+          已选 <strong>{{ bundleFileNames.length }}</strong> 个文件，将{{ bundleFiles.length === 1 ? '为其生成' : '合并为' }}一个分享链接。
+        </template>
       </div>
 
       <div class="dialog-message" style="font-size:.78rem;color:var(--text-muted);word-break:break-all">
-        {{ bundleNamesPreview }}
+        {{ bundleTargetLabel }}
+      </div>
+
+      <label class="share-keep" v-if="bundleMode === 'folder'" style="margin:0 0 8px;">
+        <input type="checkbox" v-model="bundleFolder.includeSubfolders" />
+        同时包含子目录中的文件
+      </label>
+
+      <!-- 分享标题 / 说明：以前分享页只能显示系统拼出来的名字，
+           分享者想解释一句"这是未压缩原图"都无处可写。 -->
+      <div class="field-col mb-sm">
+        <label class="field-label">分享标题 <span class="field-label__opt">选填</span></label>
+        <input class="dialog-input mb0" type="text" maxlength="200"
+               v-model="bundleForm.title" :placeholder="bundleTitlePlaceholder">
+      </div>
+
+      <div class="field-col mb-sm">
+        <label class="field-label">分享说明 <span class="field-label__opt">选填</span></label>
+        <textarea class="dialog-input mb0 share-textarea" rows="2" maxlength="2000"
+                  v-model="bundleForm.description"
+                  placeholder="选填。访客会在文件上方看到这句话（例如：原图未压缩，单张约 8MB）"></textarea>
+      </div>
+
+      <!-- 自定义短链：此前只有单文件能改短链，多选与目录一律"系统自动生成"。
+           其实服务端一直是支持的，缺的只是这个输入框。 -->
+      <div class="field-col mb-sm">
+        <label class="field-label">自定义短链 <span class="field-label__opt">选填</span></label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:.76rem;color:var(--text-muted);flex:none;">/s/</span>
+          <input class="dialog-input mb0" type="text" maxlength="64"
+                 v-model="bundleForm.slug"
+                 placeholder="留空则由系统自动生成"
+                 @input="bundleForm.slug = bundleForm.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '')">
+        </div>
       </div>
 
       <div class="row-inline mb-sm">
         <div class="field-col grow">
-          <label class="field-label">有效期</label>
+          <label class="field-label">有效期<template v-if="bundleEditKind">（留空＝不变）</template></label>
           <select class="dialog-input mb0" v-model.number="bundleForm.expiresIn">
-            <option :value="0">永久有效</option>
+            <option :value="0">{{ bundleEditKind ? '保持不变' : '永久有效' }}</option>
             <option :value="3600">1 小时</option>
             <option :value="86400">1 天</option>
             <option :value="604800">7 天</option>
@@ -2255,33 +2364,39 @@ html[data-perf="low"] .ambient-orb{animation:none}
         <div class="field-col grow">
           <label class="field-label">下载次数上限</label>
           <input class="dialog-input mb0" type="number" min="0"
-                 v-model="bundleForm.maxDownloads" placeholder="留空表示不限">
+                 v-model="bundleForm.maxDownloads"
+                 :placeholder="bundleEditKind ? '保持不变' : '留空表示不限'">
         </div>
       </div>
 
       <div class="field-col mb-sm">
         <label class="field-label">访问密码</label>
         <input class="dialog-input mb0" type="password" autocomplete="new-password"
-               v-model="bundleForm.password" placeholder="留空表示不加密">
+               v-model="bundleForm.password"
+               :placeholder="bundleEditKind ? '留空表示不修改' : '留空表示不加密'">
       </div>
 
       <div class="dialog-message" style="font-size:.76rem;color:var(--text-muted)">
         <i class="fas fa-circle-info"></i>
-        短链由系统自动生成。合集内每个文件被下载时各计一次，与文件自身的分享配额相互独立。
+        短链只能包含小写字母、数字、下划线与短横线。合集内每个文件被下载时各计一次，与文件自身的分享配额相互独立。
       </div>
 
       <div class="dialog-error" v-if="bundleError">{{ bundleError }}</div>
 
-      <!-- 创建结果 -->
+      <!-- 创建 / 修改结果 -->
       <div class="bundle-result" v-if="bundleResult">
-        <div class="bundle-result__head"><i class="fas fa-circle-check"></i> 合集已创建</div>
+        <div class="bundle-result__head"><i class="fas fa-circle-check"></i> {{ bundleEditKind ? '分享已更新' : '分享已创建' }}</div>
+        <div class="share-result__qr" v-if="bundleQr" v-html="bundleQr" @click="copyBundleUrl" title="点击复制链接"></div>
         <div class="share-result__url" style="display:flex;align-items:center;gap:7px">
           <code style="flex:1;min-width:0;word-break:break-all;font-size:.74rem">{{ bundleResult.url }}</code>
           <button class="mini-icon-btn" @click="copyBundleUrl" title="复制链接">
             <i class="fas fa-link"></i>
           </button>
         </div>
-        <div class="dialog-message" style="font-size:.78rem">
+        <div class="dialog-message" style="font-size:.78rem" v-if="bundleResult.title">
+          标题：<strong>{{ bundleResult.title }}</strong>
+        </div>
+        <div class="dialog-message" style="font-size:.78rem" v-if="bundleResult.fileCount">
           已收录 <strong>{{ bundleResult.fileCount }}</strong> 个文件。
         </div>
         <div class="dialog-message" v-if="bundleResult.missingNames.length"
@@ -2292,11 +2407,39 @@ html[data-perf="low"] .ambient-orb{animation:none}
 
       <div class="dialog-actions">
         <button class="btn" @click="closeBundleShare">{{ bundleResult ? '完成' : '取消' }}</button>
-        <!-- 结果出来后收起「创建合集」：此时再点只会又建一个合集链接，是误操作温床 -->
+        <!-- 结果出来后收起主按钮：此时再点只会又建一个链接，是误操作温床。
+             想继续调参数走「继续修改」，它会复用同一个分享做 update。 -->
+        <button class="btn" v-if="bundleResult" @click="editBundleAgain">
+          <i class="fas fa-pen"></i> 继续修改
+        </button>
         <button class="btn btn--primary" v-if="!bundleResult" :disabled="bundleBusy" @click="submitBundleShare">
           <i class="fas" :class="bundleBusy ? 'fa-circle-notch fa-spin' : 'fa-share-nodes'"></i>
-          {{ bundleBusy ? '创建中…' : '创建合集' }}
+          {{ bundleBusy ? '提交中…' : (bundleEditKind ? '保存修改' : (bundleMode === 'folder' ? '创建目录分享' : '创建分享')) }}
         </button>
+      </div>
+    </div>
+  </div>
+  </transition>
+
+  <!-- ===== 分享二维码 =====
+       手机上"让旁边的人扫一下"比复制一串链接再发过去快得多。
+       纯前端生成（vendor/qrcode.js），链接不过任何第三方服务。 -->
+  <transition name="dialog">
+  <div class="overlay" v-if="qrVisible" @click.self="qrVisible = false">
+    <div class="dialog-panel qr-panel">
+      <h2 class="dialog-title">
+        <i class="fas fa-qrcode"></i>
+        <span>分享二维码</span>
+      </h2>
+      <div class="dialog-message" style="word-break:break-all">{{ qrTitle }}</div>
+      <div class="qr-stage" v-if="qrSvg" v-html="qrSvg" @click="copyQrUrl" title="点击复制链接"></div>
+      <div class="share-result__url" style="display:flex;align-items:center;gap:7px;margin-top:10px">
+        <code style="flex:1;min-width:0;word-break:break-all;font-size:.74rem">{{ qrUrl }}</code>
+        <button class="mini-icon-btn" @click="copyQrUrl" title="复制链接"><i class="fas fa-link"></i></button>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn" @click="qrVisible = false">关闭</button>
+        <button class="btn btn--primary" @click="copyQrUrl"><i class="fas fa-copy"></i> 复制链接</button>
       </div>
     </div>
   </div>
@@ -2343,6 +2486,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
 
 <!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
 <script src="/vendor/vue.global.prod.min.js"></script>
+<!-- 二维码生成器（零依赖，分享结果面板与分享管理列表用）。
+     顺序与 index.html 一致：排在 Vue 之后、业务脚本之前。它只挂 window.QRCode，
+     由 computed 同步调用，只要在 mount 之前就绪即可。 -->
+<script src="/vendor/qrcode.js"></script>
 <script>
 /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
    8 秒后仍未挂载就渲染一个可操作的错误页。 */
@@ -2415,7 +2562,27 @@ const __kvApp = Vue.createApp({
      * 避免把「刚建的合集在管理里看不到」当成没生效。
      */
     bundleWaitAndClose: false,
-    bundleForm: { expiresIn: 0, maxDownloads: '', password: '' },
+    /* 分享形态：'files' = 选中的文件（1 个或多个）；'folder' = 整个目录（实时同步）。
+       以前 admin 只有 files 一种，目录分享是 index 独有的能力 ——
+       两边能力不齐，同一个后端却只在一侧暴露，属于纯粹的前端缺口。 */
+    bundleMode: 'files',
+    /* 目录模式下的目标目录：{ path, name, fileCount, includeSubfolders } */
+    bundleFolder: null,
+    /* 编辑既有分享时的定位信息。
+         bundleEditKind = ''       → 新建
+         bundleEditKind = 'bundle' → 改合集 / 目录（走 share-bundle update）
+         bundleEditKind = 'file'   → 改单文件的分享属性（走 share/:id update）
+       两者共用同一个对话框，用户不需要分辨"我这是在改哪一种"。 */
+    bundleEditKind: '',
+    bundleEditSlug: '',
+    /* 合集/目录创建成功后回写的 slug：没有它，"再改一次"会变成新建。 */
+    bundleSlug: '',
+    bundleForm: { expiresIn: 0, maxDownloads: '', password: '', slug: '', title: '', description: '' },
+
+    /* 分享二维码弹层 */
+    qrVisible: false,
+    qrUrl: '',
+    qrTitle: '',
 
     status: { telegram:{}, kv:{}, r2:{}, s3:{}, discord:{}, huggingface:{}, github:{} },
 
@@ -2747,6 +2914,52 @@ const __kvApp = Vue.createApp({
       if (!names.length) return '';
       const head = names.slice(0, 4).join('、');
       return names.length > 4 ? `${head} 等 ${names.length} 个文件` : head;
+    },
+    /* 对话框标题：三种形态各有各的说法，"创建分享"这种泛泛之词反而让人
+       不确定自己到底在建什么。 */
+    bundleDialogTitle() {
+      if (this.bundleEditKind) return '修改分享';
+      if (this.bundleMode === 'folder') return '分享整个目录';
+      return this.bundleFiles.length === 1 ? '创建文件分享' : '创建合集分享';
+    },
+    bundleTargetLabel() {
+      if (this.bundleMode === 'folder' && this.bundleFolder) {
+        const p = this.bundleFolder.path || '根目录';
+        const c = this.bundleFolder.fileCount > 0 ? `（${this.bundleFolder.fileCount} 个文件）` : '';
+        return `目录：${p}${c}`;
+      }
+      return this.bundleNamesPreview;
+    },
+    /* 标题占位文案：把"不填会显示什么"直接写进框里，省掉一行小字说明。 */
+    bundleTitlePlaceholder() {
+      if (this.bundleMode === 'folder' && this.bundleFolder) {
+        return `留空则显示「${this.bundleFolder.name}」`;
+      }
+      if (this.bundleFiles.length === 1) {
+        return `留空则显示「${this.bundleFileNames[0] || '文件名'}」`;
+      }
+      return `留空则显示「${this.bundleFiles.length} 个文件的合集」`;
+    },
+    /* 二维码：内容与 index 一致 —— 就是分享链接本身，纯前端生成。
+       分享链接属敏感信息，不过任何第三方服务。 */
+    bundleQr() {
+      const url = this.bundleResult && this.bundleResult.url;
+      if (!url || typeof window === 'undefined' || !window.QRCode) return '';
+      try {
+        return window.QRCode.toSvg(url, { ecl: 'M', margin: 1, dark: 'currentColor' });
+      } catch (err) {
+        return '';
+      }
+    },
+    /* 分享管理列表里点二维码图标时展示的图。与 bundleQr 同源，
+       只是取数位置不同（一个来自创建结果，一个来自列表行）。 */
+    qrSvg() {
+      if (!this.qrUrl || typeof window === 'undefined' || !window.QRCode) return '';
+      try {
+        return window.QRCode.toSvg(this.qrUrl, { ecl: 'M', margin: 2, dark: 'currentColor' });
+      } catch (err) {
+        return '';
+      }
     },
 
     /* ---------- 图标 / 标签 ---------- */
@@ -4433,7 +4646,10 @@ const __kvApp = Vue.createApp({
       window.open(this.shareFullUrl(s), '_blank', 'noopener');
     },
 
-    /* ================= 合集分享 ================= */
+    /* ================= 分享：文件 / 合集 / 目录 三合一 =================
+       三种形态共用同一个对话框与同一套后端能力：自定义短链、标题、说明、
+       有效期、次数、密码。以前 admin 只有"多文件合集"一种，短链还写死
+       系统生成 —— 那是前端自缚，不是后端限制。 */
     openBundleShare() {
       const files = (arguments.length && Array.isArray(arguments[0]) ? arguments[0] : this.selectedFiles) || [];
       if (!files.length) { this.showToast('请先选择文件', 'error'); return; }
@@ -4442,45 +4658,192 @@ const __kvApp = Vue.createApp({
          之前前端强制 >=2 反而把「就想分享一个文件」的常见诉求挡在门外。
          单文件合集与文件自身的分享属性是两套体系，互不影响。 */
       this.bundleFiles = files.slice();
+      this.bundleMode = 'files';
+      this.bundleFolder = null;
+      this.bundleEditKind = '';
+      this.bundleEditSlug = '';
+      this.bundleSlug = '';
+      this.resetBundleForm();
+      this.bundleVisible = true;
+      this.openMenu = null;
+    },
+
+    /* 目录分享入口。此前 index 有、admin 没有 —— 同一个后端接口，
+       只在一侧暴露入口，用户自然会当成"admin 不支持"。 */
+    shareCurrentFolder() {
+      this.openFolderShare(this.folderPath || '', this.currentFolderName());
+    },
+    shareFolderNode(node) {
+      if (!node) return;
+      this.openFolderShare(node.path || '', node.name || '');
+    },
+    openFolderShare(path, name) {
+      const p = this.normalizeFolderPath(path || '');
+      this.bundleFiles = [];
+      this.bundleMode = 'folder';
+      this.bundleFolder = {
+        path: p,
+        name: name || (p ? p.split('/').pop() : '根目录'),
+        fileCount: 0,
+        includeSubfolders: false,
+      };
+      this.bundleEditKind = '';
+      this.bundleEditSlug = '';
+      this.bundleSlug = '';
+      this.resetBundleForm();
+      /* 目录名天然就是个好标题，只做预填 —— 用户随时能改。 */
+      this.bundleForm.title = this.bundleFolder.name;
+      this.bundleVisible = true;
+      this.openMenu = null;
+    },
+    currentFolderName() {
+      const p = this.normalizeFolderPath(this.folderPath || '');
+      return p ? p.split('/').pop() : '根目录';
+    },
+
+    /* 编辑既有分享：合集 / 目录走 share-bundle update，单文件走 share/:id update。
+       两者对使用者来说是同一件事 —— "改一下我之前发出去的那个链接"。 */
+    editBundleFromPanel(b) {
+      if (!b) return;
+      this.bundleFiles = [];
+      this.bundleMode = b.folderShare ? 'folder' : 'files';
+      this.bundleFolder = b.folderShare
+        ? { path: b.folderPath || '', name: (b.folderPath || '根目录').split('/').pop() || '根目录', fileCount: b.fileCount || 0, includeSubfolders: Boolean(b.includeSubfolders) }
+        : null;
+      this.bundleEditKind = 'bundle';
+      this.bundleEditSlug = b.slug || '';
+      this.bundleSlug = b.slug || '';
+      this.resetBundleForm();
+      this.bundleForm.slug = b.slug || '';
+      this.bundleForm.title = b.title || '';
+      this.bundleForm.description = b.description || '';
+      this.bundleForm.maxDownloads = b.maxDownloads ? String(b.maxDownloads) : '';
+      this.bundleVisible = true;
+    },
+    editShareFromPanel(s) {
+      if (!s) return;
+      this.bundleFiles = [s];
+      this.bundleMode = 'files';
+      this.bundleFolder = null;
+      this.bundleEditKind = 'file';
+      /* 单文件的定位键是 kvKey（不是 slug）—— 命名沿用同一个字段，
+         语义是"定位键"，取哪种由 bundleEditKind 决定。 */
+      this.bundleEditSlug = s.kvKey || '';
+      this.bundleSlug = '';
+      this.resetBundleForm();
+      this.bundleForm.slug = s.shareSlug || '';
+      this.bundleForm.title = s.shareTitle || '';
+      this.bundleForm.description = s.shareDescription || '';
+      this.bundleForm.maxDownloads = s.shareMaxDownloads ? String(s.shareMaxDownloads) : '';
+      this.bundleVisible = true;
+    },
+    resetBundleForm() {
       this.bundleBusy = false;
       this.bundleError = '';
       this.bundleResult = null;
       this.bundleWaitAndClose = false;
-      this.bundleForm = { expiresIn: 0, maxDownloads: '', password: '' };
-      this.bundleVisible = true;
-      this.openMenu = null;
+      this.bundleForm = { expiresIn: 0, maxDownloads: '', password: '', slug: '', title: '', description: '' };
     },
+
     closeBundleShare() {
       this.bundleVisible = false;
       this.bundleFiles = [];
+      this.bundleFolder = null;
+      this.bundleEditKind = '';
+      this.bundleEditSlug = '';
+      this.bundleSlug = '';
       this.bundleError = '';
       this.bundleResult = null;
-      /* 创建成功后关闭对话框即刷新列表：新建的合集要让用户在
+      /* 创建成功后关闭对话框即刷新列表：新建的分享要让用户在
          「分享管理」里能看到，否则会以为没生效。 */
-      if (this.bundleWaitAndClose && this.sharePanelVisible) this.loadShares();
+      if (this.bundleWaitAndClose && this.sharePanelVisible) {
+        this.loadShares();
+        this.loadShareBundles();
+      }
       this.bundleWaitAndClose = false;
+    },
+    /* 「继续修改」：收起结果面板回到表单。前提是已回写 slug 且切到编辑态，
+       否则再点一次提交就是又建一个新链接 —— 用户会以为"改了但没生效"。 */
+    editBundleAgain() {
+      this.bundleResult = null;
+      this.bundleError = '';
+      this.bundleForm.slug = '';
     },
     copyBundleUrl() {
       if (!this.bundleResult || !this.bundleResult.url) return;
       this.copyText(this.bundleResult.url);
-      this.showToast('合集链接已复制', 'success');
+      this.showToast('分享链接已复制', 'success');
     },
+    showShareQr(url, title) {
+      if (!url) { this.showToast('该分享还没有可用的链接', 'error'); return; }
+      this.qrUrl = url;
+      this.qrTitle = String(title || '');
+      this.qrVisible = true;
+    },
+    copyQrUrl() {
+      if (!this.qrUrl) return;
+      this.copyText(this.qrUrl);
+      this.showToast('分享链接已复制', 'success');
+    },
+
     async submitBundleShare() {
-      const files = this.bundleFiles;
-      if (!files.length) { this.bundleError = '没有可分享的文件'; return; }
-
-      /* 文件 ID 的取法与「批量复制链接」保持一致：优先 id，回落到 name。
-         服务端会用 getRecordWithKey 兼容裸 ID 与带前缀两种形式。 */
-      const fileIds = files.map(f => String(f.id || f.name || '').trim()).filter(Boolean);
-      if (!fileIds.length) { this.bundleError = '无法识别所选文件，请刷新列表后重试。'; return; }
-
       const form = this.bundleForm || {};
+
+      const title = String(form.title || '').trim();
+      const description = String(form.description || '').trim();
+      if (title.length > 200) { this.bundleError = '分享标题最多 200 个字符。'; return; }
+      if (description.length > 2000) { this.bundleError = '分享说明最多 2000 个字符。'; return; }
+
+      const slugRaw = String(form.slug || '').trim();
+      const slug = slugRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 64);
+      if (slugRaw && !slug) { this.bundleError = '短链只能包含小写字母、数字、下划线或短横线。'; return; }
+
       const maxRaw = String(form.maxDownloads == null ? '' : form.maxDownloads).trim();
       const maxDownloads = maxRaw === '' ? 0 : Number(maxRaw);
       if (maxRaw !== '' && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) {
-        this.bundleError = '下载次数上限必须是非负整数（0 表示不限）。';
+        this.bundleError = '下载次数上限必须是非负整数（0 表示不限）。'; return;
+      }
+
+      if (this.bundleEditKind === 'file') {
+        await this.submitFileShareUpdate({ expiresIn: Number(form.expiresIn) || 0, maxDownloads, maxRaw, password: String(form.password || ''), slug, title, description });
         return;
       }
+
+      const isFolder = this.bundleMode === 'folder';
+      const currentSlug = String(this.bundleSlug || this.bundleEditSlug || '').trim();
+      const isUpdate = Boolean(this.bundleEditKind === 'bundle' && currentSlug);
+
+      const body = { action: isUpdate ? 'update' : 'create' };
+      if (isUpdate) {
+        /* ⚠️ slug 用于「定位」，改名要用 newSlug。混用会让服务端去查一个
+           还不存在的合集，返回误导性的 404「短链不存在」。 */
+        body.slug = currentSlug;
+        body.newSlug = slug || currentSlug;
+        body.expiresIn = Number(form.expiresIn) > 0 ? Number(form.expiresIn) : -1;
+        body.maxDownloads = maxRaw === '' ? -1 : maxDownloads;
+        body.password = String(form.password || '') === '' ? -1 : String(form.password || '');
+      } else {
+        if (slug) body.slug = slug;
+        body.expiresIn = Number(form.expiresIn) || 0;
+        body.maxDownloads = maxDownloads;
+        body.password = String(form.password || '');
+        if (isFolder) {
+          if (!this.bundleFolder) { this.bundleError = '未指定要分享的目录。'; return; }
+          body.folderPath = this.bundleFolder.path;
+          body.includeSubfolders = Boolean(this.bundleFolder.includeSubfolders);
+          /* 目录分享默认实时同步：分享的是目录本身，不是创建时刻的快照。 */
+          body.live = true;
+        } else {
+          if (!this.bundleFiles.length) { this.bundleError = '没有可分享的文件'; return; }
+          /* 文件 ID 的取法与「批量复制链接」保持一致：优先 id，回落到 name。
+             服务端会用 getRecordWithKey 兼容裸 ID 与带前缀两种形式。 */
+          const fileIds = this.bundleFiles.map(f => String(f.id || f.name || '').trim()).filter(Boolean);
+          if (!fileIds.length) { this.bundleError = '无法识别所选文件，请刷新列表后重试。'; return; }
+          body.fileIds = fileIds;
+        }
+      }
+      body.title = title;
+      body.description = description;
 
       this.bundleBusy = true;
       this.bundleError = '';
@@ -4490,13 +4853,7 @@ const __kvApp = Vue.createApp({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({
-            action: 'create',
-            fileIds,
-            expiresIn: Number(form.expiresIn) || 0,
-            maxDownloads,
-            password: String(form.password || ''),
-          }),
+          body: JSON.stringify(body),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
@@ -4507,6 +4864,7 @@ const __kvApp = Vue.createApp({
 
         const path = data.sharePath || '';
         /* 把失效文件 ID 还原成文件名：用户看不懂 ID 代表哪一个文件。 */
+        const files = this.bundleFiles || [];
         const missingIds = Array.isArray(data.missing) ? data.missing : [];
         const missingNames = missingIds.map(id => {
           const hit = files.find(f => String(f.id || f.name || '').trim() === String(id));
@@ -4517,20 +4875,78 @@ const __kvApp = Vue.createApp({
           url: path ? this.baseURL + path : '',
           slug: data.slug || '',
           fileCount: Number(data.fileCount) || 0,
+          title: String(data.title || ''),
+          description: String(data.description || ''),
           missingNames,
         };
+        /* 回写 slug + 切到编辑态：下一次提交就是 update，而不是又建一个。 */
+        this.bundleSlug = data.slug || currentSlug;
+        this.bundleEditKind = 'bundle';
+        this.bundleForm.slug = '';
         /* 只有真正建出来才置位：否则用户点「取消」关掉一个失败的对话框时，
            会莫名其妙多刷新一次分享管理。 */
         this.bundleWaitAndClose = true;
         this.bundleError = '';
         this.showToast(
           missingNames.length
-            ? '合集已创建，' + missingNames.length + ' 个文件未加入'
-            : '合集已创建（' + this.bundleResult.fileCount + ' 个文件）',
+            ? '分享已创建，' + missingNames.length + ' 个文件未加入'
+            : (isFolder ? '目录分享已创建（' + this.bundleResult.fileCount + ' 个文件）' : '分享已创建（' + this.bundleResult.fileCount + ' 个文件）'),
           'success'
         );
+        if (this.sharePanelVisible) this.loadShareBundles();
       } catch (err) {
-        console.error('创建合集失败:', err);
+        console.error('创建分享失败:', err);
+        this.bundleError = '网络错误，请稍后重试。';
+      } finally {
+        this.bundleBusy = false;
+      }
+    },
+
+    /* 单文件分享的字段级修改。与合集走不同端点，但对用户是同一件事。
+       未填写的项一律 -1（保持不变）—— 想改标题就不该顺手把有效期抹掉。 */
+    async submitFileShareUpdate({ expiresIn, maxDownloads, maxRaw, password, slug, title, description }) {
+      const key = String(this.bundleEditSlug || '').trim();
+      if (!key) { this.bundleError = '无法定位该分享，请刷新后重试。'; return; }
+
+      const body = { action: 'update' };
+      body.expiresIn = expiresIn > 0 ? expiresIn : -1;
+      body.maxDownloads = maxRaw === '' ? -1 : maxDownloads;
+      body.password = password === '' ? -1 : password;
+      /* 短链留空＝保持不变。要换一个就直接填新的。 */
+      body.slug = slug || -1;
+      body.title = title;
+      body.description = description;
+
+      this.bundleBusy = true;
+      this.bundleError = '';
+      this.bundleResult = null;
+      try {
+        const res = await fetch('./api/manage/share/' + encodeURIComponent(key), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          const messages = Array.isArray(data.messages) ? data.messages : [];
+          this.bundleError = messages[0] || data.message || data.error || ('请求失败（HTTP ' + res.status + '）');
+          return;
+        }
+        const path = data.sharePath || (data.shareSlug ? '/s/' + encodeURIComponent(data.shareSlug) : '');
+        this.bundleResult = {
+          url: path ? this.baseURL + path : '',
+          slug: data.shareSlug || '',
+          fileCount: 0,
+          title: String(data.shareTitle || ''),
+          description: String(data.shareDescription || ''),
+          missingNames: [],
+        };
+        this.bundleWaitAndClose = true;
+        this.showToast('分享已更新', 'success');
+        if (this.sharePanelVisible) this.loadShares();
+      } catch (err) {
+        console.error('更新分享失败:', err);
         this.bundleError = '网络错误，请稍后重试。';
       } finally {
         this.bundleBusy = false;

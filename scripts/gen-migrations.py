@@ -85,6 +85,45 @@ NOTES = {
 -- 成员拆成独立表而非 JSON 数组：成员顺序需稳定保留（分享页按加入顺序
 -- 展示），用 position 列表达；且需支持反查"某文件被哪些合集引用"。
 """,
+    "0006_files_share_title": """--
+-- 背景：分享此前只有"系统给的名字"——单文件分享显示真实文件名，既不能
+--       给访客一个更好懂的标题，也无处附一句说明。
+--
+-- 本列是单文件分享的**展示标题**（KV metadata 里的 shareTitle）。
+-- 允许为 NULL：NULL 表示"回退到真实文件名"，存量数据因此零改动即可工作。
+--
+-- 为什么允许为空而不回填：分享标题是**可选增强**。强制必填会让每次创建
+--       分享都要先想个名字；把回退逻辑放在读取侧（接口与页面各一处）
+--       比在写入侧给历史数据造标题便宜得多。
+--
+-- ⚠️ ALTER TABLE ADD COLUMN 不幂等，靠 schema.js 的 guard 保护。
+--    刻意**每条列一个迁移**：若四条 ALTER 挤在同一条迁移里，一旦出现
+--    "files 已加列、bundles 未加列"的半应用状态，重跑时第一条 ALTER 就会
+--    抛 duplicate column name，整段迁移失败且版本不被标记 —— 迁移将卡死。
+""",
+    "0007_files_share_description": """--
+-- 单文件分享的**展示描述**（KV metadata 里的 shareDescription）。
+-- 与 0006 的 share_title 同批次引入，理由与注意事项完全相同。
+--
+-- 标题回答"这是什么"，描述回答"有什么要注意的"（例如"原图未压缩，
+-- 单张约 8 MB"）。两者都允许为空，空即不渲染对应区块。
+""",
+    "0008_bundles_title": """--
+-- 合集 / 目录分享的**展示标题**（对应单文件侧的 files.share_title）。
+--
+-- 为什么合集更需要它：合集的默认标题只能是「N 个文件的合集」这种没有
+--       辨识度的文案，而合集恰恰承载"一次打包若干文件给人"的场景 ——
+--       一个能自己命名的标题（"年会照片"、"Q3 报销凭证"）价值最大。
+--
+-- 历史兼容：bundles 原本就有 label 列但从未被使用。这里新增 title 而不
+--       复用 label，是为了让"标题"这个语义有唯一归属；读取侧以
+--       "优先 title、为空回退 label"的顺序兼容早期可能写进 label 的数据。
+""",
+    "0009_bundles_description": """--
+-- 合集 / 目录分享的**展示描述**（对应单文件侧的 files.share_description）。
+-- 与 0008 的 title 同批次引入，理由与注意事项完全相同。
+""",
+
 }
 
 HEADER = """-- ============================================================================
@@ -108,6 +147,10 @@ TITLES = {
     "0001_files": "K-Vault 文件元数据表（D1）",
     "0002_folder_markers": "文件夹标记纳入 files 表",
     "0003_share_bundles": "合集分享（bundle）纳入 D1",
+    "0006_files_share_title": "分享标题（files.share_title）",
+    "0007_files_share_description": "分享描述（files.share_description）",
+    "0008_bundles_title": "合集分享标题（bundles.title）",
+    "0009_bundles_description": "合集分享描述（bundles.description）",
 }
 
 

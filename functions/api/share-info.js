@@ -222,6 +222,10 @@ export async function onRequest(context) {
       fileSize: shareRecord.fileSize,
       fileType: shareRecord.fileType,
       fileUrl,
+      // 展示文案：标题为空时由前端回退到真实文件名，描述为空则不渲染描述块。
+      // 刻意与 fileName 分开返回 —— 分享页要能"显示标题但下载时用真名"。
+      title: String(metadata.shareTitle || ''),
+      description: String(metadata.shareDescription || ''),
       // 若该文件设了密码，访问者后续请求文件流必须带上，否则 file 路由会 401
       filePasswordRequired: Boolean(metadata.sharePasswordHash),
       expiresAt: expiresAt || null,
@@ -237,6 +241,18 @@ export async function onRequest(context) {
     console.error('share-info error:', error);
     return jsonResponse({ error: 'SHARE_INFO_FAILED', message: error?.message || 'Unknown error' }, 500);
   }
+}
+
+/**
+ * 从目录路径里取出最后一段作为展示名（`'a/b/c'` → `'c'`）。
+ *
+ * 根目录（空串）返回 `'根目录'`：分享页需要一个可读的默认标题，
+ * 而空串会让页面出现一个没有名字的标题位。
+ */
+function folderDisplayName(folderPath = '') {
+  const parts = String(folderPath || '').split('/').filter(Boolean);
+  if (!parts.length) return '根目录';
+  return parts[parts.length - 1];
 }
 
 /* ============================================================
@@ -370,6 +386,11 @@ async function respondBundle(env, slug, url, request) {
       bundle: true,
       slug: bundle.slug,
       fileCount: files.length,
+      // 展示文案：与单文件分支同一套字段命名，前端无需按形态分支处理
+      title: String(bundle.title || ''),
+      description: String(bundle.description || ''),
+      // 目录分享时把目录名作为默认标题的兜底（前端在 title 为空时用它）
+      folderName: isFolder ? folderDisplayName(bundle.folderPath) : '',
       // 实时目录分享时，期望成员数即当前实时数；文件快照型沿用 fileIds 长度。
       expectedCount: isFolder ? files.length : bundle.fileIds.length,
       // 透传类型，便于前端区分「文件夹实时分享」与「文件合集」。

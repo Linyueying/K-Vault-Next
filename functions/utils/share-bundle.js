@@ -83,6 +83,30 @@ const MAX_SLUG_LENGTH = 64;
 export const BUNDLE_TYPE_FILES = 'files';
 export const BUNDLE_TYPE_FOLDER = 'folder';
 
+/**
+ * 合集标题 / 描述的长度上限。
+ *
+ * 与 `share-options.js` 的 {@link SHARE_TEXT_LIMITS} 同值（那里是单文件分享），
+ * 这样同一个表单在两条路径上得到一致的校验结果。刻意不 import 那个常量：
+ * 两者分属不同模块，硬耦合会让"改一处"变成"改两处才一致"的隐性约定。
+ */
+const TEXT_LIMITS = { title: 200, description: 2000 };
+
+/**
+ * 归一化一段合集文案（标题 / 描述）。
+ *
+ * 与单文件侧 `sanitizeShareText` 同形。只截断 + 去首尾空白，不转义 ——
+ * 文案由前端以文本节点渲染，此处转义会变成用户可见的字面量。
+ *
+ * @param rawValue - 用户输入。
+ * @param maxLength - 允许的最大字符数。
+ */
+export function sanitizeBundleText(rawValue = '', maxLength = 200) {
+  const text = String(rawValue ?? '').replace(/^\s+|\s+$/g, '');
+  if (!text) return '';
+  return Array.from(text).slice(0, maxLength).join('');
+}
+
 /* ============================================================
  * slug
  * ============================================================ */
@@ -266,6 +290,9 @@ export async function readBundle(env, slug) {
       passwordHash: String(metadata.passwordHash || ''),
       createdAt: Number(metadata.createdAt) || 0,
       label: String(metadata.label || ''),
+      // 展示文案：title 为空时前端回退到「N 个文件的合集」默认标题
+      title: String(metadata.title || metadata.label || ''),
+      description: String(metadata.description || ''),
     };
   } catch (error) {
     console.warn('Failed to read bundle:', error?.message || error);
@@ -308,6 +335,8 @@ export async function writeBundle(env, bundle) {
       passwordHash: String(bundle.passwordHash || ''),
       createdAt: Number(bundle.createdAt) || Date.now(),
       label: String(bundle.label || ''),
+      title: sanitizeBundleText(bundle.title, TEXT_LIMITS.title),
+      description: sanitizeBundleText(bundle.description, TEXT_LIMITS.description),
     };
 
     await env.img_url.put(`${BUNDLE_KEY_PREFIX}${slug}`, '', { metadata });
@@ -340,6 +369,8 @@ export async function writeBundle(env, bundle) {
     passwordHash: String(bundle.passwordHash || ''),
     createdAt: Number(bundle.createdAt) || Date.now(),
     label: String(bundle.label || ''),
+    title: sanitizeBundleText(bundle.title, TEXT_LIMITS.title),
+    description: sanitizeBundleText(bundle.description, TEXT_LIMITS.description),
   };
 
   await env.img_url.put(`${BUNDLE_KEY_PREFIX}${slug}`, '', { metadata });
@@ -562,6 +593,16 @@ export function parseBundleOptions(body = {}) {
     raw === null || raw === '' || raw === 0 || raw === '0' || raw === -1 || raw === '-1';
 
   /**
+   * `-1` 表示「保持不变」—— 优先级高于 isClear。
+   *
+   * 前端弹窗在 manage 模式下会把整个表单原样回传：用户只想改标题时，有效期
+   * 输入框是空的。若按 isClear 处理，一次改标题就会顺手把有效期抹成「永久」。
+   * 与 share/[id].js 的 KEEP 哨兵对齐后，两条路径的「未提及 / 清除 / 设置」
+   * 三态语义完全一致，前端不必为合集写一套分支。
+   */
+  const isKeep = (raw) => raw === -1 || raw === '-1';
+
+  /**
    * 显式解析一个非负整数字段。
    * @returns 合法值；非法时返回 null，并把原因压入 errors。
    */
@@ -583,7 +624,7 @@ export function parseBundleOptions(body = {}) {
     return parsed;
   };
 
-  if (has(body, 'expiresIn')) {
+  if (has(body, 'expiresIn') && !isKeep(body.expiresIn)) {
     if (isClear(body.expiresIn)) {
       options.expiresIn = 0;
     } else {
@@ -596,7 +637,7 @@ export function parseBundleOptions(body = {}) {
     }
   }
 
-  if (has(body, 'maxDownloads')) {
+  if (has(body, 'maxDownloads') && !isKeep(body.maxDownloads)) {
     if (isClear(body.maxDownloads)) {
       options.maxDownloads = 0;
     } else {
@@ -609,13 +650,13 @@ export function parseBundleOptions(body = {}) {
     }
   }
 
-  if (has(body, 'password')) {
+  if (has(body, 'password') && !isKeep(body.password)) {
     const password = String(body.password ?? '');
     if (password.length > 200) errors.push('访问密码过长（最多 200 个字符）。');
     else options.password = password;
   }
 
-  if (has(body, 'slug')) {
+  if (has(body, 'slug') && !isKeep(body.slug)) {
     const rawSlug = String(body.slug ?? '').trim();
     if (rawSlug) {
       const normalized = sanitizeBundleSlug(rawSlug);
@@ -624,6 +665,16 @@ export function parseBundleOptions(body = {}) {
     } else {
       options.slug = '';
     }
+  }
+
+  // 展示文案：与 slug / password 同为"出现即设置、空串即清除"的语义。
+  // 上限外的部分直接截断而不是报错 —— 标题被截掉几个字远好过整次提交失败。
+  if (has(body, 'title') && !isKeep(body.title)) {
+    options.title = sanitizeBundleText(body.title, TEXT_LIMITS.title);
+  }
+
+  if (has(body, 'description') && !isKeep(body.description)) {
+    options.description = sanitizeBundleText(body.description, TEXT_LIMITS.description);
   }
 
   return { errors, options };

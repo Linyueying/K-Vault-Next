@@ -32,12 +32,14 @@
 
 import { getRecordWithKey } from '../../../utils/file-record.js';
 import {
+  SHARE_TEXT_LIMITS,
   buildShareSummary,
   clearShareOptions,
   findShareSlugOwner,
   hasActiveShare,
   patchShareOptions,
   sanitizeShareSlug,
+  sanitizeShareText,
 } from '../../../utils/share-options.js';
 import { shouldWriteTelegramMetadata } from '../../../utils/telegram.js';
 
@@ -181,6 +183,16 @@ export async function onRequest(context) {
       }
     }
 
+    // 分享文案：与 slug / password 同语义 —— `-1` 表示保持不变，空串表示清除。
+    // 超长**不报错而是截断**：标题少几个字不影响分享可用，让整次提交失败才糟。
+    if (hasField(body, 'title') && !isKeep(body.title)) {
+      patch.title = sanitizeShareText(body.title, SHARE_TEXT_LIMITS.title);
+    }
+
+    if (hasField(body, 'description') && !isKeep(body.description)) {
+      patch.description = sanitizeShareText(body.description, SHARE_TEXT_LIMITS.description);
+    }
+
     if (errors.length) {
       return jsonResponse({ success: false, error: 'VALIDATION_FAILED', messages: errors }, 400);
     }
@@ -220,6 +232,8 @@ export async function onRequest(context) {
       shareMaxDownloads: summary?.shareMaxDownloads || null,
       sharePasswordProtected: Boolean(storedMetadata.sharePasswordHash),
       shareDownloadCount: Number(storedMetadata.shareDownloadCount) || 0,
+      shareTitle: String(storedMetadata.shareTitle || ''),
+      shareDescription: String(storedMetadata.shareDescription || ''),
     });
   } catch (error) {
     console.error('Share config error:', error);

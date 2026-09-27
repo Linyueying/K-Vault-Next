@@ -276,6 +276,46 @@ const M0005_TOKENS_PASTES_AUDIT = [
 ];
 
 // ============================================================================
+// Migration 0006~0009 — 分享文案（标题 / 描述）
+// ============================================================================
+//
+// 动机：分享此前只有「系统给的那一串名字」——单文件分享显示真实文件名，
+// 合集显示「N 个文件的合集」。使用者无法给分享起一个给人看的标题，也无法
+// 附一句说明（"2024 年会照片，原图未压缩"这类信息对访客很有价值）。
+//
+// 于是在两个分享实体上各加两个**纯展示用**字段：
+//
+//   · files.share_title / share_description   —— 单文件分享
+//   · bundles.title / description             —— 合集 / 目录分享
+//
+// 两者都允许为空：空表示"回退到默认文案"（文件名 / 「N 个文件的合集」），
+// 这样存量数据零改动即可工作，无需回填。
+//
+// ## 为什么拆成四条独立迁移，而不是一条迁移带四条 ALTER
+//
+// `ALTER TABLE ADD COLUMN` 不幂等，而 guard 目前只能检查**单个**列。
+// 若塞进同一条迁移，一旦出现「files 已加列、bundles 未加列」的半应用状态
+// （例如旧版本曾手工补过一列），重跑时第一条 ALTER 就会抛
+// `duplicate column name`，整段迁移失败且版本不会被标记 —— 迁移将永久卡住。
+// 拆开后每条自带精确 guard，任何状态下重复执行都安全。
+
+const M0006_FILES_SHARE_TITLE = [
+  `ALTER TABLE files ADD COLUMN share_title TEXT`,
+];
+
+const M0007_FILES_SHARE_DESCRIPTION = [
+  `ALTER TABLE files ADD COLUMN share_description TEXT`,
+];
+
+const M0008_BUNDLES_TITLE = [
+  `ALTER TABLE bundles ADD COLUMN title TEXT`,
+];
+
+const M0009_BUNDLES_DESCRIPTION = [
+  `ALTER TABLE bundles ADD COLUMN description TEXT`,
+];
+
+// ============================================================================
 // 迁移清单（**顺序即执行顺序**）
 // ============================================================================
 
@@ -302,6 +342,26 @@ export const MIGRATIONS = [
     statements: M0004_FILE_TYPE,
   },
   { id: '0005_tokens_pastes_audit', statements: M0005_TOKENS_PASTES_AUDIT },
+  {
+    id: '0006_files_share_title',
+    guard: { type: 'column', table: 'files', column: 'share_title' },
+    statements: M0006_FILES_SHARE_TITLE,
+  },
+  {
+    id: '0007_files_share_description',
+    guard: { type: 'column', table: 'files', column: 'share_description' },
+    statements: M0007_FILES_SHARE_DESCRIPTION,
+  },
+  {
+    id: '0008_bundles_title',
+    guard: { type: 'column', table: 'bundles', column: 'title' },
+    statements: M0008_BUNDLES_TITLE,
+  },
+  {
+    id: '0009_bundles_description',
+    guard: { type: 'column', table: 'bundles', column: 'description' },
+    statements: M0009_BUNDLES_DESCRIPTION,
+  },
 ];
 
 // ============================================================================
@@ -459,6 +519,11 @@ export const TABLES = (() => {
 const REQUIRED_COLUMNS = [
   { table: 'files', column: 'is_folder' },
   { table: 'files', column: 'file_type' },
+  // 分享文案：缺列不会报错，但用户填的标题/描述会被静默丢弃（写进 KV 却
+  // 进不了 D1，而读侧 D1 优先 → 表现为"保存成功但刷新后没了"）。
+  // 每类实体各取一列做代表即可 —— 它们由同一批迁移引入，不会分家。
+  { table: 'files', column: 'share_title' },
+  { table: 'bundles', column: 'title' },
 ];
 
 async function columnExists(env, table, column) {

@@ -237,23 +237,24 @@
   }
 
   /* ===== 主区：合集工具栏 =====
-     两行各自 `flex-wrap: nowrap` —— 会被拉窄的是搜索框（它 flex:1 + min-width:0），
-     其余控件都是 flex:none 的定宽件。这样在窄屏上也不会出现「排序框和方向按钮
-     各自被挤到独占一行、方向按钮孤零零挂在左边」的碎裂排版。 */
+     改成允许换行。原来是 nowrap：窄屏上搜索框被压到只剩几十像素，排序框与
+     方向按钮被挤出卡片边界，而外层 .card 的 overflow:hidden 会直接把它们裁掉 ——
+     用户看到的是"少了一半控件"，且完全无从察觉是被裁了。 */
   .toolbar {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     padding: var(--sp-3) var(--sp-4);
   }
   .toolbar--split {
     border-top: 1px solid var(--glass-border);
     padding-top: var(--sp-2);
     padding-bottom: var(--sp-2);
-    gap: var(--sp-3);
+    gap: var(--sp-2) var(--sp-3);
   }
-  .search { position: relative; flex: 1 1 auto; min-width: 0; }
+  /* 折行之后搜索框应该吃掉剩余的整行，而不是缩成一条缝 */
+  .search { position: relative; flex: 1 1 150px; min-width: 0; }
   .search > i {
     position: absolute;
     left: 11px;
@@ -305,6 +306,9 @@
     color: var(--warn);
     font-size: var(--fs-xs);
   }
+  /* 清单不再锁死 460px 的小盒子：几十个文件的合集被塞进一个只显示 5 行的
+     滚动区里，用户根本不知道下面还有多少，而这个小盒子又常常比预览区还矮。
+     上限放宽到视口的 68%，长清单仍不撑爆首屏，但一眼能看到十来条。 */
   .blist {
     list-style: none;
     margin: 0;
@@ -312,12 +316,20 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    max-height: 460px;
+    max-height: 68vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
+  /* ⚠️ flex-wrap: wrap 是关键。
+     这一行原来只有 display:flex 没有 wrap，而成员预览 .bitem__preview 是第 5 个
+     flex item —— 它既没有 flex-basis:100% 也没有换行规则，于是被并排塞进同一行，
+     整行高度被 420px 的 iframe 撑开；其余三项因为 align-items:center 垂直居中，
+     浮在预览区正中间 —— 这就是「UI 重叠」的真正来源。
+     让容器允许换行 + 预览独占整行，问题从根上消失。 */
   .bitem {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--sp-3);
     padding: 8px 10px;
     border-radius: var(--r-md);
@@ -326,6 +338,10 @@
     transition: background var(--dur-base) var(--ease-apple),
                 border-color var(--dur-base) var(--ease-apple);
   }
+  /* design-system 给 .check 挂了 44px 隐形热区（居中放大），在行间距只有 5px
+     的密集清单里会跨到相邻条目上 —— 点上一行的空白处会误切下一行。
+     收到 30px：仍是合格的可点尺寸，但不再越界。 */
+  .bitem .check::after { width: 30px; height: 30px; }
   .bitem:hover { border-color: var(--glass-border); }
   .bitem.is-picked {
     background: rgba(var(--primary-rgb), 0.08);
@@ -365,8 +381,172 @@
     font-size: var(--fs-sm);
     color: var(--text-muted);
   }
-  /* 成员自己的预览：与单文件共用 .preview-frame，只是多一层边距 */
-  .bitem__preview { margin-top: 8px; }
+  /* 成员预览独占整行（配合 .bitem 的 flex-wrap）。
+     width 而非 flex-basis：行内还有 flex:1 的主区，用 flex-basis:100% 会在
+     某些浏览器下被 flex-shrink 折算掉，width 更稳。 */
+  .bitem__preview {
+    flex: 0 0 100%;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  /* ===== 分享说明（分享者自定义的一句话）=====
+     没有它，分享者想说一句"原图未压缩"都无处可写，只能靠文件名挤字。
+     留白换行（pre-wrap）：有人会写多行，压成一行就白写了。 */
+  .hero__desc {
+    margin: 0 var(--sp-4) var(--sp-3);
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    background: var(--glass-subtle);
+    border: 1px dashed var(--glass-border-ice);
+    font-size: var(--fs-sm);
+    color: var(--text-sub);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ===== 清单：缩略图 / 网格视图 =====
+     图片合集只给图标太浪费 —— 缩略图让人一眼挑出想要的，比读文件名快得多。 */
+  .bitem__thumb {
+    width: 34px; height: 34px;
+    flex: none;
+    border-radius: var(--r-sm);
+    object-fit: cover;
+    background: var(--surface-3);
+  }
+  .bgrid {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--sp-3) var(--sp-3);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: var(--sp-2);
+    max-height: 68vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .bcell {
+    position: relative;
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    padding-bottom: 6px;
+    transition: border-color var(--dur-base) var(--ease-apple),
+                transform var(--dur-base) var(--ease-apple);
+  }
+  .bcell:hover { border-color: var(--glass-border); transform: translateY(-1px); }
+  .bcell.is-picked { border-color: rgba(var(--primary-rgb), 0.55); background: rgba(var(--primary-rgb), 0.08); }
+  .bcell__pic {
+    display: block;
+    width: 100%;
+    height: 92px;
+    object-fit: cover;
+    background: var(--surface-3);
+  }
+  .bcell__ph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 92px;
+    font-size: 1.6rem;
+    color: var(--tone, var(--primary));
+    background: var(--tone-soft, rgba(var(--primary-rgb), 0.12));
+  }
+  .bcell__name {
+    display: block;
+    padding: 6px 8px 0;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bcell__meta {
+    display: block;
+    padding: 2px 8px 0;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+  }
+  .bcell__check { position: absolute; top: 6px; left: 6px; }
+  .bcell__acts {
+    position: absolute;
+    top: 6px; right: 6px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity var(--dur-base) var(--ease-apple);
+  }
+  .bcell:hover .bcell__acts, .bcell.is-picked .bcell__acts { opacity: 1; }
+
+  /* ===== 复制链接 / 二维码 ===== */
+  .side__linkrow { display: flex; gap: 6px; }
+  .side__linkrow .btn { flex: 1; width: auto; justify-content: center; }
+  .qr-stage {
+    width: 180px; height: 180px;
+    margin: 4px auto 0;
+    padding: 7px;
+    border-radius: var(--r-md);
+    background: #fff;
+    color: #0f172a;
+    border: 1px solid rgba(var(--primary-rgb), 0.28);
+  }
+  /* 背景强制纯白、模块强制深色：扫描器对反色码兼容性参差，
+     跟着主题换色会让一部分手机扫不出来。 */
+  .qr-stage svg { display: block; width: 100%; height: 100%; }
+
+  /* ===== 视图切换 =====
+     工具栏在窄屏会换行，这里跟着一起缩：两个按钮只占一个 chip 的宽度，
+     不至于把搜索框挤到第二行。 */
+  .viewswitch {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    border: 1px solid var(--glass-border-ice);
+  }
+  .viewswitch__btn {
+    width: 30px; height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition: background var(--dur-base) var(--ease-apple),
+                color var(--dur-base) var(--ease-apple);
+  }
+  .viewswitch__btn:hover { color: var(--text-main); }
+  /* 选中态要一眼分出：仅靠图标形状区分"列表/网格"在深色下几乎看不出来。 */
+  .viewswitch__btn.on {
+    background: var(--surface-1);
+    color: var(--primary-text);
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, .12));
+  }
+
+  /* ===== 二维码浮层的链接行 =====
+     .overlay / .dialog-panel / .dialog-title / .dialog-message / .dialog-actions /
+     .qr-panel 全部取自 design-system.css（13.9b），本页不再手抄一份 ——
+     抄来的版本迟早会和 admin 的漂开。 */
+  .share-result__url {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 10px;
+  }
+  .share-result__url code {
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+    font-size: var(--fs-xs);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-sub);
+  }
 
   /* ===== 侧栏：操作 ===== */
   .side__actions {
@@ -574,7 +754,9 @@
             <div class="hero" :class="toneClass">
               <div class="hero__thumb"><i :class="iconClass"></i></div>
               <div class="hero__text">
-                <h1 class="hero__name" :title="info.fileName" v-text="info.fileName"></h1>
+                <!-- 标题优先用分享者自定义的名字，没有才回退真实文件名。
+                     下载用的始终是真实文件名 —— 展示名只是展示名。 -->
+                <h1 class="hero__name" :title="displayTitle" v-text="displayTitle"></h1>
                 <div class="hero__sub">
                   <span v-text="typeLabel"></span>
                   <span v-text="formatSize(info.fileSize)"></span>
@@ -582,6 +764,9 @@
                 </div>
               </div>
             </div>
+
+            <!-- 分享者写的说明。没有就不占位，而不是留一块空白。 -->
+            <div class="hero__desc" v-if="displayDescription" v-text="displayDescription"></div>
 
             <div class="blocked" v-if="blockReason">
               <i class="fas fa-triangle-exclamation"></i>
@@ -616,14 +801,17 @@
             <div class="hero tone-bundle">
               <div class="hero__thumb"><i class="fas fa-boxes-stacked"></i></div>
               <div class="hero__text">
-                <h1 class="hero__name" v-text="bundleTitle"></h1>
+                <h1 class="hero__name" :title="displayTitle" v-text="displayTitle"></h1>
                 <div class="hero__sub">
                   <span v-text="bundleFiles.length + ' 个文件'"></span>
                   <span v-text="'共 ' + formatSize(bundleTotalSize)"></span>
+                  <span v-if="folderShare"><i class="fas fa-arrows-rotate"></i> 目录实时同步</span>
                   <span v-if="info.uploadTime" v-text="formatRelative(info.uploadTime)"></span>
                 </div>
               </div>
             </div>
+
+            <div class="hero__desc" v-if="displayDescription" v-text="displayDescription"></div>
 
             <div class="blocked" v-if="blockReason">
               <i class="fas fa-triangle-exclamation"></i>
@@ -650,6 +838,14 @@
                       :title="bundleSortDir === 'asc' ? '当前升序，点击改降序' : '当前降序，点击改升序'">
                 <i :class="bundleSortDir === 'asc' ? 'fas fa-arrow-up-short-wide' : 'fas fa-arrow-down-wide-short'"></i>
               </button>
+              <!-- 列表 / 网格切换：图片类合集用网格挑图比读文件名快得多，
+                   但文档类合集用列表能看清完整文件名 —— 两种都得有。 -->
+              <div class="viewswitch" role="group" aria-label="视图切换">
+                <button type="button" class="viewswitch__btn" :class="{ on: bundleView === 'list' }"
+                        @click="bundleView = 'list'" title="列表视图"><i class="fas fa-list"></i></button>
+                <button type="button" class="viewswitch__btn" :class="{ on: bundleView === 'grid' }"
+                        @click="bundleView = 'grid'" title="网格视图"><i class="fas fa-grip"></i></button>
+              </div>
             </div>
 
             <div class="toolbar toolbar--split">
@@ -665,12 +861,15 @@
               </span>
             </div>
 
-            <ul class="blist">
-              <li v-for="(f, i) in filteredFiles" :key="f.fileUrl || i" class="bitem" :class="{ 'is-picked': f.selected }">
+            <!-- 空态两种视图共用一份文案，只是外层容器不同 -->
+            <ul class="blist" v-if="bundleView === 'list'">
+              <li v-for="f in filteredFiles" :key="f.fileUrl || f.fileName" class="bitem" :class="{ 'is-picked': f.selected }">
                 <span class="check" :class="{ on: f.selected }" @click.stop="togglePick(f)">
                   <i class="fas fa-check"></i>
                 </span>
-                <span class="bitem__icon" :class="toneOf(f)"><i :class="iconOf(f)"></i></span>
+                <!-- 图片直接上缩略图：读文件名挑图是反人类的 -->
+                <img v-if="isImage(f)" class="bitem__thumb" :src="fileStreamUrl(f)" :alt="f.fileName" loading="lazy" />
+                <span v-else class="bitem__icon" :class="toneOf(f)"><i :class="iconOf(f)"></i></span>
                 <span class="bitem__main">
                   <span class="bitem__name" :title="f.fileName" v-text="f.fileName"></span>
                   <span class="bitem__sub">
@@ -680,10 +879,10 @@
                 </span>
                 <span class="bitem__acts">
                   <button class="btn btn--ghost btn--icon btn--sm" type="button"
-                          @click.stop="togglePreviewOf(f, i)"
+                          @click.stop="togglePreviewOf(f)"
                           :disabled="previewLoading"
-                          :title="showPreview && previewIndex === i ? '收起预览' : '预览'">
-                    <i :class="showPreview && previewIndex === i ? 'fas fa-chevron-up' : 'fas fa-eye'"></i>
+                          :title="showPreview && previewKey === f.fileUrl ? '收起预览' : '预览'">
+                    <i :class="showPreview && previewKey === f.fileUrl ? 'fas fa-chevron-up' : 'fas fa-eye'"></i>
                   </button>
                   <a class="btn btn--ghost btn--icon btn--sm"
                      :href="fileDownloadUrl(f)"
@@ -694,7 +893,7 @@
                   </a>
                 </span>
 
-                <div class="bitem__preview" v-if="showPreview && previewIndex === i">
+                <div class="bitem__preview" v-if="showPreview && previewKey === f.fileUrl">
                   <iframe
                     v-if="previewSrc"
                     class="preview-frame"
@@ -713,6 +912,50 @@
                 没有匹配「{{ bundleQuery }}」的文件
               </li>
             </ul>
+
+            <ul class="bgrid" v-else>
+              <li v-for="f in filteredFiles" :key="f.fileUrl || f.fileName"
+                  class="bcell" :class="[toneOf(f), { 'is-picked': f.selected }]">
+                <img v-if="isImage(f)" class="bcell__pic" :src="fileStreamUrl(f)" :alt="f.fileName" loading="lazy" />
+                <div v-else class="bcell__ph"><i :class="iconOf(f)"></i></div>
+                <span class="check bcell__check" :class="{ on: f.selected }" @click.stop="togglePick(f)">
+                  <i class="fas fa-check"></i>
+                </span>
+                <span class="bcell__acts">
+                  <button class="btn btn--ghost btn--icon btn--sm" type="button"
+                          @click.stop="togglePreviewOf(f)" title="预览">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                  <a class="btn btn--ghost btn--icon btn--sm"
+                     :href="fileDownloadUrl(f)" :download="f.fileName"
+                     @click="onDownloadClick" title="下载">
+                    <i class="fas fa-arrow-down"></i>
+                  </a>
+                </span>
+                <span class="bcell__name" :title="f.fileName" v-text="f.fileName"></span>
+                <span class="bcell__meta" v-text="formatSize(f.fileSize)"></span>
+              </li>
+              <li v-if="!filteredFiles.length" class="blist-empty" style="grid-column: 1 / -1;">
+                <i class="fas fa-magnifying-glass" style="opacity: .6;"></i>
+                没有匹配「{{ bundleQuery }}」的文件
+              </li>
+            </ul>
+
+            <!-- 网格单元塞不进 iframe，预览单独挂在清单下方。
+                 列表视图里预览跟在对应行后面（见 .bitem__preview），两者互斥。 -->
+            <div class="preview-block" v-if="gridPreviewVisible">
+              <iframe
+                v-if="previewSrc"
+                class="preview-frame"
+                :src="previewSrc"
+                allow="fullscreen; autoplay; clipboard-write"
+                referrerpolicy="same-origin"
+              ></iframe>
+              <div v-else class="preview-hint">
+                <div class="spinner" style="margin: 0 auto 12px;"></div>
+                正在准备预览…
+              </div>
+            </div>
           </template>
         </section>
 
@@ -736,6 +979,14 @@
                   <i class="fas fa-arrow-down"></i> 下载文件
                 </a>
                 <p class="side__hint" v-text="blockReason ? '当前无法下载' : actionHint"></p>
+                <div class="side__linkrow">
+                  <button class="btn btn--sm" type="button" @click="copyShareLink">
+                    <i class="fas fa-link"></i> 复制链接
+                  </button>
+                  <button class="btn btn--sm" type="button" @click="qrVisible = true">
+                    <i class="fas fa-qrcode"></i> 二维码
+                  </button>
+                </div>
               </template>
               <template v-else>
                 <button class="btn btn--primary btn--lg" type="button" @click="downloadPicked" :disabled="!pickedCount">
@@ -752,6 +1003,14 @@
                 <p class="side__hint">
                   多个文件会依次触发下载，浏览器可能会询问是否允许。下载全部会一次消耗 {{ bundleFiles.length }} 次配额。
                 </p>
+                <div class="side__linkrow">
+                  <button class="btn btn--sm" type="button" @click="copyShareLink">
+                    <i class="fas fa-link"></i> 复制链接
+                  </button>
+                  <button class="btn btn--sm" type="button" @click="qrVisible = true">
+                    <i class="fas fa-qrcode"></i> 二维码
+                  </button>
+                </div>
               </template>
             </div>
 
@@ -760,7 +1019,14 @@
 
               <div class="meta__row">
                 <span class="meta__k">类型</span>
-                <span class="meta__v" v-text="isBundle ? '合集分享' : typeLabel"></span>
+                <span class="meta__v" v-text="isBundle ? (folderShare ? '目录分享' : '合集分享') : typeLabel"></span>
+              </div>
+
+              <!-- 自定义标题 ≠ 文件名：下载下来的是后者，必须在元信息里留一份，
+                   否则"我明明要的是 A，怎么存下来叫 B"。 -->
+              <div class="meta__row" v-if="!isBundle && displayTitle !== info.fileName">
+                <span class="meta__k">文件名</span>
+                <span class="meta__v meta__v--muted" v-text="info.fileName"></span>
               </div>
 
               <div class="meta__row" v-if="isBundle">
@@ -841,6 +1107,24 @@
       </div>
     </div>
 
+    <!-- ===== 二维码 =====
+         手机上"给旁边的人扫一下"比复制一串链接再发过去快得多。
+         纯前端生成（vendor/qrcode.js），链接不过任何第三方服务。 -->
+    <div class="overlay" v-if="qrVisible" @click.self="qrVisible = false">
+      <div class="dialog-panel qr-panel">
+        <h2 class="dialog-title"><i class="fas fa-qrcode"></i><span>扫码打开</span></h2>
+        <div class="dialog-message" style="word-break:break-all">{{ displayTitle }}</div>
+        <div class="qr-stage" v-if="shareQr" v-html="shareQr"></div>
+        <div class="share-result__url" style="display:flex;align-items:center;gap:7px;margin-top:10px">
+          <code style="flex:1;min-width:0;word-break:break-all;font-size:.74rem">{{ shareUrl }}</code>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn" @click="qrVisible = false">关闭</button>
+          <button class="btn btn--primary" @click="copyShareLink"><i class="fas fa-copy"></i> 复制链接</button>
+        </div>
+      </div>
+    </div>
+
     <div class="toast-stack">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type" v-text="t.text"></div>
     </div>
@@ -849,6 +1133,11 @@
 
 <!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
 <script src="/vendor/vue.global.prod.min.js"></script>
+<!-- 二维码生成（零依赖本地实现，见 vendor/qrcode.js）。
+     与 index.html 保持一致：排在 Vue 之后、业务脚本之前。它只挂 window.QRCode，
+     由 shareQr 这个 computed 同步调用 —— 只要在 mount 之前就绪即可，
+     而 mount 发生在下面的内联脚本里。 -->
+<script src="/vendor/qrcode.js"></script>
 <script>
 /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
    8 秒后仍未挂载就渲染一个可操作的错误页。 */
@@ -928,6 +1217,16 @@ setTimeout(function () {
         bundleQuery: '',
         bundleSort: 'name',
         bundleSortDir: 'asc',
+        // 清单视图：列表（看清完整文件名）/ 网格（图片挑得快）
+        bundleView: 'list',
+        // 目录实时分享标记：hero 上要挂「实时同步」的说明
+        folderShare: false,
+
+        // 分享者自定义的展示文案（来自 /api/share-info 的 title / description）
+        shareTitle: '',
+        shareDescription: '',
+        // 目录分享时服务端给的目录名，作为标题的最后一级兜底
+        folderName: '',
 
         // 文件信息（来自 /api/share-info）
         info: {
@@ -960,8 +1259,13 @@ setTimeout(function () {
         showPreview: false,
         previewLoading: false,
         previewSrc: '',
-        // 合集模式下记录当前展开的是第几个成员；单文件模式恒为 -1
-        previewIndex: -1,
+        /* 合集模式下记录当前展开的是**哪个成员**。
+           原来是 filteredFiles 的下标 —— 排序或搜索一变，同一个下标就指向
+           另一个文件，预览会被挂到错误的文件上（而且看起来"像 bug 又不报错"）。
+           改用 fileUrl 作键，顺序怎么变都不会错位。单文件模式恒为空串。 */
+        previewKey: '',
+        // 二维码浮层
+        qrVisible: false,
 
         theme: 'light',
         toasts: [],
@@ -977,9 +1281,72 @@ setTimeout(function () {
       toneClass: function () { return metaOf(this.info.fileType, this.info.fileName).tone; },
       typeLabel: function () { return metaOf(this.info.fileType, this.info.fileName).label; },
 
+      /**
+       * 展示标题的三级兜底：分享者自定义 > 目录名（目录分享）> 数量概括 / 真实文件名。
+       *
+       * 注意它**只**用于展示：下载链接、文件名元信息走的始终是 info.fileName。
+       * 自定义标题里出现 `../../` 之类的字符也不会影响真实路径 —— 两者在数据流上隔离。
+       */
+      displayTitle: function () {
+        if (this.shareTitle) return this.shareTitle;
+
+        if (this.isBundle) {
+          // 目录实时分享：目录名比"N 个文件"有意义得多；没有名字才退回数量。
+          if (this.folderShare && this.folderName) return this.folderName;
+          return this.bundleTitle;
+        }
+        return this.info.fileName || '未命名文件';
+      },
+
+      /**
+       * 网格视图下方的预览块是否该显示。
+       *
+       * 预览块是**独立于清单**的一块（网格单元塞不进 iframe），所以搜索把
+       * 被预览的文件过滤掉时，它不会跟着消失 —— 会留下一个"预览着另一个文件"
+       * 的孤儿块。这里显式要求被预览的成员仍在当前筛选结果里。
+       */
+      gridPreviewVisible: function () {
+        if (this.bundleView !== 'grid' || !this.showPreview || !this.previewKey) return false;
+        var key = this.previewKey;
+        for (var i = 0; i < this.filteredFiles.length; i += 1) {
+          if (this.filteredFiles[i].fileUrl === key) return true;
+        }
+        return false;
+      },
+
+      /** 分享说明：没有就返回空串，模板用 v-if 收掉整块，不留空白。 */
+      displayDescription: function () { return this.shareDescription || ''; },
+
       /** 合集标题：文件名清单太长，用数量概括。 */
       bundleTitle: function () {
         return this.bundleFiles.length + ' 个文件的合集';
+      },
+
+      /** 当前分享链接。用 location.href 而非手工拼接 ——
+          短链路径、query、hash 任何一种变化都不用在这里同步改一遍。 */
+      shareUrl: function () {
+        try { return window.location.href; } catch (e) { return ''; }
+      },
+
+      /**
+       * 分享链接的二维码 SVG。
+       *
+       * 纯本地生成：链接不经过任何第三方服务，也不发请求。
+       * 库没加载出来时返回空串，浮层里的码位留白 —— 远比抛一个 Vue 渲染异常好。
+       */
+      shareQr: function () {
+        var lib = (typeof window !== 'undefined') ? window.QRCode : null;
+        var url = this.shareUrl;
+        if (!lib || !url) return '';
+        try {
+          // 库支持到版本 10；奇长无比的链接先问一句，别让 matrix() 抛异常。
+          if (lib.canEncode && !lib.canEncode(url, 'M')) return '';
+          // M 级纠错：手机隔着屏幕扫，轻微反光/压缩也不至于读不出来。
+          return lib.toSvg(url, { ecl: 'M', margin: 2, dark: '#0f172a' });
+        } catch (e) {
+          console.error('qrcode render failed:', e);
+          return '';
+        }
       },
 
       bundleTotalSize: function () {
@@ -1247,6 +1614,16 @@ setTimeout(function () {
           // 只在文件清单上分叉。
           var files = Array.isArray(data.files) ? data.files : [];
 
+          /* 展示文案先落位，再拼 info ——
+             displayTitle 依赖 shareTitle / folderName，晚一步赋值会让首帧
+             先闪一下真实文件名再跳成自定义名。 */
+          this.shareTitle = data.title || '';
+          this.shareDescription = data.description || '';
+          this.folderName = data.folderName || '';
+          // 目录实时分享：成员会随源目录变化，hero 上要显式说明，
+          // 否则"我分享的是 12 个，进来变成 15 个"会被当成 bug。
+          this.folderShare = Boolean(data.folderShare || data.folderName);
+
           this.info = {
             fileName: data.fileName || (data.bundle ? this.bundleTitle : '未命名文件'),
             fileSize: Number(data.fileSize) || 0,
@@ -1377,7 +1754,9 @@ setTimeout(function () {
           return;
         }
         this.showPreview = true;
-        this.previewIndex = -1;
+        // 单文件模式没有"成员"概念，previewKey 恒为空串，
+        // 这样合集切回单文件时不会残留一个指向旧成员的预览块。
+        this.previewKey = '';
         // 懒加载：只在用户真的点预览时才请求文件，避免无谓的流量
         if (this.previewSrc) return;
         this.preparePreview(this.info, -1);
@@ -1386,19 +1765,23 @@ setTimeout(function () {
       /**
        * 合集模式下切换某个成员的预览。
        *
+       * 定位键是 fileUrl 而不是下标：清单会随搜索 / 排序 / 升降序重排，
+       * 同一个下标在不同时刻指向不同文件 —— 预览挂错文件比不挂更难受。
+       *
        * 同一个 iframe 复用：切换成员时重建 src。这里**不**缓存 previewSrc
        * 跨成员 —— 缓存会让第二次点另一个文件时先闪出上一个文件的内容。
        */
-      togglePreviewOf: function (file, index) {
-        if (this.showPreview && this.previewIndex === index) {
+      togglePreviewOf: function (file) {
+        var key = file && file.fileUrl ? file.fileUrl : '';
+        if (this.showPreview && this.previewKey === key) {
           this.showPreview = false;
-          this.previewIndex = -1;
+          this.previewKey = '';
           return;
         }
         this.showPreview = true;
-        this.previewIndex = index;
+        this.previewKey = key;
         this.previewSrc = '';
-        this.preparePreview(file, index);
+        this.preparePreview(file, -1);
       },
 
       /**
@@ -1448,6 +1831,38 @@ setTimeout(function () {
         var url = this.fileStreamUrl(file);
         var sep = url.indexOf('?') === -1 ? '?' : '&';
         return url + sep + 'dl=1';
+      },
+
+      /**
+       * 是否值得为这个文件上缩略图。
+       *
+       * 判据是服务端的 fileType + 扩展名双通道：fileType 由上传时推断，
+       * 少数历史记录可能只有 document；反过来扩展名是 .jpg 而服务端标了
+       * document 的情况也存在 —— 任一命中就渲染，宁可多渲染一张也不要漏。
+       */
+      isImage: function (file) {
+        if (!file) return false;
+        if (file.fileType === 'image') return true;
+        var ext = extOf(file.fileName);
+        return ext === 'jpg' || ext === 'jpeg' || ext === 'png'
+            || ext === 'gif' || ext === 'webp' || ext === 'avif'
+            || ext === 'bmp' || ext === 'svg';
+      },
+
+      /**
+       * 复制当前分享链接。
+       *
+       * 走共享层 KVault.copy：它已经处理了 navigator.clipboard 不可用
+       * （非安全上下文 / 内网 http 自部署）时的 execCommand 兜底。
+       * 本页再手写一份兜底只会让两套逻辑各自漂移。
+       */
+      copyShareLink: function () {
+        var self = this;
+        var url = this.shareUrl;
+        if (!url) return;
+        KVault.copy(url).then(function (ok) {
+          self.toast(ok ? '链接已复制' : '复制失败，请手动复制', ok ? 'success' : 'error');
+        });
       },
 
       /**

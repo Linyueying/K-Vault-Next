@@ -34,11 +34,12 @@ const ROOT = join(__dirname, '..');
 /**
  * files 表的期望列数。
  *
- * 随迁移增加而变：0001 建 22 列，0002 加 is_folder，0004 加 file_type。
+ * 随迁移增加而变：0001 建 22 列，0002 加 is_folder，0004 加 file_type，
+ * 0006 / 0007 分别加 share_title / share_description。
  * 这里写成常量是为了让新增迁移时只改一处 —— 若直接散落字面量，
  * 每加一个迁移都要翻遍整个测试文件找硬编码的数字。
  */
-const FILE_COLUMN_COUNT = 24;
+const FILE_COLUMN_COUNT = 26;
 
 let pass = 0;
 let fail = 0;
