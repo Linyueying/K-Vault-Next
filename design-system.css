@@ -1410,6 +1410,16 @@ html:has(.modal-mask) .dock.glass::before {
   animation: none !important;
 }
 
+/* 同理：右上角 .status-pill 的脉冲点（.status-pill__pulse 的 pulseRing / settleBreathe
+   无限动画）也藏在遮罩背后。遮罩模糊在收尾提交时会对背后的「运动内容」重新采样，
+   导致这个脉冲点（连同整个 pill）在抽屉完全出现的那一瞬抽搐闪一下。dock 此前已同样
+   冻结所以不闪，这里把 pill 的脉冲动画一并冻住：抽屉打开期间脉冲点静止，闪动消除；
+   抽屉关闭后 :has() 条件消失，脉冲自动恢复。脉冲点本就被遮罩的模糊 + 暗化几乎看不清，
+   冻住无任何观感损失。 */
+html:has(.modal-mask) .status-pill__pulse {
+  animation: none !important;
+}
+
 /* 低端设备：去掉模糊 */
 html[data-perf="low"] .card,
 html[data-perf="low"] .menu,
