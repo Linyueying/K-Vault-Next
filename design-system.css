@@ -1096,8 +1096,10 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    关键点：入场内容（opacity）刻意延迟 0.4s 再淡入，等容器高度过渡结束，
    这样「容器长高」与「内容显形」两件事错开，绝不会出现边涨边显的抽搐。 */
 .view-fade-enter-active {
-  /* 内容延迟到容器高度过渡（0.4s）结束后才淡入，避免「边涨边显」 */
-  transition: opacity 0.22s var(--ease-apple) 0.4s;
+  /* 原带 0.4s 延迟，是为等 admin.html 的高度 FLIP（0.4s）走完再显形。
+     高度 FLIP 已删除（那正是切目录抽搐的根源），延迟却留了下来 ——
+     结果新视图会空白 0.4s 再突然出现。改为立即淡入。 */
+  transition: opacity 0.22s var(--ease-apple);
   will-change: opacity;
 }
 .view-fade-leave-active {

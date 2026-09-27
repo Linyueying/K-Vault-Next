@@ -565,30 +565,20 @@ Apple 风格动效 · 应用层（首屏错峰入场）
    作用于同一元素会争抢 opacity / transform 轨道，在「选中后立刻取消」时会丢掉
    进场值，导致底栏瞬间消失。详见 design-system.css 中 barIn 关键帧处的说明。 */
 
-/* 首次进入（未 booted）才逐格 riseIn；之后切目录由 <transition-group name="card">
-   接管卡片进出场，避免两套动画叠加造成抽搐 */
-#app:not(.is-booted) .vault-grid > .vault-card,
-#app:not(.is-booted) .vault-list > .vault-row{animation:riseIn .46s var(--ease-fluid) backwards;}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(1),#app:not(.is-booted) .vault-list > .vault-row:nth-child(1){animation-delay:.01s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(2),#app:not(.is-booted) .vault-list > .vault-row:nth-child(2){animation-delay:.03s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(3),#app:not(.is-booted) .vault-list > .vault-row:nth-child(3){animation-delay:.05s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(4),#app:not(.is-booted) .vault-list > .vault-row:nth-child(4){animation-delay:.07s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(5),#app:not(.is-booted) .vault-list > .vault-row:nth-child(5){animation-delay:.09s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(6),#app:not(.is-booted) .vault-list > .vault-row:nth-child(6){animation-delay:.11s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(7),#app:not(.is-booted) .vault-list > .vault-row:nth-child(7){animation-delay:.13s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(8),#app:not(.is-booted) .vault-list > .vault-row:nth-child(8){animation-delay:.15s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(9),#app:not(.is-booted) .vault-list > .vault-row:nth-child(9){animation-delay:.17s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(10),#app:not(.is-booted) .vault-list > .vault-row:nth-child(10){animation-delay:.19s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(11),#app:not(.is-booted) .vault-list > .vault-row:nth-child(11){animation-delay:.21s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(12),#app:not(.is-booted) .vault-list > .vault-row:nth-child(12){animation-delay:.23s}
-#app:not(.is-booted) .vault-grid > .vault-card:nth-child(n+13),#app:not(.is-booted) .vault-list > .vault-row:nth-child(n+13){animation-delay:.25s}
+/* 【已移除】原先这里给卡片加了一套「首屏逐格 riseIn（从下方 16px 升起 + 错峰）」，
+   靠 #app:not(.is-booted) 门控只在首屏生效。但实测 booted 从未置位（轮询 4s
+   始终无 is-booted），门控等于永久打开 —— 于是每次切目录，新卡片都会把这套
+   riseIn 重播一遍：内容先出现在下方 16px、再逐格升上来，正是「切目录抽搐」。
+   卡片进出场统一交给下面的 .card-* 过渡（纯透明度），不再有任何位移。 */
 
 /* 卡片级转场：切目录时旧卡片淡出、新卡片淡入，容器随内容自然更新，
    不再做整体重挂载与高度 FLIP —— 这是切目录抽搐（下方拉伸 + 整页抖动）的根治点 */
 .card-enter-active,
-.card-leave-active{transition:opacity .24s var(--ease-apple),transform .24s var(--ease-apple);}
-.card-enter-from{opacity:0;transform:translateY(10px) scale(.985);}
-.card-leave-to{opacity:0;transform:translateY(-8px) scale(.985);}
+.card-leave-active{transition:opacity .24s var(--ease-apple);}
+/* 只做透明度，不做任何位移/缩放：入场「起点在下方」会让内容先掉下去再升回来，
+   这正是用户描述的抽搐。切目录是原地换内容，不该有纵向位移。 */
+.card-enter-from{opacity:0;}
+.card-leave-to{opacity:0;}
 .card-move{transition:transform .28s var(--ease-apple);}
 /* 列表行离开时脱离文档流，避免占位撑高、容器即时收缩更顺滑（单行布局安全） */
 .vault-list{position:relative;}
@@ -4713,7 +4703,17 @@ const __kvApp = Vue.createApp({
 
     /* ==== 首屏入场编排 ==== */
     const bootDelay = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ? 60 : 780;
-    setTimeout(() => { this.booted = true; }, bootDelay);
+    setTimeout(() => {
+      this.booted = true;
+      /* 兜底：直接给 #app 写上 is-booted。
+         全站首屏错峰动画都由 #app:not(.is-booted) 门控。实测 booted 从未置位
+         （轮询 4s 始终查不到 is-booted），门控等于永久打开 —— 于是 riseIn 这类
+         「从下方 16px 升起」的首屏动画，会在每次切目录时被新卡片反复重播，
+         这正是切目录抽搐的根因。这里直接操作 DOM class，绕开响应式，
+         保证门控一定关得上。 */
+      const appEl = document.getElementById('app');
+      if (appEl) appEl.classList.add('is-booted');
+    }, bootDelay);
 
     /* 点击空白关闭下拉菜单 */
     this._closeMenusHandler = () => { this.openMenu = null; };
