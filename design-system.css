@@ -1088,23 +1088,23 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-forward-enter-active > *:nth-child(n + 5),
 .view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
 
-/* 无方向「淡出淡入」转场：目录切换专用（交叉过渡，非 out-in）。
-   【为什么不用 mode="out-in"】out-in 会让容器在「旧内容已走、新内容未到」
-   的间隙塌到 0 高度，随后被新内容猛地撑开 —— 高度 183px↔221px 的瞬间跳变
-   就是「图片出来时抽搐一下」的根因。高度另由 JS 的 FLIP 平滑（见 admin.html
-   的 _switchFolder）。
-   这里保持交叉：离场元素绝对定位（脱离文档流、不参与撑高）并快速淡出，
-   入场元素从第一帧就以正确高度占位、纯 opacity 淡入、无位移 —— 即使两者
-   极短暂共存，也是同一位置的淡出叠淡入，不会出现「错位同框」。 */
+/* 无方向「淡出淡入」转场：目录切换专用（out-in 模式）。
+   out-in 保证同一时刻只有一个视图在 DOM 中——旧视图先淡出离场，
+   新视图再入场，二者绝不会叠在一起（彻底消除用户截图里的重叠闪屏）。
+   高度变化由 admin.html 的 _switchFolder（锁高）+ onViewEnter（FLIP）平滑：
+   切换前锁定 .view-stage 高度 → 新视图入场量出真实高度 → 0.4s 过渡到新高度。
+   关键点：入场内容（opacity）刻意延迟 0.4s 再淡入，等容器高度过渡结束，
+   这样「容器长高」与「内容显形」两件事错开，绝不会出现边涨边显的抽搐。 */
 .view-fade-enter-active {
-  transition: opacity 0.22s var(--ease-apple);
+  /* 内容延迟到容器高度过渡（0.4s）结束后才淡入，避免「边涨边显」 */
+  transition: opacity 0.22s var(--ease-apple) 0.4s;
   will-change: opacity;
 }
 .view-fade-leave-active {
-  /* 离场：脱离文档流（不撑高容器，容器高度交给入场的占位元素决定），
-     并快速淡出，尽量缩短与入场内容的共存时间。 */
-  transition: opacity 0.1s var(--ease-press);
-  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
+  /* out-in 下每次只有一个视图在 DOM，无需 absolute 也绝不会重叠；
+     旧视图以极短淡出离场，随后新视图入场做高度 FLIP。 */
+  transition: opacity 0.12s linear;
+  will-change: opacity;
 }
 .view-fade-enter-from { opacity: 0; }
 .view-fade-leave-to   { opacity: 0; }

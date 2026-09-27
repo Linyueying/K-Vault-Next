@@ -1428,14 +1428,15 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div class="view-stage">
 
       <!-- 网格视图 -->
-      <!-- 交叉过渡（不加 mode="out-in"）：out-in 会让容器在「旧内容已走、
-           新内容未到」的间隙塌到 0 高度，随后又被新内容猛地撑开 —— 高度
-           183px↔221px 的瞬间跳变就是「图片出来时抽搐一下」的根因。
-           这里保持交叉：离场元素绝对定位（不占位、快速淡出），入场元素
-           从第一帧就以正确高度占位，容器高度只由入场元素决定，平滑交接。
-           key 带上 folderPath：grid→grid 的目录切换若 key 不变，Vue 会判定
-           节点未变、跳过转场，只原地替换 v-for 的卡片，导致新旧动画相撞。 -->
-      <transition :name="viewTransition">
+      <!-- mode="out-in"：旧视图完全离场后再插入新视图，彻底避免交叉淡入造成的
+           新旧内容重叠闪屏（用户截图里空状态与卡片叠在一起就是交叉模式的问题）。
+           离场前 JS 已把 .view-stage 高度锁死在切换前的高度，所以旧视图离开后
+           容器不会塌到 0；新视图进入时再由 @enter="onViewEnter" 把高度 FLIP 到
+           真实高度，且内容（CSS .view-fade-enter-active 的 opacity 带延迟）等
+           高度过渡结束后再淡入，避免「容器边长、内容边显」的抽搐。
+           key 带上 folderPath：grid→grid 的目录切换若 key 不变，Vue 会判定节点
+           未变、跳过转场，只原地替换 v-for 卡片，导致新旧动画相撞。 -->
+      <transition :name="viewTransition" mode="out-in" @enter="onViewEnter">
       <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" :key="'grid:'+folderPath">
         <div v-for="item in pageData" :key="item.name"
              class="vault-card"
@@ -2351,7 +2352,7 @@ const TIME_FMT = new Intl.DateTimeFormat('zh-CN', {
 /* 删除的撤销窗口（同时用作撤销 Toast 的停留时长） */
 const UNDO_MS = 8000;
 
-Vue.createApp({
+const __kvApp = Vue.createApp({
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
@@ -3210,57 +3211,83 @@ Vue.createApp({
       this._switchFolder(next);
     },
 
-    /* 目录切换：FLIP 平滑 .view-stage 的高度。
-       切换前后内容高度往往不同（空状态 ≈183px、一屏卡片 ≈221px），
+    /* 目录切换：配合模板的 mode="out-in" 平滑 .view-stage 高度。
+       切换前后内容高度往往不同（空状态 ≈183px、一屏卡片 ≈920px），
        容器高度直接突变就是「图片出来时抽搐一下」的观感来源。
-       做法：先量出切换前高度并锁死 → 换目录 → nextTick 量出新高 →
-       对 height 做一次过渡 → 结束后清除内联样式，恢复自适应。
-       （与模板的「交叉过渡」配合：新内容在 nextTick 时已进入 DOM，能量到高度） */
+       做法：
+         1) 切换前把 .view-stage 高度锁死在「当前高度」，out-in 离场期间
+            容器不会塌缩、也不会与下一视图叠在一起（out-in 保证同一时刻
+            只有一个视图在 DOM 里，彻底消除交叉淡入的重叠闪屏）。
+         2) 新视图入场时由 @enter="onViewEnter" 量出真实高度，对 height 做
+            一次缓入缓出过渡；内容（CSS .view-fade-enter-active 的 opacity
+            带 0.4s 延迟）延迟到高度过渡结束后再淡入，避免「容器边长、
+            内容边显」的抽搐。 */
     _switchFolder(next) {
-      /* 用 document.querySelector 而非 this.$el.querySelector：
-         该组件是 Options API + Fragment 根，this.$el 可能只是根片段中的
-         第一个节点（不一定是 #app），在其下查 .view-stage 取不到。 */
       const stage = document.querySelector('.view-stage');
       const before = stage ? stage.getBoundingClientRect().height : 0;
       const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // 清理可能正在进行的旧 FLIP，避免连续切换时高度锁死在错误值
+      if (stage) {
+        stage.style.transition = '';
+        stage.style.height = '';
+        stage.style.overflow = '';
+        if (stage._flipClear) {
+          stage.removeEventListener('transitionend', stage._flipClear);
+          stage._flipClear = null;
+        }
+      }
 
       this.folderPath = next;
       this.currentPage = 1;
       try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
 
+      // 无动画偏好、stage 不存在或高度为 0：不锁高度，交给 out-in 直接换视图
       if (!stage || !before || reduce) return;
 
-      // 锁定当前高度，避免切换瞬间塌缩
+      // 锁定切换前高度 + 裁剪溢出，out-in 离场期间容器保持原高、不塌缩
       stage.style.height = before + 'px';
       stage.style.overflow = 'hidden';
+    },
 
-      this.$nextTick(() => {
-        // 等一帧，确保入场节点已插入并完成首帧布局
-        requestAnimationFrame(() => {
-          /* 量「入场（新）内容」的高度：交叉过渡下旧内容带 *-leave-active
-             仍在 DOM 里，直接取 firstElementChild 会量到旧高度。这里排除
-             离场节点；若都已就位（如单节点），退回取第一个子元素。 */
-          const kids = Array.from(stage.children);
-          const incoming = kids.find(el => !/-(leave|leave-active|leave-to)/.test(el.className)) || kids[0];
-          const after = incoming ? incoming.getBoundingClientRect().height : stage.scrollHeight;
-          if (!after || Math.abs(after - before) < 1) {
-            // 高度没变或量不到：直接复原
-            stage.style.height = '';
-            stage.style.overflow = '';
-            return;
-          }
-          stage.style.transition = 'height 0.24s cubic-bezier(0.22, 1, 0.36, 1)';
-          stage.style.height = after + 'px';
-          const clear = () => {
-            stage.style.transition = '';
-            stage.style.height = '';
-            stage.style.overflow = '';
-            stage.removeEventListener('transitionend', clear);
-          };
-          stage.addEventListener('transitionend', clear);
-          setTimeout(clear, 400); // 兜底
-        });
-      });
+    /* 目录切换入场钩子：把 .view-stage 高度从「旧高度」FLIP 到「新视图真实高度」。
+       配合 CSS（.view-fade-enter-active 的 opacity 带 0.4s 延迟）实现：
+       容器先平滑长高 → 高度到位后内容再淡入，全程没有「边涨边显」的抽搐，
+       也没有新旧视图重叠（out-in 保证单一视图）。缓动用近似正弦的缓入缓出
+       cubic-bezier(0.45, 0, 0.55, 1)：两端速度趋零、中段匀速，单帧位移
+       峰值远低于一次突跳（≈700px），观感是优雅展开而非抖动。 */
+    onViewEnter(el) {
+      const stage = document.querySelector('.view-stage');
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!stage) return;
+      const after = el.getBoundingClientRect().height;
+      const before = parseFloat(stage.style.height) || stage.getBoundingClientRect().height;
+
+      // 高度几乎不变 / 量不到 / 减弱动态：直接复原自适应，交给内容淡入
+      if (reduce || !after || Math.abs(after - before) < 1) {
+        stage.style.transition = '';
+        stage.style.height = '';
+        stage.style.overflow = '';
+        return;
+      }
+
+      // 重新锁回旧高度（离场时已是该值），强制回流固定起点，再做 height 过渡
+      stage.style.height = before + 'px';
+      stage.style.overflow = 'hidden';
+      void stage.offsetHeight;
+      stage.style.transition = 'height 0.4s cubic-bezier(0.45, 0, 0.55, 1)';
+      stage.style.height = after + 'px';
+
+      const clear = (e) => {
+        // 仅响应 height 过渡结束，忽略其它属性
+        if (e && e.propertyName && e.propertyName !== 'height') return;
+        stage.style.transition = '';
+        stage.style.height = '';
+        stage.style.overflow = '';
+        stage.removeEventListener('transitionend', clear);
+      };
+      stage.addEventListener('transitionend', clear);
+      setTimeout(clear, 540); // 兜底（含 CSS 内容淡入延迟余量）
     },
 
     /* ================= 用量监控（KV + R2） ================= */
@@ -4813,6 +4840,7 @@ Vue.createApp({
     }
   }
 }).mount('#app');
+window.kvApp = __kvApp;
 </script>
 </body>
 </html>
