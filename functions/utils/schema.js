@@ -180,6 +180,102 @@ const M0004_FILE_TYPE = [
 ];
 
 // ============================================================================
+// Migration 0005 — 审计日志 / Paste / API Token
+// ============================================================================
+//
+// 三张表一次迁移，动机相同：**它们在 KV 里都只有"写"没有"读"**。
+//
+//   · audit_logs —— 键名形如 [audit:时间戳:随机后缀]，随机后缀让枚举出的
+//     顺序与时间无关；没有索引，想按时间倒序读一遍就只能全前缀 list() 再在
+//     内存排序。换句话说，这份日志**本身就是不可读的**，写进去只是占额度。
+//     落成表后 ORDER BY timestamp DESC 是一条走索引的查询。
+//
+//   · pastes —— 列表接口要全量 list() 再按 createdAt 排序分页，
+//     与文件列表早期那个 O(N²) 问题同源。落成表后可 SQL 排序 + 分页。
+//
+//   · api_tokens —— 列表接口同样先全量 list() 再逐个回读本体与统计
+//     （listApiTokens 是 1 次 list + N 次 get + N 次 get_stat）。
+//     落成表后 1 条 SELECT 拿完。
+//
+//   · token_stats —— 与 api_tokens 是 1:1 的遥测，本可以并进主表。
+//     但**刻意分表**：主表承载凭据（改它会影响鉴权正确性），遥测表是高频
+//     采样写入（每 60 秒至多一次）。分表后遥测的 read-modify-write 不可能
+//     与凭据更新互相覆盖 —— 这与 KV 版「credential 与 telemetry 分离」的
+//     设计意图完全一致（见 api-token.js 顶部注释 requirement #2）。
+//
+// ## 为什么标识列要单独建索引
+//
+// api_tokens.token_id 与 pastes.paste_id 都是外部可见的短标识，需要 O(1)
+// 判重。用主键即可，无需再维护 KV 侧的存在性旁挂键。
+//
+// ⚠️ 本注释块内**不要**出现成对的反引号 —— 它们会被 gen-migrations.py 的
+//    正则误当成 SQL 语句抽出去（该脚本按反引号切分常量数组）。
+
+const M0005_TOKENS_PASTES_AUDIT = [
+  `CREATE TABLE IF NOT EXISTS api_tokens (
+  token_id            TEXT    PRIMARY KEY,
+  name                TEXT    NOT NULL DEFAULT '',
+  scopes              TEXT,
+  policies            TEXT,
+  secret_hash         TEXT    NOT NULL DEFAULT '',
+  secret_salt         TEXT    NOT NULL DEFAULT '',
+  secret_suffix       TEXT,
+  enabled             INTEGER NOT NULL DEFAULT 1,
+  expires_at          INTEGER NOT NULL DEFAULT 0,
+  created_at          INTEGER NOT NULL DEFAULT 0,
+  rotated_at          INTEGER,
+  updated_at          INTEGER
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_api_tokens_created_at
+  ON api_tokens(created_at DESC)`,
+  // 遥测表：与 api_tokens 1:1，但**刻意分表**（理由见上方注释）。
+  // 字段与 KV 版 token_stat:<id> 的载荷一一对应，便于双轨切换。
+  `CREATE TABLE IF NOT EXISTS token_stats (
+  token_id            TEXT    PRIMARY KEY,
+  request_count       INTEGER NOT NULL DEFAULT 0,
+  last_used_at        INTEGER NOT NULL DEFAULT 0,
+  last_success_at     INTEGER NOT NULL DEFAULT 0,
+  last_failure_at     INTEGER NOT NULL DEFAULT 0,
+  last_operation      TEXT,
+  last_client         TEXT,
+  last_touch_at       INTEGER NOT NULL DEFAULT 0,
+  updated_at          INTEGER
+)`,
+  `CREATE TABLE IF NOT EXISTS pastes (
+  paste_id            TEXT    PRIMARY KEY,
+  content             TEXT    NOT NULL DEFAULT '',
+  language            TEXT    NOT NULL DEFAULT 'text',
+  size                INTEGER NOT NULL DEFAULT 0,
+  password_hash       TEXT,
+  password_salt       TEXT,
+  expires_at          INTEGER NOT NULL DEFAULT 0,
+  created_at          INTEGER NOT NULL DEFAULT 0
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_pastes_created_at
+  ON pastes(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_pastes_expires_at
+  ON pastes(expires_at)`,
+  `CREATE TABLE IF NOT EXISTS audit_logs (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  event               TEXT    NOT NULL,
+  token_id            TEXT,
+  operation           TEXT,
+  success             INTEGER NOT NULL DEFAULT 1,
+  client              TEXT,
+  detail              TEXT,
+  timestamp           INTEGER NOT NULL
+)`,
+  // 审计几乎总是"按时间倒序取最近 N 条"，时间索引是唯一必要的
+  `CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp
+  ON audit_logs(timestamp DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_logs_token
+  ON audit_logs(token_id, timestamp DESC)`,
+  // 清理过期数据用（180 天保留期，见 utils/audit.js）
+  `CREATE INDEX IF NOT EXISTS idx_audit_logs_event
+  ON audit_logs(event, timestamp DESC)`,
+];
+
+// ============================================================================
 // 迁移清单（**顺序即执行顺序**）
 // ============================================================================
 
@@ -205,6 +301,7 @@ export const MIGRATIONS = [
     guard: { type: 'column', table: 'files', column: 'file_type' },
     statements: M0004_FILE_TYPE,
   },
+  { id: '0005_tokens_pastes_audit', statements: M0005_TOKENS_PASTES_AUDIT },
 ];
 
 // ============================================================================
@@ -355,7 +452,14 @@ export const TABLES = (() => {
 })();
 
 /** 关键列检查项（缺了会静默降级，所以显式暴露出来）。 */
-const REQUIRED_COLUMNS = [{ table: 'files', column: 'is_folder' }];
+// 关键列体检清单。
+// 只放「缺了会让业务静默走错分支」的列 —— 例如缺 is_folder 会把目录当成
+// 普通文件；缺 file_type 会让统计口径悄悄回落到内存推断。纯粹为展示用的列
+// 不加进来，避免每次加列都要改这里。
+const REQUIRED_COLUMNS = [
+  { table: 'files', column: 'is_folder' },
+  { table: 'files', column: 'file_type' },
+];
 
 async function columnExists(env, table, column) {
   try {

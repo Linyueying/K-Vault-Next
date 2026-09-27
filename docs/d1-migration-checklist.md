@@ -134,9 +134,13 @@ https://<你的域名>/api/admin/db-status
     "healthy": true,
     "applied": [{"version": "0001_files", "applied_at": 1730000000000}],
     "missing": [],
-    "tables": {"files": true, "bundles": true, "bundle_files": true, "schema_migrations": true},
-    "columns": {"files.is_folder": true},
-    "counts": {"files": 42, "bundles": 0, "bundle_files": 0, "schema_migrations": 3}
+    "tables": {
+      "api_tokens": true, "audit_logs": true, "bundle_files": true,
+      "bundles": true, "files": true, "pastes": true, "token_stats": true,
+      "schema_migrations": true
+    },
+    "columns": {"files.is_folder": true, "files.file_type": true},
+    "counts": {"files": 42, "bundles": 0, "bundle_files": 0, "api_tokens": 2, "pastes": 1, "audit_logs": 57, "token_stats": 2, "schema_migrations": 5}
   },
   "verdict": "D1 已就绪，表与迁移均完整。"
 }
@@ -160,7 +164,8 @@ https://<你的域名>/api/admin/db-status
 npx wrangler d1 execute k_vault --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
 ```
 
-期望三张表：`bundle_files`、`bundles`、`files`，外加自动建的 `schema_migrations`。
+期望 8 张表：`api_tokens`、`audit_logs`、`bundle_files`、`bundles`、`files`、
+`pastes`、`token_stats`，外加自动建的 `schema_migrations`。
 
 **验证列齐全**：
 
@@ -168,7 +173,7 @@ npx wrangler d1 execute k_vault --remote --command "SELECT name FROM sqlite_mast
 npx wrangler d1 execute k_vault --remote --command "PRAGMA table_info(files)"
 ```
 
-期望 **23 列**，其中必须包含 `is_folder`。
+期望 **24 列**，其中必须包含 `is_folder` 与 `file_type`。
 
 **验证迁移记录**：
 
@@ -176,7 +181,8 @@ npx wrangler d1 execute k_vault --remote --command "PRAGMA table_info(files)"
 npx wrangler d1 execute k_vault --remote --command "SELECT * FROM schema_migrations ORDER BY version"
 ```
 
-期望三行：`0001_files`、`0002_folder_markers`、`0003_share_bundles`。
+期望五行：`0001_files`、`0002_folder_markers`、`0003_share_bundles`、
+`0004_file_type`、`0005_tokens_pastes_audit`。
 
 > 如果这里查不到表，说明要么 `DB` 绑定没生效（回到第 3 步），要么首次访问还没触发。
 > 随便上传一个文件就能触发。
@@ -471,7 +477,7 @@ D1_DATABASE_ID = <你的 database_id>
 npm test
 ```
 
-期望：**13 套件全部 0 失败**（合计 462 个用例）。
+期望：**14 套件全部 0 失败**（合计 577 个用例）。
 
 这些测试基于 `node:sqlite` 在内存里跑真实 SQL，并自动加载 `migrations/` 下**全部**
 迁移文件——所以新增迁移后无需改测试，schema 会自动跟上。
@@ -497,6 +503,23 @@ D1 可用时 KV 写必须为 0。另有两条语义断言 —— 超出 TTL 窗�
 return 了，但**这类"理应走不到"的代码最危险**：一次 return 被重构掉就会在
 生产上悄悄开始全表扫描，而功能完全正常，只有额度在飞速见底。
 断言因此是调用次数：D1 可用时 `kv.list() === 0` 且 `fstat:` 的读写删均为 0。
+
+`test-p5-d1.mjs` 覆盖 P5 的三类数据（115 个用例，13 个分组）：审计日志、
+Paste、API Token。取向与 `test-dedup-d1.mjs` 一致 —— 断言
+**D1 可用时 KV 的 get/put/delete/list 四个计数必须全为 0**。
+它额外锁住三条最容易回归的不变式：
+
+1. **局部更新不得覆盖未提及字段**。KV 版是整行覆盖，照抄成
+   「先 SELECT 再整行 UPDATE」会让 `rotate`（改密钥）与
+   `update`（改 enabled）并发时互相回退 —— 最坏是一个被禁用的令牌
+   被轮换流程复活。测试里专门有一条「轮换后仍是禁用态」。
+2. **遥测只花 1 次查询**。采样去抖被下推到 `ON CONFLICT ... WHERE`，
+   写与不写都是 1 次；另有「SQL 侧自增 5 次后恰好等于 5」验证并发不丢计数。
+3. **鉴权链路全程不碰 KV**，含 4 种失败分支（scope 不足 / 禁用 / 过期 /
+   未知 id）。
+
+配套的 `scripts/bench-p5.mjs` 输出四场景的 KV 调用对比（降级态 vs D1），
+用来在改动后快速确认额度收益没有悄悄退化。
 
 > 这几个套件共同的取向：**把"资源用量"也当成契约来测**。
 > 纯功能断言无法发现"结果对但多烧了一次额度"这类回归，而在免费额度

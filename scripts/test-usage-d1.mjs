@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { migrationFiles } from './test-utils.mjs';
-import { ensureSchema, resetSchemaCache } from '../functions/utils/schema.js';
+import { ensureSchema, resetSchemaCache, TABLES } from '../functions/utils/schema.js';
 import { onRequestGet } from '../functions/api/manage/usage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -217,7 +217,14 @@ async function main() {
     const { body } = await call(env);
     check('[7] files 行数 = 1', body?.d1?.storage?.rowsByTable?.files === 1, JSON.stringify(body?.d1?.storage?.rowsByTable));
     check('[7] bundles 行数 = 0', body?.d1?.storage?.rowsByTable?.bundles === 0);
-    check('[7] 表数 3/3', body?.d1?.storage?.tableCount === 3 && body?.d1?.storage?.expectedTableCount === 3);
+    // 期望表数从 schema 的 TABLES 推导，新增迁移时无需再手改本行
+    const expectedTables = TABLES.filter((t) => t !== 'schema_migrations').length;
+    check(
+      `[7] 表数 ${expectedTables}/${expectedTables}`,
+      body?.d1?.storage?.tableCount === expectedTables &&
+        body?.d1?.storage?.expectedTableCount === expectedTables,
+      `实际 tableCount=${body?.d1?.storage?.tableCount} expected=${body?.d1?.storage?.expectedTableCount}`
+    );
     check('[7] schema 健康', body?.d1?.schema?.healthy === true);
     check('[7] 不含 schema_migrations', !('schema_migrations' in (body?.d1?.storage?.rowsByTable || {})));
   }

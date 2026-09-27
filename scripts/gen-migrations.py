@@ -111,6 +111,41 @@ TITLES = {
 }
 
 
+def strip_js_comments(text: str) -> str:
+    """
+    去掉 JS 的行注释与块注释。
+
+    ## 为什么必须做这一步
+
+    常量数组里的 SQL 是用反引号包起来的字符串，但**注释里也常有反引号**
+    （写文档时习惯用反引号标出键名、列名）。之前的实现直接对整个数组体
+    `re.findall(r"`(.*?)`")`，于是注释中的反引号片段会被当成一条 SQL 语句
+    抽出去。
+
+    这个 bug 的表现很有迷惑性：生成的 .sql 里多出一行垃圾（例如
+    `token_stat:<id>;`），而 **schema.js 本身完全正常** —— 运行时懒迁移
+    不读 .sql，所以线上毫无症状；只有本地测试加载 migrations/ 时才炸，
+    报一个和真实原因毫无关系的语法错误。
+
+    先剥注释再抽字符串，从源头消除这类误判。
+    注意：SQL 字符串内部按约定不使用 `//` 与 `/* */`，因此可以安全地
+    全文剥离（不做词法分析）。
+    """
+    # 块注释（非贪婪，支持跨行）
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    # 行注释：仅当 // 不在反引号字符串内时才剥离。
+    # 逐行处理并跟踪反引号配对状态，避免误伤 SQL 里的字符串字面量。
+    out_lines = []
+    for line in text.split("\n"):
+        in_tick = line.count("`") % 2 == 1
+        idx = line.find("//")
+        if idx != -1 and not in_tick:
+            out_lines.append(line[:idx])
+        else:
+            out_lines.append(line)
+    return "\n".join(out_lines)
+
+
 def main():
     src = open(SCHEMA, encoding="utf-8").read()
 
@@ -118,13 +153,18 @@ def main():
     blocks = {}
     for m in re.finditer(r"const (M\d{4}_\w+)\s*=\s*\[(.*?)\n\];", src, re.S):
         name, body = m.group(1), m.group(2)
-        stmts = re.findall(r"`(.*?)`", body, re.S)
+        # 先剥注释，再抽反引号字符串 —— 否则注释里的反引号会被误当成 SQL
+        stmts = re.findall(r"`(.*?)`", strip_js_comments(body), re.S)
         blocks[name] = [s.strip() for s in stmts if s.strip()]
+
+    # 迁移清单在数组体外，但同样可能被注释干扰（如 guard 字段的说明），
+    # 一并剥离后再解析顺序。
+    src_for_order = strip_js_comments(src)
 
     # 提取 MIGRATIONS 清单的顺序与 id
     # 注意：条目可能带 guard 字段（如 0002），所以 id 与 statements 之间
     # 可能有任意内容，不能假设两者相邻。
-    mig_src = re.search(r"export const MIGRATIONS = \[(.*?)\n\];", src, re.S).group(1)
+    mig_src = re.search(r"export const MIGRATIONS = \[(.*?)\n\];", src_for_order, re.S).group(1)
     order = []
     for m in re.finditer(r"\{\s*id:\s*'([^']+)'.*?statements:\s*(\w+)", mig_src, re.S):
         order.append((m.group(1), m.group(2)))
