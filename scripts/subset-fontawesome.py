@@ -14,8 +14,22 @@ FontAwesome 子集化工具（scripts/subset-fontawesome.py）
        动画关键帧，以及被用到的图标 content 规则，删掉其余上千条图标规则。
 
 可重复执行
-    首次运行会把原始完整 CSS 备份为 all.min.css.full，之后每次运行都从 .full 读取，
-    因此增删图标后重跑本脚本即可，不会因反复裁剪而丢失可用图标。
+    首次运行会把原始完整 CSS 备份为 all.min.css.full、把原始完整字体备份为
+    *.woff2.full，之后每次运行都从 .full 读取，因此增删图标后重跑本脚本即可，
+    不会因反复裁剪而丢失字形。
+
+    注意：裁剪是有损的。若 .full 缺失、而当前字体已是子集，脚本会判定「原版
+    不可用」并跳过该族（保留现有文件），避免用子集当源而静默丢字形。
+
+已知限制
+    fa-regular-400.woff2.full 在仓库中缺失：历史上的那次本地化提交里，regular
+    族的原始字体已损坏（glyf 表不完整），无法作为裁剪源。当前 regular 子集只含
+    页面实际用到的 fa-clock / fa-bookmark 两个字形，够用；若日后要给页面新增
+    far 图标，需先从 FontAwesome 6.4.2 官方包取回完好的 fa-regular-400.woff2，
+    存为 vendor/fontawesome/webfonts/fa-regular-400.woff2.full 再重跑本脚本。
+
+    （不要用 npm 上更新的 @fortawesome/fontawesome-free 顶替：本项目锁定
+    6.4.2，7.x 的码位与 6.4.2 有出入，混用会导致图标错位。）
 
 依赖
     pip3 install fonttools brotli
@@ -24,6 +38,7 @@ import os
 import re
 import sys
 import glob
+import shutil
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSS_MIN = os.path.join(ROOT, "vendor", "fontawesome", "css", "all.min.css")
@@ -39,6 +54,10 @@ FAMILY_FONTS = {
     "far": "fa-regular-400.woff2",
     "fab": "fa-brands-400.woff2",
 }
+# 各族「完整原版」至少应有的码位数（真实值远大于此）。
+# 用途：当 *.woff2.full 缺失时，判断当前文件到底是完整原版还是已被裁剪的子集——
+# 只有前者才适合当裁剪源，把子集当源会静默丢掉本就不在其中的字形。
+FAMILY_MIN_CODEPOINTS = {"fas": 500, "far": 50, "fab": 200}
 FAMILY_ALIAS = {
     "fas": "fas", "fa-solid": "fas",
     "far": "far", "fa-regular": "far",
@@ -120,14 +139,48 @@ def prune_css(css, keep_names):
     return pruned, total, kept["n"]
 
 
-def subset_font(filename, codepoints):
-    """调用 fontTools 裁剪单个 woff2，返回 (裁剪前大小, 裁剪后大小)。"""
+def codepoint_count(path):
+    """返回字体包含的码位数；文件损坏/不可读时返回 -1。"""
+    from fontTools.ttLib import TTFont
+    try:
+        return len(TTFont(path).getBestCmap())
+    except Exception:
+        return -1
+
+
+def font_source(family, filename):
+    """返回裁剪用的源字体路径；源不可用时返回 None。
+
+    优先读 *.woff2.full（原始完整字体）。若不存在，说明是首次运行：
+    仅当当前文件看起来是「完整原版」时才把它备份为 .full —— 与 CSS 的
+    all.min.css.full 同一套「原版留档」策略。
+
+    为什么必须留档：裁剪是有损的，从一个已裁剪的字体再裁不可能找回
+    丢掉的字形。若源本身已是子集（或已损坏），返回 None 交由调用方跳过，
+    宁可保留现有文件并告警，也不要产出静默缺字形的字体。
+    """
+    cur = os.path.join(WEBFONTS, filename)
+    full = cur + ".full"
+    if os.path.exists(full):
+        return full if codepoint_count(full) > 0 else None
+    if codepoint_count(cur) < FAMILY_MIN_CODEPOINTS.get(family, 0):
+        return None
+    shutil.copyfile(cur, full)
+    return full
+
+
+def subset_font(family, filename, codepoints):
+    """调用 fontTools 裁剪单个 woff2，返回 (裁剪前大小, 裁剪后大小)。
+
+    源不可用时返回 (None, None)，由 main 打印告警并保留现有文件。
+    """
     from fontTools.subset import main as pyftsubset
 
-    src = os.path.join(WEBFONTS, filename)
-    tmp = src + ".subset"
-    if not codepoints:
-        return os.path.getsize(src), None
+    src = font_source(family, filename)
+    if src is None or not codepoints:
+        return None, None
+    dst = os.path.join(WEBFONTS, filename)
+    tmp = dst + ".subset"
     unicodes = ",".join("U+%s" % cp.upper() for cp in sorted(codepoints))
     args = [
         src,
@@ -142,7 +195,7 @@ def subset_font(filename, codepoints):
     pyftsubset(args)
     before = os.path.getsize(src)
     after = os.path.getsize(tmp)
-    os.replace(tmp, src)
+    os.replace(tmp, dst)
     return before, after
 
 
@@ -200,14 +253,27 @@ def main():
 
     log("")
     for fam, fontfile in FAMILY_FONTS.items():
-        before, after = subset_font(fontfile, plan.get(fam) or set())
-        if after is None:
+        cps = plan.get(fam) or set()
+        if not cps:
             log("   %-22s 未使用，跳过" % fontfile)
-        else:
-            log("   %-22s %s -> %s  (省 %s)" % (
-                fontfile, human(before), human(after), human(before - after)))
+            continue
+        try:
+            before, after = subset_font(fam, fontfile, cps)
+        except Exception as e:
+            log("   %-22s 裁剪失败（%s），保留现有文件" % (fontfile, e))
+            continue
+        if before is None:
+            log("   %-22s 原版不可用（无 %s.full 且当前文件已是子集），保留现有文件"
+                % (fontfile, fontfile))
+            continue
+        log("   %-22s %s -> %s  (省 %s)" % (
+            fontfile, human(before), human(after), human(before - after)))
 
-    total_before = sum(os.path.getsize(os.path.join(WEBFONTS, f)) for f in os.listdir(WEBFONTS))
+    total_before = sum(
+        os.path.getsize(os.path.join(WEBFONTS, f))
+        for f in os.listdir(WEBFONTS)
+        if not f.endswith((".full", ".subset"))
+    )
     log("")
     log("webfonts 目录当前总计: %s" % human(total_before))
     return 0
