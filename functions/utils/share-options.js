@@ -17,6 +17,7 @@
 
 import { parsePositiveInt } from './api-v1.js';
 import { putRecordIndex, readDownloadCount } from './file-record.js';
+import { findFileOwnerBySlug } from './metadata-d1.js';
 
 export const SHARE_SLUG_KEY_PREFIX = 'share_slug:';
 
@@ -114,12 +115,33 @@ export function validateShareOptions(options) {
 }
 
 /**
- * Resolve a custom slug to the KV key it currently points at.
+ * 查询某个自定义短链当前被哪个文件占用。
+ *
  * @returns The mapped key, or an empty string when the slug is free.
+ *
+ * ## D1 优先（P3 前置条件）
+ *
+ * 原实现只读 KV 的 `share_slug:<slug>`。这在 P3（停止 KV 双写）之后会
+ * **静默失效** —— 键不再写入了，于是唯一性校验永远返回"空闲"，
+ * 两个用户能拿到同一个短链，后写的覆盖先写的映射。
+ *
+ * 所以这里必须先接上 D1：`files.share_slug` 上有唯一索引，一次点查即可。
+ * 只有 D1 未绑定或查询失败时才回落 KV。
+ *
+ * ⚠️ 区分「查不了」与「空闲」在这里是**正确性问题**而非性能问题：
+ * findFileOwnerBySlug 用 `disabled` 标记前者，本函数据此回落 KV
+ * 而不是直接返回空串 —— 否则一次 D1 抖动就会放开重复短链。
  */
 export async function findShareSlugOwner(env, slug) {
   const normalized = sanitizeShareSlug(slug);
-  if (!normalized || !env?.img_url) return '';
+  if (!normalized) return '';
+
+  // ---------- 路径 A：D1 ----------
+  const d1 = await findFileOwnerBySlug(env, normalized);
+  if (!d1.disabled) return d1.owner;
+
+  // ---------- 路径 B：KV 兜底 ----------
+  if (!env?.img_url) return '';
   try {
     const mapped = await env.img_url.get(`${SHARE_SLUG_KEY_PREFIX}${normalized}`);
     return mapped ? String(mapped) : '';

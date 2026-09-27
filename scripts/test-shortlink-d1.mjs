@@ -281,13 +281,18 @@ console.log('[4] /api/share-info 短链解析');
     bySlug.env._d1Stats.queries === 1, `实际 ${bySlug.env._d1Stats.queries} 次`);
 
   // ---- 裸文件 ID ----
-  // 已知代价：D1 短链查询落空后仍会回落一次 KV（兜住"D1 写入失败过的存量记录"）。
-  // 因此这条路径是 2 次 D1 + 1 次 KV —— KV 用量与改动前持平，P3 停止双写后可去掉。
+  // 此前这里是「2 次 D1 + 1 次 KV」的已知代价：D1 短链查询落空后回落一次
+  // KV 读，兜住"D1 写入失败过的存量记录"。
+  //
+  // 现在 findShareSlugOwner 本身也接了 D1（P3 停止双写的前置条件）：
+  // 它先查 files.share_slug，确认没有占用就直接返回空串，**不再读 KV**。
+  // 于是这条路径变成 3 次 D1 + 0 次 KV —— 走的仍是同一条逻辑链，
+  // 只是中间那一步从"读 KV 映射"换成了"读 D1 映射"，结果等价。
   const byId = await ask('s=r2%3Aplain.png');
   check('文件 ID 直查 → 200', byId.res.status === 200, JSON.stringify(byId.body));
   check('文件 ID 直查 → fileName 正确', byId.body?.fileName === 'plain.png');
-  check('文件 ID 直查 → 回落 KV 恰好 1 次（已知代价）',
-    byId.env.img_url._stats.get === 1, `实际 ${byId.env.img_url._stats.get} 次`);
+  check('★ 文件 ID 直查 → KV 读为 0（映射查询已切 D1）',
+    byId.env.img_url._stats.get === 0, `实际 ${byId.env.img_url._stats.get} 次`);
 
   // ---- 不存在 / 未开分享 ----
   check('不存在的短链 → 404', (await ask('s=ghost')).res.status === 404);

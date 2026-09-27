@@ -312,6 +312,42 @@ export async function getFileRecordByShareSlug(env, slug) {
 }
 
 /**
+ * 查询某个短链当前被哪个文件占用（唯一性校验用）。
+ *
+ * ## 为什么不复用 getFileRecordByShareSlug
+ *
+ * 两者的**空值语义不同**，这是本函数存在的唯一理由：
+ *
+ *   · getFileRecordByShareSlug 返回 null = 「未命中 或 未绑定 或 查询失败」，
+ *     调用方一律回落 KV —— 对**解析**来说这是对的（最坏多读一次 KV）
+ *   · 本函数返回 {owner, disabled} 明确区分三态。唯一性校验**不能**把
+ *     「查不了」当成「没人占用」：那会让两个用户拿到同一个短链，
+ *     后写的把先写的映射覆盖掉。
+ *
+ * 所以宁可要多一个函数，也不要把这里的语义指望在调用方"记得判断"上。
+ *
+ * 与 bundle 侧的 `isSlugTaken` 形状对称（那边是 {taken, disabled}）。
+ *
+ * @returns {Promise<{owner: string, disabled?: boolean, error?: string}>}
+ *   owner 为空串 = 该短链空闲；disabled = D1 不可用，调用方应回落 KV
+ */
+export async function findFileOwnerBySlug(env, slug) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env) || !slug) return { owner: '', disabled: true };
+
+  try {
+    const row = await env.DB.prepare(
+      'SELECT kv_key, id FROM files WHERE share_slug = ? LIMIT 1'
+    ).bind(String(slug)).first();
+    if (!row) return { owner: '' };
+    return { owner: String(row.kv_key || row.id || '') };
+  } catch (error) {
+    console.warn('D1 findFileOwnerBySlug failed:', error?.message || error);
+    return { owner: '', disabled: true, error: error?.message };
+  }
+}
+
+/**
  * 原子消费一次下载配额。
  *
  * ## 为什么必须这样写
