@@ -37,6 +37,14 @@ Reset & Base
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg-gradient);background-attachment:fixed;color:var(--text-main);font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;transition:background-color .55s var(--ease-apple),color .55s var(--ease-apple);}
 a{color:inherit}
+/* 预留滚动条槽位：切目录时内容高度变化不再导致滚动条「出现 / 消失」。
+   滚动条一闪，可用宽度就变 —— .admin-layout 的 1fr 内容列跟着变宽变窄，
+   .vault-grid 的 auto-fill 甚至会整列重排（5 列↔4 列），整个界面横向位移。
+   这就是「下方文件抽搐 + 上面整个界面也跟着抖」的主因：与动画无关，是布局。 */
+html{scrollbar-gutter:stable;}
+/* 兜底：不支持 scrollbar-gutter 的浏览器用常驻滚动条达到同样的宽度恒定 */
+@supports not (scrollbar-gutter:stable){html{overflow-y:scroll}}
+
 /* 等宽数字（.mono 及其它小工具类的基类已上收到 design-system.css） */
 strong.k,code{font-family:'JetBrains Mono',monospace}
 /* 小工具类 */
@@ -585,6 +593,14 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 /* 列表行离开时脱离文档流，避免占位撑高、容器即时收缩更顺滑（单行布局安全） */
 .vault-list{position:relative;}
 .vault-list > .vault-row.card-leave-active{position:absolute;left:0;right:0;}
+/* 网格：离场卡片立刻脱离布局。grid 无法像列表那样把离场项绝对定位（会跳到
+   容器左上角），而让离场卡片继续占位，切目录时「旧卡片 + 新卡片」就会同时
+   填进网格行 → 容器高度瞬间翻倍、0.24s 后再塌回 → 滚动条闪现/消失、列数
+   重排 → 下方文件抽搐、整页抖动。
+   display:none 让容器高度一步到位变成新内容高度（全程只一次重排），新卡片
+   再用 opacity/transform 淡入（二者都不触发重排），观感稳定。
+   删除单个文件等操作不受影响：网格下卡片即时消失，其余由 .card-move 平滑补位。 */
+.vault-grid > .vault-card.card-leave-active{display:none;}
 
 /* 用量监控内部：区块与操作项错峰 */
 .kv-usage-panel .kv-usage-block{animation:riseInSm .46s var(--ease-fluid) backwards;}
