@@ -17,7 +17,8 @@ import {
 import { apiError, apiSuccess } from '../../utils/api-v1.js';
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
 import { MAX_REDIRECTS, sniffImageMime, validateRedirectLocation, validateRemoteUrl } from '../../utils/ssrf-guard.js';
-import { putRecordIndex } from '../../utils/file-record.js';
+import { deriveIndexId, putRecordIndex } from '../../utils/file-record.js';
+import { findDuplicate, recordDuplicate } from '../../utils/dedup-index.js';
 
 /**
  * POST /api/v1/import (requirement #6).
@@ -485,7 +486,21 @@ export async function onRequestPost(context) {
     // Content dedup (requirement #11).
     if (deduplicate) {
       try {
-        const existing = await env.img_url.get(`sha_dup:${sha256}`, { type: 'json' });
+        // D1 优先（content_sha 唯一索引 + 90 天窗口），未命中回落 KV 的存量键。
+        // 命中后还原成 `existing` 的原形状：
+        //   · directId = kvKey（/file/<kvKey> 直接可用）
+        //   · fileId   = 剥离存储前缀后的裸 ID（与 dispatcher 的返回一致）
+        const hit = await findDuplicate(env, sha256, { ttlSeconds: DEDUP_TTL_SECONDS });
+        const existing = hit?.kvKey
+          ? {
+              fileId: deriveIndexId(hit.kvKey),
+              directId: hit.kvKey,
+              fileName: hit.fileName,
+              size: hit.size,
+              mime: hit.mime,
+              storage: hit.storage,
+            }
+          : null;
         if (existing?.directId) {
           const origin = new URL(request.url).origin;
           return apiSuccess({
@@ -531,9 +546,10 @@ export async function onRequestPost(context) {
     });
 
     // Record dedup index.
+    // D1 可用时无需登记：`content_sha` 列随记录一起落库，本身就是索引。
     if (deduplicate) {
       try {
-        await env.img_url.put(`sha_dup:${sha256}`, JSON.stringify({
+        await recordDuplicate(env, sha256, {
           fileId: uploadResult.fileId,
           directId: uploadResult.directId,
           storage,
@@ -541,7 +557,7 @@ export async function onRequestPost(context) {
           mime,
           size: sizeBytes,
           createdAt: Date.now(),
-        }), { expirationTtl: DEDUP_TTL_SECONDS });
+        }, { ttlSeconds: DEDUP_TTL_SECONDS });
       } catch { /* dedup index write failure is non-fatal */ }
     }
 

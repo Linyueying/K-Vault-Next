@@ -73,10 +73,16 @@ export const STORAGE_PREFIXES = [
   '',
 ];
 
-/** 索引键前缀（D1 模式下已弃用，仅为兼容保留常量）。 */
-export const ID_INDEX_PREFIX = 'idxt:';
-
-/** 分享下载计数键前缀（D1 模式下已弃用，仅为兼容保留常量）。 */
+/**
+ * 分享下载计数键前缀 —— **降级态专用**。
+ *
+ * D1 可用时计数在 `files.share_download_count` 列里，这个键根本不会被触碰；
+ * 只有 D1 未绑定（回滚态）时 `readDownloadCount` / `incrementDownloadCount`
+ * 才走它。已不再有别的模块 import 它，保留只为明确它在降级路径上的角色。
+ *
+ * 注：`idxt:` 常量已删除 —— `putRecordIndex` 在 D1 模式下是 no-op，
+ *     该键在代码里没有任何写入点，只剩一个没人引用的常量。
+ */
 export const DOWNLOAD_COUNT_PREFIX = 'dlc:';
 
 /**

@@ -3,6 +3,7 @@ import { parseSignedTelegramFileId, shouldWriteTelegramMetadata } from '../../ut
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
 import { apiError, apiSuccess, buildAbsoluteUrl, parsePositiveInt } from '../../utils/api-v1.js';
 import { getRecordWithKey, putRecordIndex } from '../../utils/file-record.js';
+import { findDuplicate, recordDuplicate } from '../../utils/dedup-index.js';
 
 // 注意：本文件原有的前缀顺序以 r2: 开头，与其他文件不同。
 // 保留原顺序语义（同名 ID 命中多个前缀时，命中的记录必须与优化前一致）。
@@ -55,9 +56,18 @@ async function persistUploadSideEffects(env, apiToken, idempotencyKey, contentSh
       await env.img_url.put(idempotencyStoreKey(apiToken?.id, idempotencyKey), JSON.stringify({ status: 200, body, createdAt: Date.now() }), { expirationTtl: IDEMPOTENCY_TTL_SECONDS });
     } catch { /* snapshot failures are non-fatal */ }
   }
+  // D1 可用时无需登记：`content_sha` 列随记录一起落库，本身就是索引。
+  // 只有 D1 未绑定（回滚态）才写 KV，否则白白消耗 1000 次/天的写额度。
   if (contentSha256) {
     try {
-      await env.img_url.put(`sha_dup:${contentSha256}`, JSON.stringify({ publicId: info.publicId, fileName: info.fileName, size: info.fileSize, mime: info.mime, storage: info.storageType, uploadedAt: body.file.uploadedAt }), { expirationTtl: DEDUP_TTL_SECONDS });
+      await recordDuplicate(env, contentSha256, {
+        publicId: info.publicId,
+        fileName: info.fileName,
+        size: info.fileSize,
+        mime: info.mime,
+        storage: info.storageType,
+        uploadedAt: body.file.uploadedAt,
+      }, { ttlSeconds: DEDUP_TTL_SECONDS });
     } catch { /* dedup index failures are non-fatal */ }
   }
 }
@@ -316,7 +326,19 @@ export async function onRequestPost(context) {
     try {
       const bytes = await file.arrayBuffer();
       contentSha256 = await sha256HexBuffer(bytes);
-      const existing = await env.img_url.get(`sha_dup:${contentSha256}`, { type: 'json' });
+      // D1 优先（content_sha 唯一索引 + 90 天窗口），未命中回落 KV 的存量键。
+      // 命中后统一成 `existing` 的原形状，下面拼响应的代码无需改动。
+      const hit = await findDuplicate(env, contentSha256, { ttlSeconds: DEDUP_TTL_SECONDS });
+      const existing = hit?.kvKey
+        ? {
+            publicId: hit.kvKey,
+            fileName: hit.fileName,
+            size: hit.size,
+            mime: hit.mime,
+            storage: hit.storage,
+            uploadedAt: hit.uploadedAt,
+          }
+        : null;
       if (existing?.publicId) {
         const dedupBody = {
           success: true,

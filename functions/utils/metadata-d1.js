@@ -62,6 +62,7 @@ export function rowToRecord(row) {
     TimeStamp: row.uploaded_at,
     fileName: row.file_name,
     fileSize: row.file_size,
+    mime: row.mime || undefined,
     storageType: row.storage,
     storage: row.storage,
     folderPath: row.folder_path || undefined,
@@ -400,20 +401,38 @@ export async function refundDownloadQuota(env, id) {
 /**
  * 内容去重：若 content_sha 已存在，返回已存在的记录；否则返回 null。
  *
- * 读取侧用（上传前查重，命中则秒传）。
+ * 读取侧用（上传前查重，命中则秒传）。`files.content_sha` 上有唯一索引，
+ * 因此这是一次索引查找，不是全表扫描。
+ *
+ * ## ttlSeconds 用来复刻 KV 版的语义
+ *
+ * 原先的去重索引是 KV 键 `sha_dup:<sha>`，带 `expirationTtl`（默认 90 天）：
+ * 超过窗口后同名内容允许重新上传。D1 的 `content_sha` 列没有 TTL 概念，
+ * 若直接照搬会**永久**去重 —— 语义悄悄变严，且不可逆地占用存储空间。
+ *
+ * 因此这里用 `uploaded_at > now - ttl` 把窗口显式表达出来，行为与 KV 版对齐。
+ * 传 0（默认）表示不限窗口。
+ *
  * @param {any} env
  * @param {string} sha
+ * @param {{ttlSeconds?: number}} options
  * @returns {Promise<{record: {metadata: object}, kvKey: string}|null>}
  */
-export async function findByContentSha(env, sha) {
+export async function findByContentSha(env, sha, options = {}) {
   await ensureSchema(env);
   if (!isD1Enabled(env) || !sha) return null;
 
-  try {
-    const row = await env.DB.prepare(
-      'SELECT * FROM files WHERE content_sha = ? LIMIT 1'
-    ).bind(String(sha)).first();
+  const ttlMs = Number(options.ttlSeconds) > 0 ? Number(options.ttlSeconds) * 1000 : 0;
+  const params = [String(sha)];
+  let sql = 'SELECT * FROM files WHERE content_sha = ?';
+  if (ttlMs > 0) {
+    sql += ' AND uploaded_at > ?';
+    params.push(Date.now() - ttlMs);
+  }
+  sql += ' LIMIT 1';
 
+  try {
+    const row = await env.DB.prepare(sql).bind(...params).first();
     if (!row) return null;
     return { record: rowToRecord(row), kvKey: row.kv_key || row.id };
   } catch (error) {
