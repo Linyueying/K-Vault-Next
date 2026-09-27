@@ -1338,13 +1338,18 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
              -> 连玻璃伪元素一起撤 60 FPS（长帧 0）。
    所以页面只要有任何元素在做进出场动画，就整页撤掉玻璃（含伪元素），
    动画一结束（Vue 移除 -enter-active / -leave-active）自动恢复。
-   :has() 不被支持时整条规则会被丢弃，自然降级到上一条，不影响正确性。 */
-html:has([class*="-enter-active"]) *,
-html:has([class*="-enter-active"]) *::before,
-html:has([class*="-enter-active"]) *::after,
-html:has([class*="-leave-active"]) *,
-html:has([class*="-leave-active"]) *::before,
-html:has([class*="-leave-active"]) *::after {
+   :has() 不被支持时整条规则会被丢弃，自然降级到上一条，不影响正确性。
+
+   例外：.modal-mask 必须排除。它的模糊滤的是「背后静止的页面内容」，
+   抽屉翻页（<transition name="pane-*"> 的 -enter-active 期间）背后并没有在动，
+   若一并撤掉就会出现「滑动中没模糊、停下又冒出来」的闪烁；而 dock 等被遮罩
+   盖住的玻璃已单独冻结，遮罩模糊此时是滤静止内容、开销极低。故排除 .modal-mask。 */
+html:has([class*="-enter-active"]) *:not(.modal-mask),
+html:has([class*="-enter-active"]) *:not(.modal-mask)::before,
+html:has([class*="-enter-active"]) *:not(.modal-mask)::after,
+html:has([class*="-leave-active"]) *:not(.modal-mask),
+html:has([class*="-leave-active"]) *:not(.modal-mask)::before,
+html:has([class*="-leave-active"]) *:not(.modal-mask)::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
