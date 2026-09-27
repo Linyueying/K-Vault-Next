@@ -1349,18 +1349,20 @@ html:has([class*="-leave-active"]) *::after {
   -webkit-backdrop-filter: none !important;
 }
 
-/* 弹层打开后（静止状态）才是最卡的时候：实测 17.8 FPS、22 帧里 9 帧超 50ms。
-   两个大头：
+/* 弹层打开后：遮罩后「看不见」的玻璃仍要撤掉以省开销，但 .modal-mask 自身的
+   虚化必须保留 —— 它是抽屉/弹层背后的那层磨砂，是用户明确要回来的视觉。
+   两个隐藏在遮罩后、撤掉纯收益的大头：
      - .dock 挂着 glassfx 的 SVG 折射滤镜 url(#glassfx-refract-*)，比 20px blur 更贵，
-       而弹层打开后它被遮罩完全盖住 —— 那点折射纯属白算；
-     - .modal-mask 只有 blur(4px)，但它是 position:fixed; inset:0 的整屏元素，
-       模糊开销与面积成正比，整屏 4px 并不比局部 20px 便宜。
-   同时撤掉这两处：17.8 -> 55.1 FPS，长帧归零；
-   弹层主体 .modal / .modal--sheet 的模糊保留（视觉焦点在这里，面积也小）。
-   弹层关闭后 :has() 条件消失，dock 的折射自动恢复。 */
+       而弹层打开后被遮罩完全盖住 —— 那点折射纯属白算；
+     - .selection-bar 同理，被遮罩盖住，撤掉。
+   保留：.modal-mask 的 blur(4px)（抽屉横向翻页、弹层静止期间背后都该有这层虚化） +
+   弹层主体 .modal / .modal--sheet 的模糊（视觉焦点，面积小）。
+   弹层关闭后 :has() 条件消失，dock 的折射自动恢复。
+   注：抽屉向上滑入的那一下（<transition name="sheet"> 的 -enter-active 期间）
+   模糊仍由上方「进出场动画期间撤玻璃」规则临时关掉 —— 元素在运动中本就看不出
+   背后虚化；滑动结束、抽屉静止后虚化即恢复，横向翻页滑动时也在。 */
 html:has(.modal-mask) .dock,
-html:has(.modal-mask) .selection-bar,
-html:has(.modal-mask) .modal-mask {
+html:has(.modal-mask) .selection-bar {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
