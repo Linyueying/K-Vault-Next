@@ -123,8 +123,14 @@ export async function incrementGuestCount(request, env) {
 /**
  * 获取访客配置信息（供前端展示）
  *
- * 访问路径按「高频公开接口」对待：getGuestConfigResolved 读的是 KV，
- * 这里保留该语义，不做缓存以免后台改完开关前台不生效。
+ * 读取走 getGuestConfigResolved → getRuntimeConfig，后者有 **30 秒**
+ * 进程内缓存（见 runtime-config.js 的 CACHE_TTL_MS）。后台保存/重置时
+ * 会主动失效缓存，因此**同 isolate 内改完即时生效**；跨 isolate 最坏
+ * 有 30 秒延迟 —— 这是为了抵消配置读取的读放大，可接受。
+ *
+ * ⚠️ 此前这里的注释写的是「不做缓存以免后台改完开关前台不生效」，
+ *    与代码实际行为不符（缓存一直存在）。已按真实行为改写，
+ *    避免下一个人据此"修掉"缓存而重新引入读放大。
  */
 export async function getGuestConfig(env) {
     const config = await getGuestConfigResolved(env);

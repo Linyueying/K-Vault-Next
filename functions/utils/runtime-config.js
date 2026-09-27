@@ -27,11 +27,31 @@ const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
 
 /**
- * 进程内短 TTL 缓存：这些配置会在每个 API 请求 / 每次上传时读取，
- * 若每次都回源 KV 会带来可观的读放大。配置变更极少，5 秒窗口足够，
- * 且保存/重置时会主动失效，后台改完基本即时生效。
+ * 进程内短 TTL 缓存。
+ *
+ * ============================================================================
+ * 为什么是 30 秒（而不是更长或更短）
+ * ============================================================================
+ *
+ * 这些配置在每个 API 请求 / 每次上传时都会被读一次，若每次都回源 KV
+ * 会带来读放大。但**缓存只在同 isolate 内连续请求时才有用**：
+ * 请求间隔 ≥ TTL 的话，每次请求进来缓存都已过期，等于没有缓存。
+ *
+ * 实测口径（scripts/bench-p6-config.mjs）：
+ *   · 访客上传间隔约 30s → 5s 与 30s **回源次数相同**，这个场景不省
+ *   · CORS 预检间隔约 2s → 5s 合并 2.5x 请求，30s 合并 15x
+ *
+ * 也就是说收益只出现在秒级间隔的高频路径上。而代价是**跨 isolate 的
+ * 配置生效延迟**：后台改完开关，最坏 30 秒后其他 isolate 才看到。
+ *
+ * 之所以敢拉长，是因为 `saveRuntimeConfig` / `resetRuntimeConfig`
+ * **主动删缓存**，所以「后台改完即时生效」在同 isolate 内始终成立；
+ * 跨 isolate 的那点延迟用户感知不到（改配置本就是低频人工操作）。
+ *
+ * 如果将来发现某个配置组的变更必须全局即时生效，正确做法是给那一组
+ * 单独设 TTL，而不是把全局 TTL 调回 5s —— 那会让高频路径重新读放大。
  */
-const CACHE_TTL_MS = 5000;
+const CACHE_TTL_MS = 30000;
 const configCache = new Map(); // group -> { ts, value, source }
 
 function toPositiveInt(value, fallback) {
@@ -177,6 +197,25 @@ export async function resetRuntimeConfig(env, group) {
   }
   configCache.delete(group);
   return def.fromEnv(env);
+}
+
+/**
+ * 仅失效进程内缓存，**不触碰 KV**。
+ *
+ * 与 resetRuntimeConfig 的区别：reset 会删 KV 键（回退到 env 基线），
+ * 而本函数只把缓存丢掉，下次读会重新回源 KV 取到真实值。
+ *
+ * 存在理由：测试需要让每个用例从"干净缓存"开始，但又不能删掉预置的
+ * KV 数据。生产代码也可以用它来在已知外部变更后强制刷新。
+ *
+ * @param {string} [group] - 省略则失效全部组
+ */
+export function invalidateRuntimeConfigCache(group) {
+  if (group == null) {
+    configCache.clear();
+    return;
+  }
+  configCache.delete(group);
 }
 
 /* ---------------- 分组便捷入口（保持旧签名兼容） ---------------- */
