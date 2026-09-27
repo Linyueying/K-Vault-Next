@@ -3193,7 +3193,14 @@ Vue.createApp({
     },
 
     selectFolder(path) {
-      this.folderPath = this.normalizeFolderPath(path);
+      const next = this.normalizeFolderPath(path);
+      if (next === this.folderPath) return;
+      /* 目录切换没有左右方向语义，用无方向淡入转场，避免 .view-forward/.back
+         的水平位移让「旧目录内容」与「新目录内容（可能是空状态）」交错覆盖。
+         网格 ⇄ 列表的方向感知转场只由 setView() 负责。 */
+      this.viewTransition = 'view-fade';
+      this.openMenu = null;
+      this.folderPath = next;
       this.currentPage = 1;
       try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
     },
