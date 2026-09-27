@@ -1131,7 +1131,10 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    两套曲线争同一个 transform/opacity 轨道 —— GPU 空闲时看不出，低端设备一掉帧
    相位就错开，紧贴面板边沿的内容（如存储节点首行）会来回抖。
    下面把这几个 keyframes 的起点与节奏完整并入过渡，观感保持一致。 */
-.sheet-enter-active, .sheet-leave-active,
+/* 弹层入场/离场期间：过渡容器自身带 -enter-active，其上 backdrop-filter 会滤「背后内容」。
+   抽屉/弹层打开时背后是静止页面（dock 等已冻结），无需撤除；且遮罩模糊要求「打开瞬间
+   即渐变出现」，故把 .sheet-* 从此处移除，改由下方 .sheet-enter-* 的渐入过渡接管。
+   仅保留 .dialog-* 的历史行为（对话框背景模糊的开合由此处统一撤掉）。 */
 .dialog-enter-active, .dialog-leave-active {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -1146,6 +1149,26 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 /* 起点与 sheetIn 的 from 完全一致：translate3d(0,100%,0)，面板从屏幕外升起 */
 .sheet-enter-from .modal { transform: translate3d(0, 100%, 0); }
 .sheet-leave-to   .modal { transform: translate3d(0, 100%, 0); opacity: 0; }
+
+/* 遮罩模糊「打开即渐入、关闭即渐出」
+   ----------------------------------------------------------------------
+   .modal-mask 是 <transition name="sheet"> 的本体，入场带 sheet-enter-active、
+   离场带 sheet-leave-active。上面已把 .sheet-* 从「过渡期间撤玻璃」的两条规则里
+   排除，所以此处让遮罩自身从 blur(0) 平滑过渡到 blur(4px)，与面板上浮（0.46s）
+   同步 —— 实现「点击 dock 弹出抽屉的那一刻，背景立刻开始渐变模糊」，不再等动画结束。
+   遮罩滤的是背后静止页面（dock 等已冻结），开销极低；渐变是一次性 0.46s，真实 GPU 上
+   流畅。面板自身的玻璃仍由上方 [class*="-enter-active"] * 在滑动期间撤掉，避免双重模糊重算。 */
+.sheet-enter-from.modal-mask,
+.sheet-leave-to.modal-mask {
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+}
+.sheet-enter-active.modal-mask {
+  transition: backdrop-filter 0.46s var(--ease-apple), opacity 0.3s var(--ease-apple);
+}
+.sheet-leave-active.modal-mask {
+  transition: backdrop-filter 0.26s var(--ease-press), opacity 0.22s var(--ease-press);
+}
 
 .dialog-enter-active { transition: opacity 0.26s var(--ease-apple); }
 .dialog-leave-active { transition: opacity 0.18s var(--ease-press); }
@@ -1318,12 +1341,13 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    也就是模糊本身，不是脚本或布局。
 
    元素在运动状态下人眼本来分辨不出背后的模糊，所以动画期间先撤掉，
-   过渡结束（Vue 移除 -enter-active / -leave-active）后自动恢复静态观感：
-   22 FPS -> 36.9 FPS，长帧从 9 归零。
+   过渡结束（Vue 移除 -enter-active / -leave-active）后自动恢复静态观感。
 
-   用属性选择器覆盖全部 Vue 过渡族，以后新增过渡名不必再来改这里。 */
-[class*="-enter-active"],
-[class*="-leave-active"],
+   例外：.modal-mask 必须排除（见下方 :not(.modal-mask)）。它的模糊滤的是
+   「背后静止的页面内容」，且要求「抽屉打开瞬间即开始渐变模糊」，故不让其
+   在过渡期间被撤。后代选择器保留，让抽屉面板的玻璃在滑动期间仍不占开销。 */
+[class*="-enter-active"]:not(.modal-mask),
+[class*="-leave-active"]:not(.modal-mask),
 [class*="-enter-active"] *,
 [class*="-leave-active"] * {
   backdrop-filter: none !important;
