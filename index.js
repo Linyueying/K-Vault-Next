@@ -251,7 +251,7 @@
         uploadFolderCreating: false,
         expandedFolders: {},
         storageMode: "telegram",
-        storageTarget: "Telegram 频道",
+        storageTarget: STORAGE_META.telegram.label,
         r2Available: false, s3Available: false, discordAvailable: false,
         huggingfaceAvailable: false, githubAvailable: false,
         authChecking: true, isGuest: false, guestUploadConfig: null, guestBlocked: false,
@@ -1264,7 +1264,7 @@
         if (silent && this.nodeResolving) this.beginNodeSettle();
         const changed = this.storageMode !== mode;
         this.storageMode = mode;
-        this.storageTarget = labels[mode]?.label || "Telegram 频道";
+        this.storageTarget = labels[mode]?.label || STORAGE_META.telegram.label;
         try { localStorage.setItem("storageMode", mode); } catch (e) {}
         this.loadFolderPathForMode(mode);
         if (changed && !this.nodeResolving) this.pulseNodeSettle();
@@ -3376,7 +3376,7 @@
                 maxDailyUploads: data.guestUpload.dailyLimit || 10,
               };
               this.storageMode = "telegram";
-              this.storageTarget = "Telegram 频道";
+              this.storageTarget = STORAGE_META.telegram.label;
               return;
             }
             /* 需要登录、且访客上传未开启：明确标记为「禁止上传」。

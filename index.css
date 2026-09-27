@@ -337,7 +337,7 @@
         margin-bottom: var(--sp-5);
         padding: var(--sp-1) var(--sp-1);
       }
-      .brand { display: flex; align-items: center; gap: var(--sp-3); user-select: none; }
+      .brand { display: flex; align-items: center; gap: var(--sp-3); user-select: none; min-width: 0; }
       .brand__logo {
         width: 38px; height: 38px;
         border-radius: var(--r-sm);
@@ -349,10 +349,14 @@
       }
       .brand:hover .brand__logo { transform: rotate(-6deg) scale(1.06); box-shadow: 0 8px 20px rgba(2, 132, 199, 0.24); }
       .brand__logo img { width: 24px; height: 24px; object-fit: contain; }
+      .brand__text { min-width: 0; }
       .brand__text h1 {
         font-size: var(--fs-xl); font-weight: 800; letter-spacing: -0.02em;
-        background: linear-gradient(135deg, var(--text-main) 30%, var(--primary));
+        /* 统一保持蓝色系渐变，避免初始化时因品牌名长度不同出现「偏黑 / 偏蓝」差异 */
+        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        max-width: 100%;
       }
       .brand__text span { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-top: -2px; }
 
@@ -363,8 +367,10 @@
         gap: var(--sp-2);
         padding: 7px var(--sp-4);
         /* 按最长标签（Cloudflare R2 / HuggingFace）估算的托底宽度：
-           文字少时不至于太窄，文字多时自然撑开、不截断。 */
+           文字少时不至于太窄；max-width 与内部 .status-pill__text 的截断配合，
+           防止自定义文案过长时把顶栏撑爆。 */
         min-width: 136px;
+        max-width: min(220px, 42vw);
         border-radius: var(--r-pill);
         background: var(--glass-surface);
         border: 1px solid var(--glass-border-ice);
@@ -378,6 +384,15 @@
       .status-pill:hover { border-color: var(--primary); transform: translateY(-1px); }
       .status-pill:active { transform: scale(0.96); transition-duration: 0.1s; }
       .status-pill__pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--c-success); animation: pulseRing 2.4s var(--ease-apple) infinite; }
+      .status-pill__text {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        /* 切换动画期间保持单行，避免旧文字未离场、新文字已进场时重排成两行 */
+        display: inline-block;
+        max-width: 100%;
+      }
 
       /* 访客横幅 */
       .guest-banner {
