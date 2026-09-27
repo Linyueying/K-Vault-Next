@@ -1088,16 +1088,23 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-forward-enter-active > *:nth-child(n + 5),
 .view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
 
-/* 无方向「淡出淡入」转场：目录切换专用。
-   配合模板的 mode="out-in"（旧内容完全离场后新内容才入场），
-   彻底避免「旧卡片与新内容同框」——那正是切目录抽搐的根因。
-   leave 快（0.14s）让切换不拖沓，enter 稍缓（0.22s）纯淡入，无位移。 */
+/* 无方向「淡出淡入」转场：目录切换专用（交叉过渡，非 out-in）。
+   【为什么不用 mode="out-in"】out-in 会让容器在「旧内容已走、新内容未到」
+   的间隙塌到 0 高度，随后被新内容猛地撑开 —— 高度 183px↔221px 的瞬间跳变
+   就是「图片出来时抽搐一下」的根因。高度另由 JS 的 FLIP 平滑（见 admin.html
+   的 _switchFolder）。
+   这里保持交叉：离场元素绝对定位（脱离文档流、不参与撑高）并快速淡出，
+   入场元素从第一帧就以正确高度占位、纯 opacity 淡入、无位移 —— 即使两者
+   极短暂共存，也是同一位置的淡出叠淡入，不会出现「错位同框」。 */
 .view-fade-enter-active {
   transition: opacity 0.22s var(--ease-apple);
   will-change: opacity;
 }
 .view-fade-leave-active {
-  transition: opacity 0.14s var(--ease-press);
+  /* 离场：脱离文档流（不撑高容器，容器高度交给入场的占位元素决定），
+     并快速淡出，尽量缩短与入场内容的共存时间。 */
+  transition: opacity 0.1s var(--ease-press);
+  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
 }
 .view-fade-enter-from { opacity: 0; }
 .view-fade-leave-to   { opacity: 0; }

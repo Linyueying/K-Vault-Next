@@ -1428,13 +1428,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div class="view-stage">
 
       <!-- 网格视图 -->
-      <!-- mode="out-in"：旧内容完全离场后新内容才入场。
-           默认的交叉模式（enter+leave 同时）会让「旧卡片」与「新内容/空状态」
-           在同一位置同框——实测能持续约 175ms，就是切目录时的「抽搐」。
+      <!-- 交叉过渡（不加 mode="out-in"）：out-in 会让容器在「旧内容已走、
+           新内容未到」的间隙塌到 0 高度，随后又被新内容猛地撑开 —— 高度
+           183px↔221px 的瞬间跳变就是「图片出来时抽搐一下」的根因。
+           这里保持交叉：离场元素绝对定位（不占位、快速淡出），入场元素
+           从第一帧就以正确高度占位，容器高度只由入场元素决定，平滑交接。
            key 带上 folderPath：grid→grid 的目录切换若 key 不变，Vue 会判定
-           节点未变、跳过转场，只原地替换 v-for 的卡片，导致新旧动画相撞；
-           带目录后 key 变化，切换时正确走 out-in 串行过渡。 -->
-      <transition :name="viewTransition" mode="out-in">
+           节点未变、跳过转场，只原地替换 v-for 的卡片，导致新旧动画相撞。 -->
+      <transition :name="viewTransition">
       <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" :key="'grid:'+folderPath">
         <div v-for="item in pageData" :key="item.name"
              class="vault-card"
@@ -3206,9 +3207,60 @@ Vue.createApp({
          网格 ⇄ 列表的方向感知转场只由 setView() 负责。 */
       this.viewTransition = 'view-fade';
       this.openMenu = null;
+      this._switchFolder(next);
+    },
+
+    /* 目录切换：FLIP 平滑 .view-stage 的高度。
+       切换前后内容高度往往不同（空状态 ≈183px、一屏卡片 ≈221px），
+       容器高度直接突变就是「图片出来时抽搐一下」的观感来源。
+       做法：先量出切换前高度并锁死 → 换目录 → nextTick 量出新高 →
+       对 height 做一次过渡 → 结束后清除内联样式，恢复自适应。
+       （与模板的「交叉过渡」配合：新内容在 nextTick 时已进入 DOM，能量到高度） */
+    _switchFolder(next) {
+      /* 用 document.querySelector 而非 this.$el.querySelector：
+         该组件是 Options API + Fragment 根，this.$el 可能只是根片段中的
+         第一个节点（不一定是 #app），在其下查 .view-stage 取不到。 */
+      const stage = document.querySelector('.view-stage');
+      const before = stage ? stage.getBoundingClientRect().height : 0;
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
       this.folderPath = next;
       this.currentPage = 1;
       try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
+
+      if (!stage || !before || reduce) return;
+
+      // 锁定当前高度，避免切换瞬间塌缩
+      stage.style.height = before + 'px';
+      stage.style.overflow = 'hidden';
+
+      this.$nextTick(() => {
+        // 等一帧，确保入场节点已插入并完成首帧布局
+        requestAnimationFrame(() => {
+          /* 量「入场（新）内容」的高度：交叉过渡下旧内容带 *-leave-active
+             仍在 DOM 里，直接取 firstElementChild 会量到旧高度。这里排除
+             离场节点；若都已就位（如单节点），退回取第一个子元素。 */
+          const kids = Array.from(stage.children);
+          const incoming = kids.find(el => !/-(leave|leave-active|leave-to)/.test(el.className)) || kids[0];
+          const after = incoming ? incoming.getBoundingClientRect().height : stage.scrollHeight;
+          if (!after || Math.abs(after - before) < 1) {
+            // 高度没变或量不到：直接复原
+            stage.style.height = '';
+            stage.style.overflow = '';
+            return;
+          }
+          stage.style.transition = 'height 0.24s cubic-bezier(0.22, 1, 0.36, 1)';
+          stage.style.height = after + 'px';
+          const clear = () => {
+            stage.style.transition = '';
+            stage.style.height = '';
+            stage.style.overflow = '';
+            stage.removeEventListener('transitionend', clear);
+          };
+          stage.addEventListener('transitionend', clear);
+          setTimeout(clear, 400); // 兜底
+        });
+      });
     },
 
     /* ================= 用量监控（KV + R2） ================= */
