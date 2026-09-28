@@ -24,8 +24,7 @@ import sys
 from collections import defaultdict
 
 PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
-         'share.html', 'preview.html', 'webdav.html', 'login.html',
-         'landing.html']
+         'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 SHARED_CSS = 'design-system.css'
 SHARED_JS = 'app-core.js'
@@ -226,20 +225,6 @@ CRITICAL_EXCEPTIONS = {
 # ------------------------------------------------- 加载顺序的允许例外
 # 某些「覆盖层」样式表被**有意**排在基础层之后，靠级联赢得优先级。
 # 这类文件必须显式登记，避免变成「不知不觉又插了一层」。
-# ------------------------------------------------- 页面级自有资源
-# 个别页面在共享层之外还带**自己的**样式表 / 脚本，最典型的是宣传页 landing.html。
-# 它们不属于共享层，也不该被要求出现在其他页面里；检查加载顺序时先摘掉这几个名字。
-PAGE_OWN_ASSETS = {
-    'landing.html': {
-        'css': ['landing.css'],
-        'js': ['landing.js'],
-        'why': '宣传页：独立于应用 8 页的营销页面，自带 landing.css / landing.js。'
-               '它复用共享令牌与 .btn 等组件，基础层顺序仍与基准一致'
-               '（font-awesome → glass.css → design-system.css → theme.css），'
-               '只是多了一层页面级样式；页内不写任何内联 <style>/<script>。',
-    },
-}
-
 LATE_LOAD_CSS = {
     'mobile-refactor.css':
         '移动端覆盖层：必须在 design-system.css / theme.css 之后加载才能生效'
@@ -279,7 +264,7 @@ def main():
             for h in hits:
                 print('        %s' % h)
     if not a_bad:
-        print('  [OK]   %d 页均无重复实现' % len(PAGES))
+        print('  [OK]   8 页均无重复实现')
     bad += a_bad
 
     # ------------------------------------------------- B. 样式/脚本加载顺序
@@ -296,11 +281,7 @@ def main():
     b_bad = 0
     for p in PAGES:
         css, js = orders[p]
-        own = PAGE_OWN_ASSETS.get(p, {})
-        own_css = set(own.get('css', []))
-        own_js = set(own.get('js', []))
-        css_cmp = [c for c in css if c not in late_allowed and c not in own_css]
-        js_cmp = [j for j in js if j not in own_js]
+        css_cmp = [c for c in css if c not in late_allowed]
         probs = []
         # 顺序必须与基准一致（子序列语义：允许各页只加载部分，但相对顺序不能变）
         idx, ok = 0, True
@@ -312,9 +293,9 @@ def main():
             probs.append('CSS 顺序 %s 与基准不一致，基准为 %s' % (css, ref_css))
         idx = 0
         for name in ref_js:
-            if idx < len(js_cmp) and js_cmp[idx] == name:
+            if idx < len(js) and js[idx] == name:
                 idx += 1
-        if idx != len(js_cmp):
+        if idx != len(js):
             ok = False
             probs.append('JS 顺序 %s 与基准不一致，基准为 %s' % (js, ref_js))
         # 未登记的覆盖层 = 新插了一层，必须显式登记（在下方 used_late 统一处理）
@@ -324,20 +305,14 @@ def main():
             for x in probs:
                 print('        %s' % x)
     if not b_bad:
-        print('  [OK]   %d 页基础加载顺序一致' % len(PAGES))
+        print('  [OK]   8 页基础加载顺序一致')
         print('         CSS  : %s' % ' -> '.join(ref_css))
         print('         JS   : %s' % ' -> '.join(ref_js))
-        for p, own in PAGE_OWN_ASSETS.items():
-            print('  [登记] %s 另有页面级资源 %s —— %s'
-                  % (p, ' + '.join(own.get('css', []) + own.get('js', [])), own.get('why', '')))
 
     # 覆盖层使用情况：只允许出现在已登记的文件里
     used_late = {}
     for p in PAGES:
-        own_css = set(PAGE_OWN_ASSETS.get(p, {}).get('css', []))
         for c in orders[p][0]:
-            if c in own_css:
-                continue
             if c.endswith('refactor.css') or c in late_allowed:
                 used_late.setdefault(c, []).append(p)
     for name, ps in sorted(used_late.items()):

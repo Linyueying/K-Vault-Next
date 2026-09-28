@@ -9,14 +9,8 @@
 import re, sys, io, os, glob
 
 SHARED = 'design-system.css'
-# 页面级样式表也要一起看：共享层的关键帧可能只被 index.css 这类页面样式表引用，
-# 只扫 HTML 会把它们误判成「死关键帧」（历史假阳性：titleIn / bounceDown 其实被
-# index.css 用着）。宣传页的 landing.css 同样纳进来，避免它成为新的盲区。
-PAGE_CSS = sorted(f for f in os.listdir('.')
-                  if f.endswith('.css') and f != SHARED)
 PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
-         'share.html', 'preview.html', 'webdav.html', 'login.html',
-         'landing.html']
+         'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 VAR_DEF = re.compile(r'(--[a-zA-Z0-9-]+)\s*:')
 VAR_USE = re.compile(r'var\(\s*(--[a-zA-Z0-9-]+)')
@@ -53,8 +47,6 @@ def main():
     page_text = ''
     for p in PAGES:
         page_text += io.open(p, encoding='utf-8').read()
-    for css_name in PAGE_CSS:
-        page_text += io.open(css_name, encoding='utf-8').read()
     for decl in ANIM_USE.findall(strip_css_comments(page_text)):
         first = decl.strip().split()[0]
         if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', first):
