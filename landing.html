@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-own-theme-toggle>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>K-Vault-Next · 不用服务器，也能有自己的云盘</title>
+    <meta
+      name="description"
+      content="K-Vault-Next · 跑在 Cloudflare Pages 上的 Serverless 云盘与图床：七种存储后端、R2 原生分片 10GB、分享短链、文本粘贴与机器可调用 API，零构建步骤、零运行时依赖。"
+    />
+    <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="K-Vault-Next · 跑在 Cloudflare Pages 上的 Serverless 云盘" />
+    <meta
+      property="og:description"
+      content="七种存储后端、R2 原生分片 10GB、分享短链与 API。无构建步骤、无 Docker、零运行时依赖。"
+    />
+    <meta property="og:image" content="/logo-180.png" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/logo-180.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/vendor/glassfx/glass.css" />
+    <link rel="stylesheet" href="/design-system.css" />
+    <link rel="stylesheet" href="/theme.css" />
+    <link rel="stylesheet" href="/landing.css" />
+    <script src="/theme.js?v=20260305"></script>
+    <script defer src="/app-core.js"></script>
+    <script defer src="/landing.js"></script>
+  </head>
+  <body class="lp">
+    <!-- ============================================================
+         背景层：网格 + 光斑 + 环境光球 + 光标聚光
+         纯 CSS/SVG 绘制，不使用任何截图素材
+         ============================================================ -->
+    <div class="lp-bg" aria-hidden="true">
+      <div class="lp-bg__mesh"></div>
+      <div class="lp-bg__grid"></div>
+      <div class="lp-orb lp-orb--1" data-depth="26"></div>
+      <div class="lp-orb lp-orb--2" data-depth="44"></div>
+      <div class="lp-orb lp-orb--3" data-depth="18"></div>
+      <div class="lp-bg__spot"></div>
+      <div class="lp-bg__noise"></div>
+    </div>
+
+    <div class="lp-progress" aria-hidden="true"><span id="lpProgress"></span></div>
+
+    <!-- ============================================================ 顶栏 -->
+    <header class="lp-nav" id="lpNav">
+      <div class="lp-nav__inner">
+        <a class="lp-brand" href="#top" aria-label="K-Vault-Next 首页">
+          <span class="lp-brand__mark">
+            <svg viewBox="0 0 44 44" role="img" aria-hidden="true">
+              <defs>
+                <linearGradient id="lpBrandGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="var(--primary-light)" />
+                  <stop offset="100%" stop-color="var(--primary-dark)" />
+                </linearGradient>
+              </defs>
+              <path
+                class="lp-brand__hex"
+                d="M22 3.5 37.5 12v20L22 40.5 6.5 32V12z"
+                fill="none"
+                stroke="url(#lpBrandGrad)"
+                stroke-width="2.4"
+                stroke-linejoin="round"
+              />
+              <circle class="lp-brand__ring" cx="22" cy="19.5" r="5.2" fill="none"
+                      stroke="url(#lpBrandGrad)" stroke-width="2.2" />
+              <path class="lp-brand__stem" d="M22 24.4v7.4" stroke="url(#lpBrandGrad)"
+                    stroke-width="2.6" stroke-linecap="round" />
+            </svg>
+          </span>
+          <span class="lp-brand__text">
+            <strong>K-Vault</strong><em>Next</em>
+            <i>Serverless Vault</i>
+          </span>
+        </a>
+
+        <nav class="lp-nav__links" id="lpNavLinks">
+          <a href="#features">亮点</a>
+          <a href="#backends">存储后端</a>
+          <a href="#glass">玻璃 / 模糊</a>
+          <a href="#pages">八个页面</a>
+          <a href="#deploy">快速开始</a>
+          <a href="#api">API</a>
+        </nav>
+
+        <div class="lp-nav__actions">
+          <button class="lp-theme" type="button" data-theme-toggle aria-label="切换主题">
+            <i class="fas fa-moon" data-theme-icon></i>
+            <span data-theme-label>夜间</span>
+          </button>
+          <a class="btn btn--sm lp-nav__cta" href="/index.html">
+            <i class="fas fa-cloud-arrow-up"></i> 打开应用
+          </a>
+        </div>
+
+        <button class="lp-burger" type="button" id="lpBurger" aria-label="展开导航" aria-expanded="false">
+          <i class="fas fa-list-ul"></i>
+        </button>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- ========================================================== HERO -->
+      <section class="lp-hero">
+        <div class="lp-hero__inner">
+          <div class="lp-hero__copy">
+            <span class="lp-pill lp-pill--live" data-reveal>
+              <span class="lp-pill__dot"></span>
+              Cloudflare Pages · Serverless · 零运行时依赖
+            </span>
+
+            <h1 class="lp-title">
+              <span class="lp-title__line" data-split data-delay="120">不用服务器</span>
+              <span class="lp-title__line" data-split data-delay="320">
+                也能有自己的<em class="lp-title__grad">云盘</em>
+              </span>
+            </h1>
+
+            <p class="lp-lede" data-reveal style="--d: 0.45s">
+              <strong>K-Vault-Next</strong> 把文件托管这件事压进了一份仓库：文件写进你选的
+              <b>七种存储后端</b>，元数据落在 <b>Cloudflare KV</b>，对外给出直链、预览、目录树、分享短链、
+              文本粘贴和一套机器可调用的 API。没有 Node 服务器，没有 Docker，也没有构建步骤。
+            </p>
+
+            <div class="lp-cta" data-reveal style="--d: 0.55s">
+              <a class="btn btn--lg btn--primary lp-magnet" href="#deploy">
+                五分钟完成部署 <i class="fas fa-arrow-right-long"></i>
+              </a>
+              <a class="btn btn--lg lp-magnet" href="#api">
+                看 API 概览 <i class="fas fa-code"></i>
+              </a>
+            </div>
+
+            <ul class="lp-quick" data-reveal style="--d: 0.65s">
+              <li><i class="fas fa-check-circle"></i> 无构建步骤</li>
+              <li><i class="fas fa-check-circle"></i> 无 Docker</li>
+              <li><i class="fas fa-check-circle"></i> 无任何遥测</li>
+              <li><i class="fas fa-check-circle"></i> 免费额度内零成本</li>
+            </ul>
+          </div>
+
+          <!-- 纯 CSS 绘制的「应用界面」——不使用 Demo 截图 -->
+          <div class="lp-hero__stage" data-tilt data-tilt-max="7">
+            <div class="lp-stage__glow"></div>
+
+            <div class="lp-window lp-glass lp-tilt__layer" data-depth="10">
+              <div class="lp-window__bar">
+                <span class="lp-dot lp-dot--r"></span>
+                <span class="lp-dot lp-dot--y"></span>
+                <span class="lp-dot lp-dot--g"></span>
+                <span class="lp-window__url">
+                  <i class="fas fa-lock"></i> your-vault.pages.dev
+                </span>
+                <span class="lp-nodechip">
+                  <span class="lp-nodechip__pulse"></span> R2 · 智能节点
+                </span>
+              </div>
+
+              <div class="lp-window__body">
+                <div class="lp-drop">
+                  <span class="lp-drop__rings" aria-hidden="true">
+                    <i></i><i></i><i></i>
+                  </span>
+                  <i class="fas fa-cloud-arrow-up lp-drop__icon"></i>
+                  <b>拖进来，就传好了</b>
+                  <small>分片上传 · R2 单文件最高 10 GB · 暂存后端可切 auto / r2 / kv</small>
+                </div>
+
+                <ul class="lp-files">
+                  <li class="lp-file" style="--i: 0">
+                    <i class="fas fa-image lp-file__ico"></i>
+                    <span class="lp-file__name">hero-cover.png</span>
+                    <span class="lp-file__bar"><i style="--w: 100%"></i></span>
+                    <span class="lp-file__tag lp-file__tag--ok"><i class="fas fa-check"></i> 直链就绪</span>
+                  </li>
+                  <li class="lp-file" style="--i: 1">
+                    <i class="fas fa-file-video lp-file__ico"></i>
+                    <span class="lp-file__name">demo-4k.mp4</span>
+                    <span class="lp-file__bar"><i style="--w: 72%"></i></span>
+                    <span class="lp-file__tag">分片 72%</span>
+                  </li>
+                  <li class="lp-file" style="--i: 2">
+                    <i class="fas fa-file-zipper lp-file__ico"></i>
+                    <span class="lp-file__name">backup-2026.zip</span>
+                    <span class="lp-file__bar"><i style="--w: 100%"></i></span>
+                    <span class="lp-file__tag lp-file__tag--link">
+                      <i class="fas fa-link"></i> /s/ocean
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="lp-term lp-glass lp-tilt__layer" data-depth="24">
+              <div class="lp-term__head">
+                <i class="fas fa-code"></i> 部署就这三行
+              </div>
+              <pre class="lp-term__body"><code id="lpTyping"></code><span class="lp-caret"></span></pre>
+            </div>
+
+            <span class="lp-float lp-float--a lp-glass">
+              <i class="fas fa-hard-drive"></i> 10 GB 单文件
+            </span>
+            <span class="lp-float lp-float--b lp-glass">
+              <i class="fas fa-shield-halved"></i> 管理面 fail-closed
+            </span>
+            <span class="lp-float lp-float--c lp-glass">
+              <i class="fas fa-infinity"></i> 零运行时依赖
+            </span>
+          </div>
+        </div>
+
+        <a class="lp-scroll" href="#features" aria-label="向下滚动">
+          <span>向下滚动</span>
+          <i class="fas fa-chevron-down"></i>
+        </a>
+      </section>
+
+      <!-- ========================================================= 数据条 -->
+      <section class="lp-section lp-section--tight" id="stats">
+        <div class="lp-stats">
+          <div class="lp-stat lp-glass" data-reveal style="--d: 0s">
+            <b><span data-count="7">0</span></b>
+            <span class="lp-stat__unit">种</span>
+            <p>存储后端</p>
+            <i class="fas fa-layer-group lp-stat__ico"></i>
+          </div>
+          <div class="lp-stat lp-glass" data-reveal style="--d: 0.08s">
+            <b><span data-count="8">0</span></b>
+            <span class="lp-stat__unit">个</span>
+            <p>完整页面</p>
+            <i class="fas fa-images lp-stat__ico"></i>
+          </div>
+          <div class="lp-stat lp-glass" data-reveal style="--d: 0.16s">
+            <b><span data-count="10">0</span></b>
+            <span class="lp-stat__unit">GB</span>
+            <p>R2 单文件上限</p>
+            <i class="fas fa-hard-drive lp-stat__ico"></i>
+          </div>
+          <div class="lp-stat lp-glass" data-reveal style="--d: 0.24s">
+            <b><span data-count="0">0</span></b>
+            <span class="lp-stat__unit">步</span>
+            <p>构建 / 运行时依赖</p>
+            <i class="fas fa-infinity lp-stat__ico"></i>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================= 亮点 -->
+      <section class="lp-section" id="features">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-magic-wand-sparkles"></i> 为什么是 Next</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">
+            砍掉自托管，把力气<span class="lp-grad">全花在 Pages 这一条路上</span>
+          </h2>
+          <p class="lp-sub" data-reveal style="--d: 0.12s">
+            上游是「Pages + Docker 双模」的通用文件托管；K-Vault-Next 只留一种部署形态，
+            省下来的复杂度换成了前端统一、鉴权加固、分片上传升级与分享体系重构。
+          </p>
+        </header>
+
+        <div class="lp-bento">
+          <article class="lp-card lp-glass lp-glowcard" data-reveal>
+            <i class="fas fa-cloud lp-card__ico"></i>
+            <h3>只有一种部署形态</h3>
+            <p>
+              根目录静态页 + <code>functions/</code> 下的 Pages Functions。
+              没有 Node 运行时、没有 Dockerfile、没有 GHCR 镜像，也没有 Sentry 埋点。
+            </p>
+            <ul class="lp-tags">
+              <li>零运行时依赖</li>
+              <li>零遥测</li>
+              <li>无构建命令</li>
+            </ul>
+          </article>
+
+          <article class="lp-card lp-glass lp-glowcard" data-reveal style="--d: 0.06s">
+            <i class="fas fa-layer-group lp-card__ico"></i>
+            <h3>七种存储后端，一个入口</h3>
+            <p>
+              Telegram（默认）、Cloudflare R2、S3 兼容、Discord、HuggingFace、WebDAV、GitHub。
+              前端「存储节点」抽屉支持智能节点选择，超过阈值自动切换后端。
+            </p>
+            <ul class="lp-tags">
+              <li>并行上传池</li>
+              <li>后端缺失直接报错</li>
+            </ul>
+          </article>
+
+          <article class="lp-card lp-card--wide lp-glass lp-glowcard" data-reveal style="--d: 0.12s">
+            <div class="lp-card__lead">
+              <i class="fas fa-hard-drive lp-card__ico"></i>
+              <h3>R2 原生 multipart：单文件上限 100 MB → 10 GB</h3>
+              <p>
+                改用 R2 原生分片上传，暂存位置 <code>auto</code> / <code>r2</code> / <code>kv</code>
+                可在后台切换；Telegram 池与分片池分离，并行上传可开关。
+              </p>
+            </div>
+            <div class="lp-bars" data-live>
+              <div class="lp-bar" style="--v: 100%">
+                <span class="lp-bar__label">R2</span>
+                <span class="lp-bar__track"><i></i></span>
+                <span class="lp-bar__val">10 GB</span>
+              </div>
+              <div class="lp-bar" style="--v: 42%">
+                <span class="lp-bar__label">S3</span>
+                <span class="lp-bar__track"><i></i></span>
+                <span class="lp-bar__val">40 MB</span>
+              </div>
+              <div class="lp-bar" style="--v: 42%">
+                <span class="lp-bar__label">WebDAV</span>
+                <span class="lp-bar__track"><i></i></span>
+                <span class="lp-bar__val">40 MB</span>
+              </div>
+              <div class="lp-bar" style="--v: 36%">
+                <span class="lp-bar__label">HuggingFace</span>
+                <span class="lp-bar__track"><i></i></span>
+                <span class="lp-bar__val">35 MB</span>
+              </div>
+              <div class="lp-bar" style="--v: 26%">
+                <span class="lp-bar__label">Discord</span>
+                <span class="lp-bar__track"><i></i></span>
+                <span class="lp-bar__val">25 MB</span>
+              </div>
+              <div class="lp-bar" style="--v: 21%">
+                <span class="lp-bar__label">Telegram</span>
+                <span class="lp-bar__track"><i></i></span>
+                <span class="lp-bar__val">20 MB</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="lp-card lp-glass lp-glowcard" data-reveal>
+            <i class="fas fa-share-nodes lp-card__ico"></i>
+            <h3>分享是「按条目」的</h3>
+            <p>
+              <code>/s/:slug</code> 跳到分享落地页：有效期、访问密码、下载次数上限、自定义短链四项前后端都能设。
+              预览不计次，点「下载」才计数。
+            </p>
+            <ul class="lp-tags">
+              <li>410 过期 / 用量用尽</li>
+              <li>401 · 403 密码语义</li>
+            </ul>
+          </article>
+
+          <article class="lp-card lp-glass lp-glowcard" data-reveal style="--d: 0.06s">
+            <i class="fas fa-sliders lp-card__ico"></i>
+            <h3>高频配置写 KV，即时生效</h3>
+            <p>
+              <code>config:guest</code> / <code>config:cors</code> / <code>config:upload</code>
+              三组配置在后台改完立刻生效，不用重新部署；环境变量退化为基线值，随时可重置。
+            </p>
+          </article>
+
+          <article class="lp-card lp-card--wide lp-glass lp-glowcard" data-reveal style="--d: 0.12s">
+            <i class="fas fa-shield-halved lp-card__ico"></i>
+            <h3>安全是默认值，而不是开关</h3>
+            <div class="lp-seclist">
+              <span><i class="fas fa-lock"></i> 管理面 fail-closed</span>
+              <span><i class="fas fa-user-lock"></i> 登录暴力破解防护</span>
+              <span><i class="fas fa-filter"></i> 统一限流</span>
+              <span><i class="fas fa-ban"></i> 堆栈信息脱敏</span>
+              <span><i class="fas fa-location-arrow"></i> URL 导入 SSRF 防护</span>
+              <span><i class="fas fa-boxes-stacked"></i> 共享依赖本地化</span>
+              <span><i class="fas fa-key"></i> Token scope + 策略</span>
+              <span><i class="fas fa-eye-slash"></i> 无第三方审核 API</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===================================================== 存储后端 -->
+      <section class="lp-section" id="backends">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-sitemap"></i> 上传调度</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">
+            文件写进<span class="lp-grad">你挑的后端</span>，元数据留在 KV
+          </h2>
+          <p class="lp-sub" data-reveal style="--d: 0.12s">
+            同一个上传入口切换七种后端；指定后端未配置时<span class="lp-warn">不会静默降级</span>到其他后端，而是直接报错——
+            少一次「以为传进 R2、其实躺在别处」的意外。
+          </p>
+        </header>
+
+        <div class="lp-route lp-glass" data-reveal>
+          <div class="lp-route__canvas">
+            <svg class="lp-route__svg" viewBox="0 0 880 470" role="img"
+                 aria-label="上传请求经 Pages Functions 适配层分发到七种存储后端的示意图">
+              <defs>
+                <linearGradient id="lpRouteLine" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="var(--primary-light)" stop-opacity="0.15" />
+                  <stop offset="50%" stop-color="var(--primary)" stop-opacity="0.85" />
+                  <stop offset="100%" stop-color="var(--primary-light)" stop-opacity="0.25" />
+                </linearGradient>
+                <filter id="lpRouteBlur" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="6" />
+                </filter>
+              </defs>
+
+              <!-- 连线（虚线流动由 CSS 驱动） -->
+              <g class="lp-route__links" fill="none" stroke="url(#lpRouteLine)" stroke-width="2">
+                <path d="M172 236 C 258 236, 262 60, 360 60" />
+                <path d="M172 236 C 258 236, 262 120, 360 122" />
+                <path d="M172 236 C 258 236, 262 180, 360 184" />
+                <path d="M172 236 H 360" />
+                <path d="M172 236 C 258 236, 262 292, 360 296" />
+                <path d="M172 236 C 258 236, 262 352, 360 358" />
+                <path d="M172 236 C 258 236, 262 412, 360 420" />
+              </g>
+              <g class="lp-route__pulses" fill="none" stroke-width="2.6" stroke-linecap="round">
+                <path d="M172 236 C 258 236, 262 60, 360 60" />
+                <path d="M172 236 C 258 236, 262 120, 360 122" />
+                <path d="M172 236 C 258 236, 262 180, 360 184" />
+                <path d="M172 236 H 360" />
+                <path d="M172 236 C 258 236, 262 292, 360 296" />
+                <path d="M172 236 C 258 236, 262 352, 360 358" />
+                <path d="M172 236 C 258 236, 262 412, 360 420" />
+              </g>
+
+              <!-- 入口 -->
+              <g class="lp-node lp-node--entry">
+                <rect x="24" y="196" width="148" height="80" rx="18" />
+                <text x="98" y="230" text-anchor="middle" class="lp-node__title">上传入口</text>
+                <text x="98" y="252" text-anchor="middle" class="lp-node__sub">拖拽 / 粘贴 / URL</text>
+              </g>
+
+              <!-- 适配层 -->
+              <g class="lp-node lp-node--gate">
+                <rect x="360" y="186" width="176" height="100" rx="20" />
+                <text x="448" y="222" text-anchor="middle" class="lp-node__title">Pages Functions</text>
+                <text x="448" y="246" text-anchor="middle" class="lp-node__sub">路由 · 鉴权 · 限流</text>
+                <text x="448" y="266" text-anchor="middle" class="lp-node__sub">分片调度 · 元数据</text>
+              </g>
+
+              <!-- 后端 -->
+              <g class="lp-node lp-node--leaf" data-delay="0">
+                <rect x="620" y="36" width="232" height="48" rx="14" />
+                <text x="646" y="66" class="lp-node__title">Telegram</text>
+                <text x="828" y="66" text-anchor="end" class="lp-node__sub">20 MB · 默认</text>
+              </g>
+              <g class="lp-node lp-node--leaf" data-delay="1">
+                <rect x="620" y="98" width="232" height="48" rx="14" />
+                <text x="646" y="128" class="lp-node__title">Cloudflare R2</text>
+                <text x="828" y="128" text-anchor="end" class="lp-node__sub">10 GB · 分片</text>
+              </g>
+              <g class="lp-node lp-node--leaf" data-delay="2">
+                <rect x="620" y="160" width="232" height="48" rx="14" />
+                <text x="646" y="190" class="lp-node__title">S3 兼容</text>
+                <text x="828" y="190" text-anchor="end" class="lp-node__sub">40 MB</text>
+              </g>
+              <g class="lp-node lp-node--leaf" data-delay="3">
+                <rect x="620" y="222" width="232" height="48" rx="14" />
+                <text x="646" y="252" class="lp-node__title">HuggingFace</text>
+                <text x="828" y="252" text-anchor="end" class="lp-node__sub">35 MB</text>
+              </g>
+              <g class="lp-node lp-node--leaf" data-delay="4">
+                <rect x="620" y="284" width="232" height="48" rx="14" />
+                <text x="646" y="314" class="lp-node__title">WebDAV</text>
+                <text x="828" y="314" text-anchor="end" class="lp-node__sub">40 MB</text>
+              </g>
+              <g class="lp-node lp-node--leaf" data-delay="5">
+                <rect x="620" y="346" width="232" height="48" rx="14" />
+                <text x="646" y="376" class="lp-node__title">GitHub</text>
+                <text x="828" y="376" text-anchor="end" class="lp-node__sub">40 MB</text>
+              </g>
+              <g class="lp-node lp-node--leaf" data-delay="6">
+                <rect x="620" y="408" width="232" height="48" rx="14" />
+                <text x="646" y="438" class="lp-node__title">Discord</text>
+                <text x="828" y="438" text-anchor="end" class="lp-node__sub">25 MB</text>
+              </g>
+
+              <!-- KV 旁路 -->
+              <g class="lp-node lp-node--kv">
+                <rect x="360" y="336" width="176" height="76" rx="18" />
+                <text x="448" y="368" text-anchor="middle" class="lp-node__title">Cloudflare KV</text>
+                <text x="448" y="390" text-anchor="middle" class="lp-node__sub">img_url · 元数据</text>
+              </g>
+              <path class="lp-route__kvlink" d="M448 286 V 336" fill="none" />
+            </svg>
+          </div>
+
+          <div class="lp-route__side">
+            <h3>直连与旁路分开走</h3>
+            <p>
+              文件流走存储后端，文件名、目录、分享状态、下载计数走 KV——所以列表页很轻，
+              删一个文件也不会把整条链路拖慢。
+            </p>
+            <ul class="lp-route__list">
+              <li><i class="fas fa-check"></i> <code>/file/[[path]].js</code> 支持任意层级路径</li>
+              <li><i class="fas fa-check"></i> <code>/s/:slug</code> 只做跳转，不直接吐流</li>
+              <li><i class="fas fa-check"></i> 分片任务与运行时配置都落在 KV</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="lp-marquee" aria-hidden="true">
+          <div class="lp-marquee__track">
+            <span>Telegram</span><span>Cloudflare R2</span><span>S3 兼容</span><span>Discord</span>
+            <span>HuggingFace</span><span>WebDAV</span><span>GitHub</span><span>KV 元数据</span>
+            <span>分片上传</span><span>分享短链</span><span>文本粘贴</span><span>OpenAPI</span>
+            <span>Telegram</span><span>Cloudflare R2</span><span>S3 兼容</span><span>Discord</span>
+            <span>HuggingFace</span><span>WebDAV</span><span>GitHub</span><span>KV 元数据</span>
+            <span>分片上传</span><span>分享短链</span><span>文本粘贴</span><span>OpenAPI</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================ 玻璃 / 模糊演示 -->
+      <section class="lp-section" id="glass">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-wand-magic-sparkles"></i> 视觉层</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">
+            模糊不是装饰，<span class="lp-grad">是层级</span>
+          </h2>
+          <p class="lp-sub" data-reveal style="--d: 0.12s">
+            浮层（dock / 菜单 / 模态 / 遮罩）保留 <code>backdrop-filter</code>，静止卡片不挂模糊——
+            这是刻意的取舍：卡片底色饱和度已经很高，模糊的视觉收益接近零，却要每帧重算。
+            下面这块演示区可以当场调参。
+          </p>
+        </header>
+
+        <div class="lp-glass-lab lp-glass" data-reveal>
+          <div class="lp-lab__stage" id="lpLabStage">
+            <div class="lp-lab__backdrop" aria-hidden="true">
+              <span class="lp-lab__blob lp-lab__blob--1"></span>
+              <span class="lp-lab__blob lp-lab__blob--2"></span>
+              <span class="lp-lab__blob lp-lab__blob--3"></span>
+              <div class="lp-lab__stripes"></div>
+            </div>
+
+            <div class="lp-lab__layers">
+              <div class="lp-lab__layer lp-lab__layer--back lp-glass">
+                <span>底层面板</span>
+                <small>z-index 1 · 无模糊</small>
+              </div>
+              <div class="lp-lab__layer lp-lab__layer--mid glass" id="lpLabMid">
+                <span>中层玻璃</span>
+                <small id="lpLabCaption">blur(20px) saturate(180%)</small>
+              </div>
+              <div class="lp-lab__layer lp-lab__layer--front glass" id="lpLabFront">
+                <span>顶层卡片</span>
+                <small>光标跟随 bloom</small>
+              </div>
+              <div class="lp-lab__cursor" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div class="lp-lab__panel">
+            <label class="lp-range">
+              <span>模糊半径 <b id="lpBlurOut">20</b> px</span>
+              <input type="range" id="lpBlur" min="0" max="40" step="1" value="20" />
+            </label>
+            <label class="lp-range">
+              <span>饱和度 <b id="lpSatOut">180</b> %</span>
+              <input type="range" id="lpSat" min="100" max="260" step="10" value="180" />
+            </label>
+            <label class="lp-range">
+              <span>底色不透明度 <b id="lpAlphaOut">62</b> %</span>
+              <input type="range" id="lpAlpha" min="10" max="95" step="1" value="62" />
+            </label>
+
+            <div class="lp-lab__code">
+              <code id="lpLabCode">backdrop-filter: blur(20px) saturate(180%);</code>
+              <button class="lp-copy" type="button" data-copy="#lpLabCode" aria-label="复制这段 CSS">
+                <i class="fas fa-copy"></i>
+              </button>
+            </div>
+
+            <div class="lp-lab__toggles">
+              <button class="lp-toggle" type="button" data-lab-toggle="live" aria-pressed="true">
+                <i class="fas fa-play"></i> 背景动画
+              </button>
+              <button class="lp-toggle" type="button" data-lab-toggle="refract" aria-pressed="false">
+                <i class="fas fa-magic-wand-sparkles"></i> 折射增强
+              </button>
+            </div>
+            <p class="lp-lab__hint">
+              <i class="fas fa-circle-info"></i>
+              折射由 vendored 的 glassfx 提供，Chromium 上走 SVG 位移滤镜；其他引擎自动落到
+              frost 兜底。低端设备（<code>html[data-perf="low"]</code>）会自动撤掉全部
+              <code>backdrop-filter</code>。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================= 八个页面 -->
+      <section class="lp-section" id="pages">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-images"></i> 页面一览</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">
+            八个页面，<span class="lp-grad">一份设计系统</span>
+          </h2>
+          <p class="lp-sub" data-reveal style="--d: 0.12s">
+            令牌、通用组件、37 个动效关键帧、Vue 过渡族全部收敛在 <code>design-system.css</code>；
+            页面级样式只允许写本页增量，由守卫脚本在提交前拦住漂移。
+          </p>
+        </header>
+
+        <div class="lp-pages">
+          <a class="lp-page lp-glass lp-glowcard" href="/index.html" data-reveal>
+            <div class="lp-mock lp-mock--upload" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__drop"></span>
+              <span class="lp-mock__row"><i style="--w: 92%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 68%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 80%"></i></span>
+            </div>
+            <h3>首页 / 上传 <code>/</code></h3>
+            <p>拖拽、粘贴、批量、URL 转存、分片与智能节点选择。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/admin.html" data-reveal style="--d: 0.04s">
+            <div class="lp-mock lp-mock--table" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__side"></span>
+              <span class="lp-mock__row"><i style="--w: 88%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 74%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 82%"></i></span>
+            </div>
+            <h3>管理后台 <code>/admin.html</code></h3>
+            <p>目录树、收藏、批量移动、用量监控、Token 与分享管理。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/share.html" data-reveal style="--d: 0.08s">
+            <div class="lp-mock lp-mock--doc" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__hero"></span>
+              <span class="lp-mock__row"><i style="--w: 70%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 52%"></i></span>
+            </div>
+            <h3>分享落地页 <code>/share.html</code></h3>
+            <p>预览与下载分开计数，密码、有效期、失效原因一目了然。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/paste.html" data-reveal style="--d: 0.12s">
+            <div class="lp-mock lp-mock--code" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__row"><i style="--w: 40%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 76%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 58%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 84%"></i></span>
+            </div>
+            <h3>文本粘贴 <code>/paste.html</code></h3>
+            <p>语言标记、有效期、访问密码，独立 <code>paste</code> scope。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/gallery.html" data-reveal style="--d: 0.16s">
+            <div class="lp-mock lp-mock--grid" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__tile"></span>
+              <span class="lp-mock__tile"></span>
+              <span class="lp-mock__tile"></span>
+              <span class="lp-mock__tile"></span>
+            </div>
+            <h3>图片画廊 <code>/gallery.html</code></h3>
+            <p>浏览、搜索、批量复制直链 / 下载 / 删除。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/preview.html" data-reveal style="--d: 0.2s">
+            <div class="lp-mock lp-mock--viewer" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__frame"></span>
+              <span class="lp-mock__row"><i style="--w: 46%"></i></span>
+            </div>
+            <h3>文件预览 <code>/preview.html</code></h3>
+            <p>多格式预览，加密文件弹密码框，不经后端渲染。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/webdav.html" data-reveal style="--d: 0.24s">
+            <div class="lp-mock lp-mock--dav" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__row"><i style="--w: 62%"></i></span>
+              <span class="lp-mock__row"><i style="--w: 44%"></i></span>
+            </div>
+            <h3>WebDAV <code>/webdav.html</code></h3>
+            <p>Bearer Token 上传与 URL 转存，给脚本和客户端用。</p>
+          </a>
+
+          <a class="lp-page lp-glass lp-glowcard" href="/login.html" data-reveal style="--d: 0.28s">
+            <div class="lp-mock lp-mock--lock" aria-hidden="true">
+              <span class="lp-mock__bar"></span>
+              <span class="lp-mock__lock"></span>
+              <span class="lp-mock__row"><i style="--w: 56%"></i></span>
+            </div>
+            <h3>后台登录 <code>/login.html</code></h3>
+            <p>用户名 + 密码会话，带失败次数节流。</p>
+          </a>
+        </div>
+      </section>
+
+      <!-- ====================================================== 快速开始 -->
+      <section class="lp-section" id="deploy">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-bolt"></i> 快速开始</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">
+            最小部署集，<span class="lp-grad">五步</span>
+          </h2>
+          <p class="lp-sub" data-reveal style="--d: 0.12s">
+            绑定（Bindings）和环境变量都只在部署时注入——改完记得 <b>Retry deployment</b>。
+            仓库里的 <code>.env.example</code> 是清单，不是配置文件，Cloudflare Pages 不会读它。
+          </p>
+        </header>
+
+        <ol class="lp-steps" id="lpSteps">
+          <li class="lp-step" data-reveal>
+            <span class="lp-step__num">01</span>
+            <div class="lp-step__body">
+              <h3>连接仓库到 Cloudflare Pages</h3>
+              <p>Build command 与 Build output directory 都留空——这个项目没有构建步骤。</p>
+              <div class="lp-code">
+                <code>Framework preset: None · Build command: (空) · Output: (空)</code>
+                <button class="lp-copy" type="button" data-copy="self" aria-label="复制"><i class="fas fa-copy"></i></button>
+              </div>
+            </div>
+          </li>
+          <li class="lp-step" data-reveal style="--d: 0.06s">
+            <span class="lp-step__num">02</span>
+            <div class="lp-step__body">
+              <h3>绑定 KV：变量名必须是 <code>img_url</code></h3>
+              <p>Settings → <b>Functions</b> → KV namespace bindings。写成环境变量是无效的，这是第一个坑。</p>
+              <div class="lp-code">
+                <code>Binding name: img_url → 你的 KV Namespace</code>
+                <button class="lp-copy" type="button" data-copy="self" aria-label="复制"><i class="fas fa-copy"></i></button>
+              </div>
+            </div>
+          </li>
+          <li class="lp-step" data-reveal style="--d: 0.12s">
+            <span class="lp-step__num">03</span>
+            <div class="lp-step__body">
+              <h3>绑定 R2（强烈推荐）：<code>R2_BUCKET</code></h3>
+              <p>这是唯一支持原生分片的后端，也是把单文件上限拉到 10 GB 的那条路。</p>
+              <div class="lp-code">
+                <code>Binding name: R2_BUCKET → 你的 R2 存储桶</code>
+                <button class="lp-copy" type="button" data-copy="self" aria-label="复制"><i class="fas fa-copy"></i></button>
+              </div>
+            </div>
+          </li>
+          <li class="lp-step" data-reveal style="--d: 0.18s">
+            <span class="lp-step__num">04</span>
+            <div class="lp-step__body">
+              <h3>设置后台账号 <code>BASIC_USER</code> / <code>BASIC_PASS</code></h3>
+              <p>公网部署必须设：不设的话管理接口一律返回 <code>503 ADMIN_AUTH_NOT_CONFIGURED</code>（fail-closed）。</p>
+              <div class="lp-code">
+                <code>BASIC_USER=admin
+BASIC_PASS=换成一个足够长的密码</code>
+                <button class="lp-copy" type="button" data-copy="self" aria-label="复制"><i class="fas fa-copy"></i></button>
+              </div>
+            </div>
+          </li>
+          <li class="lp-step" data-reveal style="--d: 0.24s">
+            <span class="lp-step__num">05</span>
+            <div class="lp-step__body">
+              <h3>填一个存储后端凭据</h3>
+              <p>
+                推荐 Telegram。变量名大小写不用纠结——统一读取层 <code>env-config.js</code>
+                会把 <code>TG_Bot_Token</code> 与 <code>TG_BOT_TOKEN</code> 都认出来，填一次即可。
+              </p>
+              <div class="lp-code">
+                <code>TG_Bot_Token=123456:AA...
+TG_Chat_ID=-1001234567890</code>
+                <button class="lp-copy" type="button" data-copy="self" aria-label="复制"><i class="fas fa-copy"></i></button>
+              </div>
+            </div>
+          </li>
+        </ol>
+
+        <div class="lp-callout lp-glass" data-reveal>
+          <i class="fas fa-triangle-exclamation"></i>
+          <div>
+            <h4>第 6 步（只在绑了 R2 时才需要）</h4>
+            <p>
+              给 R2 配生命周期规则。否则用户传大文件传到一半关掉页面，临时分片会一直占着空间。
+              访客上传、CORS 白名单、分片暂存后端这三组配置可以直接在后台改，写进 KV 后即时生效。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ API -->
+      <section class="lp-section" id="api">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-robot"></i> 机器可调用</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">
+            给人用的后台，<span class="lp-grad">也给脚本用的接口</span>
+          </h2>
+          <p class="lp-sub" data-reveal style="--d: 0.12s">
+            API v1 走 <code>Authorization: Bearer kvault_&lt;tokenId&gt;_&lt;secret&gt;</code>，
+            scope 分 <code>upload</code> / <code>read</code> / <code>delete</code> / <code>paste</code>，
+            还能挂上后端白名单、MIME 白名单、体积上限、目录前缀、来源主机与限流策略。
+            机器可读定义见 <code>docs/openapi.yaml</code>。
+          </p>
+        </header>
+
+        <div class="lp-api lp-glass" data-reveal>
+          <div class="lp-api__tabs" role="tablist" id="lpApiTabs">
+            <span class="lp-api__indicator" aria-hidden="true"></span>
+            <button class="lp-tab is-active" type="button" role="tab" aria-selected="true" data-pane="cap">
+              <i class="fas fa-circle-info"></i> capabilities
+            </button>
+            <button class="lp-tab" type="button" role="tab" aria-selected="false" data-pane="upload">
+              <i class="fas fa-cloud-arrow-up"></i> upload
+            </button>
+            <button class="lp-tab" type="button" role="tab" aria-selected="false" data-pane="files">
+              <i class="fas fa-folder-tree"></i> files
+            </button>
+            <button class="lp-tab" type="button" role="tab" aria-selected="false" data-pane="paste">
+              <i class="fas fa-paste"></i> paste
+            </button>
+          </div>
+
+          <div class="lp-api__panes">
+            <div class="lp-pane is-active" data-pane="cap">
+              <span class="lp-pane__scope">公开 · 无需 Token</span>
+              <pre><code>curl https://your-vault.pages.dev/api/v1/capabilities
+
+# {
+#   "success": true,
+#   "storage": { "configured": ["telegram", "r2"], ... },
+#   "limits":  { "r2": 10737418240, "telegram": 20971520, ... }
+# }</code></pre>
+            </div>
+            <div class="lp-pane" data-pane="upload">
+              <span class="lp-pane__scope">scope: upload · 支持 Idempotency-Key 24h 去重</span>
+              <pre><code>curl -X POST https://your-vault.pages.dev/api/v1/upload \
+  -H "Authorization: Bearer kvault_xxx_yyy" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -F "file=@./cover.png" \
+  -F "storage=r2" -F "path=/blog/2026"
+
+# 响应里直接带回 links.share：
+#   https://your-vault.pages.dev/s/ocean</code></pre>
+            </div>
+            <div class="lp-pane" data-pane="files">
+              <span class="lp-pane__scope">scope: read / delete</span>
+              <pre><code>curl "https://your-vault.pages.dev/api/v1/files?limit=20" \
+  -H "Authorization: Bearer kvault_xxx_yyy"
+
+curl "https://your-vault.pages.dev/api/v1/file/blog/2026/cover.png/info" \
+  -H "Authorization: Bearer kvault_xxx_yyy"</code></pre>
+            </div>
+            <div class="lp-pane" data-pane="paste">
+              <span class="lp-pane__scope">scope: paste</span>
+              <pre><code>curl -X POST https://your-vault.pages.dev/api/v1/paste \
+  -H "Authorization: Bearer kvault_xxx_yyy" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"npm run deploy","language":"bash",
+       "expiresIn":86400,"password":"optional"}'</code></pre>
+            </div>
+          </div>
+
+          <div class="lp-api__foot">
+            <span><i class="fas fa-key"></i> Token 策略：allowedStorages · allowedMimeTypes · maxFileSize · folderPrefix</span>
+            <span><i class="fas fa-file-code"></i> docs/openapi.yaml · docs/agent-integration.md</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ FAQ -->
+      <section class="lp-section" id="faq">
+        <header class="lp-head">
+          <span class="lp-eyebrow" data-reveal><i class="fas fa-magnifying-glass"></i> 常见问题</span>
+          <h2 class="lp-h2" data-reveal style="--d: 0.06s">先说清楚，<span class="lp-grad">再上手</span></h2>
+        </header>
+
+        <div class="lp-faq" id="lpFaq">
+          <details class="lp-faq__item lp-glass" data-reveal open>
+            <summary>
+              <span>它和上游 katelya77/K-Vault 是什么关系？</span>
+              <i class="fas fa-chevron-down"></i>
+            </summary>
+            <div class="lp-faq__body">
+              <p>
+                K-Vault-Next 派生自上游，保留了后端能力（多存储、鉴权、API），然后重写了前端、
+                加固了鉴权、升级了分片上传，并整条移除 Docker 自托管路线。本仓库不是上游的替代品：
+                如果你要的是「一台 VPS 跑起来、配置存 Redis」，请直接用上游的 Docker 版本。
+              </p>
+            </div>
+          </details>
+
+          <details class="lp-faq__item lp-glass" data-reveal open style="--d: 0.04s">
+            <summary>
+              <span>要花钱吗？</span>
+              <i class="fas fa-chevron-down"></i>
+            </summary>
+            <div class="lp-faq__body">
+              <p>
+                项目本身 MIT，跑在 Cloudflare Pages 免费额度内是零成本。Pages 的 Functions 请求数、
+                KV 读写、R2 存储与流量都各有免费额度，超出部分按 Cloudflare 定价计费——
+                具体额度以 Cloudflare 官方为准。
+              </p>
+            </div>
+          </details>
+
+          <details class="lp-faq__item lp-glass" data-reveal open style="--d: 0.08s">
+            <summary>
+              <span>单文件到底能传多大？</span>
+              <i class="fas fa-chevron-down"></i>
+            </summary>
+            <div class="lp-faq__body">
+              <p>
+                R2 走原生 multipart，上限 10 GB；Telegram 走 Bot API 转发，20 MB；S3 / WebDAV / GitHub
+                未实现分片，40 MB（GitHub contents 模式 20 MB）；HuggingFace 35 MB；Discord 取保守值 25 MB。
+                诚实说明：这一代并非全面更强，R2 大幅提升，但没做分片的几个后端低于上游标注值。
+              </p>
+            </div>
+          </details>
+
+          <details class="lp-faq__item lp-glass" data-reveal open style="--d: 0.12s">
+            <summary>
+              <span>后台改配置要重新部署吗？</span>
+              <i class="fas fa-chevron-down"></i>
+            </summary>
+            <div class="lp-faq__body">
+              <p>
+                访客上传、CORS、分片暂存这三组不用：它们是 <code>config:guest</code> /
+                <code>config:cors</code> / <code>config:upload</code>，写进 KV 立刻生效，优先级高于环境变量，
+                后台还能一键重置回基线。绑定（KV / R2）和其他环境变量则必须重新部署。
+              </p>
+            </div>
+          </details>
+
+          <details class="lp-faq__item lp-glass" data-reveal open style="--d: 0.16s">
+            <summary>
+              <span>有 Docker / 自托管版本吗？</span>
+              <i class="fas fa-chevron-down"></i>
+            </summary>
+            <div class="lp-faq__body">
+              <p>
+                没有，且这是刻意的。Dockerfile、docker-compose、<code>server/</code> 运行时、
+                GHCR 镜像构建与配套服务端测试都被移除了。只支持 Cloudflare Pages 一种形态。
+              </p>
+            </div>
+          </details>
+
+          <details class="lp-faq__item lp-glass" data-reveal open style="--d: 0.2s">
+            <summary>
+              <span>会收集我的数据吗？</span>
+              <i class="fas fa-chevron-down"></i>
+            </summary>
+            <div class="lp-faq__body">
+              <p>
+                不会。这一代删掉了 Sentry 依赖与全部埋点代码，所以连 <code>disable_telemetry</code>
+                这个开关都不复存在——没有遥测代码，也就不需要关闭按钮。内容审核与黑白名单同样已移除，
+                不调用任何第三方审核 API。
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- ========================================================== 结尾 -->
+      <section class="lp-section lp-section--cta">
+        <div class="lp-cta-card lp-glass" data-reveal>
+          <div class="lp-cta-card__ring" aria-hidden="true"></div>
+          <span class="lp-eyebrow"><i class="fas fa-paper-plane"></i> 现在就开始</span>
+          <h2>把文件交给自己<br /><span class="lp-grad">把复杂度留给仓库</span></h2>
+          <p>
+            Fork 一份，绑好 KV 与 R2，五分钟之后你就有了一条属于自己的直链体系。
+          </p>
+          <div class="lp-cta lp-cta--center">
+            <a class="btn btn--lg btn--primary lp-magnet" href="/index.html">
+              <i class="fas fa-cloud-arrow-up"></i> 打开上传页
+            </a>
+            <a class="btn btn--lg lp-magnet" href="https://github.com/Linyueying/K-Vault-Next" target="_blank" rel="noopener">
+              <i class="fab fa-github"></i> 看仓库
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="lp-foot">
+      <div class="lp-foot__inner">
+        <div class="lp-foot__brand">
+          <span class="lp-brand__mark lp-brand__mark--sm">
+            <svg viewBox="0 0 44 44" aria-hidden="true">
+              <path d="M22 3.5 37.5 12v20L22 40.5 6.5 32V12z" fill="none"
+                    stroke="currentColor" stroke-width="2.6" stroke-linejoin="round" />
+              <circle cx="22" cy="19.5" r="5.2" fill="none" stroke="currentColor" stroke-width="2.2" />
+              <path d="M22 24.4v7.4" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+            </svg>
+          </span>
+          <div>
+            <strong>K-Vault-Next</strong>
+            <p>跑在 Cloudflare Pages 上的 Serverless 云盘 / 图床。</p>
+          </div>
+        </div>
+
+        <div class="lp-foot__cols">
+          <div>
+            <h4>页面</h4>
+            <a href="/index.html">上传首页</a>
+            <a href="/admin.html">管理后台</a>
+            <a href="/gallery.html">图片画廊</a>
+            <a href="/paste.html">文本粘贴</a>
+          </div>
+          <div>
+            <h4>文档</h4>
+            <a href="/docs/openapi.yaml">OpenAPI 定义</a>
+            <a href="/docs/agent-integration.md">Agent 接入指南</a>
+            <a href="/PROJECT_INTRO.md">项目介绍</a>
+            <a href="/README.md">README</a>
+          </div>
+          <div>
+            <h4>项目</h4>
+            <a href="https://github.com/Linyueying/K-Vault-Next" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/katelya77/K-Vault" target="_blank" rel="noopener">上游 K-Vault</a>
+            <a href="https://developers.cloudflare.com/pages/" target="_blank" rel="noopener">Cloudflare Pages</a>
+          </div>
+        </div>
+      </div>
+      <div class="lp-foot__base">
+        <span>MIT License · 派生自 katelya77/K-Vault</span>
+        <span>无遥测 · 无第三方审核 · 零运行时依赖</span>
+      </div>
+    </footer>
+
+    <button class="lp-totop" type="button" id="lpTop" aria-label="回到顶部">
+      <i class="fas fa-chevron-up"></i>
+    </button>
+    <div class="lp-toasts" id="lpToasts" aria-live="polite"></div>
+  </body>
+</html>

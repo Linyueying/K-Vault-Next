@@ -98,6 +98,7 @@
 | 文件预览 | `/preview.html` | 多格式预览，密码保护的文件会弹出密码输入 |
 | WebDAV | `/webdav.html` | WebDAV 上传与 URL 转存 |
 | 登录 | `/login.html` | 后台登录（用户名 + 密码） |
+| 宣传页 | `/landing.html` | 项目介绍单页：纯 CSS 绘制的界面示意、可实时调参的玻璃/模糊演示台、玻璃动效与滚动编排。**不经手任何后端接口**，也不使用 `demo/` 里的截图 |
 
 ---
 
@@ -456,6 +457,30 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 | 过渡族 | `fade / pop / rise / drop / bar / ctrl / toast / list / menu / sheet / dialog / view-forward / view-back` … |
 | 无障碍 | `prefers-reduced-motion`、`prefers-reduced-transparency`、`html[data-perf="low"]` 低端设备降级 |
 
+### 宣传页（`landing.html`）
+
+`/landing.html` 是一张**独立的营销单页**，与 8 个应用页共享同一套设计令牌与 `.btn` / `.toast` 等组件，
+但自带页面级资源：
+
+| 文件 | 作用 |
+| :--- | :--- |
+| `landing.html` | 结构。页内**没有**任何内联 `<style>` / `<script>`，也不引用任何 `demo/*.webp` 截图 —— 界面示意、存储路由图、终端窗口全部用 CSS / 内联 SVG 现画 |
+| `landing.css` | 页面级样式 + 页面专属关键帧（类名统一 `lp-` 前缀，不与应用页冲突） |
+| `landing.js` | 页面级编排：逐字入场拆字、打字机、3D 倾斜、光标聚光、数字滚动、模糊演示台、API 标签页、FAQ 手风琴、复制 |
+
+动效要点：
+
+- 首屏标题**逐字入场**（位移 + `blur(9px)` → 清晰，`--ease-fluid` 缓动，错峰 `--cd`）；
+- 背景四层叠加：网格、光斑、三颗环境球、**跟随光标**的聚光（`--lp-mx/--lp-my`），全部只动 `transform` / `opacity` / `filter`；
+- 「玻璃 / 模糊」演示台可**当场调参**：模糊半径、饱和度、底色不透明度实时改写中层玻璃的 `backdrop-filter`；
+  折射增强走 vendored `glassfx`（Chromium 上走 SVG 位移滤镜，其他引擎落 frost 兜底）；
+- 无障碍与降级沿用共享层：`prefers-reduced-motion` 命中时不做逐字 / 打字 / 倾斜，`html[data-perf="low"]` 额外停掉常驻循环动画。
+
+> 关于「揭示」的一处兜底：共享层的 `[data-reveal]` 用 `IntersectionObserver` 驱动，而观察器回调按帧
+> 投递 —— **快速甩动 / 拖动滚动条 / 程序化跳转**时元素可能整帧掠过视口而从未被判为相交，结果永久停在
+> `opacity: 0`（内容凭空消失）。`landing.js` 因此补了一遍几何兜底 `initRevealFallback()`：凡是
+> `top < 视口高 × 0.94` 的元素直接补上 `is-revealed`（与共享层同一个类，重复执行无副作用）。
+
 改动约定：
 
 - 新组件优先写进 `design-system.css`，不要在各页面里各写一份。
@@ -467,6 +492,11 @@ python3 scripts/check_style.py       # 括号平衡 / 禁止页面内定义 @key
 python3 scripts/check_tokens.py      # var(--x) 与 animation 名可解析 / 共享层无“死关键帧”
 python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号（漏 import 会被抓出来）
 ```
+
+> `landing.html` 同样在 `check_style.py` / `check_tokens.py` / `check_styles.py` / `check_shared.py`
+> 四个脚本的覆盖面内（PAGES 列表已含它，`landing.css` 已登记为它的页面级样式表）。
+> 它在 `check_shared.py` 里通过 `PAGE_OWN_ASSETS` 显式登记 —— 营销页自带一层页面级样式属于有意设计，
+> 但必须登记在案，避免「不知不觉又多插了一层」。
 
 > `check_functions.py` 是为了拦住一类**语法检查抓不到**的事故：ESM 里调用了忘记 `import`
 > 的函数时，`node --check` 只查语法、不做标识符解析，所以不会报错；只有真正请求到那条

@@ -46,10 +46,14 @@ import re
 import sys
 
 PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
-         'share.html', 'preview.html', 'webdav.html', 'login.html']
+         'share.html', 'preview.html', 'webdav.html', 'login.html',
+         'landing.html']
 
 # 各页引用的样式表。页面自己的 <style> 单独处理。
-COMMON_CSS = ['design-system.css', 'theme.css', 'mobile-refactor.css', 'index.css']
+# landing.css 是宣传页（landing.html）的页面级样式表 —— 它同样受本脚本检查，
+# 因为宣传页的类名虽以 lp- 前缀隔离，仍然会与模板里的类名一一对应。
+COMMON_CSS = ['design-system.css', 'theme.css', 'mobile-refactor.css', 'index.css',
+              'landing.css']
 
 # 这些类名一定来自外部或框架，不要求本仓库提供定义。
 GLOBAL_ALLOW = [
