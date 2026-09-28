@@ -137,6 +137,13 @@
   --card-bg: var(--glass-surface);
   --surface-1: var(--glass-surface);
   --surface-2: var(--glass-elevated);
+  /* --surface-3 / --shadow-sm 是上游遗留下来的层级名，本仓库从未定义过：
+     share.html 的 .bitem__thumb / .bcell__pic（缩略图占位底色）引用了
+     --surface-3，.bcell.is-picked 的阴影引用了 --shadow-sm。缺失时整条声明
+     会失效（占位底色直接透明），因此在这里补成指向新令牌的别名 ——
+     scripts/check_tokens.py 会把「引用了但全站没有定义」的变量直接报出来。 */
+  --surface-3: var(--glass-subtle);
+  --shadow-sm: var(--shadow-soft);
   --shadow: var(--shadow-soft);
   --shadow-hover: var(--shadow-elevated);
   --shadow-lift: var(--shadow-elevated);
