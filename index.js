@@ -3630,6 +3630,11 @@
           const el = document.getElementById("app");
           if (el) el.classList.add("is-booted");
         };
+        /* 弱动效偏好下入场动画被全局冻到 0.01ms（design-system.css），
+           无需再等 900ms 让「升起」动画跑完 —— 直接关掉门控，
+           与 admin.html 的 bootDelay(60ms) 对齐，避免静态布局晚出现。 */
+        const reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+        if (reduce) { setTimeout(apply, 60); return; }
         if (typeof requestAnimationFrame !== "function") { setTimeout(apply, 120); return; }
         requestAnimationFrame(() => requestAnimationFrame(() => {
           setTimeout(apply, 900);
@@ -3692,14 +3697,19 @@
         this.loadHistory();
       } catch (e) {}
 
+      /* 首屏入场门控：必须在挂载时就启动，且不依赖任何网络请求。
+         原写法把 markBooted() 排在 await checkAuth()/checkStorageTarget()/
+         fetchUploadFolders() 之后 —— 弱网或后端不可达时门控 #app:not(.is-booted)
+         迟迟不关，期间切视图会反复重播 riseIn（切目录抽搐根因，admin.html 已修，
+         这里对齐）。改为挂载即触发，门控按固定延时关闭。 */
+      this.markBooted();
+
       this.beginNodeSettle();
 
       await this.checkAuth();
       await this.checkStorageTarget();
       this.finishNodeSettle();
       this.fetchUploadFolders();
-
-      this.markBooted();
 
       this.globalPasteHandler = (e) => {
         if (["INPUT", "TEXTAREA"].includes(e.target?.tagName)) return;
