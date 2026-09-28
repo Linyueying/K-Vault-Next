@@ -385,12 +385,22 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .dialog-title.danger i{color:var(--c-danger-strong)}
 .dialog-message strong{color:var(--primary-text);font-weight:700}
 .dialog-actions.mt{margin-top:var(--sp-4)}
+/* 对话框里的表单控件。**必须留在本页** —— 它依赖 admin 自己的
+   .token-input / .token-select 配色令牌，上收进 design-system.css 会
+   把令牌面板的表单风格强加给其余 7 页。 */
+.dialog-hint{font-size:var(--fs-xs);color:var(--text-muted)}
+.dialog-input{width:100%;padding:10px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-main);font-size:.86rem;font-family:inherit;outline:none;transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);margin-bottom:14px;}
+.dialog-input:focus,.token-input:focus,.token-select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
 .row-inline{display:flex;gap:var(--sp-2);flex-wrap:wrap}
 /* 合集分享对话框：带标签的表单列。
    .dialog-input.mb0 用于抹平 .dialog-input 自带的 margin-bottom，
    让 .mb-sm 等外部间距类成为唯一的间距来源。 */
 .field-col{display:flex;flex-direction:column;gap:5px}
 .field-label{font-size:var(--fs-xs);font-weight:700;color:var(--text-sub)}
+/* 「同时包含子目录」这类开关行。
+   视觉由 design-system 的 .check 提供，真 input 藏在 .check 内部
+   （.check 已内置 `input{opacity:0;width:0}` 规则），这里只管排布。 */
+.share-keep-check{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:var(--fs-sm);color:var(--text-sub);cursor:pointer;line-height:1.45;user-select:none}
 /* 只作用于本文件里的 .dialog-input，不动全局 .mb0 的语义 */
 .dialog-input.mb0{margin-bottom:0}
 .dialog-error{padding:9px 13px;border-radius:var(--r-sm);font-size:.8rem;color:var(--c-danger);background:var(--c-danger-soft);border:1px solid rgba(239,68,68,.25);line-height:1.5;margin-bottom:10px}
@@ -2316,9 +2326,18 @@ html[data-perf="low"] .ambient-orb{animation:none}
         {{ bundleTargetLabel }}
       </div>
 
-      <label class="share-keep" v-if="bundleMode === 'folder'" style="margin:0 0 8px;">
-        <input type="checkbox" v-model="bundleFolder.includeSubfolders" />
-        同时包含子目录中的文件
+      <!-- 用设计系统的 .check 组件而不是裸 <input type="checkbox">：
+           后者在 admin 里完全没有样式来源（.share-keep 定义在 index.css，
+           而 admin 不引那个文件），会渲染成浏览器默认的方形复选框，
+           和整页的圆角胶囊风格对不上。
+           真 input 放在 .check 内部 —— .check 自带 `input{opacity:0;width:0}`
+           把它藏起来，只保留 v-model 的可访问性与键盘操作。 -->
+      <label class="share-keep-check" v-if="bundleMode === 'folder'">
+        <span class="check" :class="{ on: bundleFolder.includeSubfolders }">
+          <input type="checkbox" v-model="bundleFolder.includeSubfolders" />
+          <i class="fas fa-check"></i>
+        </span>
+        <span>同时包含子目录中的文件</span>
       </label>
 
       <!-- 分享标题 / 说明：以前分享页只能显示系统拼出来的名字，
