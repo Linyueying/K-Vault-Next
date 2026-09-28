@@ -599,32 +599,12 @@ Apple 风格动效 · 应用层（首屏错峰入场）
    作用于同一元素会争抢 opacity / transform 轨道，在「选中后立刻取消」时会丢掉
    进场值，导致底栏瞬间消失。详见 design-system.css 中 barIn 关键帧处的说明。 */
 
-/* 【已移除】原先这里给卡片加了一套「首屏逐格 riseIn（从下方 16px 升起 + 错峰）」，
-   靠 #app:not(.is-booted) 门控只在首屏生效。但实测 booted 从未置位（轮询 4s
-   始终无 is-booted），门控等于永久打开 —— 于是每次切目录，新卡片都会把这套
-   riseIn 重播一遍：内容先出现在下方 16px、再逐格升上来，正是「切目录抽搐」。
-   卡片进出场统一交给下面的 .card-* 过渡（纯透明度），不再有任何位移。 */
-
-/* 卡片级转场：切目录时旧卡片淡出、新卡片淡入，容器随内容自然更新，
-   不再做整体重挂载与高度 FLIP —— 这是切目录抽搐（下方拉伸 + 整页抖动）的根治点 */
-.card-enter-active,
-.card-leave-active{transition:opacity .24s var(--ease-apple);}
-/* 只做透明度，不做任何位移/缩放：入场「起点在下方」会让内容先掉下去再升回来，
-   这正是用户描述的抽搐。切目录是原地换内容，不该有纵向位移。 */
-.card-enter-from{opacity:0;}
-.card-leave-to{opacity:0;}
-.card-move{transition:transform .28s var(--ease-apple);}
-/* 列表行离开时脱离文档流，避免占位撑高、容器即时收缩更顺滑（单行布局安全） */
-.vault-list{position:relative;}
-.vault-list > .vault-row.card-leave-active{position:absolute;left:0;right:0;}
-/* 网格：离场卡片立刻脱离布局。grid 无法像列表那样把离场项绝对定位（会跳到
-   容器左上角），而让离场卡片继续占位，切目录时「旧卡片 + 新卡片」就会同时
-   填进网格行 → 容器高度瞬间翻倍、0.24s 后再塌回 → 滚动条闪现/消失、列数
-   重排 → 下方文件抽搐、整页抖动。
-   display:none 让容器高度一步到位变成新内容高度（全程只一次重排），新卡片
-   再用 opacity/transform 淡入（二者都不触发重排），观感稳定。
-   删除单个文件等操作不受影响：网格下卡片即时消失，其余由 .card-move 平滑补位。 */
-.vault-grid > .vault-card.card-leave-active{display:none;}
+/* 目录切换改回「原地换内容、不重挂载」：视图分支 key 固定为 grid/list/empty，
+   切目录时同一分支不重挂载，卡片仅按 :key 原地更新（参考 9fcf47d 的稳定做法）。
+   这样切目录不再有任何进出场动画 / 高度 FLIP / 位移，彻底消除「切目录抽搐」
+   （下方拉伸 + 整页抖动 + 滚动条闪现）。首屏错峰入场仍由 #app:not(.is-booted)
+   门控的 riseIn 负责，且 is-booted 现已在挂载即触发、稳定关闭，不会重播。
+   删除 / 增改单个文件时，Vue 按 key 复用节点原地更新，无需 transition-group。 */
 
 /* 用量监控内部：区块与操作项错峰 */
 .kv-usage-panel .kv-usage-block{animation:riseInSm .46s var(--ease-fluid) backwards;}
@@ -1487,15 +1467,16 @@ html[data-perf="low"] .ambient-orb{animation:none}
       <div class="view-stage">
 
       <!-- 网格视图 -->
-      <!-- 视图分支 key 固定为 'grid' / 'list' / 'empty'，不再带 folderPath：
-           切目录时同一分支 key 不变，外层 <transition> 不重挂载；卡片级进出场
-           改由内层 <transition-group name="card"> 处理，容器随内容自然更新。
-           这样切目录只做「旧卡片淡出、新卡片淡入」，不再整体重挂载、也不再
-           做高度 FLIP，彻底消除下方内容拉伸 / 整页抖动的抽搐。
+      <!-- 视图分支 key 固定为 'grid' / 'list' / 'empty'，不随 folderPath 变化：
+           切目录时同一分支 key 不变，分支不重挂载，卡片仅按 :key 原地更新，
+           因此切目录没有任何进出场动画 / 高度 FLIP / 位移 —— 彻底消除
+           「切目录抽搐」（下方拉伸 + 整页抖动 + 滚动条闪现）。
+           首屏错峰入场仍由 #app:not(.is-booted) 门控的 riseIn 负责
+           （is-booted 在挂载即触发、稳定关闭，不会重播）。
            网格 ⇄ 列表的方向感知转场（view-forward/back）仍由 setView() 触发
            外层转场；切到空目录时外层用无方向 view-fade 淡入。 -->
-      <transition :name="viewTransition" mode="out-in">
-      <transition-group v-if="viewMode==='grid' && pageData.length" name="card" tag="div" class="vault-grid" :key="'grid'">
+      <transition :name="viewTransition">
+      <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" key="grid">
         <div v-for="item in pageData" :key="item.name"
              class="vault-card"
              :class="{selected:item.selected, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
@@ -1551,10 +1532,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
             </div>
           </div>
         </div>
-      </transition-group>
+      </div>
 
       <!-- 列表视图 -->
-      <transition-group v-else-if="viewMode==='list' && pageData.length" name="card" tag="div" class="vault-list" :key="'list'">
+      <div v-else-if="viewMode==='list' && pageData.length" class="vault-list" key="list">
         <div v-for="item in pageData" :key="item.name"
              class="vault-row"
              :class="{selected:item.selected, 'menu-open': openMenu==='row:'+item.name}">
@@ -1601,7 +1582,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
             </div>
           </div>
         </div>
-      </transition-group>
+      </div>
 
       <!-- 空状态 / 加载中 / 失败重试 -->
       <div v-else class="liquid-card empty-state" :key="'empty'">
@@ -1619,7 +1600,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
         </template>
       </div>
       </transition>
-      </div>
 
       <!-- 分页（nextCursor 在 loadList 中恒为 null，「加载更多」永远不会出现，
            原 v-if 里的 `|| nextCursor` 是死条件，已移除） -->
