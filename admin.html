@@ -111,12 +111,64 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .search-clear{cursor:pointer;color:var(--text-muted);font-size:var(--fs-sm);transition:color var(--dur-fast),transform .2s var(--ease-spring)}
 .search-clear:hover{color:var(--c-danger);transform:scale(1.15)}
 .search-clear:active{transform:scale(.9)}
-/* 视图切换（对齐 index .view-toggle） */
-.view-toggle{display:inline-flex;padding:3px;gap:3px;border-radius:var(--r-pill);border:1px solid var(--glass-border);background:var(--glass-surface);flex-shrink:0}
-.view-toggle button{width:40px;height:32px;border:none;background:transparent;color:var(--text-muted);border-radius:var(--r-pill);cursor:pointer;font-size:.76rem;transition:background .28s var(--ease-apple),color .28s var(--ease-apple),box-shadow .28s var(--ease-apple),transform .14s var(--ease-press);display:inline-flex;align-items:center;justify-content:center;}
+/* 视图切换（对齐 index .view-toggle）
+   选中态由下方的 .view-toggle__thumb 胶囊滑块承担（对齐 index .dock__indicator），
+   按钮自身不再画实心块，只负责图标变色 —— 与 index 底栏 dock 的处理一致。 */
+.view-toggle{position:relative;--vt-pad:3px;--vt-gap:3px;display:inline-flex;padding:var(--vt-pad);gap:var(--vt-gap);border-radius:var(--r-pill);border:1px solid var(--glass-border);background:var(--glass-surface);flex-shrink:0}
+.view-toggle button{position:relative;z-index:1;width:40px;height:32px;border:none;background:transparent;color:var(--text-muted);border-radius:var(--r-pill);cursor:pointer;font-size:.76rem;transition:background .28s var(--ease-apple),color .28s var(--ease-apple),box-shadow .28s var(--ease-apple),transform .14s var(--ease-press);display:inline-flex;align-items:center;justify-content:center;}
 .view-toggle button:hover{color:var(--primary)}
 .view-toggle button:active{transform:scale(.92)}
-.view-toggle button.active{background:var(--primary);color:#fff;box-shadow:0 2px 8px rgba(var(--primary-rgb),.3)}
+.view-toggle button.active{background:transparent;color:var(--primary-dark);box-shadow:none}
+
+/* 滑动指示器（iOS 式液态玻璃胶囊）——对齐 index.css 的 .dock__indicator
+   ------------------------------------------------------------------
+   独立绝对定位层，不占 flex 轨道；由单一变量 --vt-pos 驱动位移：
+     translateX = pos * (自身宽 + gap)
+   transform 里的 100% 指「指示器自身宽」= 单个按钮宽 W，
+   故 100% + gap == W + gap，天然对齐 flex 间隙、无需知道容器像素宽。
+   pos=1 时右边缘 = 1*(W+gap) + W 恰好落到容器右内边缘。
+   注意：absolute 元素的 % 参照**padding box**（含 .view-toggle 的 padding），
+   故先减掉两侧 padding 还原内容盒宽，再按 2 等分减 1 个 gap —— 否则会宽出
+   2*pad/2，且误差会累积。 */
+.view-toggle__thumb{
+  position:absolute;
+  top:var(--vt-pad);
+  bottom:var(--vt-pad);
+  left:var(--vt-pad);
+  width:calc((100% - 2 * var(--vt-pad) - var(--vt-gap)) / 2);
+  border-radius:var(--r-pill);
+  z-index:0;
+  pointer-events:none;
+  /* 高透玻璃胶囊：顶部 inset 高光 + 柔和蓝色投影，模拟液体浮起 */
+  background:linear-gradient(
+    180deg,
+    rgba(255,255,255,.72),
+    rgba(255,255,255,.34) 42%,
+    rgba(255,255,255,.22)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -1px 1px rgba(0,0,0,.06),
+    0 6px 16px -4px rgba(2,132,199,.28),
+    0 2px 6px -2px rgba(0,0,0,.12);
+  transform:translate3d(calc(var(--vt-pos, 0) * (100% + var(--vt-gap))), 0, 0);
+  transition:transform .52s var(--ease-spring);
+  will-change:transform;
+}
+/* 暗色：指示器转冷调半透，避免白胶囊过亮（与 index .dock__indicator 一致） */
+html[data-theme="dark"] .view-toggle__thumb{
+  background:linear-gradient(
+    180deg,
+    rgba(255,255,255,.16),
+    rgba(255,255,255,.08) 45%,
+    rgba(56,189,248,.1)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    inset 0 -1px 1px rgba(0,0,0,.3),
+    0 6px 16px -4px rgba(0,0,0,.5),
+    0 0 0 1px rgba(56,189,248,.12);
+}
 .tool-stat{margin-left:auto;font-size:.78rem;font-weight:600;color:var(--text-muted);white-space:nowrap}
 .tool-stat strong{color:var(--primary-text);font-family:'JetBrains Mono',monospace}
 /* 筛选触发器 + 徽标 */
@@ -283,14 +335,14 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .vault-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:var(--sp-3)}
 /* 注意：卡片不能设 overflow:hidden —— 它会把「更多操作」弹出菜单整块裁掉。
    圆角裁剪改由 .card-thumb 自己负责。 */
-.vault-card{position:relative;background:var(--glass-surface);backdrop-filter:blur(var(--sp-4));-webkit-backdrop-filter:blur(var(--sp-4));border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple);display:flex;flex-direction:column;}
+.vault-card{position:relative;background:var(--glass-surface);backdrop-filter:blur(var(--sp-4));-webkit-backdrop-filter:blur(var(--sp-4));border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);display:flex;flex-direction:column;}
 @media(hover:hover){.vault-card:hover{border-color:var(--primary-light);transform:translateY(-3px) scale(1.006);box-shadow:0 10px 26px -6px rgba(var(--primary-rgb),.22)}}
 .vault-card:active{transform:translateY(-1px) scale(.985);transition-duration:.1s}
 .vault-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(var(--primary-rgb),.2)}
 .vault-card.dragging{opacity:.45;transform:scale(.97)}
 .vault-card.drop-target{border-color:#22c55e;box-shadow:0 0 0 2px rgba(34,197,94,.28)}
 /* 卡片右上角下载按钮（原 .card-fav 是收藏遗留类名，语义已归位） */
-.card-dl{position:absolute;top:8px;right:8px;z-index:4;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(15,23,42,.42);backdrop-filter:blur(10px) saturate(1.4);-webkit-backdrop-filter:blur(10px) saturate(1.4);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.72rem;transition:transform .4s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
+.card-dl{position:absolute;top:8px;right:8px;z-index:4;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(15,23,42,.42);backdrop-filter:blur(10px) saturate(1.4);-webkit-backdrop-filter:blur(10px) saturate(1.4);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.72rem;transition:transform .4s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);}
 .card-dl::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
 @media(hover:hover){.card-dl:hover{transform:scale(1.12);background:rgba(15,23,42,.7);border-color:rgba(255,255,255,.6)}}
 .card-dl:active{transform:scale(.88);transition-duration:.09s;transition-timing-function:var(--ease-press)}
@@ -307,7 +359,7 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .card-meta .push{margin-left:auto}
 /* 列表视图（错峰入场，见动画应用层） */
 .vault-list{display:flex;flex-direction:column;gap:7px;width:100%;flex:1}
-.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple);width:100%;box-sizing:border-box;}
+.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);width:100%;box-sizing:border-box;}
 @media(hover:hover){.vault-row:hover{border-color:var(--primary-light);transform:translateX(3px)}}
 .vault-row:active{transform:scale(.99);transition-duration:.1s}
 .vault-row.selected{border-color:var(--primary);background:var(--primary-surface)}
@@ -645,7 +697,41 @@ Apple 风格动效 · 应用层（首屏错峰入场）
   transition:background-color .45s var(--ease-apple),
              border-color .45s var(--ease-apple),
              box-shadow .45s var(--ease-apple),
-             color .45s var(--ease-apple);
+             color .45s var(--ease-apple),
+             backdrop-filter var(--blur-fade),
+             -webkit-backdrop-filter var(--blur-fade);
+}
+
+/* =========================================================
+模糊渐变：把玻璃面模糊的「开关」从瞬变改成渐变
+---------------------------------------------------------
+背景：design-system.css §14 出于性能考虑，在任何 *-enter-active /
+*-leave-active 期间用 backdrop-filter:none !important 把整页玻璃（含所有
+后代与伪元素，仅排除 .modal-mask）撤掉；动画结束、Vue 移除该 class 后，
+静态态「瞬间」恢复。恢复这一步没有任何过渡 —— 观感就是「突然变模糊」。
+
+这里**不推翻**那套性能策略：进出场动画期间依然不重算模糊，掉帧问题不会回归。
+只是给各玻璃面的静态态补上 backdrop-filter 过渡，让两个方向都变成可插值的渐变：
+  · 撤除：-leave-active 把 none 压上来 → blur(N) 渐变淡出到 none
+  · 恢复：class 移除后回到 blur(N)     → none 渐变淡入到 blur(N)
+none → blur(N) 可插值：按 Filter Effects 规范，none 被视为滤镜列表的单位元
+（等价 blur(0) saturate(1)），两侧同为函数列表，故能平滑过渡、不会跳变。
+
+design-system.css 已经给 .modal-mask 用过同一套「打开即渐入」的做法
+（见 .sheet-enter-active.modal-mask 处注释），这里把它推广到 admin 的全部玻璃面。
+--blur-fade 统一节奏，整体调优只改这一个变量即可。
+========================================================= */
+:root{--blur-fade:.42s var(--ease-apple)}
+
+/* 下面这些玻璃面自身没有其它 transition，直接在此挂上唯一的模糊过渡。
+   其余玻璃面（.vault-card / .card-dl / .vault-row / .batch-dock）已有配色过渡，
+   为避免互相覆盖，是在各自的 transition 列表里**追加**的，见各自定义处。 */
+.dropdown-panel,
+.card-badge,
+.lightbox-bar,
+.overlay,
+.dialog-panel{
+  transition:backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);
 }
 
 /* =========================================================
@@ -911,8 +997,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
         <input type="text" v-model="search" placeholder="搜索文件名或存储键..." @input="currentPage=1">
         <i class="fas fa-circle-xmark search-clear" v-if="search" @click="search='';currentPage=1"></i>
       </div>
-      <!-- 视图切换：方向感知（网格 ⇄ 列表），选中态用滑块式回弹 -->
-      <div class="view-toggle">
+      <!-- 视图切换：方向感知（网格 ⇄ 列表），选中态用胶囊滑块回弹跟进。
+           .view-toggle__thumb 是纯展示层（pointer-events:none），位置由 --vt-pos 驱动：
+           0 = 平铺视图，1 = 详细视图；位移公式详见 CSS 里该类的注释。 -->
+      <div class="view-toggle" :style="{'--vt-pos': viewMode==='grid' ? 0 : 1}">
+        <span class="view-toggle__thumb" aria-hidden="true"></span>
         <button :class="{active: viewMode==='grid'}" @click="setView('grid','back')" title="平铺视图"><i class="fas fa-grip"></i></button>
         <button :class="{active: viewMode==='list'}" @click="setView('list','forward')" title="详细视图"><i class="fas fa-list"></i></button>
       </div>
