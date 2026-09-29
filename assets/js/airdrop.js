@@ -1102,13 +1102,13 @@
         <!-- 角色选择 -->
         <div class="ad-roles" v-if="phase === 'choose'">
           <button class="ad-role" :class="{ 'is-active': role === 'send' }" @click="chooseSend" :disabled="busy">
-            <span class="ad-role__icon"><i class="fas fa-arrow-up-from-bracket"></i></span>
+            <span class="ad-role__icon"><i class="fas fa-paper-plane"></i></span>
             <span class="ad-role__label">我要发送</span>
             <span class="ad-role__hint">生成二维码与连接码，等对方接入后选择文件</span>
           </button>
           <button class="ad-role" :class="{ 'is-active': role === 'recv' }" @click="chooseRecv">
-            <span class="ad-role__icon" style="background:linear-gradient(140deg,#34d399,#10b981)">
-              <i class="fas fa-arrow-down-to-bracket"></i>
+            <span class="ad-role__icon ad-role__icon--recv">
+              <i class="fas fa-download"></i>
             </span>
             <span class="ad-role__label">我要接收</span>
             <span class="ad-role__hint">扫描对方二维码，或输入 8 位连接码</span>
@@ -1119,7 +1119,7 @@
         <div class="ad-stage" v-if="stageVisible">
           <div class="ad-node" :class="meNodeState">
             <span class="ad-node__pulse"></span>
-            <i class="fas" :class="role === 'send' ? 'fa-mobile-screen' : 'fa-user'"></i>
+            <i class="fas" :class="role === 'send' ? 'fa-paper-plane' : 'fa-download'"></i>
             <span class="ad-node__label">我</span>
           </div>
 
@@ -1145,7 +1145,7 @@
 
           <div class="ad-node" :class="peerNodeState">
             <span class="ad-node__pulse"></span>
-            <i class="fas fa-user-group"></i>
+            <i class="fas" :class="role === 'send' ? 'fa-download' : 'fa-paper-plane'"></i>
             <span class="ad-node__label">对方</span>
           </div>
         </div>
@@ -1173,7 +1173,7 @@
               <i class="fas fa-link"></i><span>连接</span>
             </button>
             <button class="ad-btn" @click="startScan" :disabled="scanning">
-              <i class="fas fa-camera"></i><span>{{ scanning ? '扫描中…' : '扫码' }}</span>
+              <i class="fas fa-magnifying-glass"></i><span>{{ scanning ? '扫描中…' : '扫码' }}</span>
             </button>
           </div>
           <video v-show="scanning" ref="scanVideo" muted playsinline
@@ -1238,7 +1238,8 @@
                 <span class="ad-file__name">{{ f.name }}</span>
                 <span class="ad-file__size">{{ formatSizeLabel(f.size) }} · 来自{{ f.kind === 'local' ? '本地' : '云端' }}</span>
               </span>
-              <button class="btn btn--ghost btn--icon btn--sm" @click="removeFile(i)" title="移除" :disabled="phase !== 'picking'">
+              <!-- 只有选文件阶段可移除；传输/完成后这颗 × 只是视觉噪音，直接不渲染 -->
+              <button class="btn btn--ghost btn--icon btn--sm" v-if="phase === 'picking'" @click="removeFile(i)" title="移除">
                 <i class="fas fa-xmark"></i>
               </button>
             </div>
