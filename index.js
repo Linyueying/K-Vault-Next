@@ -102,6 +102,59 @@
     if (item) queueView.pending.delete(item.uid || item);
   }
 
+  /* ===== 大批量操作的分帧让出 =====
+     批量的「暂停全部 / 继续全部 / 续传失败 / 清空队列」，以及「一批任务在同一时刻
+     全部完成」，原来都在同一个同步块里遍历全部任务：每个任务要作废 runToken、
+     abort 在飞的 XHR、再改若干响应式字段。任务数一多（实测 50+）这一块会长到
+     1.8s —— 主线程被完全占住，期间不响应任何输入。
+     同类问题也出现在「完成高峰」：几十个 .task 在同一帧被卸掉，单帧内做几十次
+     DOM 卸载 + 一次巨大的 style/layout 重算（实测该阶段 17.5fps、97% 帧超时）。
+     做法与上面的进度闸门同一思路：把一次大同步块切成每帧一小块，块间让出主线程。
+     切片取固定条数而不是「按耗时自适应」：自适应要在块内反复读时钟，而读时钟本身
+     在热路径上有成本，且固定切片的并发语义更容易推理。 */
+  /* 批量操作进行中的标记。
+     用途：任务行的按钮组是 <transition-group>，它每次重渲染都要走一遍
+     hasCSSTransform()（克隆节点 + 强制样式重算）与 FLIP 位置记录，单次约 16ms。
+     单行的暂停/继续只有 1 行参与，完全付得起；但「暂停全部 / 继续全部 / 续传失败」
+     会一次性改掉几十个任务的状态，几十行同时各来一遍就是 1.2s 级的卡顿（实测
+     22 行时按钮组重渲染 73 次 ≈ 1.2s，单帧尖峰 2.2s）。
+     因此在批量操作期间临时把按钮组降级成普通 div（放弃这一次性几十行同时播的
+     按钮切换动画 —— 它本来也是视觉噪音），单行操作不受影响，动画照旧。 */
+  const uiPerf = Vue.reactive({ batchOp: false });
+
+  /* 多少个任务以上才算「值得为此降级」。低于这个数时同时重渲染的行数很少，
+     一次性播几行的按钮切换动画是好看的，不值得牺牲它。 */
+  const BATCH_DEGRADE_MIN = 6;
+  /* 开一次批量操作：在改动状态前把按钮组降级，改完再恢复。
+     返回的 restore 必须在 finally 里调用，否则按钮组会永久退化成 div。
+     降级/恢复各会让所有行的按钮组重挂载一次（组件类型从 TransitionGroup 换成
+     div 再换回来），是 O(行数) 的一次性成本；换来的是省掉 O(行数 × 状态变更次数)
+     次 FLIP 位置记录 —— 实测 22 行批量操作下 73 次重渲染 ≈ 1.2s，换两次挂载不到它的零头。
+     另外：新挂载的 transition-group 默认没有 appear，因此这两次挂载都不会播
+     进场动画，视觉上完全无感。 */
+  function beginBatchOp(count) {
+    if (count < BATCH_DEGRADE_MIN) return () => {};
+    uiPerf.batchOp = true;
+    return () => { uiPerf.batchOp = false; };
+  }
+
+  const BATCH_YIELD_CHUNK = 12;
+  function yieldToBrowser() {
+    return new Promise((resolve) => {
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+      else setTimeout(resolve, 0);
+    });
+  }
+  /* 分帧遍历：每帧最多执行 chunk 次 fn，块间让出主线程 */
+  async function forEachChunked(items, fn, chunk = BATCH_YIELD_CHUNK) {
+    for (let i = 0; i < items.length; i += chunk) {
+      const end = Math.min(i + chunk, items.length);
+      for (let j = i; j < end; j++) fn(items[j], j);
+      /* 只在还有剩余块时让出，避免最后一块白等一帧 */
+      if (end < items.length) await yieldToBrowser();
+    }
+  }
+
   /* 扩展名 → 图标类名 / 分类的记忆表（见 getFileIcon / getFileCategory） */
   const FILE_ICON_CACHE = new Map();
   const FILE_CATEGORY_CACHE = new Map();
@@ -240,8 +293,71 @@
      :css="false"（只是不检测 CSS 过渡时长），也会把 100 行全部放行重渲染。
      因此 upload-queue 在 lean（> QUEUE_LEAN_LIMIT 行）时改用普通 <div class="list">：
      超过 24 行时进场/位移动画本来就已经关掉了，这条路径没有视觉损失。 */
+  /* 任务行的「操作按钮组」，单独拆成组件。
+     为什么连按钮组都要拆：按钮组用的是 <transition-group>，而它的 render 会对每个
+     既有子节点调 getBoundingClientRect() 记录 FLIP 位置 —— 这段在 render 里、
+     不受 :css 影响（见下方 actionWrap 注释）。按钮组若留在行模板里，行每次因
+     「进度 / 字节数 / 速率」更新而重渲染时，都会顺带把按钮组重渲染一次；
+     队列 23 行做批量操作时，实测仅这一项就吃掉约 1.2s CPU、单帧尖峰 2.2s。
+     拆成组件后 props 只有 status / file / actions / lean —— 进度、字节数、速率这些
+     高频变化的字段都不在 props 里，于是进度更新时「行会重渲染、而本组件因 props
+     全等被 Vue 的 shouldUpdateComponent 整个跳过」，按钮组完全不动。
+     FLIP 只在 status 真的变化（按钮确实要换、动画确实该播）时才发生：
+     动效照旧，开销只在真正该付的时候付。
+     剩下的一种情况是「批量操作让几十行的 status 同时变」——那时该播的动画确实有
+     几十份，但代价是几十次 FLIP。这种由 uiPerf.batchOp 在批量期间降级掉（见
+     beginBatchOp），单行操作不受影响。 */
+  const taskActionsComponent = {
+    name: "task-actions",
+    props: {
+      /* 只传状态这一个字符串，而不是让本组件去读整个 file：
+         这样 file 上其他字段（进度 / 字节数 / 速率）再怎么变都不会牵动按钮组。 */
+      status: { type: String, required: true },
+      /* 任务对象只用于把 file 回传给操作回调 —— 回调不在 render 期求值，
+         因此不会形成响应式依赖 */
+      file: { type: Object, required: true },
+      actions: { type: Object, required: true },
+      lean: { type: Boolean, default: false },
+    },
+    computed: {
+      /* 什么时候还值得用 transition-group：只有当按钮切换动画真的会被看到、
+         而且只有少数几行在动的时候。
+           - lean：> QUEUE_LEAN_LIMIT 行，进场/位移动画本就全关了，按钮切换也
+             没有动画，却仍要付 FLIP 位置记录的开销 —— 换掉没有观感损失。
+           - 批量操作进行中：几十行同时换按钮，那种「一排按钮集体闪一下」本来就
+             是视觉噪音，而它要付几十次 FLIP 位置记录的代价（实测 22 行批量操作
+             下按钮组重渲染 73 次 ≈ 1.2s、单帧尖峰 2.2s）。
+         注意不能写 <component :is="'transition-group'"> —— 内置组件不在字符串
+         组件注册表里，那样只会渲染出一个名为 transition-group 的自定义元素，
+         这里直接取 Vue.TransitionGroup 这个组件对象。 */
+      animated() { return !this.lean && !uiPerf.batchOp; },
+      actionWrap() { return this.animated ? Vue.TransitionGroup : "div"; },
+    },
+    template: `
+    <component :is="actionWrap" class="taskAct" :name="animated ? 'taskAct' : undefined" :tag="animated ? 'div' : undefined">
+      <button v-if="status === 'uploading' || status === 'processing' || status === 'waiting'"
+        key="pause" class="btn btn--ghost btn--icon" @click="actions.pause(file)" title="暂停"><i class="fas fa-pause"></i></button>
+      <template v-if="status === 'paused'">
+        <button key="resume" class="btn btn--ghost btn--icon" @click="actions.resume(file)" title="继续上传"><i class="fas fa-play"></i></button>
+        <button key="paused-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+        <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+      </template>
+      <template v-if="status === 'error'">
+        <button key="err-resume" class="btn btn--ghost btn--icon" @click="actions.retry(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
+        <button key="err-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+        <button key="err-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+      </template>
+      <template v-if="status === 'blocked'">
+        <button key="blocked-login" class="btn btn--ghost btn--icon" @click="actions.goLogin()" title="登录后上传"><i class="fas fa-right-to-bracket"></i></button>
+        <button key="blocked-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="移除"><i class="fas fa-xmark"></i></button>
+      </template>
+    </component>
+    `,
+  };
+
   const uploadTaskComponent = {
     name: "upload-task",
+    components: { "task-actions": taskActionsComponent },
     props: {
       file: { type: Object, required: true },
       ui: { type: Object, required: true },
@@ -299,62 +415,41 @@
     <span class="task__node" v-if="nodeMode" :title="'储存位置：' + nodeLabel">
       <i :class="nodeIcon"></i><span class="task__node-full">{{ nodeLabel }}</span><span class="task__node-short">{{ ui.storageShortLabel(nodeMode) }}</span>
     </span>
-    <!-- 操作按钮组：进行中 / 已暂停 / 出错 / 已阻断 四组互斥切换。
-         这里必须用 transition-group 而不是 <transition mode="out-in">：
-         后者会把「多根 template 片段」当成一个子节点，切到 paused / error 时
-         只有第一个按钮被渲染出来。 -->
-    <transition-group name="taskAct" tag="div" class="taskAct" :css="!lean">
-      <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'"
-        key="pause" class="btn btn--ghost btn--icon" @click="actions.pause(file)" title="暂停"><i class="fas fa-pause"></i></button>
-      <template v-if="file.status === 'paused'">
-        <button key="resume" class="btn btn--ghost btn--icon" @click="actions.resume(file)" title="继续上传"><i class="fas fa-play"></i></button>
-        <button key="paused-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
-        <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
-      </template>
-      <template v-if="file.status === 'error'">
-        <button key="err-resume" class="btn btn--ghost btn--icon" @click="actions.retry(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
-        <button key="err-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
-        <button key="err-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
-      </template>
-      <template v-if="file.status === 'blocked'">
-        <button key="blocked-login" class="btn btn--ghost btn--icon" @click="actions.goLogin()" title="登录后上传"><i class="fas fa-right-to-bracket"></i></button>
-        <button key="blocked-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="移除"><i class="fas fa-xmark"></i></button>
-      </template>
-    </transition-group>
+    <!-- 操作按钮组已抽成 <task-actions>，只依赖 status。
+         不要把它搬回行模板里：那样行每次因进度更新重渲染都会连带重渲染按钮组，
+         而按钮组是 <transition-group>，重渲染就要对每个子节点做一次 FLIP
+         位置记录（getBoundingClientRect）。详见该组件上方的注释。 -->
+    <task-actions :status="file.status" :file="file" :actions="actions" :lean="lean" />
   </div>
 </div>
     `,
   };
 
-  const uploadQueueComponent = {
-    name: "upload-queue",
-    components: { "upload-task": uploadTaskComponent },
+  /* 队列头部（标题计数 + 批量操作按钮）。
+     为什么连这块都要单独拆成组件：failedCount / activeCount / pausedCount 三个计数
+     都是「遍历 files 读每个任务的 status」算出来的。把它们留在 upload-queue 的
+     render 里，任何一个任务的 status 变化都会让 upload-queue 整棵重渲染 ——
+     连带把它内部的 <transition-group> 也重渲染一次，而 transition-group 的 render
+     会对每个既有子节点调 getBoundingClientRect() 记录 FLIP 位置（这段在 render 里、
+     不受 :css 影响，详见 uploadTaskComponent 里 taskAct 的注释）。
+     实测队列 23 项做批量操作时 getBoundingClientRect 独占约 1.3s、单帧尖峰 2.2s。
+     拆出去之后：status 变化只重渲染这个头部组件；upload-queue 只依赖 files.length，
+     于是 transition-group 只在真正增删时才重渲染 —— 入场/位移动画照旧，
+     而这份开销只在「真的有行进出、动画真的要播」的时候才付。 */
+  const queueHeaderComponent = {
+    name: "queue-header",
     props: {
       files: { type: Array, required: true },
-      /* 展示型工具（无副作用）：图标、大小、状态文案、储存位置标签 */
-      ui: { type: Object, required: true },
-      /* 会改状态的操作：暂停 / 继续 / 重传 / 取消 / 清空 / 去登录 */
+      /* 会改状态的操作：暂停全部 / 继续全部 / 续传失败 / 清空 */
       actions: { type: Object, required: true },
-      /* 长文件名的展开态：存在父组件，避免把纯 UI 状态混进任务对象 */
-      expandedNames: { type: Object, default: () => ({}) },
     },
     computed: {
-      lean() { return this.files.length > QUEUE_LEAN_LIMIT; },
       failedCount() { return this.files.filter((f) => f.status === "error").length; },
       /* 队列里还有「想跑但没跑完」的任务（含等待中）→ 可以整体暂停 */
       activeCount() { return this.files.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error").length; },
       pausedCount() { return this.files.filter((f) => f.status === "paused").length; },
     },
-    methods: {
-      /* 长文件名是否展开。判定放在这里而不是行内：展开态是父组件持有的纯 UI 状态，
-         行组件只收一个布尔 prop —— 这样展开/收起不会让整行的数据依赖变重。 */
-      isNameExpanded(file) { return !!this.expandedNames[file.uid]; },
-    },
     template: `
-<transition name="collapse">
-<div class="collapse" v-if="files.length > 0">
-<div class="collapse__inner">
-<section class="card panel">
   <div class="panel__head">
     <span class="panel__title">
       <i class="fas fa-bars-progress"></i>
@@ -368,12 +463,48 @@
       <button class="btn btn--sm" @click="actions.clear()"><i class="fas fa-broom"></i> 清空</button>
     </div>
   </div>
+    `,
+  };
+
+  const uploadQueueComponent = {
+    name: "upload-queue",
+    components: { "upload-task": uploadTaskComponent, "queue-header": queueHeaderComponent },
+    props: {
+      files: { type: Array, required: true },
+      /* 展示型工具（无副作用）：图标、大小、状态文案、储存位置标签 */
+      ui: { type: Object, required: true },
+      /* 会改状态的操作：暂停 / 继续 / 重传 / 取消 / 清空 / 去登录 */
+      actions: { type: Object, required: true },
+      /* 长文件名的展开态：存在父组件，避免把纯 UI 状态混进任务对象 */
+      expandedNames: { type: Object, default: () => ({}) },
+    },
+    /* ⚠️ 这里的 computed 只能依赖 files.length，绝不能读任何任务的 status：
+       一旦读了，任何任务的状态变化都会让本组件重渲染，连带把下面的
+       <transition-group> 重渲染一次并触发整轮 FLIP 位置记录。
+       依赖 status 的计数已经全部移到 <queue-header> 子组件里。 */
+    computed: {
+      lean() { return this.files.length > QUEUE_LEAN_LIMIT; },
+    },
+    methods: {
+      /* 长文件名是否展开。判定放在这里而不是行内：展开态是父组件持有的纯 UI 状态，
+         行组件只收一个布尔 prop —— 这样展开/收起不会让整行的数据依赖变重。 */
+      isNameExpanded(file) { return !!this.expandedNames[file.uid]; },
+    },
+    template: `
+<transition name="collapse">
+<div class="collapse" v-if="files.length > 0">
+<div class="collapse__inner">
+<section class="card panel">
+  <queue-header :files="files" :actions="actions" />
 
   <!-- 两套列表容器，二选一：
        短队列（≤ QUEUE_LEAN_LIMIT）走 transition-group，进/出/位移都有动画；
        长队列换普通 div —— 原因见 uploadTaskComponent 上方的注释：transition 会让
        Vue 对所有行无条件重渲染，100 行时那点进场动画根本看不见，不值这个代价。 -->
-  <transition-group v-if="!lean" name="list" tag="div" class="list">
+  <!-- appear：队列被外层 <transition name="collapse" v-if="files.length>0"> 包裹，
+       首个文件到达时整块首次挂载，transition-group 默认不给首挂子节点播 enter。
+       加 appear 后，空队列→第 1 个文件也能正常播放 taskIn 入场动画。 -->
+  <transition-group v-if="!lean" name="list" tag="div" class="list" appear>
     <upload-task v-for="file in files" :key="file.uid || file.id"
       :file="file" :ui="ui" :actions="actions" :lean="lean"
       :expanded="isNameExpanded(file)" @toggle-name="$emit('toggle-name', $event)" />
@@ -2402,14 +2533,36 @@
       },
       scheduleQueueCleanup() {
         if (this.queueCleanupTimer) return;
-        this.queueCleanupTimer = setTimeout(() => {
+        this.queueCleanupTimer = setTimeout(async () => {
           this.queueCleanupTimer = null;
+          /* 对象 URL 回收与待写 patch 的丢弃维持原语义（对全部任务执行）：
+             这部分是纯 JS，开销与任务数线性但很小，不值得为此分帧。 */
           for (const f of this.uploadingFiles) {
             if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
             dropQueueView(f);
           }
-          this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
+          /* 完成高峰：一批任务同时进入 success，一次性 filter 会在同一帧里
+             卸掉几十个 .task（实测该阶段 17.5fps、97% 帧超时）。
+             改成每帧摘一批，把 DOM 卸载与 style/layout 重算摊到多帧。 */
+          await this.removeUploadingFilesWhere((f) => f.status === "success");
         }, 2500);
+      },
+      /* 分批摘除队列任务：每帧最多摘 chunk 个，摘除前先对命中项调用 beforeRemove。
+         某帧没摘满即视为已摘干净 —— 这样无需在让出期间反复全量扫描，
+         也让出期间新进的任务能在下一轮被扫到。 */
+      async removeUploadingFilesWhere(predicate, beforeRemove, chunk = BATCH_YIELD_CHUNK) {
+        for (;;) {
+          let removed = 0;
+          for (let i = this.uploadingFiles.length - 1; i >= 0 && removed < chunk; i--) {
+            const f = this.uploadingFiles[i];
+            if (!predicate(f)) continue;
+            if (beforeRemove) beforeRemove(f);
+            this.uploadingFiles.splice(i, 1);
+            removed++;
+          }
+          if (removed < chunk) return;
+          await yieldToBrowser();
+        }
       },
       async uploadOne(item, token) {
         const mode = item.targetMode || this.storageMode;
@@ -2770,22 +2923,25 @@
         }
         this.restartUploadNow();
       },
-      retryAllFailed() {
+      async retryAllFailed() {
         /* blocked 任务（访客被拒 / 登录失效）不参与批量续传，否则又会形成循环 */
         const failed = this.uploadingFiles.filter((f) => f.status === "error" && f.want !== "stop");
         if (!failed.length) return;
         if (!this.guardUploadAllowed()) return;
-        failed.forEach((f) => {
-          f.targetMode = f.targetMode || this.resolveStorageForFile(f.size);
-          f.status = "waiting";
-          f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
-          f.error = null;
-          f.want = "run";
-          f.autoRetries = 0;
-          f.autoRetryExhausted = false;
-          this.invalidateTaskRun(f);
-        });
-        this.restartUploadNow();
+        const endBatch = beginBatchOp(failed.length);
+        try {
+          await forEachChunked(failed, (f) => {
+            f.targetMode = f.targetMode || this.resolveStorageForFile(f.size);
+            f.status = "waiting";
+            f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
+            f.error = null;
+            f.want = "run";
+            f.autoRetries = 0;
+            f.autoRetryExhausted = false;
+            this.invalidateTaskRun(f);
+          });
+          this.restartUploadNow();
+        } finally { endBatch(); }
       },
       pauseUpload(file) {
         if (!file || file.status === "paused") return;
@@ -2807,23 +2963,31 @@
         this.invalidateTaskRun(file);
         this.restartUploadNow();
       },
-      pauseAllUploads() {
+      async pauseAllUploads() {
         const targets = this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error");
         if (!targets.length) return;
-        targets.forEach((f) => { f.want = "pause"; this.markTaskPaused(f); });
-        this.requestUploadScheduling();
+        /* 每个目标都要作废令牌并 abort 在飞 XHR，几十个同步做会占住主线程
+           （实测 50+ 任务单块 1.8s）。分帧让出，期间主线程仍能响应输入。 */
+        const endBatch = beginBatchOp(targets.length);
+        try {
+          await forEachChunked(targets, (f) => { f.want = "pause"; this.markTaskPaused(f); });
+          this.requestUploadScheduling();
+        } finally { endBatch(); }
       },
-      resumeAllUploads() {
+      async resumeAllUploads() {
         const targets = this.uploadingFiles.filter((f) => f.status === "paused" && !f.cancelRequested);
         if (!targets.length) return;
-        targets.forEach((f) => {
-          f.want = "run";
-          f.error = null;
-          f.status = "waiting";
-          f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
-          this.invalidateTaskRun(f);
-        });
-        this.restartUploadNow();
+        const endBatch = beginBatchOp(targets.length);
+        try {
+          await forEachChunked(targets, (f) => {
+            f.want = "run";
+            f.error = null;
+            f.status = "waiting";
+            f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
+            this.invalidateTaskRun(f);
+          });
+          this.restartUploadNow();
+        } finally { endBatch(); }
       },
       abortServerUpload(uploadId) {
         if (!uploadId) return;
@@ -2834,17 +2998,24 @@
           credentials: "include",
         }).catch(() => {});
       },
-      clearUploadQueue() {
-        for (const f of this.uploadingFiles) {
-          f.cancelRequested = true;
-          f.want = "pause";
-          this.invalidateTaskRun(f);
-          this.releaseTaskThumb(f);
-          dropQueueView(f);
-        }
-        if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
-        this.uploadingFiles = [];
-        this.requestUploadScheduling();
+      async clearUploadQueue() {
+        const all = this.uploadingFiles.slice();
+        /* 先把「取消意图」一次性同步落地：调度器的 canRun 依赖 cancelRequested / want，
+           这样后面即使分帧摘除，也不会有任务在让出间隙被重新派发出去。 */
+        for (const f of all) { f.cancelRequested = true; f.want = "pause"; }
+        const endBatch = beginBatchOp(all.length);
+        try {
+          /* abort 在飞 XHR 是这里最贵的一步，分帧执行避免一次性占满主线程。 */
+          await forEachChunked(all, (f) => {
+            this.invalidateTaskRun(f);
+            this.releaseTaskThumb(f);
+            dropQueueView(f);
+          });
+          if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
+          /* 分批摘除而不是直接赋空数组：一帧内清空几十行会在单帧里做几十次 DOM 卸载。 */
+          await this.removeUploadingFilesWhere(() => true);
+          this.requestUploadScheduling();
+        } finally { endBatch(); }
       },
       async cancelUpload(file) {
         file.cancelRequested = true;

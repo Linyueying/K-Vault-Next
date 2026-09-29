@@ -1200,24 +1200,31 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .sheet-enter-from .modal { transform: translate3d(0, 100%, 0); }
 .sheet-leave-to   .modal { transform: translate3d(0, 100%, 0); opacity: 0; }
 
-/* 遮罩模糊「打开即渐入、关闭即渐出」
+/* 遮罩模糊：出入场过渡期间固定为常量，不做 0↔4 连续插值
    ----------------------------------------------------------------------
-   .modal-mask 是 <transition name="sheet"> 的本体，入场带 sheet-enter-active、
-   离场带 sheet-leave-active。上面已把 .sheet-* 从「过渡期间撤玻璃」的两条规则里
-   排除，所以此处让遮罩自身从 blur(0) 平滑过渡到 blur(4px)，与面板上浮（0.46s）
-   同步 —— 实现「点击 dock 弹出抽屉的那一刻，背景立刻开始渐变模糊」，不再等动画结束。
-   遮罩滤的是背后静止页面（dock 等已冻结），开销极低；渐变是一次性 0.46s，真实 GPU 上
-   流畅。面板自身的玻璃仍由上方 [class*="-enter-active"] * 在滑动期间撤掉，避免双重模糊重算。 */
+   B 报告的根因：原先此处让遮罩自身从 blur(0) 连续插值到 blur(4px)（0.46s），
+   每帧 blur 值都在变 → 每帧重算全屏 backdrop-filter。软件渲染/低端机上即
+   ~20fps 卡顿（longs:0，纯绘制/合成开销，非主线程阻塞）。
+   修复：过渡期间把模糊固定为常量（入场 0、离场 4），不再逐帧插值，
+   全屏模糊重算归零——运动态人眼本就辨不出背后虚化。入场结束后（Vue 移除
+   -enter-active）回到 base blur(4px)，由 .modal-mask 的 transition 平滑渐入，
+   观感从「滑入中就开始虚化」变成「滑到位后虚化渐入」，后者更顺。离场期间保持
+   4（背景静止，不重算），随遮罩 opacity 淡出一起消失。面板自身的玻璃仍由上方
+   [class*="-enter-active"] * 在滑动期间撤掉，避免双重模糊重算。 */
 .sheet-enter-from.modal-mask,
 .sheet-leave-to.modal-mask {
   backdrop-filter: blur(0px);
   -webkit-backdrop-filter: blur(0px);
 }
 .sheet-enter-active.modal-mask {
-  transition: backdrop-filter 0.46s var(--ease-apple), opacity 0.3s var(--ease-apple);
+  backdrop-filter: blur(0px) !important;
+  -webkit-backdrop-filter: blur(0px) !important;
+  transition: opacity 0.3s var(--ease-apple);
 }
 .sheet-leave-active.modal-mask {
-  transition: backdrop-filter 0.26s var(--ease-press), opacity 0.22s var(--ease-press);
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+  transition: opacity 0.22s var(--ease-press);
 }
 
 .dialog-enter-active { transition: opacity 0.26s var(--ease-apple); }
@@ -1603,12 +1610,22 @@ html[data-theme="dark"][data-perf="low"] {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  /* 一并覆盖 glassfx 的 .glass：否则 .glass::after（bloom）与 ::before（rim）
-     在关掉模糊后仍常驻，且 .glass 自身的 backdrop-filter 会漏网。 */
-  .card, .menu, .dock, .selection-bar, .modal, .modal-mask, .glass {
+  /* 与 data-perf="low" 同策略：用万能 * 规则一次性撤掉全站 backdrop-filter。
+     之前这里只手列了 7 个选择器（.card/.menu/.dock/.selection-bar/.modal/
+     .modal-mask/.glass），会漏掉 theme.css 那一整组共享模糊面 —— 包括
+     .status-pill / .header（暗色）/ .upload-zone / .toolbar-row / .el-dialog /
+     .el-message-box 等等。当前这些只是被 Chromium 原生的 reduced-transparency
+     行为兜底，换浏览器（或未来 Chromium 改行为）就会暴露成「该减没减」。
+     改成 * + !important 后，任何当前与未来新增的玻璃面都被覆盖，且 !important
+     还能盖过行内 style 的 backdrop-filter（非 !important）。正常状态下的玻璃
+     观感不受任何影响（该媒体查询只在此偏好开启时生效）。
+     note：.glass 的无模糊填充不透明度由 vendor/glassfx/glass.css 的同一媒体查询
+     内 --glass-alpha:0.96 负责补强，这里不再重复。 */
+  *, *::before, *::after {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
+  /* glassfx 的 bloom（::after）在关掉模糊后仍是常驻发光层，必须显式关掉 */
   .glass::after { display: none; }
 }
 

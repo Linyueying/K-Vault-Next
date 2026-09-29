@@ -752,7 +752,10 @@ html[data-perf="low"] .lightbox-bar{
 html[data-perf="low"] .ambient-orb{animation:none}
 
 @media (prefers-reduced-transparency: reduce){
-  .liquid-card,.dropdown-panel,.dialog-panel,.batch-dock,.overlay,.vault-card,.vault-row,.toast,.lightbox-bar{
+  /* 与 design-system.css 同策略：万能 * 规则覆盖全站玻璃面（含本页的
+     .liquid-card/.vault-card/.dialog-panel 等），避免手列清单漏掉新增元素。
+     正常状态不受影响。 */
+  *,*::before,*::after{
     backdrop-filter:none !important;
     -webkit-backdrop-filter:none !important;
   }
