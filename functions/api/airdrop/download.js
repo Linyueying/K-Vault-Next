@@ -59,15 +59,38 @@ export async function onRequestGet(context) {
     return jsonResponse({ error: '文件已失效，请让对方重新发送。', code: 'GONE' }, 410);
   }
 
-  // 先让浏览器开始收，再在后台标记已下载（标记失败不应打断下载本身）
+  const headers = {
+    'Content-Type': file.type || 'application/octet-stream',
+    'Content-Length': String(stream.size || file.size || 0),
+    'Content-Disposition': contentDisposition(file.name),
+    'Cache-Control': 'no-store'
+  };
+
+  // 标记时机很重要：必须等响应体被真正读完（收端拿全字节）再记 downloaded。
+  // 若在"开始响应"时就记，收端流还没走完，发端就会从 downloadedCount 里
+  // 提前读出"全部已取走"，把没传完的投递当成完成。
+  // tee 一条支流在后台逐块排空（不整块缓冲，控内存）；收端中途断开时
+  // 两条支流一起失败，自然不会标记 —— 下载不完整就该重取。
+  if (stream.body && typeof stream.body.tee === 'function' && typeof context.waitUntil === 'function') {
+    const [toClient, toWatcher] = stream.body.tee();
+    context.waitUntil((async () => {
+      try {
+        const reader = toWatcher.getReader();
+        for (;;) {
+          const step = await reader.read();
+          if (step.done) break;
+        }
+        await markFileDownloaded(env, code, idx);
+      } catch (e) {
+        /* 收端中断 / 上游失败：不标记，收端重取即可 */
+      }
+    })());
+    return new Response(toClient, { headers });
+  }
+
+  // 老路径（环境不支持 tee / waitUntil）：维持"开始即标记"的旧行为保底，
+  // 宁可信号偏早，也不能让 complete 的前置条件永远不满足。
   markFileDownloaded(env, code, idx).catch(() => {});
 
-  return new Response(stream.body, {
-    headers: {
-      'Content-Type': file.type || 'application/octet-stream',
-      'Content-Length': String(stream.size || file.size || 0),
-      'Content-Disposition': contentDisposition(file.name),
-      'Cache-Control': 'no-store'
-    }
-  });
+  return new Response(stream.body, { headers });
 }

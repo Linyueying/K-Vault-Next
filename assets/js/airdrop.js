@@ -52,6 +52,15 @@
   // 暂停 ≠ 取消：房间还在（TTL 内），点「继续等待」立即恢复。
   const IDLE_PAUSE_MS = 5 * 60 * 1000;
 
+  // 两端动画同步：事件总是"先知方"（收端）先感受到，"轮询方"（发端）要等
+  // 0~一个轮询周期才看到。把先知方的庆祝动画压后 1.5s（≈发端空闲轮询 3s
+  // 的均值滞后），两端的"连接成功 / 完成"时刻就会几乎同时出现。
+  const CELEBRATE_DELAY = 1500;
+
+  // 状态轮询的单请求超时。移动网络下 fetch 可能挂死不返回，pollBusy 卡死
+  // 会断掉整条轮询链 —— 表现就是"对方早完成了，发端永远停在对方正在接收"。
+  const STATUS_TIMEOUT = 8000;
+
   function formatSize(bytes) {
     const n = Number(bytes) || 0;
     if (n < 1024) return n + ' B';
@@ -113,6 +122,7 @@
         pausedByIdle: false, // C：等待相位 5 分钟无进展后自动暂停
         lastActivityAt: 0, // 最近一次「世界变了」的时间戳（状态/文件数/进度）
         activityKey: '', // 上次快照，用于识别真正的变化
+        celebrateTimer: null, // 庆祝动画的同步延迟定时器（先知方压后 CELEBRATE_DELAY）
         busy: false,
         uploadProgress: 0,
         downloadProgress: 0,
@@ -376,6 +386,10 @@
 
       reset() {
         this.stopPolling();
+        if (this.celebrateTimer) {
+          clearTimeout(this.celebrateTimer);
+          this.celebrateTimer = null;
+        }
         this.role = null;
         this.phase = 'choose';
         this.code = '';
@@ -490,7 +504,14 @@
           this.phase = 'linked';
           this.activityKey = '';
           this.lastActivityAt = Date.now();
-          this.playLinkPulse();
+          // 连接脉冲压后 CELEBRATE_DELAY：收端是"先知道连上了"的一方，
+          // 等一等再庆祝，发端的轮询几乎同时到达 linked —— 两端一起"叮"。
+          if (this.celebrateTimer) clearTimeout(this.celebrateTimer);
+          this.celebrateTimer = setTimeout(() => {
+            this.celebrateTimer = null;
+            if (this.leaving || this.phase !== 'linked') return;
+            this.playLinkPulse();
+          }, CELEBRATE_DELAY);
           this.startPolling();
         } catch (e) {
           this.notice = '网络异常，无法连接对方。';
@@ -653,10 +674,15 @@
         }
 
         this.pollBusy = true;
+        // 移动网络下 fetch 可能无限期挂起：不设超时的话 pollBusy 永远卡在
+        // true，自续链从此断掉，而且回到前台也救不回来（poll 会因 pollBusy
+        // 直接早退）。8s 无响应就放弃这一拍，下一拍照常重试。
+        const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const abortTimer = ctrl ? setTimeout(() => ctrl.abort(), STATUS_TIMEOUT) : null;
         try {
           const res = await fetch(
             this.api('/api/airdrop/status?code=' + encodeURIComponent(this.code) + '&token=' + encodeURIComponent(this.token)),
-            { credentials: 'same-origin', cache: 'no-store' }
+            { credentials: 'same-origin', cache: 'no-store', signal: ctrl ? ctrl.signal : undefined }
           );
           const data = await res.json().catch(() => ({}));
           // 修复：主动取消/重置后，早前在途的轮询回包一律作废 ——
@@ -669,8 +695,9 @@
           this.session = data.session;
           this.applyServerStatus(data.session);
         } catch (e) {
-          /* 轮询失败不打断：下一拍会重试 */
+          /* 超时 / 网络错误都不打断：下一拍会重试 */
         } finally {
+          if (abortTimer) clearTimeout(abortTimer);
           this.pollBusy = false;
           this.scheduleNextPoll();
         }
@@ -680,6 +707,9 @@
         if (!s) return;
         this.touchActivity(s);
         if (s.status === 'done') {
+          // 收端在庆祝延迟窗口内（complete 刚成功，定时器还没到点）：
+          // 让定时器统一翻牌，这里抢跑会导致 toast 弹两次、动画不同步。
+          if (this.role === 'recv' && this.celebrateTimer) return;
           this.phase = 'done';
           this.stopPolling();
           this.onFinished();
@@ -708,7 +738,16 @@
           } else if (s.status === 'uploading') {
             // 自己正在上传，phase 已由 sendAll 设定，不覆盖
           } else if (s.status === 'uploaded') {
-            this.phase = 'staged';
+            // 兜底：清单显示对方已把文件全部取走（downloadedCount 在服务端
+            // 是"流读完才标记"，可信）。就算 complete 通知彻底丢了，也按完成
+            // 处理，否则发端会永远停在"对方正在接收"。
+            if ((s.fileCount || 0) > 0 && (s.downloadedCount || 0) >= (s.fileCount || 0)) {
+              this.phase = 'done';
+              this.stopPolling();
+              this.onFinished();
+            } else {
+              this.phase = 'staged';
+            }
           }
         } else if (s.status === 'linked' || s.status === 'uploading') {
           this.phase = 'waiting-file';
@@ -719,6 +758,10 @@
 
       failWith(message) {
         this.stopPolling();
+        if (this.celebrateTimer) {
+          clearTimeout(this.celebrateTimer);
+          this.celebrateTimer = null;
+        }
         this.errorMsg = message;
         this.phase = 'failed';
         this.notice = message;
@@ -952,16 +995,33 @@
             this.downloadProgress = total ? Math.min(1, this.receivedBytes / total) : 1;
           }
 
-          // 全部接收完，通知后端完成并清理中转节点
-          await fetch(this.api('/api/airdrop/complete'), {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: this.code, token: this.token })
-          });
-          this.phase = 'done';
-          this.stopPolling();
-          this.onFinished();
+          // 通知后端完成并清理中转节点。这一步要是悄悄丢了，发端会永远停在
+          // "对方正在接收" —— 所以认真重试，而不是发一次就不管结果。
+          let completed = false;
+          for (let attempt = 0; attempt < 5 && !completed; attempt += 1) {
+            try {
+              const r = await fetch(this.api('/api/airdrop/complete'), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: this.code, token: this.token })
+              });
+              completed = r.ok;
+            } catch (e) { /* 网络抖动，稍后重试 */ }
+            if (!completed) await new Promise((r) => setTimeout(r, 800));
+          }
+
+          // 完成翻牌同样压后 CELEBRATE_DELAY：收端先收完、先知道，等发端
+          // 轮询追上来，两端的完成动画近乎同时出现。期间进度停在 100%，
+          // 视觉上是自然的"收尾一拍"。
+          const finishedCode = this.code;
+          this.celebrateTimer = setTimeout(() => {
+            this.celebrateTimer = null;
+            if (this.leaving || this.code !== finishedCode || this.phase !== 'downloading') return;
+            this.phase = 'done';
+            this.stopPolling();
+            this.onFinished();
+          }, CELEBRATE_DELAY);
         } catch (e) {
           this.failWith(e && e.message ? e.message : '接收失败。');
         }
