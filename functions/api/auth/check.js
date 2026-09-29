@@ -8,8 +8,7 @@ import {
 } from '../../utils/auth.js';
 import { getGuestConfig } from '../../utils/guest.js';
 import { getAirdropConfig } from '../../utils/runtime-config.js';
-import { effectiveMaxBytes, resolveBackend } from '../../utils/airdrop.js';
-import { envValue } from '../../utils/env-config.js';
+import { availableBackends } from '../../utils/airdrop.js';
 
 /**
  * 隔空投送对前端可见的能力描述。
@@ -20,23 +19,19 @@ import { envValue } from '../../utils/env-config.js';
 async function buildAirdropInfo(env) {
   try {
     const cfg = await getAirdropConfig(env);
-    const limit = await effectiveMaxBytes(env);
-    const hasTG = Boolean(env?.TG_BOT_TOKEN) && Boolean(envValue(env, 'TG_CHAT_ID'));
+    // 可用中转节点（R2 / Telegram）；发端在界面上二选一，默认值由前端沿用
+    // index 页当前选的节点。没有可用节点则功能整体不可用。
+    const nodes = availableBackends(env);
     return {
-      enabled: Boolean(cfg.enabled) && Boolean(limit.backend),
+      enabled: Boolean(cfg.enabled) && nodes.length > 0,
       guestAllowed: Boolean(cfg.guestAllowed),
-      maxBytes: limit.maxBytes || 0,
-      backend: limit.backend,
-      backendLabel: limit.label,
-      ttlMinutes: cfg.ttlMinutes,
-      hasR2: Boolean(env?.R2_BUCKET),
-      hasKV: Boolean(env?.img_url),
-      hasTG
+      nodes,
+      ttlMinutes: cfg.ttlMinutes
     };
   } catch (e) {
     // 能力探测失败不该让登录检查整个挂掉：按"不可用"处理，前端隐藏入口
     console.error('Airdrop capability error:', e);
-    return { enabled: false, guestAllowed: false, maxBytes: 0, backend: null };
+    return { enabled: false, guestAllowed: false, nodes: [] };
   }
 }
 

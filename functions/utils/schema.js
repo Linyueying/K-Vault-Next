@@ -390,6 +390,16 @@ const M0010_AIRDROP = [
   ON airdrop_stats(code)`,
 ];
 
+// 单文件模型 → 多文件清单：session 不再直接挂一个文件的字段，
+// 而是用 files_json 存一组文件条目，配合 file_count / total_size 做概览。
+// 旧的 storage_backend / storage_key / storage_meta / file_name / file_size
+// 列保留不删（D1 不支持 DROP COLUMN，且留着无害），新逻辑一律读 files_json。
+const M0011_AIRDROP_FILES = [
+  `ALTER TABLE airdrop_sessions ADD COLUMN files_json   TEXT`,
+  `ALTER TABLE airdrop_sessions ADD COLUMN file_count    INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE airdrop_sessions ADD COLUMN total_size    INTEGER NOT NULL DEFAULT 0`,
+];
+
 // ============================================================================
 // 迁移清单（**顺序即执行顺序**）
 // ============================================================================
@@ -439,6 +449,11 @@ export const MIGRATIONS = [
   },
   // 全 CREATE TABLE / INDEX IF NOT EXISTS，天然幂等，不需要 guard
   { id: '0010_airdrop', statements: M0010_AIRDROP },
+  {
+    id: '0011_airdrop_files',
+    guard: { type: 'column', table: 'airdrop_sessions', column: 'files_json' },
+    statements: M0011_AIRDROP_FILES,
+  },
 ];
 
 // ============================================================================

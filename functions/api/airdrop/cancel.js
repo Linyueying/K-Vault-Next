@@ -10,8 +10,8 @@ import {
   roleOf,
   cancelSession,
   markStatFailed,
+  parseManifest,
   deleteTempFile,
-  parseStorageMeta,
   jsonResponse
 } from '../../utils/airdrop.js';
 
@@ -44,9 +44,15 @@ export async function onRequestPost(context) {
     return jsonResponse({ ok: true, already: true, status: session.status });
   }
 
+  // 释放所有已上传到中转节点的临时文件（清单里每条各自删）
+  for (const f of parseManifest(session.files_json)) {
+    if (f.status === 'uploaded' || f.status === 'downloaded') {
+      await deleteTempFile(env, f);
+    }
+  }
+
   await cancelSession(env, code);
   await markStatFailed(env, code, 'cancelled');
-  await deleteTempFile(env, session.storage_backend, session.storage_key, parseStorageMeta(session.storage_meta));
 
   return jsonResponse({ ok: true, code, status: 'cancelled' });
 }

@@ -2,9 +2,9 @@
  * 隔空投送 —— 完成确认
  * POST /api/airdrop/complete   { code, token }
  *
- * 由收端在文件真正落到本地之后调用。这一刻同时做两件事：
+ * 由收端在**全部文件**真正落到本地之后调用。这一刻同时做两件事：
  *   1. 房间进入 done，发端轮询到之后播放"已送达"
- *   2. 删除中转节点上的临时文件
+ *   2. 删除中转节点上的所有临时文件
  *
  * 只允许收端调用：如果发端也能点"完成"，就会出现收端还在下载、文件
  * 却已被删除的竞态，而这种错误在界面上表现为"下载到一半断了"，很难归因。
@@ -12,10 +12,11 @@
 import {
   getSession,
   roleOf,
+  allDownloaded,
   markCompleted,
   markStatCompleted,
+  parseManifest,
   deleteTempFile,
-  parseStorageMeta,
   jsonResponse
 } from '../../utils/airdrop.js';
 
@@ -48,12 +49,17 @@ export async function onRequestPost(context) {
   if (session.status !== 'uploaded') {
     return jsonResponse({ error: '文件尚未送达中转节点。', code: 'NOT_READY' }, 409);
   }
+  if (!allDownloaded(session)) {
+    return jsonResponse({ error: '还有文件未接收完成。', code: 'NOT_READY' }, 409);
+  }
 
   await markCompleted(env, code);
   await markStatCompleted(env, code);
   // 先置状态再删文件：即使删除失败，房间也已经是正确的终态，
   // 收端不会因此卡在"等待下载"里
-  await deleteTempFile(env, session.storage_backend, session.storage_key, parseStorageMeta(session.storage_meta));
+  for (const f of parseManifest(session.files_json)) {
+    await deleteTempFile(env, f);
+  }
 
   return jsonResponse({ ok: true, code, completedAt: Date.now() });
 }

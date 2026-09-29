@@ -534,14 +534,14 @@
       return {
         currentTheme: "light",
         /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可用 /
-           单文件上限 / 当前节点名）。能力由 /api/auth/check 下发，见 checkAuth。
-           默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。 */
+           可用中转节点列表）。能力由 /api/auth/check 下发，见 checkAuth。
+           默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。
+           具体的中转节点由发端在面板里选，默认值沿用本页 storageMode。 */
         airdropVisible: false,
         airdropCapability: {
           enabled: false,
           guestAllowed: false,
-          maxBytes: 0,
-          backendLabel: "",
+          nodes: [],
           ttlMinutes: 30,
         },
         showDrawer: false,

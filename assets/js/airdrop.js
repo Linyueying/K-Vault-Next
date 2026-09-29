@@ -10,15 +10,23 @@
  * 两端的状态机（同一个房间，两种视角）
  * ============================================================================
  *
- *   发端：choose → waiting（亮二维码）→ linked → picking（选文件）
- *         → uploading → staged（已到中转节点，等对方取）→ done
+ *   发端：choose → waiting（亮二维码）→ linked → picking（选节点 + 选文件）
+ *         → uploading（逐文件上传，聚合进度）→ staged（已到中转节点，等对方取）→ done
  *
  *   收端：choose → joining（输码/扫码）→ linked → waiting-file（等对方发）
- *         → downloading（自动开始）→ done
+ *         → downloading（逐文件自动接收）→ done
  *
  * 两端都靠轮询推进（约 1.1s 一次）。没有 WebSocket 可用，而这个功能的
  * 状态跃迁频率低到轮询完全够用 —— 代价是"已连接"最多有 1 秒延迟，
  * 实测在隔空投送这种"盯着屏幕等"的场景里感知不到。
+ *
+ * ============================================================================
+ * 中转节点（v2）
+ * ============================================================================
+ *
+ * 发端在界面上**选择**中转节点（R2 / Telegram），默认值沿用 index 页当前
+ * 选的节点（defaultNode prop）。后端只校验节点可用与单文件上限，不替用户
+ * 做主。KV 已移除。
  *
  * ============================================================================
  * 关于进度动画
@@ -26,7 +34,7 @@
  *
  * 中间那个"文件包"的位置由真实的上传/下载进度驱动（XHR progress /
  * 流式读取的字节数），不是固定时长的动画。这一点很重要：进度条走到头
- * 但文件还在传，比进度条慢一点更让人不安。
+ * 但文件还在传，比进度条慢一点更让人不安。多文件时进度是聚合后的整体进度。
  * ============================================================================
  */
 (function () {
@@ -69,8 +77,10 @@
       visible: { type: Boolean, default: false },
       // 当前访问者是否为访客（未登录）
       isGuest: { type: Boolean, default: false },
-      // 后端下发的能力：{ enabled, guestAllowed, maxBytes, backendLabel, ttlMinutes }
+      // 后端下发的能力：{ enabled, guestAllowed, nodes:[{key,label,maxBytes}], ttlMinutes }
       capability: { type: Object, default: () => ({}) },
+      // index 页当前选的存储节点（如 'r2' / 'telegram' / 'auto'），用于默认选中
+      defaultNode: { type: String, default: '' },
       baseUrl: { type: String, default: '' }
     },
 
@@ -92,7 +102,10 @@
         busy: false,
         uploadProgress: 0,
         downloadProgress: 0,
-        selectedFile: null, // { kind:'local'|'cloud', name, size, type, file?, url? }
+        selectedNode: '', // 选中的中转节点 key
+        selectedFiles: [], // [{ kind:'local'|'cloud', name, size, type, file?, url? }]
+        sentBytes: 0,
+        receivedBytes: 0,
         cloudOpen: false,
         cloudFiles: [],
         cloudLoading: false,
@@ -100,7 +113,9 @@
         scanStream: null,
         scanTimer: null,
         pendingCode: '',
-        fileInputKey: 0
+        fileInputKey: 0,
+        doneCount: 0,
+        linkPulse: false
       };
     },
 
@@ -117,12 +132,31 @@
         return true;
       },
 
+      /** 当前环境可用节点列表 */
+      nodeList() {
+        return Array.isArray(this.capability && this.capability.nodes) ? this.capability.nodes : [];
+      },
+
+      /** 发端选中的节点信息 */
+      selectedNodeInfo() {
+        return this.nodeList.find((n) => n.key === this.selectedNode) || this.nodeList[0] || null;
+      },
+
       maxBytes() {
-        return Number((this.capability && this.capability.maxBytes) || 0);
+        return Number((this.selectedNodeInfo && this.selectedNodeInfo.maxBytes) || 0);
       },
 
       maxLabel() {
         return this.maxBytes ? formatSize(this.maxBytes) : '—';
+      },
+
+      /** 选中的节点标签，用于底部状态条 */
+      backendLabel() {
+        return this.selectedNodeInfo ? this.selectedNodeInfo.label : '未选择';
+      },
+
+      totalSelectedSize() {
+        return this.selectedFiles.reduce((a, f) => a + (Number(f.size) || 0), 0);
       },
 
       /** 二维码内容：扫码的人直接带着连接码落到本页 */
@@ -141,8 +175,6 @@
       qrSvg() {
         if (!this.code || typeof window === 'undefined' || !window.QRCode) return '';
         const url = this.shareUrl;
-        // URL 可能很长（长域名 + 路径），超出二维码容量就退化成只编码连接码 ——
-        // 少一个"自动填码"的便利，也好过扫不出东西
         let text = this.code;
         if (url && url.length <= 180) {
           try {
@@ -167,7 +199,6 @@
         return Boolean(this.role) && this.phase !== 'choose' && this.phase !== 'failed';
       },
 
-      /** 发端→节点 这一段是否连通（已连接） */
       upLive() {
         return ['linked', 'picking', 'uploading', 'staged', 'waiting-file', 'downloading', 'done'].includes(this.phase);
       },
@@ -217,7 +248,7 @@
           joining: '输入对方的连接码',
           waiting: '等待对方连接',
           linked: '已连接',
-          picking: '选择要发送的文件',
+          picking: '选择中转节点与文件',
           uploading: '正在上传到存储节点',
           staged: '已送达存储节点',
           'waiting-file': '等待对方发送文件',
@@ -233,8 +264,8 @@
           choose: '两端都在本页打开隔空投送，一端发送、一端接收。',
           joining: '也可以直接扫对方屏幕上的二维码。',
           waiting: '让对方扫描二维码，或把这 8 位连接码告诉对方。',
-          linked: this.role === 'send' ? '对方已就位，选好文件即可发送。' : '连接已建立，等对方选择文件。',
-          picking: `单个文件最大 ${this.maxLabel}。`,
+          linked: this.role === 'send' ? '对方已就位，选好节点和文件即可发送。' : '连接已建立，等对方选择文件。',
+          picking: this.nodeList.length > 1 ? '选择中转节点，再选取要发送的文件（可多选）。' : `中转节点：${this.backendLabel} · 单文件上限 ${this.maxLabel}。`,
           uploading: '上传完成后对方会自动开始接收。',
           staged: '对方正在接收…',
           'waiting-file': '对方选好文件后会自动开始传送。',
@@ -246,36 +277,26 @@
       },
 
       canSend() {
-        return Boolean(this.selectedFile) && !this.busy && this.phase === 'picking' && !this.oversize;
+        return this.selectedFiles.length > 0 && !this.busy && this.phase === 'picking' && !this.oversize;
       },
 
       oversize() {
-        return Boolean(this.selectedFile && this.maxBytes && this.selectedFile.size > this.maxBytes);
+        return this.selectedFiles.some((f) => this.maxBytes && f.size > this.maxBytes);
       },
 
-      /** 传输进行中：遮罩点击不应误关 */
       inFlight() {
         return ['waiting', 'linked', 'picking', 'uploading', 'staged', 'waiting-file', 'downloading'].includes(this.phase);
-      },
-
-      backendLabel() {
-        if (!this.capability) return '未配置';
-        return this.capability.backendLabel || this.capability.backend || '未配置';
       }
     },
 
     watch: {
       visible(next) {
-        if (next) {
-          this.onOpen();
-        } else {
-          this.onClose();
-        }
+        if (next) this.onOpen();
+        else this.onClose();
       }
     },
 
     mounted() {
-      // 扫码跳转过来的人：URL 上带着连接码，直接替他进入接收端并填好码
       try {
         const p = new URLSearchParams(window.location.search).get('airdrop');
         if (p && /^[A-Za-z0-9]{8}$/.test(p)) {
@@ -319,7 +340,6 @@
       onClose() {
         this.stopPolling();
         this.stopScan();
-        // 关闭即视为放弃本次投送：房间留在服务端只会占着中转节点
         if (this.code && this.token && this.inFlight) {
           this.cancelRoom(true);
         }
@@ -346,7 +366,11 @@
         this.notice = '';
         this.uploadProgress = 0;
         this.downloadProgress = 0;
-        this.selectedFile = null;
+        this.selectedNode = '';
+        this.selectedFiles = [];
+        this.sentBytes = 0;
+        this.receivedBytes = 0;
+        this.doneCount = 0;
         this.cloudOpen = false;
         this.cloudFiles = [];
         this.busy = false;
@@ -382,17 +406,16 @@
             this.errorMsg = data.error || '创建投送房间失败。';
             this.notice = this.errorMsg;
             this.noticeTone = 'error';
-            if (data.requireLogin) this.notice += '（请先登录）';
             return;
           }
           this.role = 'send';
           this.code = data.code;
           this.token = data.senderToken;
+          // 默认节点：沿用 index 页当前选择；若不在可用列表里则取第一个可用节点
+          this.selectedNode = (this.defaultNode && this.nodeList.some((n) => n.key === this.defaultNode))
+            ? this.defaultNode
+            : (this.nodeList[0] ? this.nodeList[0].key : '');
           this.phase = 'waiting';
-          if (data.maxBytes) {
-            // 以后端实际能力为准：它可能因为节点降级比页面启动时拿到的更小
-            this.capability.maxBytes = data.maxBytes;
-          }
           this.startPolling();
         } catch (e) {
           this.notice = '网络异常，无法创建投送房间。';
@@ -449,14 +472,12 @@
         }
       },
 
-      /**
-       * 扫码。
-       *
-       * 只用浏览器原生的 BarcodeDetector —— 不为了这个 Beta 功能引入一个
-       * 几十 KB 的解码库。不支持的浏览器（iOS Safari 目前就不支持）会退化成
-       * 提示用系统相机扫：二维码内容本身就是一个带连接码的网址，用系统相机
-       * 扫完直接跳回本页并自动填码，体验反而更顺。
-       */
+      playLinkPulse() {
+        this.linkPulse = true;
+        this.notice = '';
+        setTimeout(() => { this.linkPulse = false; }, 1600);
+      },
+
       async startScan() {
         if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
           this.notice = '当前浏览器不支持页面内扫码，请用系统相机扫描二维码（扫码后会直接打开本页并自动填好连接码）。';
@@ -468,12 +489,9 @@
           this.noticeTone = 'warn';
           return;
         }
-
         this.scanning = true;
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' }
-          });
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
           this.scanStream = stream;
           await this.$nextTick();
           const video = this.$refs.scanVideo;
@@ -488,7 +506,6 @@
               const hit = results && results[0];
               if (!hit || !hit.rawValue) return;
               const m = /(?:airdrop=)?([A-Za-z0-9]{8})/.exec(hit.rawValue);
-              // 二维码里可能是完整网址，也可能只是连接码本身
               const code = m ? m[1] : String(hit.rawValue).trim();
               if (/^[A-Za-z0-9]{8}$/.test(code)) {
                 this.joinCode = code.toUpperCase();
@@ -543,7 +560,6 @@
           );
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            // 404 = 房间过期/不存在；其余先当作网络抖动放过，避免一次抖动就中断
             if (res.status === 404) this.failWith(data.error || '连接码已失效。');
             return;
           }
@@ -581,18 +597,17 @@
               this.phase = 'linked';
               this.playLinkPulse();
             }
-            // 短暂停留在"已连接"，随后进入选文件
             setTimeout(() => {
               if (this.phase === 'linked') this.phase = 'picking';
             }, 900);
           } else if (s.status === 'uploading') {
-            // 自己正在上传，phase 已由 sendFile 设定，不覆盖
+            // 自己正在上传，phase 已由 sendAll 设定，不覆盖
           } else if (s.status === 'uploaded') {
             this.phase = 'staged';
           }
         } else if (s.status === 'linked' || s.status === 'uploading') {
           this.phase = 'waiting-file';
-        } else if (s.status === 'uploaded' && this.phase !== 'downloading') {
+        } else if (s.status === 'uploaded' && this.phase !== 'downloading' && this.phase !== 'done') {
           this.beginDownload();
         }
       },
@@ -611,23 +626,24 @@
         this.toast('隔空投送已完成', 'success');
       },
 
-      // ── 文件选择 ──────────────────────────────────────
+      // ── 文件选择（多文件）─────────────────────────────
       pickLocal() {
         const input = this.$refs.fileInput;
         if (input) input.click();
       },
 
       onFilePicked(e) {
-        const file = e.target.files && e.target.files[0];
+        const files = Array.from(e.target.files || []);
         e.target.value = '';
-        if (!file) return;
-        this.setSelected({
-          kind: 'local',
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          file
-        });
+        for (const file of files) {
+          this.addSelected({
+            kind: 'local',
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            file
+          });
+        }
       },
 
       async pickCloud() {
@@ -635,7 +651,7 @@
         if (!this.cloudOpen || this.cloudFiles.length) return;
         this.cloudLoading = true;
         try {
-          const res = await fetch(this.api('/api/manage/list?limit=100'), {
+          const res = await fetch(this.api('/api/manage/list?limit=200'), {
             credentials: 'same-origin',
             cache: 'no-store'
           });
@@ -650,11 +666,7 @@
           this.cloudFiles = keys
             .map((x) => {
               const meta = x.metadata || {};
-              return {
-                key: x.name,
-                name: meta.fileName || x.name,
-                size: Number(meta.fileSize) || 0
-              };
+              return { key: x.name, name: meta.fileName || x.name, size: Number(meta.fileSize) || 0 };
             })
             .filter((x) => x.name);
           if (!this.cloudFiles.length) {
@@ -669,59 +681,88 @@
         }
       },
 
+      /** 云端文件：点击即加入/移出选择（支持多选） */
       selectCloudFile(item) {
-        this.setSelected({
+        const url = '/file/' + encodeURIComponent(item.key);
+        const existing = this.selectedFiles.findIndex((f) => f.kind === 'cloud' && f.url === url);
+        if (existing >= 0) {
+          this.selectedFiles.splice(existing, 1);
+          return;
+        }
+        this.addSelected({
           kind: 'cloud',
           name: item.name,
           size: item.size,
           type: '',
-          url: '/file/' + encodeURIComponent(item.key)
+          url
         });
-        this.cloudOpen = false;
       },
 
-      setSelected(file) {
-        this.selectedFile = file;
+      isCloudSelected(item) {
+        const url = '/file/' + encodeURIComponent(item.key);
+        return this.selectedFiles.some((f) => f.kind === 'cloud' && f.url === url);
+      },
+
+      addSelected(file) {
+        this.selectedFiles.push(file);
         this.notice = '';
         if (this.maxBytes && file.size > this.maxBytes) {
-          this.notice = `该文件 ${formatSize(file.size)}，超出当前存储节点上限 ${this.maxLabel}，请换一个文件。`;
+          this.notice = `「${file.name}」${formatSize(file.size)}，超出当前节点上限 ${this.maxLabel}，发送时会被拦截。`;
           this.noticeTone = 'warn';
         }
       },
 
-      clearSelected() {
-        this.selectedFile = null;
-        this.fileInputKey += 1;
+      removeFile(index) {
+        this.selectedFiles.splice(index, 1);
       },
 
-      // ── 发送 ──────────────────────────────────────────
-      async sendFile() {
+      clearFiles() {
+        this.selectedFiles = [];
+      },
+
+      // ── 发送（多文件，逐文件上传）────────────────────────
+      async sendAll() {
         if (!this.canSend) return;
+        if (!this.selectedNode) {
+          this.notice = '请先选择中转节点。';
+          this.noticeTone = 'warn';
+          return;
+        }
         this.busy = true;
         this.phase = 'uploading';
         this.uploadProgress = 0;
-        const url = this.api('/api/airdrop/upload?code=' + encodeURIComponent(this.code) + '&token=' + encodeURIComponent(this.token));
+        this.sentBytes = 0;
+        const total = this.totalSelectedSize;
+        const files = this.selectedFiles.slice();
+        const last = files.length - 1;
 
         try {
-          if (this.selectedFile.kind === 'local') {
-            const form = new FormData();
-            form.append('file', this.selectedFile.file, this.selectedFile.name);
-            await this.xhrUpload(url, form);
-          } else {
-            const res = await fetch(url, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                source: 'cloud',
-                url: this.selectedFile.url,
-                fileName: this.selectedFile.name
-              })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || '发送失败');
-            this.uploadProgress = 1;
+          for (let i = 0; i < files.length; i += 1) {
+            const f = files[i];
+            const isFinal = i === last;
+            const url = this.api('/api/airdrop/upload?code=' + encodeURIComponent(this.code) +
+              '&token=' + encodeURIComponent(this.token) +
+              '&node=' + encodeURIComponent(this.selectedNode) +
+              '&final=' + (isFinal ? '1' : '0'));
+
+            if (f.kind === 'local') {
+              const form = new FormData();
+              form.append('file', f.file, f.name);
+              await this.xhrUpload(url, form, f.size, total);
+            } else {
+              const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source: 'cloud', url: f.url, fileName: f.name })
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(data.error || '发送失败');
+              this.sentBytes += f.size;
+              this.uploadProgress = total ? Math.min(1, this.sentBytes / total) : 1;
+            }
           }
+          this.uploadProgress = 1;
           this.phase = 'staged';
           this.toast('已上传到存储节点，等待对方接收', 'success');
         } catch (e) {
@@ -735,7 +776,7 @@
        * 用 XHR 而不是 fetch：只有 XHR 能给出可靠的上传进度事件。
        * 云端文件是服务端自己拉的（不经过浏览器），所以那边没有进度可报。
        */
-      xhrUpload(url, form) {
+      xhrUpload(url, form, fileSize, total) {
         const self = this;
         return new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
@@ -743,18 +784,16 @@
           xhr.withCredentials = true;
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable && e.total) {
-              self.uploadProgress = Math.min(1, e.loaded / e.total);
+              const p = total ? (self.sentBytes + e.loaded) / total : Math.min(1, e.loaded / (e.total || 1));
+              self.uploadProgress = Math.min(1, p);
             }
           };
           xhr.onload = () => {
             let data = {};
-            try {
-              data = JSON.parse(xhr.responseText || '{}');
-            } catch (e) {
-              /* 非 JSON 响应按失败处理 */
-            }
+            try { data = JSON.parse(xhr.responseText || '{}'); } catch (e) { /* 非 JSON 忽略 */ }
             if (xhr.status >= 200 && xhr.status < 300) {
-              self.uploadProgress = 1;
+              self.sentBytes += fileSize;
+              self.uploadProgress = total ? Math.min(1, self.sentBytes / total) : 1;
               resolve(data);
             } else {
               reject(new Error(data.error || ('上传失败（HTTP ' + xhr.status + '）')));
@@ -765,52 +804,50 @@
         });
       },
 
-      // ── 接收 ──────────────────────────────────────────
+      // ── 接收（多文件，逐文件下载）────────────────────────
       async beginDownload() {
         if (this.phase === 'downloading' || this.phase === 'done') return;
+        const files = (this.session && this.session.files) || [];
+        if (!files.length) return;
         this.phase = 'downloading';
         this.downloadProgress = 0;
-        const url = this.api('/api/airdrop/download?code=' + encodeURIComponent(this.code) + '&token=' + encodeURIComponent(this.token));
+        this.receivedBytes = 0;
+        this.doneCount = 0;
+        const total = this.session.totalSize || files.reduce((a, f) => a + (f.size || 0), 0);
 
         try {
-          const res = await fetch(url, { credentials: 'same-origin' });
-          if (!res.ok) {
-            let msg = '接收失败。';
-            try {
-              const d = await res.json();
-              msg = d.error || msg;
-            } catch (e) {
-              /* 忽略解析错误 */
+          for (let i = 0; i < files.length; i += 1) {
+            const meta = files[i];
+            const url = this.api('/api/airdrop/download?code=' + encodeURIComponent(this.code) +
+              '&token=' + encodeURIComponent(this.token) + '&idx=' + i);
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) {
+              let msg = '接收失败。';
+              try { const d = await res.json(); msg = d.error || msg; } catch (e) { /* 忽略 */ }
+              throw new Error(msg);
             }
-            throw new Error(msg);
+            const name = fileNameFromHeader(res.headers.get('content-disposition')) || meta.name || ('airdrop-file-' + i);
+            const chunks = [];
+            let received = 0;
+            if (res.body && typeof res.body.getReader === 'function') {
+              const reader = res.body.getReader();
+              for (;;) {
+                const step = await reader.read();
+                if (step.done) break;
+                chunks.push(step.value);
+                received += step.value.length;
+                this.downloadProgress = total ? Math.min(1, (this.receivedBytes + received) / total) : Math.min(0.95, this.downloadProgress + 0.04);
+              }
+            } else {
+              chunks.push(await res.arrayBuffer());
+            }
+            this.saveBlob(new Blob(chunks, { type: meta.type || 'application/octet-stream' }), name);
+            this.receivedBytes += (meta.size || received);
+            this.doneCount += 1;
+            this.downloadProgress = total ? Math.min(1, this.receivedBytes / total) : 1;
           }
 
-          const total = Number(res.headers.get('content-length') || 0);
-          const name =
-            fileNameFromHeader(res.headers.get('content-disposition')) ||
-            (this.session && this.session.fileName) ||
-            'airdrop-file';
-
-          const chunks = [];
-          let received = 0;
-          if (res.body && typeof res.body.getReader === 'function') {
-            const reader = res.body.getReader();
-            for (;;) {
-              const step = await reader.read();
-              if (step.done) break;
-              chunks.push(step.value);
-              received += step.value.length;
-              this.downloadProgress = total
-                ? Math.min(1, received / total)
-                : Math.min(0.95, this.downloadProgress + 0.04);
-            }
-          } else {
-            chunks.push(await res.arrayBuffer());
-          }
-
-          this.downloadProgress = 1;
-          this.saveBlob(new Blob(chunks, { type: (this.session && this.session.fileType) || 'application/octet-stream' }), name);
-
+          // 全部接收完，通知后端完成并清理中转节点
           await fetch(this.api('/api/airdrop/complete'), {
             method: 'POST',
             credentials: 'same-origin',
@@ -825,7 +862,6 @@
         }
       },
 
-      /** 把收到的文件落到本地。移动端 Safari 对 download 属性支持有限，做兜底提示。 */
       saveBlob(blob, name) {
         try {
           const href = URL.createObjectURL(blob);
@@ -859,10 +895,8 @@
         } catch (e) {
           /* 取消失败也照样退出界面：房间会自己过期 */
         }
-        if (silent) {
-          this.reset();
-        } else {
-          this.reset();
+        this.reset();
+        if (!silent) {
           this.notice = '已取消本次投送。';
           this.noticeTone = 'info';
         }
@@ -988,8 +1022,21 @@
           <div class="ad-status__sub">{{ statusSub }}</div>
         </div>
 
+        <!-- 发端：选择中转节点 -->
+        <div class="ad-nodes" v-if="role === 'send' && (phase === 'picking' || (phase === 'linked' && !selectedFiles.length))">
+          <div class="ad-nodes__label">中转节点</div>
+          <div class="ad-nodes__row">
+            <button class="ad-node-pick" v-for="n in nodeList" :key="n.key"
+                    :class="{ 'is-on': selectedNode === n.key }" @click="selectedNode = n.key">
+              <i class="fas" :class="n.key === 'r2' ? 'fa-cloud' : 'fa-paper-plane'"></i>
+              <span>{{ n.label }}</span>
+              <small>≤ {{ formatSizeLabel(n.maxBytes) }}</small>
+            </button>
+          </div>
+        </div>
+
         <!-- 发端：选择文件来源 -->
-        <div class="ad-actions" v-if="role === 'send' && (phase === 'picking' || (phase === 'linked' && !selectedFile))">
+        <div class="ad-actions" v-if="role === 'send' && (phase === 'picking' || (phase === 'linked' && !selectedFiles.length))">
           <button class="ad-btn ad-btn--primary" @click="pickLocal">
             <i class="fas fa-folder-open"></i><span>从本地选取</span>
           </button>
@@ -998,10 +1045,10 @@
           </button>
         </div>
 
-        <!-- 云端文件列表 -->
+        <!-- 云端文件列表（多选） -->
         <div class="ad-cloud" v-if="cloudOpen && cloudFiles.length">
           <button class="ad-cloud__row" v-for="f in cloudFiles" :key="f.key" @click="selectCloudFile(f)">
-            <i class="fas fa-file" style="color:var(--primary)"></i>
+            <i class="fas" :class="isCloudSelected(f) ? 'fa-check-circle' : 'fa-file'" :style="isCloudSelected(f) ? 'color:var(--c-success)' : 'color:var(--primary)'"></i>
             <span class="ad-cloud__name">{{ f.name }}</span>
             <span class="ad-cloud__size">{{ formatSizeLabel(f.size) }}</span>
           </button>
@@ -1010,16 +1057,45 @@
           <div class="ad-cloud__empty">云端暂无可选文件</div>
         </div>
 
-        <!-- 已选文件 -->
-        <div class="ad-file" v-if="selectedFile">
-          <span class="ad-file__icon"><i class="fas fa-file-lines"></i></span>
-          <span class="ad-file__meta">
-            <span class="ad-file__name">{{ selectedFile.name }}</span>
-            <span class="ad-file__size">{{ formatSizeLabel(selectedFile.size) }} · 来自{{ selectedFile.kind === 'local' ? '本地' : '云端' }}</span>
-          </span>
-          <button class="btn btn--ghost btn--icon btn--sm" @click="clearSelected" title="移除">
-            <i class="fas fa-xmark"></i>
+        <!-- 已选文件清单（多文件） -->
+        <div class="ad-files" v-if="role === 'send' && selectedFiles.length">
+          <div class="ad-files__head">
+            <span>已选择 {{ selectedFiles.length }} 个文件</span>
+            <span v-if="totalSelectedSize">{{ formatSizeLabel(totalSelectedSize) }}</span>
+          </div>
+          <div class="ad-files__list">
+            <div class="ad-file" v-for="(f, i) in selectedFiles" :key="i">
+              <span class="ad-file__icon"><i class="fas fa-file-lines"></i></span>
+              <span class="ad-file__meta">
+                <span class="ad-file__name">{{ f.name }}</span>
+                <span class="ad-file__size">{{ formatSizeLabel(f.size) }} · 来自{{ f.kind === 'local' ? '本地' : '云端' }}</span>
+              </span>
+              <button class="btn btn--ghost btn--icon btn--sm" @click="removeFile(i)" title="移除" :disabled="phase !== 'picking'">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+          <button class="ad-btn ad-btn--primary ad-btn--send" v-if="phase === 'picking'" @click="sendAll" :disabled="!canSend">
+            <i class="fas fa-paper-plane"></i>
+            <span>{{ oversize ? '有文件超出节点上限' : ('发送 ' + selectedFiles.length + ' 个文件') }}</span>
           </button>
+        </div>
+
+        <!-- 收端：对方已发来的文件清单 -->
+        <div class="ad-files" v-if="role === 'recv' && session && session.files && session.files.length && (phase === 'waiting-file' || phase === 'downloading' || phase === 'done')">
+          <div class="ad-files__head">
+            <span>共 {{ session.fileCount }} 个文件</span>
+            <span v-if="session.totalSize">{{ formatSizeLabel(session.totalSize) }}</span>
+          </div>
+          <div class="ad-files__list">
+            <div class="ad-file" v-for="(f, i) in session.files" :key="i">
+              <span class="ad-file__icon"><i class="fas" :class="(phase === 'done' || f.status === 'downloaded') ? 'fa-circle-check' : 'fa-file-lines'" :style="(phase === 'done' || f.status === 'downloaded') ? 'color:var(--c-success)' : ''"></i></span>
+              <span class="ad-file__meta">
+                <span class="ad-file__name">{{ f.name }}</span>
+                <span class="ad-file__size">{{ formatSizeLabel(f.size) }}</span>
+              </span>
+            </div>
+          </div>
         </div>
 
         <!-- 传输进度 -->
@@ -1029,7 +1105,7 @@
             <circle class="ad-ring__val" cx="31" cy="31" r="26"></circle>
           </svg>
           <div class="ad-progress__text">{{ Math.round(activeProgress * 100) }}%</div>
-          <div class="ad-progress__sub">{{ phase === 'uploading' ? '上传到存储节点' : '接收中' }}</div>
+          <div class="ad-progress__sub">{{ phase === 'uploading' ? '上传到存储节点' : ('接收中 ' + doneCount + '/' + (session ? session.fileCount : 0)) }}</div>
         </div>
 
         <!-- 完成 -->
@@ -1057,7 +1133,7 @@
         <button class="btn btn--sm" v-else-if="phase === 'failed' || phase === 'done'" @click="reset">再来一次</button>
       </div>
 
-      <input type="file" :key="fileInputKey" ref="fileInput" style="display:none" @change="onFilePicked" />
+      <input type="file" :key="fileInputKey" ref="fileInput" style="display:none" multiple @change="onFilePicked" />
 
     </div>
   </div>
@@ -1065,7 +1141,6 @@
     `
   };
 
-  // 模板里用到的一个小工具：把字节数转成人看得懂的字符串
   AirdropPanel.methods.formatSizeLabel = formatSize;
 
   window.AirdropPanel = AirdropPanel;

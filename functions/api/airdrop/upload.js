@@ -1,6 +1,6 @@
 /**
- * 隔空投送 —— 发端上传文件到中转节点
- * POST /api/airdrop/upload?code=XXXXXXXX&token=...
+ * 隔空投送 —— 发端上传单个文件到中转节点
+ * POST /api/airdrop/upload?code=XXXXXXXX&token=...&node=r2&final=0
  *
  * 两种来源：
  *   1. 本地选取  multipart/form-data，字段 file
@@ -9,16 +9,18 @@
  *      把 Workers 变成代理），也因为"云端选取"的语义本来就是选自己网盘里
  *      已经传过的文件。
  *
- * 上传完成后房间进入 uploaded，收端轮询到这个状态就开始自动下载。
+ * 节点由发端在界面上选（node 参数），后端只校验它是否可用、文件是否超限。
+ * 一个房间可以传多个文件：发端逐文件调用本接口，最后一个带 final=1，
+ * 房间从 uploading 翻到 uploaded，收端才开始逐文件下载。
  */
 import {
   getSession,
   roleOf,
-  markUploading,
-  markUploaded,
-  markFailed,
+  nodeInfo,
   writeTempFile,
-  effectiveMaxBytes,
+  addManifestFile,
+  parseManifest,
+  markFailed,
   isGuestRequest,
   recordStat,
   jsonResponse
@@ -31,6 +33,8 @@ export async function onRequestPost(context) {
   const params = new URL(request.url).searchParams;
   const code = String(params.get('code') || '').trim().toUpperCase();
   const token = String(params.get('token') || '').trim();
+  const node = String(params.get('node') || '').trim();
+  const isFinal = params.get('final') === '1' || params.get('final') === 'true';
 
   if (!code || !token) {
     return jsonResponse({ error: '缺少 code 或 token。', code: 'BAD_PARAMS' }, 400);
@@ -50,38 +54,50 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: '房间已结束。', code: 'CLOSED' }, 409);
   }
 
-  const limit = await effectiveMaxBytes(env);
-  if (!limit.backend) {
-    return jsonResponse({ error: '没有可用的中转节点。', code: 'NO_STORAGE' }, 503);
+  // 节点可用性 + 上限：发端选的节点必须在当前环境真的能用
+  const info = nodeInfo(env, node);
+  if (!info) {
+    return jsonResponse({ error: '所选存储节点不可用，请换一个节点。', code: 'NO_STORAGE' }, 503);
   }
 
   const contentType = String(request.headers.get('content-type') || '');
   let payload;
   try {
     payload = contentType.includes('application/json')
-      ? await readCloudSource(request, env, limit.maxBytes)
-      : await readLocalSource(request, limit.maxBytes);
+      ? await readCloudSource(request, env, info.maxBytes)
+      : await readLocalSource(request, info.maxBytes);
   } catch (e) {
-    if (e && e.code === 'FILE_TOO_LARGE') return tooLarge(limit);
+    if (e && e.code === 'FILE_TOO_LARGE') return tooLarge(info);
     return jsonResponse({ error: e?.message || '读取文件失败。', code: 'READ_FAILED' }, 400);
   }
 
-  // 让收端立刻看到"对方正在发送"，而不是等到文件落地才有反馈
-  await markUploading(env, code, payload.fileName, payload.fileSize, payload.fileType);
-
+  const seq = parseManifest(session.files_json).length;
   try {
-    const written = await writeTempFile(env, session, limit.backend, payload.fileName, payload.body, payload.fileSize);
-    await markUploaded(env, code, limit.backend, written.key, written.meta);
+    const written = await writeTempFile(env, code, node, payload.fileName, payload.body, payload.fileSize, seq);
+    await addManifestFile(env, code, {
+      name: payload.fileName,
+      size: payload.fileSize,
+      type: payload.fileType,
+      backend: node,
+      key: written.key,
+      meta: written.meta
+    }, isFinal);
 
-    // 在发端这一侧记统计：只有此刻才同时知道"是谁发起的"和"传了多大"
-    await recordStat(env, {
-      code,
-      role: 'sender',
-      isGuest: await isGuestRequest(request, env),
-      fileName: payload.fileName,
-      fileSize: payload.fileSize,
-      outcome: 'uploaded'
-    });
+    // 统计只在「整批发完」那一刻记一条（以房间维度，而不是按文件计数）：
+    // 此刻才同时知道发端身份、文件总数与总大小。
+    if (isFinal) {
+      const after = await getSession(env, code);
+      const files = parseManifest(after?.files_json);
+      const totalSize = files.reduce((a, f) => a + (Number(f.size) || 0), 0);
+      await recordStat(env, {
+        code,
+        role: 'sender',
+        isGuest: await isGuestRequest(request, env),
+        fileName: files[0]?.name ? `${files.length} 个文件` : '批量文件',
+        fileSize: totalSize,
+        outcome: 'uploaded'
+      });
+    }
   } catch (e) {
     await markFailed(env, code, e?.message || '上传到中转节点失败');
     return jsonResponse(
@@ -94,7 +110,8 @@ export async function onRequestPost(context) {
     ok: true,
     fileName: payload.fileName,
     fileSize: payload.fileSize,
-    backend: limit.backend
+    backend: node,
+    final: isFinal
   });
 }
 
@@ -118,7 +135,7 @@ async function readLocalSource(request, maxBytes) {
     fileName: String(file.name || 'airdrop-file'),
     fileSize: size,
     fileType: file.type || null,
-    // File 是 Blob 子类，R2 能直接吃；KV 路径在 writeTempFile 里转 ArrayBuffer
+    // File 是 Blob 子类，R2 能直接吃；Telegram 路径在 writeTempFile 里转 ArrayBuffer
     body: file
   };
 }
@@ -160,10 +177,10 @@ function tooLargeError() {
   return err;
 }
 
-function tooLarge(limit) {
+function tooLarge(info) {
   return jsonResponse({
-    error: `文件超出中转节点上限：当前「${limit.label}」单文件最大 ${Math.floor(limit.maxBytes / 1024 / 1024)} MB。`,
+    error: `文件超出中转节点上限：当前「${info.label}」单文件最大 ${Math.floor(info.maxBytes / 1024 / 1024)} MB。`,
     code: 'FILE_TOO_LARGE',
-    maxBytes: limit.maxBytes
+    maxBytes: info.maxBytes
   }, 413);
 }

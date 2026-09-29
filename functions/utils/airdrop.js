@@ -8,17 +8,39 @@
  *
  * 一次投递的完整状态机：
  *
- *   waiting ──收端凭连接码加入──▶ linked ──发端上传完成──▶ uploaded
+ *   waiting ──收端凭连接码加入──▶ linked ──发端逐文件上传──▶ uploading
  *      │                            │                        │
- *      │                            │                        └──收端下载完成──▶ done
+ *      │                            │                        └──全部上传完成──▶ uploaded
  *      └──超时/取消──▶ expired / cancelled                        │
- *                                                                 └──▶ 删除临时文件
+ *                                                                 └──收端逐文件下载──▶ done（删临时文件）
  *
  * 两端都靠轮询 /api/airdrop/status 推进，不用 WebSocket：Cloudflare Pages
  * Functions 目前没有长连接能力，而隔空投送的状态跃迁频率极低（秒级），
  * 轮询的成本（每次一个 D1 查询）远低于引入额外基础设施的复杂度。
  *
  * ============================================================================
+ * 中转节点（v2：删掉 KV，仅保留 R2 + Telegram）
+ * ============================================================================
+ *
+ * KV 是最终一致的键值库，做"私密临时传输"既不可靠（写后读可能短暂读不到）
+ * 也不经济（按读计量、25MB 硬顶）。隔空投送的中转只需要「写→读→删」闭环，
+ * 所以只保留两种真正合适的中转：
+ *   · R2       —— 私有对象存储，读写删即时，100MB
+ *   · Telegram —— 频道消息，file_id 索引、deleteMessage 清理，20MB
+ *
+ * 具体用哪个节点由**发端在界面上选**（默认沿用 index 页当前选的节点），
+ * 后端只做可用性与上限校验，不替用户做主。
+ *
+ * ============================================================================
+ * 多文件模型
+ * ============================================================================
+ *
+ * 一个房间（airdrop_sessions）可以传送多个文件。文件清单存在
+ * files_json 列里（一组条目，每条带自己的 storage_backend/key/meta）。
+ * 发端逐文件上传，每个文件落地后追加一条；最后一个带 final 标记，
+ * 房间从 uploading 翻到 uploaded，收端才开始逐文件下载。
+ * ============================================================================
+ *
  * 为什么需要一个「收端凭证」
  * ============================================================================
  *
@@ -54,14 +76,11 @@ const CODE_MAX_ATTEMPTS = 6;
 // 保守按 20MB 处理：真正的 Bot API 文档上限虽更高，但经由 Worker 转发时
 // 受请求体大小与超时约束，20MB 是稳妥的边界。
 const TG_MAX_FILE_SIZE = 20 * 1024 * 1024;
-// KV 单值上限 25MB，留 5MB 安全余量（与 chunk-limits.js 的 KV 分片口径一致）。
-const KV_MAX_FILE_SIZE = 20 * 1024 * 1024;
 // R2 单对象理论上限很高，但真正卡住的是 Pages Functions 的请求体大小：
 // 文件必须先完整进入 Worker 才能落地，超过这个数请求会被平台直接拒。
 const R2_MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 const R2_PREFIX = 'airdrop/';
-const KV_PREFIX = 'airdrop:';
 
 /** 终态：进入这些状态后房间不再接受任何写操作 */
 const TERMINAL_STATUSES = ['done', 'failed', 'cancelled', 'expired'];
@@ -133,46 +152,45 @@ function todayKey() {
 // ============================================================================
 
 /**
- * 判定本次投递落在哪个存储节点，以及该节点的真实上限。
+ * 当前环境可用的中转节点列表。
  *
- * 优先级 R2 → Telegram → KV：
- *   · R2 是正经的对象存储，100MB 上限够用，且删除即时生效
- *   · Telegram 把文件发到你的频道、用 file_id 索引，上限 20MB（与项目主
- *     上传的网页上传边界一致），完成后通过 deleteMessage 清掉消息
- *   · KV 是兜底，单值上限决定了它只能接 20MB 以内的文件
- *   · 三者都没绑定 → 功能不可用（返回 null，由 API 层转成明确的 503）
+ * 只有真正能完成「写→读→删」闭环的节点才计入：
+ *   · R2       —— 私有对象存储，即时读写删，100MB
+ *   · Telegram —— 频道消息，file_id 索引、deleteMessage 清理，20MB
  *
- * 返回值里的 maxBytes 还要再和配置里的 maxFileSize 取小 —— 管理员可以
- * 把上限调得更严，但不能调得比节点本身的能力更宽松。
+ * KV 已移除：最终一致 + 25MB 硬顶，不适合私密临时传输。
+ */
+export function availableBackends(env) {
+  const out = [];
+  if (env?.R2_BUCKET && typeof env.R2_BUCKET.put === 'function') {
+    out.push({ key: 'r2', label: 'R2', maxBytes: R2_MAX_FILE_SIZE });
+  }
+  if (env?.TG_BOT_TOKEN && envValue(env, 'TG_CHAT_ID')) {
+    out.push({ key: 'telegram', label: 'Telegram', maxBytes: TG_MAX_FILE_SIZE });
+  }
+  return out;
+}
+
+/** 校验某个具体节点在当前环境是否可用，可用则返回 {key,label,maxBytes} */
+export function nodeInfo(env, node) {
+  return availableBackends(env).find((b) => b.key === node) || null;
+}
+
+/**
+ * 向后兼容的「挑一个节点」：取可用列表里的第一个。
+ * 新逻辑里节点由发端显式选择，这个函数只给统计/能力探测等不需要指定
+ * 节点的场景用（返回主节点用于显示标签）。
  */
 export function resolveBackend(env) {
-  if (env?.R2_BUCKET && typeof env.R2_BUCKET.put === 'function') {
-    return { backend: 'r2', maxBytes: R2_MAX_FILE_SIZE, label: 'R2' };
-  }
-  // Telegram 需要同时具备 bot token 与目标频道；两者缺一则不算可用节点
-  if (env?.TG_BOT_TOKEN && envValue(env, 'TG_CHAT_ID')) {
-    return { backend: 'telegram', maxBytes: TG_MAX_FILE_SIZE, label: 'Telegram' };
-  }
-  if (env?.img_url && typeof env.img_url.put === 'function') {
-    return { backend: 'kv', maxBytes: KV_MAX_FILE_SIZE, label: 'KV' };
-  }
-  return { backend: null, maxBytes: 0, label: '未配置' };
+  const list = availableBackends(env);
+  if (!list.length) return { backend: null, maxBytes: 0, label: '未配置' };
+  const b = list[0];
+  return { backend: b.key, maxBytes: b.maxBytes, label: b.label };
 }
 
-/** 生效的单文件上限 = min(节点能力, 管理员配置) */
-export async function effectiveMaxBytes(env) {
-  const backend = resolveBackend(env);
-  if (!backend.backend) return { ...backend, maxBytes: 0 };
-  const cfg = await getAirdropConfig(env);
-  return { ...backend, maxBytes: Math.min(backend.maxBytes, cfg.maxFileSize) };
-}
-
-/** 临时对象键 */
-function storageKeyFor(code, backend, fileName) {
-  if (backend === 'kv') return `${KV_PREFIX}${code}`;
-  // 文件名只用于让 R2 里的对象可读，不参与任何查找逻辑，做保守清洗
-  const safe = String(fileName || 'file').replace(/[^\w.\-一-龥]/g, '_').slice(0, 80);
-  return `${R2_PREFIX}${code}/${safe}`;
+function storageKeyFor(code, seq, fileName) {
+  const safe = String(fileName || 'file').replace(/[^\w.\-一-龥]/g, '_').slice(0, 64);
+  return `${R2_PREFIX}${code}/${String(seq).padStart(3, '0')}-${safe}`;
 }
 
 // ============================================================================
@@ -207,13 +225,13 @@ export async function checkAirdropAccess(request, env) {
     return { allowed: false, status: 403, code: 'AIRDROP_DISABLED', reason: '隔空投送已关闭' };
   }
 
-  const backend = resolveBackend(env);
-  if (!backend.backend) {
+  const nodes = availableBackends(env);
+  if (!nodes.length) {
     return {
       allowed: false,
       status: 503,
       code: 'AIRDROP_NO_STORAGE',
-      reason: '未绑定 R2 或 KV，隔空投送没有可用的中转节点'
+      reason: '未绑定 R2 或 Telegram，隔空投送没有可用的中转节点'
     };
   }
 
@@ -238,7 +256,7 @@ export async function checkAirdropAccess(request, env) {
     };
   }
 
-  return { allowed: true, isGuest, ip, config: cfg, backend };
+  return { allowed: true, isGuest, ip, config: cfg, nodes };
 }
 
 async function readDailyCount(env, ip) {
@@ -291,8 +309,8 @@ export async function createSession(env, request) {
     try {
       await env.DB.prepare(
         `INSERT INTO airdrop_sessions
-         (code, status, sender_token, receiver_token, progress, created_at, expires_at)
-         VALUES (?, 'waiting', ?, NULL, 0, ?, ?)`
+         (code, status, sender_token, receiver_token, progress, files_json, created_at, expires_at)
+         VALUES (?, 'waiting', ?, NULL, 0, '[]', ?, ?)`
       ).bind(code, senderToken, now, expiresAt).run();
 
       return { ok: true, code, senderToken, expiresAt, ttlMs };
@@ -363,20 +381,32 @@ export function roleOf(session, token) {
   return null;
 }
 
+/** 从 files_json 列解析文件清单（永远返回数组，坏数据也不抛） */
+export function parseManifest(raw) {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * 组装给前端的房间视图。
  *
  * 凭证绝不外泄：即使是本人，回包里也不带任何 token —— 前端已经持有它了，
  * 多返回一份只会增加被日志/代理捕获的面。
+ *
+ * 隐私：文件名 / 大小属于"对方不该提前知道"的信息。在文件全部落地之前
+ * （status 还是 linked / uploading），收端只能看到房间状态和"对方在传"，
+ * 看不到任何文件名；只有发端（自己知道）或文件已 uploaded/done 时才揭开。
  */
 export function sessionView(session, role) {
   const base = {
     code: session.code,
     status: session.status,
     role,
-    fileName: role === 'receiver' ? safeFileName(session) : session.file_name,
-    fileSize: session.file_size || 0,
-    fileType: session.file_type,
     progress: session.progress || 0,
     createdAt: session.created_at,
     linkedAt: session.linked_at,
@@ -385,56 +415,82 @@ export function sessionView(session, role) {
     expiresAt: session.expires_at,
     error: session.error
   };
-  // 收端在文件落地之前不该知道发端选了什么：这是"等待对方发送"的体验前提
-  if (role === 'receiver' && session.status === 'linked') {
-    base.fileName = null;
-    base.fileSize = 0;
+
+  const reveal = role === 'sender' || session.status === 'uploaded' || session.status === 'done';
+  if (reveal) {
+    const files = parseManifest(session.files_json);
+    base.files = files;
+    base.fileCount = files.length;
+    base.totalSize = files.reduce((a, f) => a + (Number(f.size) || 0), 0);
+    base.downloadedCount = files.filter((f) => f.status === 'downloaded').length;
   }
   return base;
 }
 
-function safeFileName(session) {
-  // 收端只在文件已落地后才需要名字，且此时再读一次库即可；
-  // 这里只是兜底，避免任何情况下把未落地文件的名字提前泄露
-  return session.status === 'uploaded' || session.status === 'done' ? session.file_name : null;
-}
-
 // ── 状态跃迁 ────────────────────────────────────────────────
 
-/** 发端开始上传（让收端能显示"对方正在发送"） */
-export async function markUploading(env, code, fileName, fileSize, fileType) {
-  await env.DB.prepare(
-    `UPDATE airdrop_sessions SET status = 'uploading', file_name = ?, file_size = ?, file_type = ?, progress = 0
-     WHERE code = ? AND status IN ('linked', 'uploading', 'uploaded')`
-  ).bind(fileName, fileSize || 0, fileType || null, code).run();
-}
+/**
+ * 追加一个已落地的文件到清单。
+ *
+ * 发端逐文件上传，每成功一个就追加一条；最后一个带 isFinal 时把房间从
+ * uploading 翻到 uploaded，收端轮询到 uploaded 才开始逐文件下载。
+ *
+ * 写入是「读现有清单 → 追加 → 写回」，发端是顺序上传的（前端保证同一时刻
+ * 只发一个），所以不存在并发覆盖清单的竞态。
+ */
+export async function addManifestFile(env, code, file, isFinal) {
+  const session = await getSession(env, code);
+  if (!session) return null;
+  const files = parseManifest(session.files_json);
+  const entry = {
+    idx: files.length,
+    name: String(file.name || 'file'),
+    size: Number(file.size) || 0,
+    type: file.type || null,
+    backend: file.backend,
+    key: file.key,
+    meta: file.meta || null,
+    status: 'uploaded'
+  };
+  files.push(entry);
 
-/** 文件已在中转节点落地，收端可以开始下载 */
-export async function markUploaded(env, code, storageBackend, storageKey, storageMeta) {
+  const status = isFinal ? 'uploaded' : 'uploading';
   await env.DB.prepare(
-    `UPDATE airdrop_sessions SET status = 'uploaded', storage_backend = ?, storage_key = ?, storage_meta = ?, progress = 100, uploaded_at = ?
+    `UPDATE airdrop_sessions
+     SET files_json = ?, status = ?, file_count = ?, total_size = ?, uploaded_at = ?
      WHERE code = ?`
   ).bind(
-    storageBackend,
-    storageKey,
-    storageMeta ? JSON.stringify(storageMeta) : null,
-    nowMs(),
+    JSON.stringify(files),
+    status,
+    files.length,
+    files.reduce((a, f) => a + (Number(f.size) || 0), 0),
+    isFinal ? nowMs() : (session.uploaded_at || null),
     code
   ).run();
+
+  return { idx: entry.idx, status };
 }
 
-/** 从 storage_meta 列还原节点私有附加信息（如 Telegram 的 message_id） */
-export function parseStorageMeta(raw) {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw);
-    return v && typeof v === 'object' ? v : null;
-  } catch {
-    return null;
-  }
+/** 收端下载完一个文件后，把该条目标记为 downloaded */
+export async function markFileDownloaded(env, code, idx) {
+  const session = await getSession(env, code);
+  if (!session) return;
+  const files = parseManifest(session.files_json);
+  if (!files[idx]) return;
+  files[idx] = { ...files[idx], status: 'downloaded' };
+  await env.DB.prepare(
+    `UPDATE airdrop_sessions SET files_json = ? WHERE code = ?`
+  ).bind(JSON.stringify(files), code).run();
 }
 
-/** 收端下载完成 */
+/** 收端是否把所有文件都下载完了 */
+export function allDownloaded(session) {
+  const files = parseManifest(session.files_json);
+  if (!files.length) return false;
+  return files.every((f) => f.status === 'downloaded');
+}
+
+/** 收端下载完成（全部文件已取回） */
 export async function markCompleted(env, code) {
   await env.DB.prepare(
     `UPDATE airdrop_sessions SET status = 'done', completed_at = ? WHERE code = ?`
@@ -457,21 +513,21 @@ export async function cancelSession(env, code) {
 /**
  * 清理过期房间：先删临时文件，再删记录。
  *
- * 只处理「有 storage_key 且未进入终态」的房间 —— 已进入终态的房间在
+ * 只处理「有 files_json 且未进入终态」的房间 —— 已进入终态的房间在
  * 跃迁时就已经删过文件了，重复删只是浪费一次 R2 请求。
  */
 export async function cleanupExpired(env, now, onlyCode) {
   try {
     const sql = onlyCode
-      ? 'SELECT code, storage_backend, storage_key, status FROM airdrop_sessions WHERE code = ?'
-      : `SELECT code, storage_backend, storage_key, status FROM airdrop_sessions
+      ? 'SELECT code, files_json, status FROM airdrop_sessions WHERE code = ?'
+      : `SELECT code, files_json, status FROM airdrop_sessions
          WHERE expires_at < ? AND status NOT IN ('done', 'failed', 'cancelled', 'expired') LIMIT 50`;
     const stmt = env.DB.prepare(sql);
     const bound = onlyCode ? stmt.bind(onlyCode) : stmt.bind(now);
     const rows = await bound.all();
     for (const row of rows.results || []) {
-      if (row.storage_key) {
-        await deleteTempFile(env, row.storage_backend, row.storage_key, parseStorageMeta(row.storage_meta));
+      for (const f of parseManifest(row.files_json)) {
+        await deleteTempFile(env, f);
       }
     }
     if (onlyCode) {
@@ -494,24 +550,18 @@ export async function cleanupExpired(env, now, onlyCode) {
 // ============================================================================
 
 /** 写入中转节点。返回 { key, meta }。
- *  R2 走流式直传；KV 需先读入内存；Telegram 经由 Bot API 发到频道，
+ *  R2 走流式直传；Telegram 经由 Bot API 发到频道，
  *  meta 里带回 message_id 供完成后删除消息。 */
-export async function writeTempFile(env, session, backend, fileName, body, size) {
-  const key = storageKeyFor(session.code, backend, fileName);
+export async function writeTempFile(env, code, backend, fileName, body, size, seq) {
   if (backend === 'r2') {
+    const key = storageKeyFor(code, seq, fileName);
     await env.R2_BUCKET.put(key, body);
     return { key, meta: null };
   }
   if (backend === 'telegram') {
     return sendToTelegramTemp(env, fileName, body, size);
   }
-  // KV 不接受流，必须先完整读入内存 —— 这也是 KV 路径只能接小文件的原因
-  const buf = await new Response(body).arrayBuffer();
-  if (buf.byteLength > KV_MAX_FILE_SIZE) {
-    throw new Error('文件超出 KV 节点上限');
-  }
-  await env.img_url.put(key, buf, { expirationTtl: Math.max(3600, ttlSeconds(session)) });
-  return { key, meta: null };
+  throw new Error('不支持的存储节点：' + backend);
 }
 
 /**
@@ -585,43 +635,36 @@ async function getTelegramFilePath(env, fileId) {
   return data.result.file_path;
 }
 
-function ttlSeconds(session) {
-  const left = Math.max(0, (session.expires_at || 0) - nowMs());
-  return Math.ceil(Math.min(left / 1000 + 3600, 86400 * 7));
-}
-
-/** 从中转节点读出文件流 */
-export async function readTempFile(env, session) {
-  const key = session.storage_key;
-  if (!key) return null;
-  if (session.storage_backend === 'r2') {
-    const obj = await env.R2_BUCKET.get(key);
+/** 从中转节点读出单个文件条目对应的字节流。file 是 files_json 里的一条。 */
+export async function readTempFile(env, file) {
+  if (!file || !file.key) return null;
+  if (file.backend === 'r2') {
+    const obj = await env.R2_BUCKET.get(file.key);
     if (!obj) return null;
-    return { body: obj.body, size: obj.size || session.file_size || 0 };
+    return { body: obj.body, size: obj.size || file.size || 0 };
   }
-  if (session.storage_backend === 'telegram') {
+  if (file.backend === 'telegram') {
     if (!env?.TG_BOT_TOKEN) return null;
-    const filePath = await getTelegramFilePath(env, key);
+    const filePath = await getTelegramFilePath(env, file.key);
     if (!filePath) return null;
     const upstream = await fetch(buildTelegramFileUrl(env, filePath));
     if (!upstream.ok || !upstream.body) return null;
     return {
       body: upstream.body,
-      size: Number(upstream.headers.get('content-length')) || session.file_size || 0
+      size: Number(upstream.headers.get('content-length')) || file.size || 0
     };
   }
-  const buf = await env.img_url.get(key, { type: 'arrayBuffer' });
-  if (!buf) return null;
-  return { body: buf, size: buf.byteLength || session.file_size || 0 };
+  return null;
 }
 
-export async function deleteTempFile(env, backend, key, meta) {
-  if (!key) return;
+/** 删除单个文件条目对应的临时文件 */
+export async function deleteTempFile(env, file) {
+  if (!file || !file.key) return;
   try {
-    if (backend === 'r2' && env?.R2_BUCKET) {
-      await env.R2_BUCKET.delete(key);
-    } else if (backend === 'telegram' && env?.TG_BOT_TOKEN) {
-      const msgId = meta?.messageId;
+    if (file.backend === 'r2' && env?.R2_BUCKET) {
+      await env.R2_BUCKET.delete(file.key);
+    } else if (file.backend === 'telegram' && env?.TG_BOT_TOKEN) {
+      const msgId = file.meta?.messageId;
       if (msgId) {
         await fetch(buildTelegramBotApiUrl(env, 'deleteMessage'), {
           method: 'POST',
@@ -632,8 +675,6 @@ export async function deleteTempFile(env, backend, key, meta) {
           })
         }).catch(() => {});
       }
-    } else if (env?.img_url) {
-      await env.img_url.delete(key);
     }
   } catch (e) {
     console.error('Airdrop temp file delete error:', e);

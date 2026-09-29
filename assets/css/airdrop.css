@@ -784,6 +784,9 @@ html[data-theme='dark'] .ad-digit {
 .ad-file__meta {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .ad-file__name {
@@ -901,4 +904,114 @@ html[data-theme='dark'] .ad-digit {
   .ad-roles {
     max-width: 100%;
   }
+}
+
+/* ── 中转节点选择器（发端）────────────────────────────────── */
+.ad-nodes {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  animation: adRise 0.34s var(--ease-out) backwards;
+}
+
+.ad-nodes__label {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.ad-nodes__row {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.ad-node-pick {
+  flex: 1 1 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--glass-border-ice);
+  background: var(--glass-subtle);
+  color: var(--text-main);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform var(--dur-fast) var(--ease-press),
+    border-color var(--dur-base) var(--ease-apple),
+    background var(--dur-base) var(--ease-apple),
+    box-shadow var(--dur-base) var(--ease-apple);
+}
+
+.ad-node-pick i {
+  font-size: 1.1rem;
+  color: var(--primary);
+}
+
+.ad-node-pick span {
+  font-size: var(--fs-md);
+  font-weight: 800;
+}
+
+.ad-node-pick small {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.ad-node-pick:hover {
+  border-color: rgba(var(--primary-rgb), 0.4);
+}
+
+.ad-node-pick.is-on {
+  border-color: transparent;
+  color: #fff;
+  background: linear-gradient(140deg, var(--primary-light), var(--primary));
+  box-shadow: 0 8px 20px -8px rgba(var(--primary-rgb), 0.55);
+}
+
+.ad-node-pick.is-on i,
+.ad-node-pick.is-on small {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ── 多文件清单 ──────────────────────────────────────────── */
+.ad-files {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  animation: adRise 0.34s var(--ease-out) backwards;
+}
+
+.ad-files__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 0 var(--sp-1);
+}
+
+.ad-files__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.ad-btn--send {
+  margin-top: var(--sp-1);
+  width: 100%;
+  flex: 1 1 auto;
 }
