@@ -55,6 +55,10 @@
       }
       .row:first-child { border-radius: var(--r-lg) var(--r-lg) 0 0; }
       .row:last-child { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+      /* 交付结果列表同理：每完成一个文件就往头部插一行，批量上传时这张表会长到
+         上百行，而屏幕外的那些行同样不该参与渲染。这里限定作用在 .list--card
+         （index 的交付结果），避免误伤 admin 里同名的 .row。 */
+      .list--card > .row { content-visibility: auto; contain-intrinsic-size: auto 70px; }
       .row + .row::before {
         content: "";
         position: absolute;
@@ -500,7 +504,21 @@
         background: var(--glass-surface);
         border: 1.5px solid var(--glass-border-ice);
         box-shadow: var(--shadow-soft);
+        transform-origin: top center;
         transition: border-color 0.3s var(--ease-apple), box-shadow 0.3s var(--ease-apple);
+      }
+      /* —— 入场过渡曾被自己吃掉 ——
+         上面这条 `.url-bar { transition: ... }` 与 <transition name="drop"> 生成的
+         `.drop-enter-active` 特异性完全相同（都是 0,1,0），而 index.css 排在
+         design-system.css 之后加载，后者因此被整条覆盖：进场时只有 border-color /
+         box-shadow 参与过渡，opacity / transform 从 enter-from 到 enter-to 是一次硬切
+         —— 视觉上就是「URL 转存条弹出没有任何动画」。
+         这里用 0,2,0 的双类选择器把控制权夺回来，动效取值与 .drop-* 保持一致。 */
+      .url-bar.drop-enter-active {
+        transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid);
+      }
+      .url-bar.drop-leave-active {
+        transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press);
       }
       .url-bar:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12); }
       .url-bar > i { color: var(--primary); font-size: 0.95rem; flex-shrink: 0; }
@@ -523,7 +541,36 @@
 /* 上传任务
    稳定性总则：整卡高度不允许随状态变化而变。所有「按状态出现 / 消失」的
    元素，要么预留固定槽位，要么用绝对定位脱离文档流。 */
+
+/* —— 大批量队列的精简模式 ——
+   <transition-group> 的入场/list-move 会为**每个**子元素做 FLIP：插入前后各
+   读一次 getBoundingClientRect()，插入 n 个就是 2n 次强制同步布局，还要给每个元素
+   挂合成层跑 taskIn 关键帧。n=100 时这一套下来主线程要停几百毫秒到数秒不等
+   —— 这是「一次性拖 100 个文件进去，UI 直接消失」的另一半原因。
+   超过 QUEUE_LEAN_LIMIT 后由模板挂上 .list--lean 直接卸掉动画：
+   这种规模下没人会盯着单个卡片的进出场看，换来的是不掉帧。
+   队列短回去之后会自动回到完整动效，无需手动复位。
+   注意 list-leave-active 保留一点时长：它负责把元素脱离文档流（position:absolute），
+   完全置 none 会让「剩下的项」等不到位置重排而卡住。 */
+.list--lean .list-enter-active { animation: none; }
+.list--lean .list-move { transition: none; }
+
 .task { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md); background: var(--glass-subtle); border: 1px solid var(--glass-border); margin-bottom: var(--sp-2); }
+
+/* —— 大批量队列：屏幕外的卡片不参与渲染 ——
+   100 个文件一次性入队时，主线程曾被单个任务独占 2.2 秒；浏览器侧的耗时分解
+   显示 ScriptDuration 只有 10ms、LayoutDuration 9ms，而 RecalcStyleDuration 高达 4.4s
+   —— 时间几乎全花在样式重算上，跟 JS 没关系。原因也简单：DOM 里每多一张卡片，
+   浏览器就得为它完整走一遍样式计算 / 布局 / 绘制，而 100 张里用户真正看得见的
+   不过七八张。
+   content-visibility: auto 让浏览器直接跳过「没进入视口」的子树，样式失效也一并
+   被限制住 —— 成本重新由「屏幕上看得见的几张」决定，而不是队列长度。
+   contain-intrinsic-size 提供屏幕外时的占位行高（对齐实测的 89px 卡高 + 8px 间距），
+   避免滚动条因「元素进入视口后尺寸突变」来回跳。
+   不支持该属性的浏览器会忽略整条声明、退回原行为，属于渐进增强。
+   ⚠️ 别顺手写成 contain: strict —— 卡片内部的 long 文件名展开、.task__subline
+   的高度过渡都依赖元素真实参与布局；auto 跳过的只是「看不见的那部分」。 */
+.task { content-visibility: auto; contain-intrinsic-size: auto 89px; }
 .task__thumb { width: 42px; height: 42px; border-radius: var(--r-xs); object-fit: cover; background: var(--glass-surface); border: 1px solid var(--glass-border-ice); display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--primary); flex-shrink: 0; }
 
 .task__info { --task-gap: 2px; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--task-gap); }
@@ -570,6 +617,19 @@
               opacity 0.3s var(--ease-apple);
 }
 .task__subline.is-on { max-height: 1.5em; margin-top: 0; opacity: 1; }
+
+/* —— 大队列：卡片内的补间全部卸掉 ——
+   上面这些过渡（速率行的 max-height、文件名的展开）以及 .progress__val 的
+   0.4s transform 都是「按卡片」计的：100 张卡各自跑一段 0.34~0.4s 的补间时，
+   浏览器每帧都要为仍在动画中的元素重算样式与布局。
+   实测这块收益 <2%（屏幕外的卡片已经被 content-visibility 跳过了，根本没在跑
+   动画），但代价也近乎为零 —— 队列长到这个规模时没人会盯着单卡的展开看，
+   卸掉没有任何观感损失。will-change 一并撤：它会给每张卡片提一个合成层，
+   批量上传时是上百个层白占内存。 */
+.list--lean .task__subline,
+.list--lean .task__subline-inner,
+.list--lean .task__name { transition: none; }
+.list--lean .progress__val { transition: none; will-change: auto; }
 .task__subline-inner { display: inline-block; transform: translateY(-4px);
   transition: transform 0.34s var(--ease-apple); }
 .task__subline.is-on .task__subline-inner { transform: translateY(0); }
@@ -1269,7 +1329,6 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       #app:not(.is-booted) .quick-actions > *:nth-child(2) { animation-delay: 0.18s; }
       #app:not(.is-booted) .quick-actions > *:nth-child(3) { animation-delay: 0.22s; }
       #app:not(.is-booted) .quick-actions > *:nth-child(4) { animation-delay: 0.26s; }
-      #app:not(.is-booted) .quick-actions > *:nth-child(5) { animation-delay: 0.30s; }
       #app:not(.is-booted) .url-bar        { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
       #app:not(.is-booted) .dock           { animation: dockIn 0.72s var(--ease-fluid) 0.1s backwards; }
 

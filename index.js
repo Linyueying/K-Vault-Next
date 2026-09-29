@@ -47,6 +47,65 @@
   const PARALLEL_MAX_LIGHT = 1;
   const PARALLEL_OFF_CONCURRENCY = 1;
 
+  /* ===== 大批量上传的渲染预算 =====
+     100 个文件一次性进队列时，下面这两个上限决定了主线程还剩多少余量：
+       QUEUE_VIEW_MIN_GAP —— 两次队列重渲之间的最小间隔；
+       TASK_PREVIEW_BUDGET —— 同时保留的即时预览图数量上限。
+     QUEUE_LEAN_LIMIT 见下方同名的那段注释。各自的推导都在对应注释块里。 */
+  const QUEUE_VIEW_MIN_GAP = 150;   /* ms：两次队列落帧之间的最小间隔 */
+  const TASK_PREVIEW_BUDGET = 12;   /* 队列里同时保留的即时预览图数量上限 */
+  const QUEUE_LEAN_LIMIT = 24;      /* 队列长过这个数就切到去动画的精简模式 */
+
+  /* ===== 队列合帧渲染（本页最重的一处优化） =====
+     问题：XHR 的 upload.onprogress 大约每 50ms 回调一次，而每次回调都是一个
+     独立宏任务。Vue 只会合并同一 microtask 内的赋值为一次渲染，跨宏任务的赋值
+     是「一次一渲」—— 于是队列里跑着 N 路并发时，每秒会产生 ~20N 次全组件重渲染。
+     100 个任务的场景下一次渲染要 patch 上百张卡片（每张含缩略图、进度条、按钮组），
+     主线程被吃光，表现就是「拖进去之后页面白几秒、浏览器提示未响应」。
+     做法：纯展示字段（progress / uploadedBytes / speed）不直接写 item，先攒进
+     pending 表，由一道闸门统一落地。闸门是双层的：
+       1) 定时器先把频率压到 ~9fps（进度条在这个频率下观感依然顺滑）；
+       2) 再用 rAF 对齐真实出帧时机，避免 flush 抢占用户的滚动与输入。
+     ⚠️ status / want / error 这类参与调度判定的字段绝不能走这里：
+        pickNextUploadTask 读的就是它们，延迟写入会让同一个任务被重复派发。 */
+  const queueView = { pending: new Map(), timer: 0, last: 0 };
+  function flushQueueView() {
+    queueView.timer = 0;
+    queueView.last = Date.now();
+    const entries = Array.from(queueView.pending.values());
+    queueView.pending.clear();
+    for (const entry of entries) {
+      const patch = entry.patch;
+      const item = entry.item;
+      if (patch.progress !== undefined) item.progress = patch.progress;
+      if (patch.uploadedBytes !== undefined) item.uploadedBytes = patch.uploadedBytes;
+      if (patch.speed !== undefined) item.speed = patch.speed;
+    }
+  }
+  function scheduleQueueFlush() {
+    if (queueView.timer) return;
+    const wait = Math.max(0, QUEUE_VIEW_MIN_GAP - (Date.now() - queueView.last));
+    queueView.timer = setTimeout(() => { queueView.timer = 0; requestAnimationFrame(flushQueueView); }, wait);
+  }
+  /* 展示字段的合帧写入入口：同一帧内对同一任务的多次更新只会保留最后一次 */
+  function setQueueView(item, patch) {
+    if (!item) return;
+    const key = item.uid || item;
+    const prev = queueView.pending.get(key);
+    if (prev) Object.assign(prev.patch, patch);
+    else queueView.pending.set(key, { item, patch: Object.assign({}, patch) });
+    scheduleQueueFlush();
+  }
+  /* 丢弃某任务待写的 patch：任务进入终态前必须调用，否则那次迟到的 flush
+     会把已经写到 100% 的进度条又拽回 99%。 */
+  function dropQueueView(item) {
+    if (item) queueView.pending.delete(item.uid || item);
+  }
+
+  /* 扩展名 → 图标类名 / 分类的记忆表（见 getFileIcon / getFileCategory） */
+  const FILE_ICON_CACHE = new Map();
+  const FILE_CATEGORY_CACHE = new Map();
+
   /* ===== 分片并发 =====
      同一文件的分片同时在传的路数，上限由 Worker 内存决定：
        Cloudflare isolate 内存上限 128MB 且被并发请求共享；
@@ -151,8 +210,188 @@
     `,
   };
 
+  /* ===== 上传队列组件 =====
+     为什么要把这块从主模板里拆出来：
+     整个页面原本是**一个**组件，模板有上千个节点。任何响应式变化（哪怕只是
+     某一个上传任务的 progress 从 41 变成 42）都会让这一个 render 函数从头跑到尾 ——
+     上传区、抽屉、历史面板、dock、交付面板全部重新生成一遍 vnode 再 diff。
+     队列是整页里变化最频繁的部分（进度每秒都在动），把它单独成组件之后：
+       - 任务字段变化 → 只重渲染这 90 行模板；
+       - 父组件的 render 不再读取 uploadingFiles 的内容，因此也不会被它带节奏。
+     要真正做到第二点，父组件往这里传的东西必须小心：
+       - files 只传引用（父 render 不读元素内容，故不建立内容依赖）；
+       - 三个计数（失败 / 进行中 / 已暂停）改为在子组件内基于 files 计算。
+         它们原本是父组件的 computed，父模板一读就等于把「队列内容」变成
+         父组件的依赖 —— 那这次拆分就白拆了。
+     另外 ui / actions 两个句柄对象必须是**稳定引用**（父组件用 computed +
+     markRaw 提供）：若每渲染一次就传一个新对象，子组件的 props 会一直"变化"，
+     父组件一渲染就会把子组件也拖下水。 */
+  /* 上传队列里的「单行」。
+     为什么连一行都要拆成组件：upload-queue 的 render 里如果直接铺开 100 个 .task，
+     任何一个 file.progress 变化都会让它整棵子树重新 patch —— 实测一次样式重算覆盖
+     ~578 个元素（CDP trace: UpdateLayoutTree elementCount 中位数 578、最大 740）。
+     拆成组件后 Vue 的 shouldUpdateComponent 会逐个比 props：file / ui / actions /
+     expanded 四个引用都没变的行整行跳过，一次进度更新就只剩那一行重渲染。
+
+     ⚠️ 这个跳过是有前提的 —— 行 vnode 上不能挂 transition。
+     Vue 的 shouldUpdateComponent 开头就是
+       if (nextVNode.dirs || nextVNode.transition) return true
+     而 <transition-group> 会给每个子 vnode 挂上 transition 钩子，所以哪怕写了
+     :css="false"（只是不检测 CSS 过渡时长），也会把 100 行全部放行重渲染。
+     因此 upload-queue 在 lean（> QUEUE_LEAN_LIMIT 行）时改用普通 <div class="list">：
+     超过 24 行时进场/位移动画本来就已经关掉了，这条路径没有视觉损失。 */
+  const uploadTaskComponent = {
+    name: "upload-task",
+    props: {
+      file: { type: Object, required: true },
+      ui: { type: Object, required: true },
+      actions: { type: Object, required: true },
+      /* 长文件名展开态：由父组件持有，避免把纯 UI 状态混进任务对象 */
+      expanded: { type: Boolean, default: false },
+      lean: { type: Boolean, default: false },
+    },
+    computed: {
+      /* 这些原本是模板里重复调用的纯展示函数，提成 computed 后一行内只算一次 */
+      icon() { return this.ui.getFileIcon(this.file.name); },
+      longName() { return this.ui.isLongFileName(this.file.name); },
+      nodeMode() { return this.ui.taskNodeMode(this.file); },
+      nodeLabel() { return this.nodeMode ? this.ui.storageLabel(this.nodeMode) : ""; },
+      nodeIcon() { return this.nodeMode ? this.ui.getStorageIcon(this.nodeMode) : ""; },
+      statusText() { return this.file.statusText || this.ui.getStatusText(this.file.status); },
+      showProgress() {
+        const s = this.file.status;
+        return s === "uploading" || s === "processing" || (this.file.progress || 0) > 0;
+      },
+      progressScale() { return "scaleX(" + ((this.file.progress || 0) / 100) + ")"; },
+    },
+    methods: {
+      toggleName() {
+        if (!this.longName) return;
+        this.$emit("toggle-name", this.file);
+      },
+    },
+    template: `
+<div class="task">
+  <img v-if="file.preview" :src="file.preview" class="task__thumb" loading="lazy" decoding="async" alt="" />
+  <div v-else class="task__thumb" :data-task-uid="file.previewDeferred ? file.uid : null"><i :class="icon"></i></div>
+  <div class="task__info">
+    <div class="task__header">
+      <div class="task__name"
+           :class="{ 'task__name--long': longName, 'is-open': expanded }"
+           :title="file.name"
+           @click="toggleName">{{ file.name }}</div>
+    </div>
+    <div class="task__meta">
+      <span class="task__nowrap">{{ ui.formatSize(file.uploadedBytes || 0) }} / {{ ui.formatSize(file.size) }}</span>
+      <span class="task__nowrap">• {{ statusText }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
+    </div>
+    <div class="task__subline" :class="{ 'is-on': !!(file.speed || file.error) }">
+      <span class="task__subline-inner">
+        <span v-if="file.speed" class="task__speed">• {{ file.speed }}</span>
+        <span v-else-if="file.error" class="task__err" :title="file.error">• {{ file.error }}</span>
+      </span>
+    </div>
+    <div class="progress" v-if="showProgress">
+      <div class="progress__val" :style="{ transform: progressScale }"></div>
+    </div>
+  </div>
+  <div class="task__actions">
+    <span class="task__node" v-if="nodeMode" :title="'储存位置：' + nodeLabel">
+      <i :class="nodeIcon"></i><span class="task__node-full">{{ nodeLabel }}</span><span class="task__node-short">{{ ui.storageShortLabel(nodeMode) }}</span>
+    </span>
+    <!-- 操作按钮组：进行中 / 已暂停 / 出错 / 已阻断 四组互斥切换。
+         这里必须用 transition-group 而不是 <transition mode="out-in">：
+         后者会把「多根 template 片段」当成一个子节点，切到 paused / error 时
+         只有第一个按钮被渲染出来。 -->
+    <transition-group name="taskAct" tag="div" class="taskAct" :css="!lean">
+      <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'"
+        key="pause" class="btn btn--ghost btn--icon" @click="actions.pause(file)" title="暂停"><i class="fas fa-pause"></i></button>
+      <template v-if="file.status === 'paused'">
+        <button key="resume" class="btn btn--ghost btn--icon" @click="actions.resume(file)" title="继续上传"><i class="fas fa-play"></i></button>
+        <button key="paused-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+        <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+      </template>
+      <template v-if="file.status === 'error'">
+        <button key="err-resume" class="btn btn--ghost btn--icon" @click="actions.retry(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
+        <button key="err-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+        <button key="err-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+      </template>
+      <template v-if="file.status === 'blocked'">
+        <button key="blocked-login" class="btn btn--ghost btn--icon" @click="actions.goLogin()" title="登录后上传"><i class="fas fa-right-to-bracket"></i></button>
+        <button key="blocked-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="移除"><i class="fas fa-xmark"></i></button>
+      </template>
+    </transition-group>
+  </div>
+</div>
+    `,
+  };
+
+  const uploadQueueComponent = {
+    name: "upload-queue",
+    components: { "upload-task": uploadTaskComponent },
+    props: {
+      files: { type: Array, required: true },
+      /* 展示型工具（无副作用）：图标、大小、状态文案、储存位置标签 */
+      ui: { type: Object, required: true },
+      /* 会改状态的操作：暂停 / 继续 / 重传 / 取消 / 清空 / 去登录 */
+      actions: { type: Object, required: true },
+      /* 长文件名的展开态：存在父组件，避免把纯 UI 状态混进任务对象 */
+      expandedNames: { type: Object, default: () => ({}) },
+    },
+    computed: {
+      lean() { return this.files.length > QUEUE_LEAN_LIMIT; },
+      failedCount() { return this.files.filter((f) => f.status === "error").length; },
+      /* 队列里还有「想跑但没跑完」的任务（含等待中）→ 可以整体暂停 */
+      activeCount() { return this.files.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error").length; },
+      pausedCount() { return this.files.filter((f) => f.status === "paused").length; },
+    },
+    methods: {
+      /* 长文件名是否展开。判定放在这里而不是行内：展开态是父组件持有的纯 UI 状态，
+         行组件只收一个布尔 prop —— 这样展开/收起不会让整行的数据依赖变重。 */
+      isNameExpanded(file) { return !!this.expandedNames[file.uid]; },
+    },
+    template: `
+<transition name="collapse">
+<div class="collapse" v-if="files.length > 0">
+<div class="collapse__inner">
+<section class="card panel">
+  <div class="panel__head">
+    <span class="panel__title">
+      <i class="fas fa-bars-progress"></i>
+      <span>上传队列 ({{ files.length }})</span>
+      <span v-if="failedCount > 0" style="color: var(--c-danger); font-size: var(--fs-sm);">({{ failedCount }} 失败)</span>
+    </span>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+      <button v-if="activeCount > 0" class="btn btn--sm" @click="actions.pauseAll()"><i class="fas fa-pause"></i> 暂停</button>
+      <button v-if="pausedCount > 0" class="btn btn--sm btn--primary" @click="actions.resumeAll()"><i class="fas fa-play"></i> 继续</button>
+      <button v-if="failedCount > 0" class="btn btn--sm" @click="actions.retryAllFailed()"><i class="fas fa-rotate-right"></i> 续传失败</button>
+      <button class="btn btn--sm" @click="actions.clear()"><i class="fas fa-broom"></i> 清空</button>
+    </div>
+  </div>
+
+  <!-- 两套列表容器，二选一：
+       短队列（≤ QUEUE_LEAN_LIMIT）走 transition-group，进/出/位移都有动画；
+       长队列换普通 div —— 原因见 uploadTaskComponent 上方的注释：transition 会让
+       Vue 对所有行无条件重渲染，100 行时那点进场动画根本看不见，不值这个代价。 -->
+  <transition-group v-if="!lean" name="list" tag="div" class="list">
+    <upload-task v-for="file in files" :key="file.uid || file.id"
+      :file="file" :ui="ui" :actions="actions" :lean="lean"
+      :expanded="isNameExpanded(file)" @toggle-name="$emit('toggle-name', $event)" />
+  </transition-group>
+  <div v-else class="list list--lean">
+    <upload-task v-for="file in files" :key="file.uid || file.id"
+      :file="file" :ui="ui" :actions="actions" :lean="lean"
+      :expanded="isNameExpanded(file)" @toggle-name="$emit('toggle-name', $event)" />
+  </div>
+</section>
+</div>
+</div>
+</transition>
+    `,
+  };
+
   const app = Vue.createApp({
-    components: { "folder-node": folderNodeComponent },
+    components: { "folder-node": folderNodeComponent, "upload-queue": uploadQueueComponent },
     data() {
       return {
         currentTheme: "light",
@@ -251,6 +490,8 @@
 
         PARALLEL_MAX_LIGHT,
         PARALLEL_MAX_HEAVY,
+        /* 模板里要用到的队列节流阀值（详见「队列合帧渲染」注释块） */
+        QUEUE_LEAN_LIMIT,
 
         isAuthenticated: false,
         folderPath: "",
@@ -351,6 +592,16 @@
         return "同步状态（点击查看说明）";
       },
 
+      /* 交付结果列表的精简模式。
+         原因和上传队列不是一回事：这里的行本身几乎不变，开销来自 <transition-group>
+         的 FLIP 位移 —— 每插入一行，Vue 都要给所有已有行写 list-move class + 内联
+         transform，还要对每一行 getBoundingClientRect()（强制同步布局）。
+         100 个文件逐个完成就是 ~n²/2 次写入：实测 row@style 7080 + row@class 3715，
+         占整页剩余 DOM 变更的 86%。
+         Vue 在 onUpdated 里会先用 hasCSSTransform() 探测 moveClass 是否真能产生
+         变换过渡，探测不到就整段跳过，所以这里的落点是 CSS 关掉 .list-move。 */
+      resultLean() { return this.uploadedFiles.length > QUEUE_LEAN_LIMIT; },
+
       selectedCount() { return this.uploadedFiles.filter((f) => f.selected).length; },
       selectedFiles() { return this.uploadedFiles.filter((f) => f.selected); },
       isAllSelected() { return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected); },
@@ -392,10 +643,42 @@
           return "";
         }
       },
-      failedCount() { return this.uploadingFiles.filter((f) => f.status === "error").length; },
-      /* 队列里还有「想跑但没跑完」的任务（含等待中）→ 可以整体暂停 */
-      activeUploadCount() { return this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error").length; },
-      pausedCount() { return this.uploadingFiles.filter((f) => f.status === "paused").length; },
+      /* 队列的三个计数（失败 / 进行中 / 已暂停）已下放到 upload-queue 组件内部。
+         放在这里会出问题：computed 一旦被父模板读取，父组件的 render 就变成了
+         「队列内容」的依赖方 —— 于是每次进度推进都要把整页重算一遍，
+         这次组件化就白做了。 */
+      /* ===== 传给 upload-queue 的两个句柄 =====
+         都必须 markRaw：
+           1) 引用稳定 —— 否则父组件每渲染一次就产出新对象，子组件的 props 一直
+              "变化"，父一渲染就把子也拖着一起渲染；
+           2) 免代理 —— 这些是函数集合，没有做响应式追踪的必要。
+         computed 里没有任何响应式依赖，所以只会求值一次，引用天然稳定。 */
+      queueUi() {
+        return Vue.markRaw({
+          getFileIcon: (name) => this.getFileIcon(name),
+          getStatusText: (status) => this.getStatusText(status),
+          formatSize: (bytes) => this.formatSize(bytes),
+          isLongFileName: (name) => this.isLongFileName(name),
+          taskNodeMode: (file) => this.taskNodeMode(file),
+          storageLabel: (mode) => this.storageLabel(mode),
+          storageShortLabel: (mode) => this.storageShortLabel(mode),
+          getStorageIcon: (mode) => this.getStorageIcon(mode),
+        });
+      },
+      queueActions() {
+        return Vue.markRaw({
+          pause: (file) => this.pauseUpload(file),
+          resume: (file) => this.resumeUpload(file),
+          retry: (file) => this.retryUpload(file),
+          retryFromStart: (file) => this.retryUpload(file, true),
+          cancel: (file) => this.cancelUpload(file),
+          pauseAll: () => this.pauseAllUploads(),
+          resumeAll: () => this.resumeAllUploads(),
+          retryAllFailed: () => this.retryAllFailed(),
+          clear: () => this.clearUploadQueue(),
+          goLogin: () => this.redirectToLogin(),
+        });
+      },
       isMoreTabActive() { return ["history", "menu"].includes(this.activeDrawerTab); },
 
       /* ===== Dock 指示器落点（0-3） =====
@@ -673,21 +956,31 @@
         return `${this.baseURL}${raw}`;
       },
       isImageFile(filename) { return /\.(jpe?g|png|webp|gif|svg|bmp|avif|ico)$/i.test(filename || ""); },
+      /* 图标 / 分类按扩展名查表。队列里每张卡片每渲染一次就要走一遍这几个
+         includes —— 100 个任务 × 每帧一次的话是每秒上千次数组扫描，故按扩展名
+         记忆化。只有短 key 才入缓存：无扩展名的文件名会整串变成 key，
+         不设门槛会让这张表随文件名无限膨胀。 */
       getFileIcon(filename) {
         const ext = (filename || "").split(".").pop().toLowerCase();
-        if (["mp4", "mkv", "avi", "mov", "webm"].includes(ext)) return "fas fa-video";
-        if (["mp3", "wav", "flac", "aac", "ogg", "m4a"].includes(ext)) return "fas fa-music";
-        if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) return "fas fa-file-zipper";
-        if (["pdf", "doc", "docx", "txt", "md"].includes(ext)) return "fas fa-file-lines";
-        return "fas fa-file";
+        if (ext.length <= 8 && FILE_ICON_CACHE.has(ext)) return FILE_ICON_CACHE.get(ext);
+        let cls = "fas fa-file";
+        if (["mp4", "mkv", "avi", "mov", "webm"].includes(ext)) cls = "fas fa-video";
+        else if (["mp3", "wav", "flac", "aac", "ogg", "m4a"].includes(ext)) cls = "fas fa-music";
+        else if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) cls = "fas fa-file-zipper";
+        else if (["pdf", "doc", "docx", "txt", "md"].includes(ext)) cls = "fas fa-file-lines";
+        if (ext.length <= 8) FILE_ICON_CACHE.set(ext, cls);
+        return cls;
       },
       getFileCategory(filename) {
         const ext = String(filename || "").split(".").pop().toLowerCase();
-        if (["jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif", "ico", "tiff"].includes(ext)) return "image";
-        if (["mp4", "webm", "mkv", "avi", "mov", "m4v", "flv", "wmv"].includes(ext)) return "video";
-        if (["mp3", "wav", "flac", "aac", "ogg", "m4a", "opus"].includes(ext)) return "audio";
-        if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "csv", "json", "xml", "html", "zip", "rar", "7z", "tar", "gz"].includes(ext)) return "doc";
-        return "other";
+        if (ext.length <= 8 && FILE_CATEGORY_CACHE.has(ext)) return FILE_CATEGORY_CACHE.get(ext);
+        let category = "other";
+        if (["jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif", "ico", "tiff"].includes(ext)) category = "image";
+        else if (["mp4", "webm", "mkv", "avi", "mov", "m4v", "flv", "wmv"].includes(ext)) category = "video";
+        else if (["mp3", "wav", "flac", "aac", "ogg", "m4a", "opus"].includes(ext)) category = "audio";
+        else if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "csv", "json", "xml", "html", "zip", "rar", "7z", "tar", "gz"].includes(ext)) category = "doc";
+        if (ext.length <= 8) FILE_CATEGORY_CACHE.set(ext, category);
+        return category;
       },
       getStatusText(status) {
         const texts = { waiting: "等待中", processing: "处理中", uploading: "上传中", success: "已完成", error: "失败", paused: "已暂停", blocked: "需登录" };
@@ -1670,12 +1963,6 @@
       },
       triggerUpload() { if (!this.guardUploadAllowed()) return; this.$refs.fileInput.click(); },
       handleFileSelect(e) { const files = Array.from(e.target.files || []); this.processFiles(files); e.target.value = ""; },
-      triggerDirUpload() { if (!this.guardUploadAllowed()) return; this.$refs.dirInput.click(); },
-      handleDirSelect(e) {
-        const files = Array.from(e.target.files || []).filter((f) => !this.isIgnorableFile(f.name));
-        if (files.length) { if (!this.guardUploadAllowed()) { e.target.value = ""; return; } this.processFiles(files); this.showToast(`已从文件夹读取 ${files.length} 个文件`, "success"); }
-        e.target.value = "";
-      },
       onDragOver(e) { if (e) e.preventDefault(); this.isDragging = true; },
       onDragEnter(e) { if (e) e.preventDefault(); this.dragDepth++; this.isDragging = true; },
       onDragLeave(e) { if (e) e.preventDefault(); this.dragDepth = Math.max(0, this.dragDepth - 1); if (this.dragDepth === 0) this.isDragging = false; },
@@ -1800,20 +2087,47 @@
         /* 兜底门禁：任何调用方（拖拽 / 粘贴 / 文件夹 / 选择）都不得绕过。
            访客被禁时直接拦下，不入队、不调度、不发请求。 */
         if (!this.guardUploadAllowed()) return;
+        /* 准入校验先整批跑完（纯计算，不碰 DOM），再一次性入队。
+           拆开是必须的：一旦开始 push，每插入一个任务就会连锁触发一次渲染，
+           这时候再穿插「弹 toast 说某文件超限」就会变成几十次额外的重渲染。 */
+        const accepted = [];
+        const rejected = [];
         for (const file of files) {
           const targetMode = this.resolveStorageForFile(file.size);
           const limit = this.getUploadLimit(targetMode);
           let maxBytes = limit.maxBytes || this.uploadConfig.maxSize;
           if (this.isGuest && this.guestUploadConfig) maxBytes = Math.min(maxBytes, this.guestUploadConfig.maxFileSize);
           if (maxBytes && file.size > maxBytes) {
-            const viaTip = this.storageMode === "auto" ? `（智能分流 → ${this.storageLabel(targetMode)}）` : "";
-            this.showToast(`文件 [${file.name}] ${this.formatSize(file.size)} 超过 ${this.storageLabel(targetMode)} 上限 ${this.formatSize(maxBytes)}${viaTip}`, "error");
+            rejected.push({ file, targetMode, maxBytes });
             continue;
           }
-          const item = this.createUploadTask(file, targetMode);
-          this.uploadingFiles.push(item);
+          accepted.push({ file, targetMode });
+        }
+        if (rejected.length) this.warnOversizeFiles(rejected);
+        if (!accepted.length) return;
+        /* 一次性整批 push，不做「每帧切一片」。
+           试过切片（每帧 24 个），实测反而更慢：浏览器每插入一个队列卡片就要
+           做一次 style invalidation，而单次失效的成本随已有 DOM 规模上升 ——
+           也就是总体呈 ~n²。切成 4 片意味着这份二次代价被付了 4 遍
+           （实测 RecalcStyleDuration 从 4.4s 涨到 7.1s），首屏早出的那点收益
+           远远补不回来。真正该做的是把「每次插入的边际成本」降下来，
+           以及别让 100 个元素各自跑一遍 CSS 过渡检测（见模板里的 :css）。 */
+        for (const entry of accepted) {
+          this.uploadingFiles.push(this.createUploadTask(entry.file, entry.targetMode));
         }
         this.requestUploadScheduling();
+        if (this.$nextTick) this.$nextTick(() => this.scanDeferredThumbs());
+      },
+      /* 超限提示必须聚合：一次拖进来 100 个超大文件时，逐条 toast 会把 toast 栈
+         直接打爆 —— 每条都有自己的进出场动画和计时器，屏幕糊满不说，
+         本身又是一笔主线程开销。这里只报前两条，余数用一句汇总带过。 */
+      warnOversizeFiles(rejected) {
+        rejected.slice(0, 2).forEach(({ file, targetMode, maxBytes }) => {
+          const viaTip = this.storageMode === "auto" ? `（智能分流 → ${this.storageLabel(targetMode)}）` : "";
+          this.showToast(`文件 [${file.name}] ${this.formatSize(file.size)} 超过 ${this.storageLabel(targetMode)} 上限 ${this.formatSize(maxBytes)}${viaTip}`, "error");
+        });
+        const rest = rejected.length - 2;
+        if (rest > 0) this.showToast(`另有 ${rest} 个文件超过上限，已跳过`, "error");
       },
 
       /* ===== 上传调度（唯一入口） =====
@@ -1843,12 +2157,69 @@
         const msg = String((err && err.message) || "");
         return msg === "__ABORTED__" || msg === "网络请求超时";
       },
+      /* ===== 缩略图按需补建 =====
+         见 createUploadTask：大批量入队时预览图不再即时创建，而是先留占位。
+         这里用 IntersectionObserver 盯着所有占位节点，卡片滚到视口附近时才真正
+         生成 objectURL。挂着的 blob 数与 <img> 解码量因此收敛到「屏幕上看得见的
+         那十几个」，而不是队列长度（拖 100 张图时差别是两个数量级）。
+         扫描只在列表变化后跑一次（见 processFiles），不做轮询；某节点一旦有了预览
+         就会被 Vue 换成 <img> 分支，旧节点连同它的观察关系一并消失。 */
+      ensureThumbObserver() {
+        if (this._thumbIO !== undefined) return this._thumbIO;
+        if (typeof IntersectionObserver === "undefined") { this._thumbIO = null; return null; }
+        this._thumbIO = new IntersectionObserver((entries) => {
+          const hits = [];
+          for (const en of entries) {
+            if (!en.isIntersecting) continue;
+            this._thumbIO.unobserve(en.target);
+            const uid = en.target.getAttribute("data-task-uid");
+            if (uid) hits.push(uid);
+          }
+          if (hits.length) this.hydrateThumbs(hits);
+        }, { rootMargin: "260px 0px", threshold: 0 });
+        return this._thumbIO;
+      },
+      scanDeferredThumbs() {
+        const io = this.ensureThumbObserver();
+        if (!io) return;
+        const nodes = document.querySelectorAll(".task__thumb[data-task-uid]");
+        for (const el of nodes) {
+          if (el.dataset.thumbBound === "1") continue;
+          el.dataset.thumbBound = "1";
+          io.observe(el);
+        }
+      },
+      hydrateThumbs(uids) {
+        if (!uids || !uids.length) return;
+        /* 一次建索引，避免对每个命中都 find 一遍整个队列 */
+        const index = new Map();
+        for (const item of this.uploadingFiles) index.set(item.uid, item);
+        for (const uid of uids) {
+          const item = index.get(uid);
+          if (!item || item.preview || !item.previewDeferred || !item.file) continue;
+          item.previewDeferred = false;
+          item.preview = URL.createObjectURL(item.file);
+        }
+      },
+      releaseTaskThumb(item) {
+        if (item && item.preview) { try { URL.revokeObjectURL(item.preview); } catch (_) {} }
+      },
       createUploadTask(file, targetMode) {
+        /* 缩略图不再「入队即建」。
+           每个 objectURL 都强引用着 File，同时 <img> 还要解码一遍位图：
+           一次拖 100 张图，就等于瞬间挂 100 个 blob + 解码 100 张位图，
+           首帧渲染直接卡死数秒，这也是「拖进去之后 UI 消失」的主要元凶之一。
+           策略：队列短（< TASK_PREVIEW_BUDGET）时照旧即时给图，保证日常几个文件
+           的观感；队列一长就只留占位图标，等卡片滚到视口边再由 Observer 补建。 */
+        const canThumb = !!(file.type && file.type.startsWith("image/"));
+        const inlinePreview = canThumb && this.uploadingFiles.length < TASK_PREVIEW_BUDGET;
         return {
           uid: `u${Date.now().toString(36)}${(this.uploadTaskSeq = (this.uploadTaskSeq || 0) + 1).toString(36)}`,
           name: file.name, size: file.size, file: file, targetMode: targetMode,
           status: "waiting", statusText: "等待中", speed: "", uploadedBytes: 0,
-          preview: file.type && file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+          preview: inlinePreview ? URL.createObjectURL(file) : null,
+          /* 「是图但还没给 URL」的任务，由 scanDeferredThumbs 在滚进视口时补上 */
+          previewDeferred: canThumb && !inlinePreview,
           progress: 0, error: null,
           uploadId: null, chunkDone: [], fileId: null,
           /* 业务意图：用户想暂停 -> want !== "run"；想继续/重试 -> want === "run" */
@@ -1971,6 +2342,9 @@
         await Promise.all([worker(true, "light"), worker(false, "heavy")]);
       },
       finishUploadTask(item) {
+        /* 终态前必须丢掉还没落地的进度 patch：那是一次比当前 round 更早的采样，
+           迟到落地会把刚写到 100% 的进度条又拽回 99。 */
+        dropQueueView(item);
         item.status = "success";
         item.statusText = "已完成";
         item.progress = 100;
@@ -1981,6 +2355,8 @@
       },
       handleUploadError(item, err, token) {
         const msg = String((err && err.message) || "上传失败");
+        /* 同上：任务进入终态 / 暂停态，未落地的采样不再有意义 */
+        dropQueueView(item);
         item.speed = "";
         /* 令牌已作废 = 这是被暂停/重试作废的旧请求，交给最新意图决定，不覆盖状态 */
         if (item.runToken !== token) return;
@@ -2030,6 +2406,7 @@
           this.queueCleanupTimer = null;
           for (const f of this.uploadingFiles) {
             if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
+            dropQueueView(f);
           }
           this.uploadingFiles = this.uploadingFiles.filter((f) => f.status !== "success");
         }, 2500);
@@ -2061,14 +2438,15 @@
           if (item.runToken !== token) return;
           const now = Date.now();
           const diff = (now - lastTime) / 1000;
+          /* 三个展示字段合成一次合帧写入：XHR 的 onprogress 约每 50ms 就来一次，
+             逐个赋值会让每次回调都演变成一次全队列重渲染（见 setQueueView 注释） */
+          const patch = { uploadedBytes: loaded, progress: Math.min(99, Math.round((loaded / total) * 100)) };
           if (diff >= 0.4) {
-            const speedBps = (loaded - lastLoaded) / diff;
-            item.speed = this.formatSpeed(speedBps);
+            patch.speed = this.formatSpeed((loaded - lastLoaded) / diff);
             lastTime = now;
             lastLoaded = loaded;
           }
-          item.uploadedBytes = loaded;
-          item.progress = Math.min(99, Math.round((loaded / total) * 100));
+          setQueueView(item, patch);
         }, 0, item);
         if (item.runToken !== token) throw new Error("__ABORTED__");
         if (Array.isArray(data) && data[0]?.error) throw new Error(data[0]?.error || "上传未成功");
@@ -2140,14 +2518,13 @@
               const currentTotal = ctx.uploadedBase + loadedChunk;
               const now = Date.now();
               const diff = (now - ctx.lastTime) / 1000;
+              const patch = { uploadedBytes: currentTotal, progress: Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99)) };
               if (diff >= 0.4) {
-                const speedBps = (currentTotal - ctx.lastLoaded) / diff;
-                item.speed = this.formatSpeed(speedBps);
+                patch.speed = this.formatSpeed((currentTotal - ctx.lastLoaded) / diff);
                 ctx.lastTime = now;
                 ctx.lastLoaded = currentTotal;
               }
-              item.uploadedBytes = currentTotal;
-              item.progress = Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99));
+              setQueueView(item, patch);
             }, this.estimateTimeout(formData.get("chunk")?.size || 0), item);
             const resp = await pr;
             this.assertTaskRunning(item, ctx.token);
@@ -2231,8 +2608,7 @@
         item.uploadId = uploadId;
         item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
         if (doneSet.size) {
-          item.uploadedBytes = uploadedBase;
-          item.progress = Math.min(99, Math.round((uploadedBase / file.size) * 99));
+          setQueueView(item, { uploadedBytes: uploadedBase, progress: Math.min(99, Math.round((uploadedBase / file.size) * 99)) });
           item.statusText = serverResumed ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 个分片` : `续传中，已跳过 ${doneSet.size}/${totalChunks} 个分片`;
         }
         /* ===== 分片并发上传 =====
@@ -2267,15 +2643,16 @@
         const track = (index, loaded) => {
           inflight.set(index, loaded);
           const total = uploadedBase + sumInflight();
-          item.uploadedBytes = total;
-          item.progress = Math.min(99, Math.round((total / file.size) * 99));
+          const patch = { uploadedBytes: total, progress: Math.min(99, Math.round((total / file.size) * 99)) };
           const now = Date.now();
           const diff = (now - speedTime) / 1000;
           if (diff >= 0.4) {
-            item.speed = this.formatSpeed((total - speedLoaded) / diff);
+            patch.speed = this.formatSpeed((total - speedLoaded) / diff);
             speedTime = now;
             speedLoaded = total;
           }
+          /* 分片并行时每路的 progress 都会打到这里，合帧后一帧只落成一次 */
+          setQueueView(item, patch);
         };
 
         /* 并发数按实际分片大小反推，不能写死：
@@ -2315,7 +2692,7 @@
               uploadedBase += chunkBytes;
               inflight.delete(i);
               doneSet.add(i);
-              item.uploadedBytes = uploadedBase;
+              setQueueView(item, { uploadedBytes: uploadedBase });
               flushResume(false);
             } catch (err) {
               inflight.delete(i);
@@ -2462,7 +2839,8 @@
           f.cancelRequested = true;
           f.want = "pause";
           this.invalidateTaskRun(f);
-          if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
+          this.releaseTaskThumb(f);
+          dropQueueView(f);
         }
         if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
         this.uploadingFiles = [];
@@ -2474,7 +2852,8 @@
         this.invalidateTaskRun(file);
         if (file.uploadId) this.abortServerUpload(file.uploadId);
         if (file.fileId) this.clearResumeState(file.fileId);
-        if (file.preview) { try { URL.revokeObjectURL(file.preview); } catch (_) {} }
+        this.releaseTaskThumb(file);
+        dropQueueView(file);
         this.uploadingFiles = this.uploadingFiles.filter((f) => f !== file);
         this.requestUploadScheduling();
       },
@@ -3361,7 +3740,24 @@
       },
 
       /* ===== 历史管理 ===== */
-      persistHistory() {
+      /* 历史落盘 = 一次全表 JSON.stringify + 一次同步的 localStorage.setItem。
+         单文件上传时写一次无所谓；批量上传时每完成一个文件都会各写一次 ——
+         100 个文件就是 100 次整表序列化，而 localStorage 是同步 API，每次都会把
+         主线程钉住若干毫秒。这里改成防抖写：窗口内的多次变更合并为一次落盘，
+         关页 / 卸载时再强制补写（见 flushHistoryNow 的调用方）。 */
+      persistHistory(options) {
+        if (options && options.immediate) {
+          if (this._historyFlushTimer) { clearTimeout(this._historyFlushTimer); this._historyFlushTimer = null; }
+          this.flushHistoryNow();
+          return;
+        }
+        if (this._historyFlushTimer) return;
+        this._historyFlushTimer = setTimeout(() => {
+          this._historyFlushTimer = null;
+          this.flushHistoryNow();
+        }, 800);
+      },
+      flushHistoryNow() {
         try {
           const serialized = this.uploadHistory.map((it) => ({
             id: it.id, name: it.name, fileName: it.fileName, url: it.url,
@@ -3682,6 +4078,10 @@
       /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
       this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
       window.addEventListener("keydown", this._dlgKeyHandler, true);
+      /* 页面隐藏 / 关闭时把防抖中的历史记录立刻落盘，
+         否则「最后 800ms 内完成的上传」会从历史里凭空消失。 */
+      this._pageHideHandler = () => this.persistHistory({ immediate: true });
+      window.addEventListener("pagehide", this._pageHideHandler);
       /* 不再按硬件自动降级（原 hardwareConcurrency / deviceMemory / saveData
          判据误判率高，会让中端设备被动失去全部动效）。
          现在 data-perf 只由 applyPerfMode() 写入 —— 即用户主动关掉「灵动引擎」时。 */
@@ -3745,6 +4145,9 @@
       }
       this.schedulerDisposed = true;
       this.uploadEpoch++;
+      /* 卸载即结算：防抖窗口里挂着的历史变更要在这里真正写下去 */
+      this.persistHistory({ immediate: true });
+      if (this._pageHideHandler) { window.removeEventListener("pagehide", this._pageHideHandler); this._pageHideHandler = null; }
       if (this.uploadDrainTimer) { clearTimeout(this.uploadDrainTimer); this.uploadDrainTimer = null; }
       if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
       for (const f of this.uploadingFiles) {

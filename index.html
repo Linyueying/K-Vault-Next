@@ -112,13 +112,11 @@
           </div>
           </transition>
           <input type="file" style="display: none;" ref="fileInput" multiple @change="handleFileSelect" />
-          <input type="file" style="display: none;" ref="dirInput" multiple webkitdirectory directory @change="handleDirSelect" />
         </section>
 
         <!-- 快捷操作 -->
         <div class="quick-actions">
           <button class="btn" @click="triggerUpload"><i class="fas fa-folder-open"></i><span>选择文件</span></button>
-          <button class="btn" @click="triggerDirUpload"><i class="fas fa-folder-tree"></i><span>选择文件夹</span></button>
           <a href="./gallery.html" class="btn"><i class="fas fa-images"></i><span>图片浏览</span></a>
           <button class="btn" @click="showUrlInput = !showUrlInput"><i class="fas fa-link"></i><span>URL 转存</span></button>
           <button class="btn" @click="openDrawer('folder')"><i class="fas fa-folder-tree"></i><span>{{ folderPath ? folderPath : '上传目录' }}</span></button>
@@ -136,100 +134,13 @@
           </div>
         </transition>
 
-<!-- 上传队列 -->
-<transition name="collapse">
-<div class="collapse" v-if="uploadingFiles.length > 0">
-<div class="collapse__inner">
-<section class="card panel">
-  <div class="panel__head">
-    <span class="panel__title">
-      <i class="fas fa-bars-progress"></i>
-      <span>上传队列 ({{ uploadingFiles.length }})</span>
-      <span v-if="failedCount > 0" style="color: var(--c-danger); font-size: var(--fs-sm);">({{ failedCount }} 失败)</span>
-    </span>
-    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-      <button v-if="activeUploadCount > 0" class="btn btn--sm" @click="pauseAllUploads"><i class="fas fa-pause"></i> 暂停</button>
-      <button v-if="pausedCount > 0" class="btn btn--sm btn--primary" @click="resumeAllUploads"><i class="fas fa-play"></i> 继续</button>
-      <button v-if="failedCount > 0" class="btn btn--sm" @click="retryAllFailed"><i class="fas fa-rotate-right"></i> 续传失败</button>
-      <button class="btn btn--sm" @click="clearUploadQueue"><i class="fas fa-broom"></i> 清空</button>
-    </div>
-  </div>
-
-  <transition-group name="list" tag="div" class="list">
-  <div class="task" v-for="file in uploadingFiles" :key="file.uid || file.id">
-    <img v-if="file.preview" :src="file.preview" class="task__thumb" />
-    <div v-else class="task__thumb"><i :class="getFileIcon(file.name)"></i></div>
-    <div class="task__info">
-      <!-- 头部行：整行归文件名。储存位置标签已移出文字区、落到右侧操作列顶部，
-           与文件名、大小/状态都不再争任何宽度（详见 .task__node 的样式注释）。 -->
-      <div class="task__header">
-        <div class="task__name"
-             :class="{ 'task__name--long': isLongFileName(file.name), 'is-open': isNameExpanded(file) }"
-             :title="file.name"
-             @click="toggleNameExpanded(file)">{{ file.name }}</div>
-      </div>
-      <!-- 元信息行：只放「大小 + 状态」，恢复成普通 flex 行。
-           标签移走后这一行不再需要网格分列。 -->
-      <div class="task__meta">
-        <span class="task__nowrap">{{ formatSize(file.uploadedBytes || 0) }} / {{ formatSize(file.size) }}</span>
-        <span class="task__nowrap">• {{ file.statusText || getStatusText(file.status) }}<span v-if="file.progress !== undefined"> ({{ file.progress }}%)</span></span>
-      </div>
-      <!-- 速率 / 错误行：独占一行。收起时高度为 0，出现时平滑展开 + 淡入，
-           整张卡片的高度随之一起过渡，不再瞬间被撑开。 -->
-      <div class="task__subline" :class="{ 'is-on': !!(file.speed || file.error) }">
-        <span class="task__subline-inner">
-          <span v-if="file.speed" class="task__speed">• {{ file.speed }}</span>
-          <span v-else-if="file.error" class="task__err" :title="file.error">• {{ file.error }}</span>
-        </span>
-      </div>
-      <div class="progress" v-if="file.status === 'uploading' || file.status === 'processing' || file.progress > 0">
-        <div class="progress__val" :style="{ transform: 'scaleX(' + ((file.progress || 0) / 100) + ')' }"></div>
-      </div>
-    </div>
-    <div class="task__actions">
-      <!-- 储存位置标签：固定在卡片右上角、操作按钮上方。
-           完整名 / 短名各渲染一份，用 CSS 断点切换（纯样式，不引入视口监听）。
-           title 始终带完整名，窄屏显示短名时悬停仍能看到全称。 -->
-      <span class="task__node" v-if="taskNodeMode(file)" :title="`储存位置：${storageLabel(taskNodeMode(file))}`">
-        <i :class="getStorageIcon(taskNodeMode(file))"></i><span class="task__node-full">{{ storageLabel(taskNodeMode(file)) }}</span><span class="task__node-short">{{ storageShortLabel(taskNodeMode(file)) }}</span>
-      </span>
-      <!-- 操作按钮组在「进行中 / 已暂停 / 出错 / 已阻断」四组之间互斥切换。
-           这里必须用 transition-group 而不是 <transition mode="out-in">：
-           后者的模板里是「多根 <template> 片段」，Vue 会把整个片段当成一个子节点，
-           导致切到 paused / error 时只有第一个按钮被渲染出来。
-           transition-group 会按 key 逐个补间，增删都能拿到正确的数量。
-           另外，v-if/v-else-if 链在这里必须换成同一层级的独立 v-if，
-           否则 transition-group 看不到「同时存在多个子节点」的情况。
-           宽度由 .task__actions 的 min-width 兜住，.taskAct-leave-active 绝对定位，
-           所以 1 个按钮 <-> 3 个按钮切换时不会把左侧内容推来推去。 -->
-      <!-- 1) 进行中 / 等待中：单个暂停按钮 -->
-      <transition-group name="taskAct" tag="div" class="taskAct">
-        <button v-if="file.status === 'uploading' || file.status === 'processing' || file.status === 'waiting'"
-          key="pause" class="btn btn--ghost btn--icon" @click="pauseUpload(file)" title="暂停"><i class="fas fa-pause"></i></button>
-        <template v-if="file.status === 'paused'">
-          <button key="resume" class="btn btn--ghost btn--icon" @click="resumeUpload(file)" title="继续上传"><i class="fas fa-play"></i></button>
-          <button key="paused-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
-          <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
-        </template>
-        <!-- 3) 出错：续传 / 重传 / 取消 -->
-        <template v-if="file.status === 'error'">
-          <button key="err-resume" class="btn btn--ghost btn--icon" @click="retryUpload(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
-          <button key="err-retry" class="btn btn--ghost btn--icon" @click="retryUpload(file, true)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
-          <button key="err-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
-        </template>
-        <!-- 4) 已阻断（访客上传关闭 / 登录失效）：只提供去登录，不提供重试 -->
-        <template v-if="file.status === 'blocked'">
-          <button key="blocked-login" class="btn btn--ghost btn--icon" @click="redirectToLogin()" title="登录后上传"><i class="fas fa-right-to-bracket"></i></button>
-          <button key="blocked-cancel" class="btn btn--ghost btn--icon" @click="cancelUpload(file)" title="移除"><i class="fas fa-xmark"></i></button>
-        </template>
-      </transition-group>
-    </div>
-  </div>
-  </transition-group>
-</section>
-</div>
-</div>
-</transition>
+<!-- 上传队列 —— 独立组件（见 index.js 的 uploadQueueComponent）。
+     队列是整页里变化最频繁的部分（进度每秒都在动），单独成组件之后它的更新
+     不再带着上传区 / 抽屉 / 历史 / dock / 交付面板一起重新生成 vnode。
+     注意这里只传 files 的引用：父组件一旦读取队列元素的内容，
+     这份「高频变化」就会重新变成父组件的依赖。 -->
+<upload-queue :files="uploadingFiles" :ui="queueUi" :actions="queueActions"
+  :expanded-names="expandedTaskNames" @toggle-name="toggleNameExpanded"></upload-queue>
         <!-- 交付结果 -->
         <transition name="collapse">
         <div class="collapse" v-if="uploadedFiles.length > 0">
@@ -257,14 +168,17 @@
             </div>
           </div>
 
-          <transition-group name="list" tag="div" class="list list--card">
+          <!-- 交付结果：行数超过 QUEUE_LEAN_LIMIT 时套 .list--lean，
+               该规则把 .list-move 的 transition 关掉，Vue 的 hasCSSTransform()
+               探测不到变换就会整段跳过 FLIP —— 详见 index.js 里 resultLean 的注释。 -->
+          <transition-group name="list" tag="div" class="list list--card" :class="{ 'list--lean': resultLean }" :css="!resultLean">
             <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected }"
               v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
               <transition name="check">
                 <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
               </transition>
               <span class="row__thumb">
-                <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getCleanFileUrl(file)" alt="" @error="file._imgError = true" />
+                <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getCleanFileUrl(file)" alt="" loading="lazy" decoding="async" @error="file._imgError = true" />
                 <i v-else :class="getFileIcon(getDisplayName(file))"></i>
               </span>
               <div class="row__main">
