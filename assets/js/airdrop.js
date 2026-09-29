@@ -40,7 +40,17 @@
 (function () {
   'use strict';
 
+  // 轮询节奏分两档（自适应）：
+  //   · 传输中 1.1s —— 对端正在传/收，跃迁要尽快接住，这段延迟直接可感；
+  //   · 纯等待 3s —— 等配对 / 选文件 / 等对方来取，期间没有任何会变的东西，
+  //     1.1s 是纯浪费。一次投送的生命周期里等待占绝大部分，这一档能砍掉
+  //     一半以上的信令请求数。
   const POLL_INTERVAL = 1100;
+  const POLL_IDLE_INTERVAL = 3000;
+
+  // 等待相位连续 5 分钟没有任何进展 → 自动暂停轮询（挂机是最大的浪费源）。
+  // 暂停 ≠ 取消：房间还在（TTL 内），点「继续等待」立即恢复。
+  const IDLE_PAUSE_MS = 5 * 60 * 1000;
 
   function formatSize(bytes) {
     const n = Number(bytes) || 0;
@@ -99,6 +109,10 @@
         noticeTone: 'info', // info|warn|error
         pollTimer: null,
         pollBusy: false,
+        leaving: false, // 正在主动离开（取消/关面板）：在途轮询的回包一律作废
+        pausedByIdle: false, // C：等待相位 5 分钟无进展后自动暂停
+        lastActivityAt: 0, // 最近一次「世界变了」的时间戳（状态/文件数/进度）
+        activityKey: '', // 上次快照，用于识别真正的变化
         busy: false,
         uploadProgress: 0,
         downloadProgress: 0,
@@ -298,6 +312,9 @@
 
     mounted() {
       try {
+        document.addEventListener('visibilitychange', this.onVisibilityChange);
+      } catch (e) { /* 非浏览器环境忽略 */ }
+      try {
         const p = new URLSearchParams(window.location.search).get('airdrop');
         if (p && /^[A-Za-z0-9]{8}$/.test(p)) {
           this.pendingCode = p.toUpperCase();
@@ -309,6 +326,9 @@
     },
 
     beforeUnmount() {
+      try {
+        document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      } catch (e) { /* 非浏览器环境忽略 */ }
       this.stopPolling();
       this.stopScan();
     },
@@ -374,6 +394,10 @@
         this.cloudOpen = false;
         this.cloudFiles = [];
         this.busy = false;
+        this.leaving = false;
+        this.pausedByIdle = false;
+        this.lastActivityAt = 0;
+        this.activityKey = '';
         this.fileInputKey += 1;
       },
 
@@ -416,6 +440,8 @@
             ? this.defaultNode
             : (this.nodeList[0] ? this.nodeList[0].key : '');
           this.phase = 'waiting';
+          this.activityKey = '';
+          this.lastActivityAt = Date.now();
           this.startPolling();
         } catch (e) {
           this.notice = '网络异常，无法创建投送房间。';
@@ -462,6 +488,8 @@
           this.code = data.code;
           this.token = data.receiverToken;
           this.phase = 'linked';
+          this.activityKey = '';
+          this.lastActivityAt = Date.now();
           this.playLinkPulse();
           this.startPolling();
         } catch (e) {
@@ -540,18 +568,90 @@
       startPolling() {
         this.stopPolling();
         this.poll();
-        this.pollTimer = setInterval(() => this.poll(), POLL_INTERVAL);
       },
 
       stopPolling() {
         if (this.pollTimer) {
-          clearInterval(this.pollTimer);
+          clearTimeout(this.pollTimer);
           this.pollTimer = null;
         }
       },
 
+      /** 当前该用哪一档节奏：传输中快拍，纯等待慢拍 */
+      currentPollInterval() {
+        if (this.role === 'recv' && (this.phase === 'waiting-file' || this.phase === 'downloading')) {
+          return POLL_INTERVAL; // 对端正在传，要尽快接住 uploaded 的跃迁
+        }
+        return POLL_IDLE_INTERVAL;
+      },
+
+      /**
+       * 自续链：每拍结束后按当前节奏排下一拍，而不是固定 setInterval。
+       * 好处：相位切换时下一拍立刻按新节奏走；页面隐藏 / 已暂停时干脆不排。
+       */
+      scheduleNextPoll() {
+        if (this.pollTimer) return;
+        if (!this.code || !this.token || this.leaving) return;
+        if (!this.inFlight || this.pausedByIdle) return;
+        if (typeof document !== 'undefined' && document.hidden) return;
+        this.pollTimer = setTimeout(() => {
+          this.pollTimer = null;
+          this.poll();
+        }, this.currentPollInterval());
+      },
+
+      /** C：当前是否处于「没有任何事在发生」的等待相位 */
+      isIdleWaitPhase() {
+        if (this.role === 'send') {
+          return this.phase === 'waiting' || this.phase === 'staged';
+        }
+        // 收端只有「对方连上了但一个文件都还没发」才算空等；
+        // status=uploading 说明可能有大文件正在路上，绝不能按空闲算。
+        return this.role === 'recv' && this.phase === 'waiting-file'
+          && this.session?.status === 'linked';
+      },
+
+      /** 任何「世界变了」的信号都刷新活跃时钟：状态、文件数、下载进度都算 */
+      touchActivity(s) {
+        const key = [s.status, s.fileCount ?? '', s.downloadedCount ?? '', s.progress ?? ''].join('|');
+        if (key !== this.activityKey) {
+          this.activityKey = key;
+          this.lastActivityAt = Date.now();
+        }
+      },
+
+      /** C 的出口：用户点「继续等待」，立即补一拍并恢复轮询链 */
+      resumeWaiting() {
+        this.pausedByIdle = false;
+        this.lastActivityAt = Date.now();
+        this.notice = '';
+        this.noticeTone = 'info';
+        this.poll();
+      },
+
+      /** A：页面看不见就停，「实时」对看不见的页面毫无意义 */
+      onVisibilityChange() {
+        if (typeof document === 'undefined') return;
+        if (document.hidden) {
+          this.stopPolling();
+        } else if (this.code && this.token && this.inFlight && !this.pausedByIdle) {
+          this.poll(); // 回到前台立刻补一拍，顺带恢复轮询链
+        }
+      },
+
       async poll() {
-        if (!this.code || !this.token || this.pollBusy) return;
+        if (!this.code || !this.token || this.pollBusy || this.leaving || this.pausedByIdle) return;
+
+        // C：等待相位下 5 分钟无进展 → 自动暂停（房间保留，可恢复）
+        if (this.isIdleWaitPhase() && this.lastActivityAt
+            && Date.now() - this.lastActivityAt > IDLE_PAUSE_MS) {
+          this.pausedByIdle = true;
+          this.stopPolling();
+          this.notice = '超过 5 分钟没有进展，已暂停等待。对方可能已离开；可点「继续等待」恢复，或取消本次投送。';
+          this.noticeTone = 'info';
+          return;
+        }
+
         this.pollBusy = true;
         try {
           const res = await fetch(
@@ -559,6 +659,9 @@
             { credentials: 'same-origin', cache: 'no-store' }
           );
           const data = await res.json().catch(() => ({}));
+          // 修复：主动取消/重置后，早前在途的轮询回包一律作废 ——
+          // 否则自己点取消，却看到「对方取消了本次投送」。
+          if (this.leaving || !this.code || !this.token) return;
           if (!res.ok) {
             if (res.status === 404) this.failWith(data.error || '连接码已失效。');
             return;
@@ -566,14 +669,16 @@
           this.session = data.session;
           this.applyServerStatus(data.session);
         } catch (e) {
-          /* 轮询失败不打断：下一次 tick 会重试 */
+          /* 轮询失败不打断：下一拍会重试 */
         } finally {
           this.pollBusy = false;
+          this.scheduleNextPoll();
         }
       },
 
       applyServerStatus(s) {
         if (!s) return;
+        this.touchActivity(s);
         if (s.status === 'done') {
           this.phase = 'done';
           this.stopPolling();
@@ -885,6 +990,9 @@
           this.reset();
           return;
         }
+        // 先立旗再发请求：取消期间在途的轮询回包（很可能已经是 cancelled）
+        // 不许再改 UI，否则自己点取消却看到「对方取消了本次投送」。
+        this.leaving = true;
         try {
           await fetch(this.api('/api/airdrop/cancel'), {
             method: 'POST',
@@ -1129,6 +1237,9 @@
         <span>
           <i class="fas fa-server"></i> 节点 {{ backendLabel }} · 单文件上限 {{ maxLabel }}
         </span>
+        <button class="btn btn--sm" v-if="pausedByIdle" @click="resumeWaiting">
+          <i class="fas fa-rotate-right"></i><span>继续等待</span>
+        </button>
         <button class="btn btn--sm" v-if="inFlight" @click="cancelRoom(false)">取消投送</button>
         <button class="btn btn--sm" v-else-if="phase === 'failed' || phase === 'done'" @click="reset">再来一次</button>
       </div>
