@@ -551,6 +551,9 @@
 
         /* 交付结果 */
         resultSelectMode: false,
+        /* 上一次模式切换的时刻。退场动画结束后，「完成」腾出的那个屏幕位置会被
+           「清空」接管，用它挡掉惯性/连点造成的误 arm —— 详见 handleClearResults。 */
+        lastSelectModeAt: 0,
         resultMenuFor: null,
         resultFormatMenuOpen: false,
         resultLinksOpen: false,
@@ -3645,6 +3648,7 @@
       selectAll() { const target = !this.isAllSelected; this.uploadedFiles.forEach((f) => (f.selected = target)); },
       clearResults() { this.uploadedFiles = []; },
       toggleSelectMode() {
+        this.lastSelectModeAt = Date.now();
         this.resultSelectMode = !this.resultSelectMode;
         this.resultMenuFor = null;
         if (!this.resultSelectMode) this.uploadedFiles.forEach((f) => (f.selected = false));
@@ -3785,6 +3789,13 @@
         } finally { this.resultBatchBusy = false; }
       },
       handleClearResults() {
+        /* 「完成」退场的过程中，它原先占的屏幕位置会被刚进场的「清空」接管。
+           用户点完「完成」手指还没离势再落一下，点在同一个坐标上，命中的已经是
+           「清空」——实测 200~400ms 这个窗口内会把清空 armed（文案那一跳也很突兀，
+           再点一次还会真的清空整份交付结果）。这里是第二道保险：另一道是
+           design-system.css 里的 .ctrl-leave-active{pointer-events:none}，
+           负责退场节点本身；窗口期内干脆不接受 arm，真要清空就重新点一次。 */
+        if (Date.now() - (this.lastSelectModeAt || 0) < 450) return;
         if (!this.clearArmed) {
           this.clearArmed = true;
           clearTimeout(this.clearArmTimer);

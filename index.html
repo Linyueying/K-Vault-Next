@@ -153,16 +153,20 @@
               <span class="badge">{{ uploadedFiles.length }}</span>
             </span>
             <div class="result-actions">
+              <!-- 「选择/清空」↔「全选/完成」是同一处 UI 的两套按钮，靠 out-in 互斥切换。
+                   两个分支必须写成**兄弟节点**且各自带 key —— 原来的写法是「外层 div 靠
+                   :key 换身份、内部再套 v-if/v-else」，Vue 要在一帧里先判外层身份、再 patch
+                   子节点，这多出来的一次往返正是模式切换瞬间 UI 落后的成因：实测状态翻转后
+                   ~230ms 按钮文案与复选框才跟着变。退场分支不再能被点到，由 design-system.css
+                   的 .ctrl-leave-active{pointer-events:none} 兜底。 -->
               <transition name="ctrl" mode="out-in">
-                <div class="result-actions__group" :key="resultSelectMode ? 'sel' : 'normal'" style="display:flex; align-items:center; gap: var(--sp-4);">
-                  <template v-if="resultSelectMode">
-                    <button class="text-btn" @click="selectAll">{{ isAllSelected ? '全不选' : '全选' }}</button>
-                    <button class="text-btn text-btn--strong" @click="toggleSelectMode">完成</button>
-                  </template>
-                  <template v-else>
-                    <button class="text-btn text-btn--strong" @click="toggleSelectMode">选择</button>
-                    <button class="text-btn text-btn--danger" :class="{ armed: clearArmed }" @click="handleClearResults">{{ clearArmed ? '确认清空' : '清空' }}</button>
-                  </template>
+                <div v-if="resultSelectMode" key="sel" class="result-actions__group" style="display:flex; align-items:center; gap: var(--sp-4);">
+                  <button class="text-btn" @click="selectAll">{{ isAllSelected ? '全不选' : '全选' }}</button>
+                  <button class="text-btn text-btn--strong" @click="toggleSelectMode">完成</button>
+                </div>
+                <div v-else key="normal" class="result-actions__group" style="display:flex; align-items:center; gap: var(--sp-4);">
+                  <button class="text-btn text-btn--strong" @click="toggleSelectMode">选择</button>
+                  <button class="text-btn text-btn--danger" :class="{ armed: clearArmed }" @click="handleClearResults">{{ clearArmed ? '确认清空' : '清空' }}</button>
                 </div>
               </transition>
             </div>
@@ -209,8 +213,8 @@
           <transition name="collapse">
             <div class="collapse" v-if="resultSelectMode">
             <div class="collapse__inner">
-            <div class="selection-bar glass">
-              <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ selectedCount }} 项</span>
+            <div class="selection-bar glass" :class="{ 'selection-bar--empty': selectedCount === 0 }">
+              <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 <transition name="count" mode="out-in"><span :key="selectedCount" class="selection-bar__count">{{ selectedCount }}</span></transition> 项</span>
               <div class="selection-bar__actions">
                 <button class="btn btn--sm" @click="downloadSelected" :disabled="selectedCount === 0" title="逐个下载所选文件"><i class="fas fa-download"></i> 下载</button>
                 <button class="btn btn--sm" @click="shareSelected" :disabled="selectedCount === 0" title="把所选文件合成一个分享链接"><i class="fas fa-share-nodes"></i> 分享</button>

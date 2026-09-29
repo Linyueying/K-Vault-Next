@@ -699,8 +699,18 @@ html[data-theme="dark"] .share-badge { background: rgba(52, 211, 153, 0.15); col
   margin-top: var(--sp-3);
   gap: var(--sp-2);
 }
-.selection-bar__info { font-size: var(--fs-md); font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 6px; }
-.selection-bar__actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.selection-bar__info { font-size: var(--fs-md); font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 6px; transition: color var(--dur-base) var(--ease-apple); }
+.selection-bar__actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; transition: opacity var(--dur-base) var(--ease-apple); }
+
+/* 「已选 0 项」—— 原地保留操作栏，只把强调色降下来。
+   为什么不在归零时自动退出多选：那样「取消最后一个勾」就等于「模式被系统关掉」，用户想
+   顺手改选另一个文件还得再点一次「选择」；而自动退出必然伴随一次模式切换（又一次进出场），
+   恰恰是这次要消灭的抽搐最容易复发的落点。原地留着并弱化，既不抢视线也不额外产生翻转。 */
+.selection-bar--empty .selection-bar__info { color: var(--text-muted); }
+.selection-bar--empty .selection-bar__actions { opacity: 0.5; }
+/* 计数数字：交接给 design-system.css 里现成的 <transition name="count">（countIn/countOut）
+   做一次弹跳接力 —— 直接替换插值内容时，1→0 就是一次没有任何过渡的文字跳变。 */
+.selection-bar__count { display: inline-block; min-width: 1ch; }
 /* 与 design-system.css 的 collapse 段同理：本条外阴影（--shadow-elevated，
    0 16px 36px -6px）向下溢出约 36px，在 collapse 展开期间会被
    .collapse__inner 的 overflow:hidden 整整藏住 0.5s，动画结束那一帧

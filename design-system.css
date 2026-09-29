@@ -814,6 +814,26 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .collapse-enter-active { animation: collapseIn 0.5s var(--ease-apple) both; }
 .collapse-leave-active { animation: collapseOut 0.44s var(--ease-apple) both; }
 
+/* —— 离场中的节点必须停止响应指针（本项目最容易漏的一条）——
+   Vue 的 <transition> 在 leave 期间**不移除元素**：DOM 节点连同它的 opacity /
+   transform 动画一起留在页面上，直到动画播完才卸载。若不显式关掉 pointer-events，
+   这些「正在死去」的节点依然参与命中测试 —— 用户在动画窗口内点第二次，手指落的
+   还是同一个屏幕坐标，命中的却是那个正在离场的旧节点，刚退出的状态于是被重新唤起。
+   实测（交付结果里「完成」按钮，rAF 逐帧采样）：
+       t=9625ms  resultSelectMode=false，底栏开始 collapseOut 收拢
+       t=9652ms  同一坐标第二次点击，命中仍在 leave 的「完成」节点 → 模式翻回 true
+       t=9856ms  底栏高度 0 → 11 → 22 → 52 → 134，反向弹回
+   「先消失、再弹回」的整套抽搐全部出自这一条。注意分组里的历史欠账：list 与 rowAct
+   早就写了这行，collapse / ctrl / check 却漏了 —— 这里一次性收口，从此离场节点一律
+   不可点，免得同类问题在别的过渡上重演。新增过渡请比照此表登记。 */
+.collapse-leave-active,
+.ctrl-leave-active,
+.check-leave-active,
+.taskAct-leave-active,
+.menu-leave-active,
+.bar-leave-active,
+.count-leave-active { pointer-events: none; }
+
 /* —— 面板外阴影在展开/收起期间的「抽搐」 ——
    上面那条 overflow:hidden 是收到 0 高度的必要条件，但它同时会裁掉面板的
    **外**阴影（.card 的 --shadow-soft 扩散约 24px）。实测时序：
