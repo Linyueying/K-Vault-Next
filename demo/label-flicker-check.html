@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>文字切换闪烁 —— blur vs 无 blur 对照</title>
-<link rel="stylesheet" href="/design-system.css">
+<link rel="stylesheet" href="/assets/css/design-system.css">
 <style>
   body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 0; background: #eef2f7; padding-bottom: 30px; }
   h1 { font-size: 16px; margin: 16px; color: #0f172a; }
@@ -63,7 +63,7 @@
   <button @click="swap">切换一次</button>
   <button @click="burst">连点 8 次</button>
 
-  <script src="/vendor/vue.global.prod.min.js"></script>
+  <script src="/assets/vendor/vue.global.prod.min.js"></script>
   <script>
     const WORDS = ['Telegram 频道', '智能节点', 'Cloudflare R2', 'Telegram 频道'];
     Vue.createApp({

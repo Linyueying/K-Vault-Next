@@ -4,17 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>K-Vault · 管理后台</title>
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
-<link rel="apple-touch-icon" href="/logo-180.png">
+<link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)">
-<link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-<link rel="stylesheet" href="/vendor/glassfx/glass.css">
-<link rel="stylesheet" href="/design-system.css">
-<link rel="stylesheet" href="/theme.css">
-<script src="/theme.js?v=20260305"></script>
-<script src="/app-core.js"></script>
+<link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="/assets/vendor/glassfx/glass.css">
+<link rel="stylesheet" href="/assets/css/design-system.css">
+<link rel="stylesheet" href="/assets/css/theme.css">
+<script src="/assets/js/theme.js?v=20260305"></script>
+<script src="/assets/js/app-core.js"></script>
 <style>
 /* =========================================================
    admin 局部令牌覆盖
@@ -962,7 +962,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
   <header class="micro-topbar">
     <div class="brand-box">
       <div class="brand-logo-wrap" @click="goHome" title="返回首页">
-        <img :src="logoSrc" alt="Logo" @error="logoSrc='/favicon.ico'">
+        <img :src="logoSrc" alt="Logo" @error="logoSrc='/assets/img/favicon.ico'">
       </div>
       <div class="brand-text-wrap">
         <h1>管理后台</h1>
@@ -2576,11 +2576,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
 </div>
 
 <!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
-<script src="/vendor/vue.global.prod.min.js"></script>
+<script src="/assets/vendor/vue.global.prod.min.js"></script>
 <!-- 二维码生成器（零依赖，分享结果面板与分享管理列表用）。
      顺序与 index.html 一致：排在 Vue 之后、业务脚本之前。它只挂 window.QRCode，
      由 computed 同步调用，只要在 mount 之前就绪即可。 -->
-<script src="/vendor/qrcode.js"></script>
+<script src="/assets/vendor/qrcode.js"></script>
 <script>
 /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
    8 秒后仍未挂载就渲染一个可操作的错误页。 */
@@ -2635,7 +2635,7 @@ const __kvApp = Vue.createApp({
     folderPanelCollapsed: false,
     toolHubOpen: false,
 
-    logoSrc: '/logo-64.png',
+    logoSrc: '/assets/img/logo-64.png',
 
     drag: { ids: [], target: null },
     preview: null,

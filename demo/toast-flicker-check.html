@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>低性能设备 Toast 闪烁 —— 修复前后对照</title>
-<link rel="stylesheet" href="design-system.css">
+<link rel="stylesheet" href="/assets/css/design-system.css">
 <style>
   body { font-family: -apple-system, "Segoe UI", sans-serif; margin: 0; background: #eef2f7; padding-bottom: 40px; }
   h1 { font-size: 17px; margin: 18px 16px 6px; color: #0f172a; }
@@ -78,7 +78,7 @@
   <button onclick="fire()">同时触发一次「切换存储节点」</button>
   <button onclick="loop()">连续触发 10 次（压测）</button>
 
-  <script src="/vendor/vue.global.prod.min.js"></script>
+  <script src="/assets/vendor/vue.global.prod.min.js"></script>
   <script>
     function makeEl() {
       const el = document.createElement('div');

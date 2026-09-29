@@ -4,7 +4,7 @@ import { makeMigratedEnv } from './test-utils.mjs';
 const db = makeMigratedEnv()._db;
 const DB = { prepare(sql){ const st=db.prepare(sql); let b=[]; return { bind(...a){b=a;return this;}, async first(){const r=st.get(...b);return r===undefined?null:r;}, async all(){return {results:st.all(...b)};}, async run(){const i=st.run(...b);return {meta:{changes:i.changes}};} }; } };
 function KV(){ const m=new Map(); return { async put(k,v,o){m.set(k,{value:v,metadata:o?.metadata});}, async get(k){const e=m.get(k);return e?e.value:null;}, async getWithMetadata(k){const e=m.get(k);return e?{value:e.value,metadata:e.metadata}:null;}, async delete(k){m.delete(k);} }; }
-const { registerFileRecord, consumeDownloadQuota, refundQuota, readDownloadCount } = await import('/workspace/K-Vault-Next/functions/utils/file-record.js');
+const { registerFileRecord, consumeDownloadQuota, refundQuota, readDownloadCount } = await import('../functions/utils/file-record.js');
 let pass=0,fail=0; const ck=(n,c)=>{c?(pass++,console.log('  ✅',n)):(fail++,console.log('  ❌',n));};
 
 console.log('\n[1] 原子预占：限额 2，第 3 次必须被拒');

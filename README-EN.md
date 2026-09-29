@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="K-Vault-Next Logo" width="140">
+<img src="assets/img/logo.png" alt="K-Vault-Next Logo" width="140">
 
 # K-Vault-Next
 
@@ -75,7 +75,7 @@ Upstream is a general-purpose file host with **both Cloudflare Pages and Docker*
 | Admin dashboard | folder tree, favourites, rename, batch move, KV/R2 usage monitoring, token policies (`allowedStorages`, `folderPrefix`, `rateLimit`, …) |
 | Upload scheduling | a "storage node" drawer on the home page: smart routing (files over a threshold switch backends) plus optional parallel uploads (Telegram pool and chunk pool kept separate) |
 | Security | fail-closed admin surface, unified rate limiting, login brute-force protection, stack-trace redaction, SSRF guard on URL imports, vendored third-party assets |
-| Docs | `docs/openapi.yaml` (machine-readable API) and `docs/agent-integration.md` (agent integration guide) |
+| Docs | `docs/reference/openapi.yaml` (machine-readable API) and `docs/reference/agent-integration.md` (agent integration guide) |
 
 ### Upload limits compared
 
@@ -388,7 +388,7 @@ Tokens carry scopes: `upload`, `read`, `delete`, `paste`. They can also carry po
 | GET | `/api/v1/pastes` | `read` | list pastes |
 | GET / DELETE | `/api/v1/paste/<id>` | `read` / `delete` | read / delete (password via `?password=` or `X-Paste-Password`) |
 
-Machine-readable definition: [`docs/openapi.yaml`](docs/openapi.yaml). Integration guide: [`docs/agent-integration.md`](docs/agent-integration.md).
+Machine-readable definition: [`docs/openapi.yaml`](docs/reference/openapi.yaml). Integration guide: [`docs/agent-integration.md`](docs/reference/agent-integration.md).
 
 ### Share options
 
@@ -400,29 +400,48 @@ Protected files behave like this: expired or over the download limit returns `41
 
 ## Project layout
 
+Cloudflare Pages has **no build step** — the repository root _is_ the site root, since `wrangler pages deploy .` publishes these paths as-is. So leave these two alone:
+
+- `functions/` — a hard Pages Functions convention; the file path _is_ the API route
+- the 8 HTML files in the root — they are the URLs themselves (`/admin.html`)
+
 ```text
-├── index.html admin.html paste.html gallery.html
+├── index.html admin.html paste.html gallery.html      # page entrypoints (root = site root, do not move)
 ├── preview.html webdav.html login.html share.html
-├── design-system.css                     # design system: single source of truth
-├── theme.css theme.js mobile-refactor.css
-├── functions/                            # Cloudflare Pages Functions backend
+├── assets/                              # static assets (CSS / JS / images / vendored libs)
+│   ├── css/                             # design-system.css (single source of truth)
+│   │                                    # theme.css / index.css / mobile-refactor.css
+│   ├── js/                              # app-core.js (shared layer, must precede page scripts)
+│   │                                    # theme.js / index.js / branding.js
+│   ├── img/                             # favicon.ico / logo.png / logo-64.png / logo-180.png
+│   └── vendor/                          # fontawesome / glassfx / vue / qrcode
+├── functions/                           # Cloudflare Pages Functions backend (path = route, do not move)
 │   ├── api/
-│   │   ├── auth/ manage/ admin/ v1/      # auth / management / tokens / API v1
-│   │   ├── chunked-upload/               # init / chunk / complete
-│   │   ├── share-info.js                 # public read-only share info
-│   │   └── status.js upload-from-url.js telegram/webhook.js
-│   ├── file/[[path]].js                  # direct links (multi-segment, password)
-│   ├── file-info/[[path]].js             # file metadata
-│   ├── s/[slug].js                       # short share links → 302 to /share.html
-│   └── utils/                            # storage adapters and shared helpers
-│       ├── env-config.js                 # unified env read layer (casing / aliases)
-│       ├── runtime-config.js             # KV override > env runtime config
-│       └── ratelimit.js redact.js ssrf-guard.js …
-├── scripts/                              # wrangler config generator / validator
-│   ├── cloudflare-pages-r2-doctor.js
-│   └── check_style.py check_tokens.py strip_css.py   # style consistency guards
-├── docs/                                 # OpenAPI, integration guide, full config reference
-└── .env.example                          # variable checklist (Pages does not read it)
+│   │   ├── auth/ manage/ admin/ v1/     # auth / management / tokens / API v1
+│   │   ├── chunked-upload/              # init / chunk / complete
+│   │   ├── site-branding.js             # site branding info (public)
+│   │   └── status.js upload-from-url.js share-info.js telegram/webhook.js
+│   ├── file/[[path]].js                 # direct links (multi-segment, password)
+│   ├── file-info/[[path]].js            # file metadata
+│   ├── s/[slug].js                      # short share links → 302 to /share.html
+│   └── utils/                           # storage adapters and shared helpers
+│       ├── schema.js                    # single source of truth for D1 migrations (JS constants)
+│       ├── env-config.js                # unified env read layer (casing / aliases)
+│       ├── runtime-config.js            # KV override > env runtime config
+│       └── metadata-d1.js ratelimit.js redact.js ssrf-guard.js …
+├── migrations/                          # generated from schema.js by scripts/gen-migrations.py — do not edit
+├── scripts/                             # validation / test / D1 tooling
+│   ├── check_styles.py check_shared.py check_functions.py   # consistency guards (npm run check)
+│   ├── check_style.py check_tokens.py strip_css.py          # additional guards (run manually)
+│   ├── verify/                          # Playwright visual regression scripts (see scripts/verify/README.md)
+│   └── cloudflare-pages-r2-doctor.js gen-migrations.py setup-d1.sh
+├── docs/                                # layered docs, start at docs/README.md
+│   ├── guides/                          # things to follow step by step
+│   ├── reference/                       # look up "what is it"
+│   ├── agents/                          # for AI agents
+│   └── archive/                         # historical snapshots, not current state
+├── demo/                                # demo screenshots and animation comparison pages
+└── .env.example                         # variable checklist (Pages does not read it)
 ```
 
 ---
@@ -431,11 +450,15 @@ Protected files behave like this: expired or over the download limit returns `41
 
 | Document | Contents |
 | :--- | :--- |
-| [`docs/README-full-reference.md`](docs/README-full-reference.md) | every environment variable, per-backend setup steps, API usage, limits |
-| [`docs/openapi.yaml`](docs/openapi.yaml) | machine-readable API v1 definition |
-| [`docs/agent-integration.md`](docs/agent-integration.md) | agent / script integration guide |
-| [`docs/cloudflare-pages-r2.md`](docs/cloudflare-pages-r2.md) | troubleshooting Cloudflare Pages R2 bindings |
-| [`PROJECT_INTRO.md`](PROJECT_INTRO.md) | project positioning, architecture and upstream differences |
+| [`docs/README.md`](docs/README.md) | **documentation index** (navigated by "what am I trying to do") |
+| [`docs/guides/d1-migration-checklist.md`](docs/guides/d1-migration-checklist.md) | **D1 migration & phased rollout checklist** (create DB, bind, verify `source` field, rollback, troubleshooting) |
+| [`docs/guides/storage-backends.md`](docs/guides/storage-backends.md) | step-by-step setup for Telegram / R2 / S3 / Discord / HuggingFace / WebDAV / GitHub |
+| [`docs/guides/cloudflare-pages-r2.md`](docs/guides/cloudflare-pages-r2.md) | troubleshooting Cloudflare Pages R2 bindings |
+| [`docs/reference/architecture.md`](docs/reference/architecture.md) | project positioning, tech architecture (frontend / backend / data / storage), security design |
+| [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md) | agent / script integration guide (tokens, scopes, idempotency keys, MCP tool mapping) |
+| [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml) | machine-readable API v1 definition |
+| [`docs/agents/AI-OPERATIONS.md`](docs/agents/AI-OPERATIONS.md) | **operations manual for AI agents** (local setup, verification tooling, debugging handbook, incident postmortems, hard constraints) — human users can skip |
+| [`docs/archive/`](docs/README.md#archive) | historical snapshots (upstream README, one-off refactor report, bug postmortem) — **not current state** |
 
 ---
 

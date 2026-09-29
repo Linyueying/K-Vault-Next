@@ -1,6 +1,14 @@
-# ai.md
+# 底部操作栏抽搐 Bug —— 复盘
 
-> **一次具体问题的复盘文档。** 与 [`AI-OPERATIONS.md`](AI-OPERATIONS.md) 的分工：
+> [!NOTE]
+> **归档快照，不代表当前状态。** 本目录是历史记录，不再随代码更新。
+> 它的价值是「当初为什么这么判断」，不是「现在该怎么做」——当前做法请看
+> [`../../agents/AI-OPERATIONS.md`](../agents/AI-OPERATIONS.md)。
+>
+> **注意**：文中提到的文件路径与当时的仓库结构一致，部分已经迁移
+> （如 CSS/JS 现位于 `assets/css/`、`assets/js/`）。
+
+> **一次具体问题的复盘文档。** 与 [`AI-OPERATIONS.md`](../agents/AI-OPERATIONS.md) 的分工：
 > 那份是仓库的长期操作手册（怎么搭环境、怎么验、怎么推）；这份记录**底部操作栏抽搐 Bug
 > 的完整排障链路**——「报告怎么说 → 实测证伪 → 真根因 → 修了什么 → 怎么验的」。
 >
@@ -26,7 +34,7 @@
 
 ## 2. 复现环境
 
-GitHub 直连被墙（`curl https://github.com` → `SSL_ERROR_SYSCALL`），按 [`AI-OPERATIONS.md`](AI-OPERATIONS.md)
+GitHub 直连被墙（`curl https://github.com` → `SSL_ERROR_SYSCALL`），按 [`AI-OPERATIONS.md`](../agents/AI-OPERATIONS.md)
 的惯例走 `ghfast.top` 镜像拉取：
 
 ```bash

@@ -11,18 +11,18 @@
     <meta property="og:title" content="K-Vault-NEXT · 文件托管与分享" />
     <meta property="og:description" content="上传图片、视频或任意文件，生成直链与分享短链，支持目录管理、在线预览与文本粘贴。" />
     <!-- og:image 用相对路径时部分平台抓不到，部署后建议换成 https://你的域名/logo-180.png -->
-    <meta property="og:image" content="/logo-180.png" />
+    <meta property="og:image" content="/assets/img/logo-180.png" />
     <meta name="twitter:card" content="summary" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="apple-touch-icon" href="/logo-180.png">
-    <link rel="shortcut icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-    <link rel="stylesheet" href="/vendor/glassfx/glass.css" />
-    <link rel="stylesheet" href="/design-system.css" />
-    <link rel="stylesheet" href="/theme.css" />
-    <link rel="stylesheet" href="/index.css" />
-    <script src="/theme.js?v=20260305"></script>
-    <script defer src="/app-core.js"></script>
+    <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
+    <link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+    <link rel="shortcut icon" href="/assets/img/favicon.ico">
+    <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/vendor/glassfx/glass.css" />
+    <link rel="stylesheet" href="/assets/css/design-system.css" />
+    <link rel="stylesheet" href="/assets/css/theme.css" />
+    <link rel="stylesheet" href="/assets/css/index.css" />
+    <script src="/assets/js/theme.js?v=20260305"></script>
+    <script defer src="/assets/js/app-core.js"></script>
   </head>
   <body>
     <div class="ambient-glow">
@@ -35,7 +35,7 @@
       <header class="topbar">
         <div class="brand">
           <div class="brand__logo">
-            <img src="/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/favicon.ico';">
+            <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';">
           </div>
           <div class="brand__text">
             <h1 data-brand-name>K-Vault-NEXT</h1>
@@ -955,11 +955,11 @@
       </div>
     </div>
 
-    <script defer src="/vendor/vue.global.prod.min.js"></script>
+    <script defer src="/assets/vendor/vue.global.prod.min.js"></script>
     <!-- 二维码生成器（零依赖，分享结果面板用）。必须在 index.js 之前加载：
          它在 index.js 的 computed 里被同步调用。 -->
-    <script defer src="/vendor/qrcode.js"></script>
-    <script defer src="/index.js"></script>
-    <script defer src="/branding.js?v=20260927"></script>
+    <script defer src="/assets/vendor/qrcode.js"></script>
+    <script defer src="/assets/js/index.js"></script>
+    <script defer src="/assets/js/branding.js?v=20260927"></script>
   </body>
 </html>

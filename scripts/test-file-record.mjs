@@ -45,7 +45,7 @@ function makeKV() {
 }
 
 const { getRecordWithKey, registerFileRecord, readDownloadCount, incrementDownloadCount, consumeDownloadQuota } =
-  await import('/workspace/K-Vault-Next/functions/utils/file-record.js');
+  await import('../functions/utils/file-record.js');
 
 let pass = 0, fail = 0;
 function check(name, cond) { if (cond) { pass++; console.log('  ✅', name); } else { fail++; console.log('  ❌', name); } }
@@ -112,7 +112,7 @@ console.log('\n[场景5] 原子计数（D1 路径）');
 console.log('\n[场景6] putRecordIndex 兼容 no-op');
 {
   const env = { DB: makeD1(db), img_url: makeKV() };
-  const { putRecordIndex, deleteRecordIndex, deleteDownloadCount } = await import('/workspace/K-Vault-Next/functions/utils/file-record.js');
+  const { putRecordIndex, deleteRecordIndex, deleteDownloadCount } = await import('../functions/utils/file-record.js');
   await putRecordIndex(env, 'r2:whatever.png');           // 无 metadata → no-op
   await deleteRecordIndex(env, 'r2:whatever.png');        // no-op
   await deleteDownloadCount(env, 'r2:whatever.png');      // D1 模式 no-op
@@ -123,7 +123,7 @@ console.log('\n[场景6] putRecordIndex 兼容 no-op');
 console.log('\n[场景7] putRecordIndex 传 metadata → 写 D1');
 {
   const env = { DB: makeD1(db), img_url: makeKV() };
-  const { putRecordIndex } = await import('/workspace/K-Vault-Next/functions/utils/file-record.js');
+  const { putRecordIndex } = await import('../functions/utils/file-record.js');
   await putRecordIndex(env, 'r2:viaput.png', { metadata: { fileName: 'viaput.png', storageType: 'r2', TimeStamp: 3000 } });
   const r = await getRecordWithKey(env, 'r2:viaput.png');
   check('通过 putRecordIndex 写入 D1 成功', r.record?.metadata?.fileName === 'viaput.png');

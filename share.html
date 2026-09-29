@@ -7,15 +7,15 @@
 <!-- 分享页属于私有内容，禁止被搜索引擎收录 -->
 <meta name="robots" content="noindex, nofollow, noarchive">
 <title>文件分享 · K-Vault</title>
-<link rel="icon" href="/favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="/logo-180.png">
-<link rel="shortcut icon" href="/favicon.ico">
-<link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-<link rel="stylesheet" href="/vendor/glassfx/glass.css">
-<link rel="stylesheet" href="/design-system.css">
-<link rel="stylesheet" href="/theme.css">
-<script src="/theme.js?v=20260305"></script>
-<script src="/app-core.js"></script>
+<link rel="icon" href="/assets/img/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+<link rel="shortcut icon" href="/assets/img/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="/assets/vendor/glassfx/glass.css">
+<link rel="stylesheet" href="/assets/css/design-system.css">
+<link rel="stylesheet" href="/assets/css/theme.css">
+<script src="/assets/js/theme.js?v=20260305"></script>
+<script src="/assets/js/app-core.js"></script>
 <style>
   /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
 
@@ -1132,12 +1132,12 @@
 </div>
 
 <!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
-<script src="/vendor/vue.global.prod.min.js"></script>
+<script src="/assets/vendor/vue.global.prod.min.js"></script>
 <!-- 二维码生成（零依赖本地实现，见 vendor/qrcode.js）。
      与 index.html 保持一致：排在 Vue 之后、业务脚本之前。它只挂 window.QRCode，
      由 shareQr 这个 computed 同步调用 —— 只要在 mount 之前就绪即可，
      而 mount 发生在下面的内联脚本里。 -->
-<script src="/vendor/qrcode.js"></script>
+<script src="/assets/vendor/qrcode.js"></script>
 <script>
 /* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
    8 秒后仍未挂载就渲染一个可操作的错误页。 */

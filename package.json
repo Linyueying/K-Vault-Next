@@ -1,6 +1,6 @@
 {
-  "name": "k-vault",
-  "description": "K-Vault - Free File Hosting Service based on Telegram",
+  "name": "k-vault-next",
+  "description": "K-Vault-Next - Free File Hosting Service (Cloudflare Pages + multi storage backend)",
   "version": "1.0.0",
   "scripts": {
     "build": "node -e \"console.log('No build step required. For Cloudflare Pages Git integration, leave Build command and Build output directory empty.')\"",

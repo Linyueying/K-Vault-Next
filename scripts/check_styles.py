@@ -49,7 +49,11 @@ PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 # 各页引用的样式表。页面自己的 <style> 单独处理。
-COMMON_CSS = ['design-system.css', 'theme.css', 'mobile-refactor.css', 'index.css']
+COMMON_CSS = ['assets/css/design-system.css', 'assets/css/theme.css',
+              'assets/css/mobile-refactor.css', 'assets/css/index.css']
+
+# 共享 JS 层。类名可能由 JS 动态拼接（'prefix-' + x），必须一并扫描。
+SHARED_JS = ['assets/js/app-core.js', 'assets/js/theme.js']
 
 # 这些类名一定来自外部或框架，不要求本仓库提供定义。
 GLOBAL_ALLOW = [
@@ -286,7 +290,22 @@ def allowed(name, prefixes):
 
 
 def main():
-    css_files = [p for p in COMMON_CSS if os.path.exists(p)]
+    # 路径写错必须炸，不能静默跳过。
+    #
+    # 历史上这里是 `css_files = [p for p in COMMON_CSS if os.path.exists(p)]`，
+    # 配合下面 read() 的「不存在就返回空串」，一旦路径写错（例如把共享样式表
+    # 挪进子目录却忘了同步 COMMON_CSS），所有共享定义会静默消失、本脚本却
+    # 依然输出「全部通过」—— 这是最危险的假绿灯。改成硬断言：宁可报错。
+    missing = [p for p in COMMON_CSS + SHARED_JS if not os.path.exists(p)]
+    if missing:
+        print('=' * 74)
+        print('❌ 共享层文件缺失 —— 放弃检查（否则会给出假通过）')
+        for p in missing:
+            print('   - %s' % p)
+        print('=' * 74)
+        return 1
+
+    css_files = COMMON_CSS
     shared = stylesheet_classes(css_files)
 
     problems = {}
@@ -300,10 +319,12 @@ def main():
 
         # JS 里的动态前缀（本页内联脚本 + 可能的外部脚本）
         js_texts = [html]
-        for src in re.findall(r'<script[^>]+src="/([\w.-]+\.js)"', html):
+        # 注意：字符类必须含 `/`——早年只写 [\w.-]+ 匹配不到带目录的路径
+        #（如 /assets/js/index.js），会让外部脚本内容静默缺席。
+        for src in re.findall(r'<script[^>]+src="/([\w./-]+\.js)"', html):
             js_texts.append(read(src))
         prefixes = dynamic_prefixes(*js_texts) | dynamic_prefixes(
-            *[read(p) for p in ('app-core.js', 'theme.js')])
+            *[read(p) for p in SHARED_JS])
 
         missing = []
         for name in sorted(template_classes(html)):

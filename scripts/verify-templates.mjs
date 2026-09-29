@@ -90,11 +90,19 @@ sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 sandbox.self = sandbox;
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync('vendor/vue.global.prod.min.js', 'utf-8'), sandbox);
+// 找不到就炸，不要静默放行：readFileSync 缺失文件会抛 ENOENT，但上面的
+// `if (!fs.existsSync(file)) continue` 模式会让没找到的文件被"跳过"，
+// 最终输出「0 页失败」的假绿灯。
+const VUE_BUNDLE = 'assets/vendor/vue.global.prod.min.js';
+if (!fs.existsSync(VUE_BUNDLE)) {
+  console.error('❌ 找不到 ' + VUE_BUNDLE + ' —— 放弃检查（否则会给出假通过）');
+  process.exit(1);
+}
+vm.runInContext(fs.readFileSync(VUE_BUNDLE, 'utf-8'), sandbox);
 
 const Vue = sandbox.Vue;
 if (!Vue || typeof Vue.compile !== 'function') {
-  console.error('无法从 vendor/vue.global.prod.min.js 取到 Vue.compile');
+  console.error('无法从 ' + VUE_BUNDLE + ' 取到 Vue.compile');
   process.exit(1);
 }
 

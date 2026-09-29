@@ -1,4 +1,7 @@
-# K-Vault-Next 项目介绍
+# K-Vault-Next 项目介绍与技术架构
+
+> 本篇回答「这个项目**是什么**、**为什么这么设计**」。
+> 要动手部署请看 [`../../README.md`](../../README.md)，要按主题找文档请看 [`../README.md`](../README.md)。
 
 ## 项目定位
 
@@ -147,7 +150,7 @@ Telegram（默认）、Cloudflare R2、S3 兼容、Discord、HuggingFace、WebDA
 
 > **公网部署必须设 `BASIC_USER` 与 `BASIC_PASS`**，否则管理接口一律 `503 ADMIN_AUTH_NOT_CONFIGURED`（fail-closed）。
 
-完整步骤见 [README.md](README.md)。
+完整步骤见 [README.md](../../README.md)。
 
 ---
 

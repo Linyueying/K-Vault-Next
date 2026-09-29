@@ -8,7 +8,7 @@
 """
 import re, sys, io, os, glob
 
-SHARED = 'design-system.css'
+SHARED = 'assets/css/design-system.css'
 PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
@@ -28,6 +28,9 @@ def style_blocks(path):
 
 
 def main():
+    if not os.path.exists(SHARED):
+        print('❌ 共享层缺失 —— 放弃检查（否则会给出假通过）：%s' % SHARED)
+        return 1
     shared_raw = io.open(SHARED, encoding='utf-8').read()
     shared = strip_css_comments(shared_raw)
     shared_vars = set(VAR_DEF.findall(shared))

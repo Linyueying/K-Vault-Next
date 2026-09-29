@@ -1,12 +1,27 @@
 <div align="center">
 
-<img src="logo.png" alt="K-Vault Logo" width="140">
+<img src="../../assets/img/logo.png" alt="K-Vault Logo" width="140">
+
+> [!WARNING]
+> **这是上游 [`katelya77/K-Vault`](https://github.com/katelya77/K-Vault) 的 README 存档，不等于本项目当前状态。**
+>
+> 本文件保留的唯一理由是：它是全仓库**唯一**逐后端记录「Telegram / R2 / S3 / Discord /
+> HuggingFace / WebDAV / GitHub」完整配置步骤的文档。这些内容在新的 `README.md` 里没有。
+>
+> 但它已经与主仓库脱节，**以下部分请务必以 `README.md` 为准**：
+>
+> - 标题仍是 `# K-Vault`，本项目是 **K-Vault-Next**
+> - 环境变量清单可能包含**早已移除**的项（已删除的 `ModerateContentApiKey` 已剔除，其余请以 `.env.example` / `README.md` 为准）
+> - 「部署方式」一章提到的 Docker / Nginx 自托管已被 Next 彻底移除，唯一受支持的部署方式是 **Cloudflare Pages**
+> - 「使用限制」「页面说明」等章节的数字可能已经过时
+>
+> 各后端配置步骤的整理版见 → [`guides/storage-backends.md`](../guides/storage-backends.md)
 
 # K-Vault
 
 > 免费图片/文件托管解决方案，基于 Cloudflare Pages 部署，并兼容多种存储后端
 
-[English](README-EN.md) | **中文**
+[English](../../README-EN.md) | **中文**
 
 <br>
 
@@ -21,13 +36,13 @@
 ## 效果图
 
 <p align="center">
-  <img src="demo/登录页面.webp" alt="登录页面" width="300" />
-  <img src="demo/首页上传页面.webp" alt="首页上传页面" width="300" />
-  <img src="demo/后台管理页面.webp" alt="后台管理页面" width="300" />
+  <img src="../../demo/登录页面.webp" alt="登录页面" width="300" />
+  <img src="../../demo/首页上传页面.webp" alt="首页上传页面" width="300" />
+  <img src="../../demo/后台管理页面.webp" alt="后台管理页面" width="300" />
 </p>
 <p align="center">
-  <img src="demo/图片浏览页面.webp" alt="图片浏览页面" width="300" />
-  <img src="demo/WebDAV页面.webp" alt="WebDAV页面" width="300" />
+  <img src="../../demo/图片浏览页面.webp" alt="图片浏览页面" width="300" />
+  <img src="../../demo/WebDAV页面.webp" alt="WebDAV页面" width="300" />
 </p>
 
 ## 功能特性
@@ -136,7 +151,7 @@ npm run pages:deploy -- --project-name <你的 Pages 项目名>
 - `The detected framework ("Hono") cannot be automatically configured`：把 Pages 项目误配成了 `npx wrangler deploy`。删除 Deploy command，使用上表的 Pages 构建设置。
 - 部署后出现旧版 landing 首页或进不了上传页：确认 Build command 和 Build output directory 都是留空，不要填 `npm run build` 或 `frontend/dist`。
 - 构建成功但页面 404：Build output directory 不应填写 `dist` 或 `frontend/dist`，留空即可发布仓库根目录页面。
-- R2 `invalid jurisdiction`：这是 Cloudflare 绑定元数据问题，不是 K-Vault 上传代码问题，按 [Cloudflare Pages R2 绑定排查](docs/cloudflare-pages-r2.md) 处理。
+- R2 `invalid jurisdiction`：这是 Cloudflare 绑定元数据问题，不是 K-Vault 上传代码问题，按 [Cloudflare Pages R2 绑定排查](../guides/cloudflare-pages-r2.md) 处理。
 
 ### 已移除：Docker / Nginx 自托管部署
 
@@ -292,7 +307,7 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
    - `设置` → `环境变量` → 添加 `USE_R2` = `true`
    - 重新部署
 
-> 如果重新部署时报 `binding R2_BUCKET of type r2_bucket contains an invalid jurisdiction`，说明 Cloudflare Pages 在校验 R2 绑定元数据时失败，不是上传代码报错。普通 R2 桶不要设置 `jurisdiction`；只有带数据驻留限制的桶才使用 `eu` 或 `fedramp`。按 [Cloudflare Pages R2 绑定排查](docs/cloudflare-pages-r2.md) 删除并重建 Production/Preview 绑定，或运行 `npm run pages:r2:doctor -- --check` 校验 `wrangler.jsonc`。
+> 如果重新部署时报 `binding R2_BUCKET of type r2_bucket contains an invalid jurisdiction`，说明 Cloudflare Pages 在校验 R2 绑定元数据时失败，不是上传代码报错。普通 R2 桶不要设置 `jurisdiction`；只有带数据驻留限制的桶才使用 `eu` 或 `fedramp`。按 [Cloudflare Pages R2 绑定排查](../guides/cloudflare-pages-r2.md) 删除并重建 Production/Preview 绑定，或运行 `npm run pages:r2:doctor -- --check` 校验 `wrangler.jsonc`。
 
 ### S3 兼容存储（可选）
 
@@ -486,7 +501,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 
 | 变量名 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `ModerateContentApiKey` | 图片审核 API Key（从 [moderatecontent.com](https://moderatecontent.com) 获取） | - |
 | `USE_R2` | 启用 R2 存储 | `false` |
 | `CUSTOM_BOT_API_URL` | Telegram API 基础地址（支持自部署 Bot API） | `https://api.telegram.org` |
 | `PUBLIC_BASE_URL` | Webhook 回链时使用的公开域名 | 当前请求域名 |
@@ -588,7 +602,6 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 | `GUEST_UPLOAD` | 启用访客上传 | 可选 |
 | `GUEST_MAX_FILE_SIZE` | 访客文件大小限制（字节） | 可选 |
 | `GUEST_DAILY_LIMIT` | 访客每日上传次数 | 可选 |
-| `ModerateContentApiKey` | 图片审核 API Key | 可选 |
 | `disable_telemetry` | 禁用遥测（遥测代码已移除，保留变量名仅作对照） | 可选 |
 | `PORT` | Node 运行时 API 端口（非部署目标） | 可选 |
 | `DATA_DIR` | Node 运行时数据目录 | 可选 |
@@ -708,7 +721,7 @@ kvault() {
 
 ### 5. Token 体系与安全特性
 
-K-Vault 内置面向机器客户端（GitHub Actions、Coze Agent、ShareX、自动化脚本、未来 MCP Agent）的长期 API Token 体系，与网页登录态完全隔离。完整接入指南见 [docs/agent-integration.md](docs/agent-integration.md)，机器可读接口定义见 [docs/openapi.yaml](docs/openapi.yaml)。
+K-Vault 内置面向机器客户端（GitHub Actions、Coze Agent、ShareX、自动化脚本、未来 MCP Agent）的长期 API Token 体系，与网页登录态完全隔离。完整接入指南见 [docs/agent-integration.md](../reference/agent-integration.md)，机器可读接口定义见 [docs/openapi.yaml](../reference/openapi.yaml)。
 
 | 能力 | 说明 |
 | --- | --- |

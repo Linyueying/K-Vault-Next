@@ -13,8 +13,10 @@ import re
 import os
 import textwrap
 
-SCHEMA = "/workspace/K-Vault-Next/functions/utils/schema.js"
-OUT_DIR = "/workspace/K-Vault-Next/migrations"
+# 自定位到仓库根：不要写死绝对路径，否则仓库克隆到别处会立刻失效
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCHEMA = os.path.join(REPO_ROOT, "functions/utils/schema.js")
+OUT_DIR = os.path.join(REPO_ROOT, "migrations")
 
 # 每个迁移对应的说明文字（纯文档性质，不影响执行）
 NOTES = {

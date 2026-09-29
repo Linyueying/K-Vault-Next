@@ -1,7 +1,7 @@
 # AI-OPERATIONS.md
 
 > **这份文档是写给 AI Agent / 自动化助手的，不是写给人类用户的。**
-> 人类用户请读 [`README.md`](README.md)。
+> 人类用户请读 [`README.md`](../../README.md)。
 >
 > 目的：让下一个接到这个仓库的 AI 不用重新踩一遍坑，能直接进入「改 → 验 → 推」的循环。
 > 内容：环境怎么搭、怎么验证、怎么推送、怎么调试、已知的坑、历史事故复盘、写代码的硬约束。
@@ -12,7 +12,7 @@
 
 ```bash
 # 1. 就位
-cd <repo> && git branch --show-current      # 应为 Pre，不要动 main
+cd <repo> && git branch --show-current      # 应为 dev，不要动 main
 git log --oneline -5                        # 确认基线
 
 # 2. 装依赖（只为 wrangler，仓库无构建步骤）
@@ -37,7 +37,7 @@ node scripts/verify/smoke.mjs       # 8 页 × 双视口：JS 报错 / 死选择
 #   （需要 playwright-core，见 scripts/verify/README.md）
 
 # 6. 推
-git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
+git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev
 ```
 
 > 静态守卫查源码；`scripts/verify/` 查真实渲染。两者都过才算验证完。
@@ -68,7 +68,7 @@ git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
 | **唯一共享 JS 层** | `app-core.js`（`window.KVault`）。`formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` / `escapeHtml` / `debounce` 只有这一份实现 |
 | **Vue 3（纯，无 `@vue/compat`）** | 前端框架已是 Vue 3，`createApp` 全局挂载 |
 | **零运行时依赖** | 业务代码只用平台内置 API。**不要**加 `dependencies` |
-| **工作分支 `Pre`** | **永远不推 `main`**。默认分支与本分支的人际约定由用户决定 |
+| **工作分支 `dev`** | **永远不推 `main`**。默认分支与本分支的人际约定由用户决定 |
 
 **判断一个改动是否合规的最快方式**：跑那四道守卫脚本。它们就是这套约束的可执行版本。
 
@@ -153,7 +153,7 @@ python3 scripts/check_shared.py      # 跨页共享层一致性（防「一改�
 2. 内联 `<style>` 里**禁止**定义 `@keyframes`（必须收口到 `design-system.css`）
 3. 禁止页面重复定义全站 `prefers-reduced-motion` 冻结规则（只允许补充「豁免加载指示器」的局部规则）
 4. 每个页面必须引入 `design-system.css`
-5. 每个页面必须引入本地 FontAwesome（`vendor/fontawesome/css/all.min.css`）
+5. 每个页面必须引入本地 FontAwesome（`assets/vendor/fontawesome/css/all.min.css`）
 
 **`check_tokens.py`**
 1. 页面里 `var(--x)` 引用的变量，必须能在共享层或本页找到定义
@@ -421,6 +421,9 @@ python3 scripts/check_shared.py
 
 **将来要废弃这个文件的话**，正确做法是：按页拆分成 4 块，各自并入对应页面的 `<style>`，而不是上收到共享层。
 
+<!-- 第 3 节「验证工具箱」到此结束；以下 4.1~4.6 是它的子节，历史上缺了这个 ## 父标题 -->
+
+## 4. 排障陷阱与修改硬约束
 
 ### 4.1 Shell 陷阱
 
@@ -538,13 +541,13 @@ git remote -v
 ### 5.3 推送命令
 
 ```bash
-git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
+git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev
 ```
 
 **推完必须验证远端真的同步了**：
 
 ```bash
-git ls-remote "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre
+git ls-remote "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev
 # 输出的 SHA 必须等于本地 git rev-parse HEAD
 ```
 
@@ -572,7 +575,7 @@ refactor(ui): 抽出 design-system.css 作为单一事实来源，统一全站�
 
 ### 5.6 分支纪律
 
-**只推 `Pre`，永不推 `main`。** `Pre` 是长期工作分支，是否合并由用户决定。
+**只推 `dev`，永不推 `main`。** `dev` 是长期工作分支，是否合并由用户决定。
 
 ---
 
@@ -677,7 +680,7 @@ getComputedStyle(el).transform       // 期望：起始值与修复前完全一�
 四道守卫全过
    │
    ▼
-git push 到 Pre（用 PAT，走 ghfast.top 镜像）
+git push 到 dev（用 PAT，走 ghfast.top 镜像）
    │
    ▼
 git ls-remote 验证远端 SHA == 本地 HEAD
@@ -716,8 +719,8 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 | 看环境变量别名 | `functions/utils/env-config.js` 的 `ALIASES` |
 | 看运行时配置分组 | `functions/utils/runtime-config.js` 的 `GROUPS` |
 | 看鉴权语义 | `functions/utils/auth.js` 的 `isAuthRequired` |
-| 推代码 | `git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre` |
-| 验证推送 | `git ls-remote "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" Pre` |
+| 推代码 | `git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev` |
+| 验证推送 | `git ls-remote "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev` |
 | 还原浏览器 | `agent-browser close --all && rm -rf /tmp/org.chromium.Chromium.*` |
 | 看变量清单 | `.env.example` |
 | 看完整配置参考 | `docs/README-full-reference.md` |
@@ -727,7 +730,7 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 
 ## 9. 铁律汇总
 
-1. **只推 `Pre`，永不推 `main`。**
+1. **只推 `dev`，永不推 `main`。**
 2. **PAT 不落盘、不回显、不提交；同一 token 可在单对话内复用，但严禁跨对话使用（新对话须换新 token）。**
 3. **改完必跑四道守卫。**
 4. **改 `functions/` 必跑 `check_functions.py`** —— 它是唯一能拦住「漏 import」的东西。
@@ -769,7 +772,7 @@ git ls-remote 验证远端 SHA == 本地 HEAD
     每帧重生成位图；且与 `backdrop-filter` + `overflow:hidden`（`collapse` 动画期）
     同框会在 iOS Safari 闪烁。本轮已把 `.pane-*`/`.view-*`/`.label-*`/`.morph-*`
     入场里的 `filter: blur()` 全部移除，`will-change` 同步收窄为 `transform, opacity`。
-21. **液态玻璃用 vendored 库（glassfx @ `/vendor/glassfx`），运行时零 CDN** ——
+21. **液态玻璃用 vendored 库（glassfx @ `/assets/vendor/glassfx`），运行时零 CDN** ——
     CSS 走 `@import`（须在所有规则之前），JS 由 `app-core.js` 在 DOM 就绪后
     `import()`（失败静默跳过，frosted 兜底）。给元素加 `.glass` 即得 rim + 光标 bloom
     +（Chromium）真实折射；页面内联的背景/边框/阴影会按源顺序覆盖它的默认外观，

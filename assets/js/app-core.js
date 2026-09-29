@@ -3,7 +3,7 @@
  *
  * 目的：把「8 个页面各写一份」的基础能力收敛到唯一实现。
  * 形态：IIFE + window.KVault，无模块系统、无构建步骤（守住项目「无构建」约束）。
- * 引入：<script src="/app-core.js"></script>，放在各页业务脚本之前。
+ * 引入：<script src="/assets/js/app-core.js"></script>，放在各页业务脚本之前。
  *
  * 设计约定
  *   - 所有方法的基准实现取自「功能最完整」的那个页面，不做最小公约数收敛。
@@ -582,7 +582,7 @@
 
   /* ------------------------------------------------------------------ *
    * 液态玻璃增强层（glassfx）
-   *   加载 vendored @ /vendor/glassfx/index.js —— 它挂一次共享 SVG 折射滤镜
+   *   加载 vendored @ /assets/vendor/glassfx/index.js —— 它挂一次共享 SVG 折射滤镜
    *   (#glassfx-refract)、并启动一个委托的指针监听，为每个 .glass 元素写入
    *   --glass-mx/--glass-my（光标跟随 bloom）。
    *   纯增强：加载失败 / 不支持时静默跳过，页面照旧（frosted 兜底）。
@@ -621,7 +621,7 @@
       return glassInit._p;
     }
 
-    glassInit._p = import("/vendor/glassfx/index.js")
+    glassInit._p = import("/assets/vendor/glassfx/index.js")
       .then(function () { return true; })
       .catch(function () { return false; }); // 增强失败不影响主流程
     return glassInit._p;

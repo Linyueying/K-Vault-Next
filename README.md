@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" alt="K-Vault-Next Logo" width="140">
+<img src="assets/img/logo.png" alt="K-Vault-Next Logo" width="140">
 
 # K-Vault-Next
 
@@ -67,7 +67,7 @@
 | 管理后台 | 目录树、收藏、重命名、批量移动、KV/R2 用量监控、API Token 策略（`allowedStorages` / `folderPrefix` / `rateLimit` …） |
 | 上传调度 | 首页「存储节点」抽屉：智能节点选择（超阈值自动切后端）+ 可开关的并行上传（Telegram 池与分片池分离） |
 | 安全 | 管理面 fail-closed、统一限流、登录暴力破解防护、堆栈信息脱敏、URL 导入 SSRF 防护、共享依赖本地化 |
-| 文档 | 新增 `docs/openapi.yaml`（机器可读 API 定义）与 `docs/agent-integration.md`（Agent 接入指南） |
+| 文档 | 新增 `docs/reference/openapi.yaml`（机器可读 API 定义）与 `docs/reference/agent-integration.md`（Agent 接入指南） |
 
 ### 上传限制对比
 
@@ -365,7 +365,7 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 | GET | `/api/v1/pastes` | `read` | 粘贴列表 |
 | GET / DELETE | `/api/v1/paste/<id>` | `read` / `delete` | 读取 / 删除（密码经 `?password=` 或 `X-Paste-Password`） |
 
-机器可读定义见 [`docs/openapi.yaml`](docs/openapi.yaml)，接入指南见 [`docs/agent-integration.md`](docs/agent-integration.md)。
+机器可读定义见 [`docs/openapi.yaml`](docs/reference/openapi.yaml)，接入指南见 [`docs/agent-integration.md`](docs/reference/agent-integration.md)。
 
 ### 分享选项
 
@@ -417,29 +417,47 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 
 ## 目录结构
 
+Cloudflare Pages **没有构建步骤**，仓库根目录即站点根目录 —— `wrangler pages deploy .` 会原样发布这些路径。因此下面两个目录请**不要移动**：
+
+- `functions/` —— Pages Functions 的硬约定，文件路径字面即 API 路由
+- 根目录的 8 个 HTML —— 它们是线上 URL 本身（`/admin.html`）
+
 ```text
-├── index.html admin.html paste.html gallery.html
+├── index.html admin.html paste.html gallery.html      # 页面入口（根即站点根，勿移动）
 ├── preview.html webdav.html login.html share.html
-├── design-system.css                     # 设计系统：全站唯一的事实来源（令牌/组件/动效）
-├── theme.css theme.js mobile-refactor.css
-├── functions/                            # Cloudflare Pages Functions 后端
+├── assets/                              # 静态资源（CSS / JS / 图片 / 第三方库）
+│   ├── css/                             # design-system.css（全站唯一事实来源）
+│   │                                    # theme.css / index.css / mobile-refactor.css
+│   ├── js/                              # app-core.js（共享层，必须先于页面脚本）
+│   │                                    # theme.js / index.js / branding.js
+│   ├── img/                             # favicon.ico / logo.png / logo-64.png / logo-180.png
+│   └── vendor/                          # fontawesome / glassfx / vue / qrcode
+├── functions/                           # Cloudflare Pages Functions 后端（路径即路由，勿动）
 │   ├── api/
-│   │   ├── auth/ manage/ admin/ v1/      # 鉴权 / 管理 / Token / API v1
-│   │   ├── chunked-upload/               # 分片上传 init / chunk / complete
-│   │   ├── share-info.js                 # 分享页只读信息（公开）
-│   │   └── status.js upload-from-url.js telegram/webhook.js
-│   ├── file/[[path]].js                  # 文件直链（多层路径、密码）
-│   ├── file-info/[[path]].js             # 文件元信息
-│   ├── s/[slug].js                       # 短分享链 → 302 到 /share.html
-│   └── utils/                            # 存储适配器与公共工具
-│       ├── env-config.js                 # 环境变量统一读取层（大小写/别名兼容）
-│       ├── runtime-config.js             # KV 覆盖 > 环境变量 的运行时配置
-│       └── ratelimit.js redact.js ssrf-guard.js …
-├── scripts/                              # wrangler 配置生成 / 校验工具
-│   ├── cloudflare-pages-r2-doctor.js
-│   └── check_style.py check_tokens.py check_functions.py strip_css.py   # 一致性守卫
-├── docs/                                 # OpenAPI、接入指南、完整配置参考
-└── .env.example                          # 变量清单（Pages 不读此文件）
+│   │   ├── auth/ manage/ admin/ v1/     # 鉴权 / 管理 / Token / API v1
+│   │   ├── chunked-upload/              # 分片上传 init / chunk / complete
+│   │   ├── site-branding.js             # 站点品牌信息（公开）
+│   │   └── status.js upload-from-url.js share-info.js telegram/webhook.js
+│   ├── file/[[path]].js                 # 文件直链（多层路径、密码）
+│   ├── file-info/[[path]].js            # 文件元信息
+│   ├── s/[slug].js                      # 短分享链 → 302 到 /share.html
+│   └── utils/                           # 存储适配器与公共工具
+│       ├── schema.js                    # D1 迁移的唯一真源（以 JS 常量形式存在）
+│       ├── env-config.js                # 环境变量统一读取层（大小写/别名兼容）
+│       ├── runtime-config.js            # KV 覆盖 > 环境变量 的运行时配置
+│       └── metadata-d1.js ratelimit.js redact.js ssrf-guard.js …
+├── migrations/                          # 由 scripts/gen-migrations.py 从 schema.js 生成，勿手改
+├── scripts/                             # 校验 / 测试 / D1 工具
+│   ├── check_styles.py check_shared.py check_functions.py   # 一致性守卫（npm run check）
+│   ├── verify/                          # Playwright 视觉回归脚本（见 scripts/verify/README.md）
+│   └── cloudflare-pages-r2-doctor.js gen-migrations.py setup-d1.sh
+├── docs/                                # 分层文档，总入口见 docs/README.md
+│   ├── guides/                          # 要动手照做的
+│   ├── reference/                       # 查「是什么」的
+│   ├── agents/                          # 给 AI Agent 看的
+│   └── archive/                         # 历史快照，不代表当前状态
+├── demo/                                # 演示截图与动效对照调试页
+└── .env.example                         # 变量清单（Pages 不读此文件）
 ```
 
 ---
@@ -481,13 +499,15 @@ python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号（漏
 
 | 文档 | 内容 |
 | :--- | :--- |
-| [`docs/README-full-reference.md`](docs/README-full-reference.md) | 全部环境变量、各后端配置步骤、API 用法、使用限制 |
-| [`docs/openapi.yaml`](docs/openapi.yaml) | API v1 机器可读定义 |
-| [`docs/agent-integration.md`](docs/agent-integration.md) | Agent / 脚本接入指南 |
-| [`docs/cloudflare-pages-r2.md`](docs/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
-| [`docs/d1-migration-checklist.md`](docs/d1-migration-checklist.md) | **D1 迁移部署与灰度验证清单**（建库、绑定、验证 `source` 字段、回滚、故障排查） |
-| [`PROJECT_INTRO.md`](PROJECT_INTRO.md) | 项目定位、架构说明与上游差异 |
-| [`AI-OPERATIONS.md`](AI-OPERATIONS.md) | **写给 AI Agent 的操作手册**（环境搭建、验证方法、调试手册、历史事故复盘、硬约束）——人类用户可跳过 |
+| [`docs/README.md`](docs/README.md) | **文档总入口**（按「我要做什么」分类导航） |
+| [`docs/guides/d1-migration-checklist.md`](docs/guides/d1-migration-checklist.md) | **D1 迁移部署与灰度验证清单**（建库、绑定、验证 `source` 字段、回滚、故障排查） |
+| [`docs/guides/storage-backends.md`](docs/guides/storage-backends.md) | Telegram / R2 / S3 / Discord / HuggingFace / WebDAV / GitHub 各后端逐步配置 |
+| [`docs/guides/cloudflare-pages-r2.md`](docs/guides/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
+| [`docs/reference/architecture.md`](docs/reference/architecture.md) | 项目定位、技术架构（前端/后端/数据层/存储）、安全设计 |
+| [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md) | Agent / 脚本接入指南（Token、scopes、幂等键、MCP 工具映射） |
+| [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml) | API v1 机器可读定义 |
+| [`docs/agents/AI-OPERATIONS.md`](docs/agents/AI-OPERATIONS.md) | **写给 AI Agent 的操作手册**（环境搭建、验证方法、调试手册、历史事故复盘、硬约束）——人类用户可跳过 |
+| [`docs/archive/`](docs/README.md#归档-archive) | 历史快照（上游 README 存档、一次性改造结项报告、Bug 复盘），**不代表当前状态** |
 
 ---
 

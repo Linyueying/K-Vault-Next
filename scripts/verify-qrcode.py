@@ -30,6 +30,7 @@ Python `qrcode` 会自动挑模式：纯数字走 numeric、纯大写走 alphanu
     python3 scripts/verify-qrcode.py
 """
 import json
+import os
 import subprocess
 import sys
 
@@ -51,7 +52,8 @@ LEVELS = {
     'H': ERROR_CORRECT_H,
 }
 
-ROOT = '/workspace/K-Vault-Next'
+# 自定位到仓库根：不要写死绝对路径，否则仓库克隆到别处会立刻失效
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NODE_SNIPPET = """
 const QR = require('%s/vendor/qrcode.js');
 const m = QR.matrix(process.argv[1], {ecl: process.argv[2]});

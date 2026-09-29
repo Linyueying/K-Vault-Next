@@ -26,8 +26,8 @@ from collections import defaultdict
 PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
-SHARED_CSS = 'design-system.css'
-SHARED_JS = 'app-core.js'
+SHARED_CSS = 'assets/css/design-system.css'
+SHARED_JS = 'assets/js/app-core.js'
 
 # ---------------------------------------------------------------- A. 禁改名单
 # 这些能力已收在 app-core.js（window.KVault）。页面里再写一份 = 漂移起点。
@@ -245,6 +245,15 @@ def main():
     print('=' * 74)
     print('跨页共享层校验  (scripts/check_shared.py)')
     print('=' * 74)
+
+    # 路径写错必须立刻炸，不能拖到 [C] 阶段才抛裸 traceback —— 那会让
+    # 前两个 [OK] 看起来像「检查通过了」，实际后半段从未跑完。
+    missing = [p for p in (SHARED_CSS, SHARED_JS) if not os.path.exists(p)]
+    if missing:
+        print('\n❌ 共享层文件缺失 —— 放弃检查：')
+        for p in missing:
+            print('   - %s' % p)
+        return 1
 
     # ---------------------------------------------------------- A. 禁改名单
     print('\n[A] 页面禁用：已收敛到 app-core.js 的能力')
@@ -491,7 +500,7 @@ def main():
     # ------------------------------------------------------------------
     print('\n[E] mobile-refactor.css 是否残留已确认清理过的死选择器')
     e_bad = 0
-    mr = 'mobile-refactor.css'
+    mr = 'assets/css/mobile-refactor.css'
     # 这批类已全站确认不存在，且已从文件里删除。若再次出现即为回潮。
     BANNED_DEAD_SELECTORS = [
         'header-content', 'nav-links', 'home-btn', 'status-panel',
