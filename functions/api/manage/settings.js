@@ -25,6 +25,7 @@ import {
     readGuestConfigFromEnv,
     readStorageConfigFromEnv,
     readBrandingConfigFromEnv,
+    readAirdropConfigFromEnv,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
 
@@ -43,12 +44,13 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload, storage, branding] = await Promise.all([
+    const [guest, cors, upload, storage, branding, airdrop] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
         getRuntimeConfig(env, 'upload'),
         getRuntimeConfig(env, 'storage'),
-        getRuntimeConfig(env, 'branding')
+        getRuntimeConfig(env, 'branding'),
+        getRuntimeConfig(env, 'airdrop')
     ]);
 
     return {
@@ -75,12 +77,22 @@ async function buildView(env) {
             siteTitle: branding.siteTitle || 'K-Vault-NEXT',
             source: branding.source
         },
+        airdrop: {
+            enabled: airdrop.enabled !== false,
+            guestAllowed: airdrop.guestAllowed === true,
+            maxFileSize: airdrop.maxFileSize,
+            dailyLimit: airdrop.dailyLimit,
+            ttlMinutes: airdrop.ttlMinutes,
+            source: airdrop.source
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
         // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
         storageEnvBaseline: readStorageConfigFromEnv(env),
         // 站点品牌的环境变量基线（SITE_NAME / SITE_TITLE，缺省 K-Vault-NEXT）
         brandingEnvBaseline: readBrandingConfigFromEnv(env),
+        // 隔空投送的环境变量基线
+        airdropEnvBaseline: readAirdropConfigFromEnv(env),
         hasKvBinding: Boolean(env?.img_url),
         // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
         hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
@@ -104,6 +116,40 @@ function validateGuest(input) {
     }
     if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
         return { error: 'enabled 必须是布尔值。' };
+    }
+    return { ok: true };
+}
+
+/**
+ * 校验隔空投送配置。
+ *
+ * 房间有效期卡在 1~1440 分钟（最长一天）：临时文件在房间存活期间一直占着
+ * 中转节点，允许设成"永不过期"等于给存储泄漏开一个口子。
+ */
+function validateAirdrop(input) {
+    if (!input || typeof input !== 'object') return { error: 'airdrop 必须是对象。' };
+    for (const field of ['enabled', 'guestAllowed']) {
+        if (input[field] !== undefined && typeof input[field] !== 'boolean') {
+            return { error: `${field} 必须是布尔值。` };
+        }
+    }
+    if (input.maxFileSize !== undefined) {
+        const size = Number(input.maxFileSize);
+        if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_SIZE_LIMIT) {
+            return { error: `单文件上限需为 1 字节 ~ ${MAX_FILE_SIZE_LIMIT / 1024 / 1024}MB 之间的数值。` };
+        }
+    }
+    if (input.dailyLimit !== undefined) {
+        const limit = Number(input.dailyLimit);
+        if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_DAILY_LIMIT) {
+            return { error: `每日次数需为 1 ~ ${MAX_DAILY_LIMIT} 之间的整数。` };
+        }
+    }
+    if (input.ttlMinutes !== undefined) {
+        const ttl = Number(input.ttlMinutes);
+        if (!Number.isInteger(ttl) || ttl < 1 || ttl > 1440) {
+            return { error: '房间有效期需为 1 ~ 1440 分钟之间的整数。' };
+        }
     }
     return { ok: true };
 }
@@ -207,9 +253,10 @@ export async function onRequestPost(context) {
     const uploadInput = body?.upload;
     const storageInput = body?.storage;
     const brandingInput = body?.branding;
+    const airdropInput = body?.airdrop;
 
-    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -219,6 +266,7 @@ export async function onRequestPost(context) {
     if (uploadInput) checks.push(['upload', validateUpload(uploadInput), uploadInput]);
     if (storageInput) checks.push(['storage', validateStorage(storageInput), storageInput]);
     if (brandingInput) checks.push(['branding', validateBranding(brandingInput), brandingInput]);
+    if (airdropInput) checks.push(['airdrop', validateAirdrop(airdropInput), airdropInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);

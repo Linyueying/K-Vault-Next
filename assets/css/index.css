@@ -491,10 +491,12 @@
 
       .summary__value, .upload-zone__sub > strong { display: inline-block; }
 
-      /* 快捷操作条 */
+      /* 快捷操作条
+         5 列：第 5 项（隔空投送）与前面 4 项并列。窄屏在下方媒体查询里
+         退回 2 列，并让落单的第 5 项占满整行，避免最后一行只剩半格。 */
       .quick-actions {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(5, 1fr);
         gap: var(--sp-2);
         margin-bottom: var(--sp-4);
       }
@@ -1343,6 +1345,7 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       #app:not(.is-booted) .quick-actions > *:nth-child(2) { animation-delay: 0.18s; }
       #app:not(.is-booted) .quick-actions > *:nth-child(3) { animation-delay: 0.22s; }
       #app:not(.is-booted) .quick-actions > *:nth-child(4) { animation-delay: 0.26s; }
+      #app:not(.is-booted) .quick-actions > *:nth-child(5) { animation-delay: 0.30s; }
       #app:not(.is-booted) .url-bar        { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
       #app:not(.is-booted) .dock           { animation: dockIn 0.72s var(--ease-fluid) 0.1s backwards; }
 
@@ -1381,6 +1384,8 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
         #app { padding: var(--sp-3) var(--sp-3) 100px; }
         .upload-zone { padding: var(--sp-6) var(--sp-4); }
         .quick-actions { grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
+        /* 2 列布局下第 5 项会落单，让它独占一行，视觉上才完整 */
+        .quick-actions > *:nth-child(5) { grid-column: span 2; }
         .row { padding: var(--sp-3) var(--sp-3); --row-gap: var(--sp-2); }
         .row + .row::before { left: 60px; }
         .menu { min-width: 180px; }

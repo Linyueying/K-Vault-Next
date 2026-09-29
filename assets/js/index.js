@@ -522,10 +522,28 @@
   };
 
   const app = Vue.createApp({
-    components: { "folder-node": folderNodeComponent, "upload-queue": uploadQueueComponent },
+    components: {
+      "folder-node": folderNodeComponent,
+      "upload-queue": uploadQueueComponent,
+      /* 隔空投送：实现在 assets/js/airdrop.js，index.html 保证它先于本文件加载。
+         万一脚本没加载成功，退化成一个空组件 —— 宁可这个功能不出现，
+         也不要因为注册失败让整个首页白屏。 */
+      "airdrop-panel": window.AirdropPanel || { template: "<div hidden></div>" },
+    },
     data() {
       return {
         currentTheme: "light",
+        /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可用 /
+           单文件上限 / 当前节点名）。能力由 /api/auth/check 下发，见 checkAuth。
+           默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。 */
+        airdropVisible: false,
+        airdropCapability: {
+          enabled: false,
+          guestAllowed: false,
+          maxBytes: 0,
+          backendLabel: "",
+          ttlMinutes: 30,
+        },
         showDrawer: false,
         activeDrawerTab: "storage",
         lastMoreTab: "history",
@@ -4127,6 +4145,8 @@
         try {
           const res = await fetch("/api/auth/check", { credentials: "include" });
           const data = await res.json();
+          // 隔空投送能力：无论后面走哪个分支（含访客早退），都要先落到 data 上
+          if (data.airdrop) this.airdropCapability = data.airdrop;
           if (data.authRequired && !data.authenticated) {
             if (data.guestUpload && data.guestUpload.enabled) {
               this.isGuest = true;
@@ -4149,6 +4169,26 @@
           if (data.authenticated) this.guestBlocked = false;
         } catch (e) {}
         finally { this.authChecking = false; }
+      },
+      /* ── 隔空投送（Beta）─────────────────────────────────
+         入口门禁放在这里而不是组件里：是否放行取决于整页的登录态
+         （this.isGuest），组件不该自己去猜访问者是谁。 */
+      openAirdrop() {
+        if (!this.airdropCapability.enabled) {
+          this.showToast("隔空投送未开启，或缺少可用的中转存储节点", "error");
+          return;
+        }
+        if (this.isGuest && !this.airdropCapability.guestAllowed) {
+          this.showToast("当前未开放访客使用隔空投送，请先登录", "error");
+          return;
+        }
+        this.airdropVisible = true;
+      },
+      closeAirdrop() {
+        this.airdropVisible = false;
+      },
+      pushAirdropToast(message, tone) {
+        this.showToast(message, tone || "info");
       },
       /* 访客被禁用时的统一拦截：提示 + 直接跳登录页 */
       blockGuestUpload() {

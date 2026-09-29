@@ -50,11 +50,21 @@ export const STORAGE_CONFIG_KEY = 'config:storage';
 /** 站点品牌配置在 KV 中的 key（网站名 / 网站标题） */
 export const BRANDING_CONFIG_KEY = 'config:branding';
 
+/** 隔空投送配置在 KV 中的 key */
+export const AIRDROP_CONFIG_KEY = 'config:airdrop';
+
 /** 所有配置组的名字，供后台设置接口遍历 */
-export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding'];
+export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop'];
 
 const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
+
+// ── 隔空投送默认值 ──────────────────────────────────────────
+// 单文件上限对齐直传上限（100MB）：Cloudflare Pages Functions 的请求体就
+// 是这么大，设再高也不会被接受，反而会在前端给出误导性的承诺。
+export const DEFAULT_AIRDROP_MAX_FILE_SIZE = 100 * 1024 * 1024;
+export const DEFAULT_AIRDROP_DAILY_LIMIT = 50;
+export const DEFAULT_AIRDROP_TTL_MINUTES = 30;
 
 /**
  * 进程内短 TTL 缓存。
@@ -255,6 +265,21 @@ const GROUPS = {
       siteTitle: String(env?.SITE_TITLE ?? '').trim() || 'K-Vault-NEXT'
     }),
     normalize: (raw, base) => normalizeBrandingConfig(raw, base)
+  },
+  airdrop: {
+    key: AIRDROP_CONFIG_KEY,
+    // 环境变量基线。enabled 与 guestAllowed 都按「显式写 false 才关」处理：
+    // 缺省开启，因为这是部署方主动在后台关的东西，不该因为没配变量就不可用。
+    fromEnv: (env) => ({
+      enabled: String(env?.AIRDROP_ENABLED ?? 'true') !== 'false',
+      // 访客默认不可用：隔空投送是匿名传输，默认的开放面必须收窄，
+      // 由管理员在后台显式放开（与 guest.enabled 默认关闭同源）。
+      guestAllowed: String(env?.AIRDROP_GUEST_ALLOWED ?? 'false') === 'true',
+      maxFileSize: toPositiveInt(env?.AIRDROP_MAX_FILE_SIZE, DEFAULT_AIRDROP_MAX_FILE_SIZE),
+      dailyLimit: toPositiveInt(env?.AIRDROP_DAILY_LIMIT, DEFAULT_AIRDROP_DAILY_LIMIT),
+      ttlMinutes: toPositiveInt(env?.AIRDROP_TTL_MINUTES, DEFAULT_AIRDROP_TTL_MINUTES)
+    }),
+    normalize: (raw, base) => normalizeAirdropConfig(raw, base)
   }
 };
 
@@ -323,6 +348,46 @@ export function readStorageConfigFromEnv(env) {
 /** 从环境变量读取站点品牌（部署期设定的基线，缺省 K-Vault-NEXT） */
 export function readBrandingConfigFromEnv(env) {
   return GROUPS.branding.fromEnv(env);
+}
+
+/**
+ * 归一化隔空投送配置。
+ *
+ * 布尔字段沿用 toBool 的严格度（只认真布尔与字面量 'true'/'false'），
+ * 数值字段由 toPositiveInt 收敛到正整数，避免出现「上限设成 0 等于不限」。
+ */
+export function normalizeAirdropConfig(raw, fallback) {
+  const base = fallback || {
+    enabled: true,
+    guestAllowed: false,
+    maxFileSize: DEFAULT_AIRDROP_MAX_FILE_SIZE,
+    dailyLimit: DEFAULT_AIRDROP_DAILY_LIMIT,
+    ttlMinutes: DEFAULT_AIRDROP_TTL_MINUTES
+  };
+  if (!raw || typeof raw !== 'object') return { ...base };
+  return {
+    enabled: toBool(raw.enabled, base.enabled),
+    guestAllowed: toBool(raw.guestAllowed, base.guestAllowed),
+    maxFileSize: toPositiveInt(raw.maxFileSize, base.maxFileSize),
+    dailyLimit: toPositiveInt(raw.dailyLimit, base.dailyLimit),
+    ttlMinutes: toPositiveInt(raw.ttlMinutes, base.ttlMinutes)
+  };
+}
+
+/** 从环境变量读取隔空投送配置（部署期设定的基线） */
+export function readAirdropConfigFromEnv(env) {
+  return GROUPS.airdrop.fromEnv(env);
+}
+
+/**
+ * 读取隔空投送配置（KV 覆盖 > 环境变量基线）。
+ *
+ * 与 guest 组不同，这里**不读镜像缓存**：隔空投送的每个请求都要拿最新的
+ * 开关（管理员刚关掉就不该再放行），多一次 KV 读的代价远小于放行一个
+ * 本应被拒绝的匿名传输。
+ */
+export async function getAirdropConfig(env) {
+  return getRuntimeConfig(env, 'airdrop');
 }
 
 /**

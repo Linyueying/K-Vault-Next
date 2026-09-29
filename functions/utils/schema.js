@@ -316,6 +316,81 @@ const M0009_BUNDLES_DESCRIPTION = [
 ];
 
 // ============================================================================
+// Migration 0010 — 隔空投送（Airdrop）
+// ============================================================================
+
+/**
+ * 0010 的 DDL：会话表 + 使用统计表。
+ *
+ * 为什么房间状态存 D1 而不是 KV：
+ *   KV 是**最终一致**的，写入后最长 60 秒才在所有边缘节点可见。隔空投送
+ *   依赖双方轮询同一个房间状态来推进（已连接 / 已上传 / 已完成），用 KV
+ *   会出现「发端看到已连接、收端还停在等待」的错位，功能直接不可信。
+ *   D1 在同一时间内是强一致的读，代价是每次轮询一次查询，可以接受。
+ *
+ * 为什么会话与统计分成两张表：
+ *   会话是**短生命周期**的临时状态（默认 30 分钟过期，完成后即可清理），
+ *   统计是**长期留存**的审计数据（管理员要看"用了多少次、传了多少流量"）。
+ *   混在一张表里，清理过期会话时会顺手把统计删掉。
+ *
+ * 字段说明：
+ *   code           8 位连接码，去掉了 0/O/1/I/L 等易混淆字符，口述可读
+ *   status         waiting → linked → uploading → uploaded → done，另有
+ *                  failed / cancelled / expired 三个终态
+ *   sender_token   发端凭证：只有持有它才能上传文件到该房间
+ *   receiver_token 收端凭证：只有持有它才能下载，避免连接码被第三人猜到后
+ *                  直接取走文件（8 位码本身不是保密强度足够的凭据）
+ *   storage_backend/ storage_key  文件落在哪个存储节点、键是什么
+ *   storage_meta    节点私有附加信息（如 Telegram 的 message_id，用于完成后删除）
+ *   progress       发端上传进度，收端展示"正在送达"
+ */
+const M0010_AIRDROP = [
+  `CREATE TABLE IF NOT EXISTS airdrop_sessions (
+  code              TEXT    PRIMARY KEY,
+  status            TEXT    NOT NULL DEFAULT 'waiting',
+  sender_token      TEXT    NOT NULL,
+  receiver_token    TEXT,
+  file_name         TEXT,
+  file_size         INTEGER NOT NULL DEFAULT 0,
+  file_type         TEXT,
+  storage_backend   TEXT,
+  storage_key       TEXT,
+  storage_meta      TEXT,
+  progress          INTEGER NOT NULL DEFAULT 0,
+  error             TEXT,
+  created_at        INTEGER NOT NULL,
+  linked_at         INTEGER,
+  uploaded_at       INTEGER,
+  completed_at      INTEGER,
+  expires_at        INTEGER NOT NULL
+)`,
+
+  // 过期会话的清理扫描走这个索引，避免全表扫
+  `CREATE INDEX IF NOT EXISTS idx_airdrop_sessions_expires
+  ON airdrop_sessions(expires_at)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_airdrop_sessions_created
+  ON airdrop_sessions(created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS airdrop_stats (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  code              TEXT    NOT NULL,
+  role              TEXT    NOT NULL,
+  is_guest          INTEGER NOT NULL DEFAULT 0,
+  file_name         TEXT,
+  file_size         INTEGER NOT NULL DEFAULT 0,
+  outcome           TEXT    NOT NULL,
+  created_at        INTEGER NOT NULL
+)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_airdrop_stats_created
+  ON airdrop_stats(created_at DESC)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_airdrop_stats_code
+  ON airdrop_stats(code)`,
+];
+
+// ============================================================================
 // 迁移清单（**顺序即执行顺序**）
 // ============================================================================
 
@@ -362,6 +437,8 @@ export const MIGRATIONS = [
     guard: { type: 'column', table: 'bundles', column: 'description' },
     statements: M0009_BUNDLES_DESCRIPTION,
   },
+  // 全 CREATE TABLE / INDEX IF NOT EXISTS，天然幂等，不需要 guard
+  { id: '0010_airdrop', statements: M0010_AIRDROP },
 ];
 
 // ============================================================================
