@@ -165,7 +165,10 @@ export function availableBackends(env) {
   if (env?.R2_BUCKET && typeof env.R2_BUCKET.put === 'function') {
     out.push({ key: 'r2', label: 'R2', maxBytes: R2_MAX_FILE_SIZE });
   }
-  if (env?.TG_BOT_TOKEN && envValue(env, 'TG_CHAT_ID')) {
+  // 必须走 envValue（而不是裸读 env.TG_BOT_TOKEN）：Telegram 的主用名是混合
+  // 大小写 TG_Bot_Token，TG_BOT_TOKEN 只是历史别名。裸读会让"按文档填了主用名"
+  // 的部署在这里判成未配置 —— 主上传正常、隔空投送却说没有中转节点。
+  if (envValue(env, 'TG_BOT_TOKEN') && envValue(env, 'TG_CHAT_ID')) {
     out.push({ key: 'telegram', label: 'Telegram', maxBytes: TG_MAX_FILE_SIZE });
   }
   return out;
@@ -644,7 +647,7 @@ export async function readTempFile(env, file) {
     return { body: obj.body, size: obj.size || file.size || 0 };
   }
   if (file.backend === 'telegram') {
-    if (!env?.TG_BOT_TOKEN) return null;
+    if (!envValue(env, 'TG_BOT_TOKEN')) return null;
     const filePath = await getTelegramFilePath(env, file.key);
     if (!filePath) return null;
     const upstream = await fetch(buildTelegramFileUrl(env, filePath));
@@ -663,7 +666,7 @@ export async function deleteTempFile(env, file) {
   try {
     if (file.backend === 'r2' && env?.R2_BUCKET) {
       await env.R2_BUCKET.delete(file.key);
-    } else if (file.backend === 'telegram' && env?.TG_BOT_TOKEN) {
+    } else if (file.backend === 'telegram' && envValue(env, 'TG_BOT_TOKEN')) {
       const msgId = file.meta?.messageId;
       if (msgId) {
         await fetch(buildTelegramBotApiUrl(env, 'deleteMessage'), {
