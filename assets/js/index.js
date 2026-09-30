@@ -3862,6 +3862,12 @@
       triggerDownload(rawUrl, fileName) {
         if (!rawUrl) return;
         const url = this.buildDownloadUrl(rawUrl);
+        /* 微信 / QQ 内置浏览器会静默吞掉附件下载（点了没反应）。
+           命中时守卫会拦下本次下载、尽力唤起系统浏览器并弹引导层，
+           返回 true 表示已接管 —— 此时不能再往下走原生下载，否则会同时
+           弹一个「已开始下载」的 toast，把用户彻底带偏。 */
+        const kv = (typeof window !== "undefined") ? window.KVault : null;
+        if (kv && typeof kv.guardDownload === "function" && kv.guardDownload(url, fileName)) return;
         if (this.downloadingUrls[url]) { this.showToast('下载已开始，请查看浏览器下载栏', 'info'); return; }
         this.downloadingUrls[url] = true;
         /* 关键：必须在这次点击的同一个同步任务里就把下载交出去。

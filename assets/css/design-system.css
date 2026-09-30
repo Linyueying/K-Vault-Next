@@ -1666,3 +1666,192 @@ html[data-theme="dark"][data-perf="low"] {
   /* Dock 滑动指示器：直接跳格，不做弹性滑动（页面内联不重复声明该媒体查询）。 */
   .dock__indicator { transition: none !important; }
 }
+
+/* ==========================================================================
+   内置浏览器（微信 / QQ 等）下载引导层
+   ----------------------------------------------------------------------
+   由 assets/js/app-core.js 的 guardDownload() 动态插入，全站共用一份。
+   逻辑见 app-core.js 里的同名注释：iOS 无法从微信/QQ 唤起 Safari，
+   这一层在 iOS 上是唯一通路，在 Android 上是 intent 唤起失败后的兜底。
+   ========================================================================== */
+.kv-inapp {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+}
+
+.kv-inapp[hidden] {
+  display: none;
+}
+
+.kv-inapp__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: kvInappFade 0.2s var(--ease-apple);
+}
+
+.kv-inapp__card {
+  position: relative;
+  width: min(360px, 100%);
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  border-radius: var(--r-lg);
+  background: var(--glass-elevated);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  text-align: center;
+  animation: kvInappPop 0.26s var(--ease-spring);
+}
+
+/* 指向右上角「···」的提示角标：iOS/Android 都是点那里出去 */
+.kv-inapp__arrow {
+  position: absolute;
+  top: -14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(140deg, var(--primary-light), var(--primary));
+  box-shadow: 0 6px 16px -6px rgba(var(--primary-rgb), 0.6);
+  animation: kvInappNudge 1.6s var(--ease-apple) infinite;
+}
+
+.kv-inapp__title {
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+
+.kv-inapp__desc {
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--text-sub);
+}
+
+.kv-inapp__desc b {
+  color: var(--primary-dark);
+}
+
+html[data-theme='dark'] .kv-inapp__desc b {
+  color: var(--primary-light);
+}
+
+.kv-inapp__tip {
+  margin-top: var(--sp-3);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(var(--primary-rgb), 0.08);
+  border: 1px solid rgba(var(--primary-rgb), 0.22);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+html[data-theme='dark'] .kv-inapp__tip {
+  color: var(--primary-light);
+}
+
+.kv-inapp__url {
+  margin-top: var(--sp-3);
+  max-height: 72px;
+  overflow: hidden;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--glass-subtle);
+  border: 1px solid var(--glass-border-ice);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  word-break: break-all;
+  text-align: left;
+}
+
+.kv-inapp__acts {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
+.kv-inapp__btn {
+  flex: 1;
+  min-height: var(--h-ctrl);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--glass-border-ice);
+  background: var(--glass-subtle);
+  color: var(--text-main);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-press),
+    background var(--dur-base) var(--ease-apple),
+    border-color var(--dur-base) var(--ease-apple);
+}
+
+.kv-inapp__btn:active {
+  transform: scale(0.98);
+}
+
+.kv-inapp__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.kv-inapp__btn--primary {
+  color: #fff;
+  background: linear-gradient(140deg, var(--primary-light), var(--primary));
+  border-color: transparent;
+  box-shadow: 0 8px 20px -8px rgba(var(--primary-rgb), 0.55);
+}
+
+.kv-inapp__close {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+
+.kv-inapp__close:hover {
+  color: var(--text-main);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+@keyframes kvInappFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes kvInappPop {
+  from { opacity: 0; transform: scale(0.94) translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kvInappNudge {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -4px, 0); }
+}
+
+/* 尊重「减弱动态效果」：引导层仍要出现，只是不做位移与循环提示 */
+@media (prefers-reduced-motion: reduce) {
+  .kv-inapp__arrow { animation: none; }
+}

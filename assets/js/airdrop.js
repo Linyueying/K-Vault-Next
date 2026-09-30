@@ -990,6 +990,14 @@
         if (this.phase === 'downloading' || this.phase === 'done') return;
         const files = (this.session && this.session.files) || [];
         if (!files.length) return;
+        /* 微信 / QQ 内置浏览器：就算 fetch 把字节全拿到了，也基本没法落盘
+           （iOS 尤其如此，连「文件」App 都进不去）。与其让用户看着进度条
+           走完却什么都没收到，不如直接把他引到系统浏览器里重开本次投送
+           —— shareUrl 带 ?airdrop=CODE，打开即自动进入接收端。 */
+        const kv = (typeof window !== 'undefined') ? window.KVault : null;
+        if (kv && typeof kv.guardDownload === 'function' && kv.guardDownload(this.shareUrl || window.location.href, '')) {
+          return;
+        }
         this.phase = 'downloading';
         this.downloadProgress = 0;
         this.receivedBytes = 0;

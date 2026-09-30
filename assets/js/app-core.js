@@ -660,6 +660,211 @@
     return function () { io.disconnect(); };
   }
 
+  /* ------------------------------------------------------------------ *
+   * 内置浏览器（微信 / QQ 等）下载拦截
+   *
+   * 背景：微信、QQ 的内置 WebView 屏蔽了「附件下载」——
+   *   Content-Disposition: attachment 不生效、<a download> 被忽略，
+   *   iOS 上还无法把文件写进「文件」App。用户在这些环境点下载，
+   *   表现就是「点了没反应」，常被误判成后端坏了。
+   *
+   * 做法：检测 UA → 命中则拦下这次下载 → 尽力唤起系统浏览器 → 弹引导层兜底。
+   *
+   * 「自动跳转」的现实约束（写在这里，免得日后被当成 bug 改坏）：
+   *   - Android：可用 intent:// 协议唤起 Chrome / 系统浏览器，成功率较高。
+   *   - iOS：微信/QQ 的 WKWebView 不暴露任何跳转 Safari 的接口，
+   *     window.open 会被就地拦下。所以 iOS 只能靠引导层让用户手动点
+   *     右上角「··· → 在 Safari 中打开」。这是平台限制，不是实现缺陷。
+   * ------------------------------------------------------------------ */
+
+  var INAPP_LIST = [
+    { key: "wechat", name: "微信", re: /micromessenger/i },
+    { key: "qq", name: "QQ", re: /(^|\s)qq\/\d/i },
+    { key: "qq", name: "QQ", re: /v1_(and|iph)_sq/i },
+    { key: "weibo", name: "微博", re: /weibo/i },
+    { key: "alipay", name: "支付宝", re: /alipayclient/i },
+    { key: "dingtalk", name: "钉钉", re: /dingtalk/i },
+    { key: "douyin", name: "抖音", re: /aweme/i }
+  ];
+
+  /** 命中则返回 { key, name }，否则 null */
+  function detectInAppBrowser() {
+    if (typeof navigator === "undefined") return null;
+    var ua = navigator.userAgent || "";
+    for (var i = 0; i < INAPP_LIST.length; i++) {
+      if (INAPP_LIST[i].re.test(ua)) {
+        return { key: INAPP_LIST[i].key, name: INAPP_LIST[i].name };
+      }
+    }
+    return null;
+  }
+
+  function isIOSDevice() {
+    if (typeof navigator === "undefined") return false;
+    var ua = navigator.userAgent || "";
+    return /iPad|iPhone|iPod/i.test(ua) ||
+      (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
+  }
+
+  function isAndroidDevice() {
+    if (typeof navigator === "undefined") return false;
+    return /Android/i.test(navigator.userAgent || "");
+  }
+
+  /**
+   * 尽力唤起系统浏览器。返回实际采用的手段：intent / open / none。
+   * iOS 上这一步基本无效（平台限制），调用方必须同时给出引导层。
+   */
+  /**
+   * Android 的 intent:// 唤起串。抽成纯函数是为了可测——
+   * 直接跑 openInDefaultBrowser 会真的把页面导航走，没法在测试里断言。
+   */
+  function buildBrowserIntentUrl(url) {
+    var pu = new URL(url);
+    if (pu.protocol !== "http:" && pu.protocol !== "https:") return "";
+    return "intent://" + pu.host + pu.pathname + pu.search +
+      "#Intent;scheme=" + pu.protocol.replace(":", "") +
+      ";package=com.android.chrome;S.browser_fallback_url=" +
+      encodeURIComponent(pu.href) + ";end";
+  }
+
+  function openInDefaultBrowser(url) {
+    var target = url;
+    try { target = new URL(url, window.location.href).href; } catch (e) { /* 保持原样 */ }
+    if (!target) return "none";
+
+    if (isAndroidDevice()) {
+      try {
+        var intent = buildBrowserIntentUrl(target);
+        if (intent) {
+          window.location.href = intent;
+          return "intent";
+        }
+      } catch (e) { /* 落到 window.open */ }
+    }
+    try {
+      window.open(target, "_blank", "noopener");
+      return "open";
+    } catch (e) {
+      return "none";
+    }
+  }
+
+  var inappEl = null;
+
+  function ensureInAppEl() {
+    if (inappEl) return inappEl;
+    if (typeof document === "undefined" || !document.body) return null;
+    var el = document.createElement("div");
+    el.className = "kv-inapp";
+    el.hidden = true;
+    /* 结构里没有拼接任何外部输入：URL 走 textContent 写入，避免注入 */
+    el.innerHTML =
+      '<div class="kv-inapp__mask" data-act="close"></div>' +
+      '<div class="kv-inapp__card" role="dialog" aria-modal="true" aria-label="请在浏览器中打开">' +
+      '  <div class="kv-inapp__arrow" aria-hidden="true">&#8599;</div>' +
+      '  <div class="kv-inapp__title">请在浏览器中打开</div>' +
+      '  <div class="kv-inapp__desc">检测到你正在 <b data-role="name">当前</b> 内置浏览器中。' +
+      '该环境不支持直接下载文件，请改用系统浏览器打开后再下载。</div>' +
+      '  <div class="kv-inapp__tip" data-role="tip"></div>' +
+      '  <div class="kv-inapp__url" data-role="url"></div>' +
+      '  <div class="kv-inapp__acts">' +
+      '    <button type="button" class="kv-inapp__btn kv-inapp__btn--primary" data-act="copy">复制链接</button>' +
+      '    <button type="button" class="kv-inapp__btn" data-act="open">再次尝试打开</button>' +
+      '  </div>' +
+      '  <button type="button" class="kv-inapp__close" data-act="close" aria-label="关闭">&times;</button>' +
+      '</div>';
+    document.body.appendChild(el);
+
+    el.addEventListener("click", function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+      if (!btn) return;
+      var act = btn.getAttribute("data-act");
+      var url = el.getAttribute("data-open") || "";
+      if (act === "close") {
+        el.hidden = true;
+        el.classList.remove("is-open");
+      } else if (act === "copy") {
+        copy(url);
+        var old = btn.textContent;
+        btn.textContent = "已复制";
+        btn.disabled = true;
+        setTimeout(function () { btn.textContent = old; btn.disabled = false; }, 1600);
+      } else if (act === "open") {
+        openInDefaultBrowser(url);
+      }
+    });
+    inappEl = el;
+    return el;
+  }
+
+  /** 弹出引导层。url 是「应该在系统浏览器里打开的那个地址」 */
+  function showInAppGuide(url, env) {
+    var el = ensureInAppEl();
+    if (!el) return;
+    var nameEl = el.querySelector("[data-role='name']");
+    var urlEl = el.querySelector("[data-role='url']");
+    var tipEl = el.querySelector("[data-role='tip']");
+    if (nameEl) nameEl.textContent = (env && env.name) || "当前";
+    if (urlEl) urlEl.textContent = url;
+    if (tipEl) {
+      tipEl.innerHTML = isIOSDevice()
+        ? "请点击右上角 <b>&middot;&middot;&middot;</b> → 选择「在 Safari 中打开」"
+        : "请点击右上角 <b>&middot;&middot;&middot;</b> → 选择「在浏览器中打开」";
+    }
+    el.setAttribute("data-open", url);
+    el.hidden = false;
+    el.classList.add("is-open");
+  }
+
+  /**
+   * 下载守卫：处于内置浏览器时拦下下载并引导；否则放行。
+   * 返回 true 表示已被拦截（调用方应当 return，不要再走原生下载）。
+   */
+  function guardDownload(url, fileName) {
+    var env = detectInAppBrowser();
+    if (!env) return false;
+    try {
+      openInDefaultBrowser(url);
+      showInAppGuide(url, env);
+    } catch (e) { /* 引导失败也不能让下载静默消失：至少别把页面搞崩 */ }
+    return true;
+  }
+
+  /** 这个 <a> 是不是一次「下载」而不是普通跳转 */
+  function isDownloadLink(a, href) {
+    if (!href) return false;
+    /* blob/data 是本地数据，不受内置浏览器下载限制影响，放行 */
+    if (/^(blob:|data:|javascript:|mailto:|tel:|about:|#)/i.test(href)) return false;
+    if (a && a.hasAttribute && a.hasAttribute("download")) return true;
+    if (/[?&]dl=1(&|$)/i.test(href)) return true;
+    if (/\/api\/[a-z0-9_\-\/]*download/i.test(href)) return true;
+    return false;
+  }
+
+  /**
+   * 全局兜底：在捕获阶段拦掉页面上任何「下载型」<a> 的点击。
+   * 这样 share / preview / gallery / admin / webdav 等页面无需各自改代码
+   * —— 它们原本就是 <a download> 或 createElement('a') + click()，
+   * 两种写法都会派发 click 事件并冒泡到 document。
+   */
+  function installDownloadGuard() {
+    if (typeof document === "undefined") return;
+    document.addEventListener("click", function (e) {
+      if (!detectInAppBrowser()) return;
+      var a = null;
+      try {
+        a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      } catch (err) { a = null; }
+      if (!a) return;
+      var href = a.getAttribute("href") || "";
+      if (!isDownloadLink(a, href)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      guardDownload(href, a.getAttribute("download") || "");
+    }, true);
+  }
+
   window.KVault = {
     version: "1.3.0",
     formatBytes: formatBytes,
@@ -678,6 +883,13 @@
     revealOnScroll: revealOnScroll,
     createSyncTracker: createSyncTracker,
     createSyncVerifier: createSyncVerifier,
+    // 内置浏览器（微信 / QQ 等）下载拦截
+    detectInAppBrowser: detectInAppBrowser,
+    guardDownload: guardDownload,
+    openInDefaultBrowser: openInDefaultBrowser,
+    buildBrowserIntentUrl: buildBrowserIntentUrl,
+    showInAppGuide: showInAppGuide,
+    installDownloadGuard: installDownloadGuard,
   };
 
   /* 自动初始化：纯增强、可失败。
@@ -688,6 +900,7 @@
     var bootGlass = function () {
       try { glassInit(); } catch (e) { /* noop */ }
       try { revealOnScroll(document); } catch (e) { /* noop */ }
+      try { installDownloadGuard(); } catch (e) { /* noop */ }
     };
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", bootGlass, { once: true });
