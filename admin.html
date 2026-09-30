@@ -328,6 +328,9 @@ html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 html[data-theme="dark"] .folder-tree-row.active{background:linear-gradient(135deg,rgba(2,132,199,.35),rgba(56,189,248,.15));color:#f0f9ff}
 .folder-tree-row.drop-target{outline:2px dashed #22c55e;outline-offset:-2px;background:rgba(34,197,94,.1);transform:scale(1.015)}
 .folder-tree-arrow{width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;font-size:.58rem;color:var(--text-muted);flex-shrink:0;border-radius:5px;transition:color var(--dur-base) var(--ease-apple),background var(--dur-base) var(--ease-apple),transform .3s var(--ease-spring)}
+/* 箭头始终用同一个 chevron 靠 rotate 表达展开态 —— 换图标无法过渡，会硬切 */
+.folder-tree-arrow > i{transition:transform .34s var(--ease-spring)}
+.folder-tree-arrow:not(.empty):hover{color:var(--primary);background:rgba(var(--primary-rgb),.14);transform:scale(1.15)}
 .folder-tree-arrow.empty{visibility:hidden}
 .folder-tree-icon{font-size:.82rem;color:var(--c-warn);flex-shrink:0;transition:transform .35s var(--ease-spring)}
 .folder-tree-row:hover .folder-tree-icon{transform:scale(1.14)}
@@ -499,11 +502,16 @@ html[data-theme="dark"] .share-mode-chip.on{color:var(--primary-light)}
 /* 分享管理里表示"自定义标题"的徽章：与路径/短链徽章区分开 */
 .token-badge.title{background:rgba(2,132,199,.14);color:#0369a1;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 html[data-theme="dark"] .token-badge.title{color:#7dd3fc}
-/* 目录树行内的分享按钮：默认隐藏，悬停/聚焦时出现，
-   避免每一行都挂一个图标把目录名挤没。 */
-.folder-tree-act{margin-left:auto;flex:none;width:22px;height:22px;display:none;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font-size:.68rem;cursor:pointer;opacity:.75}
-.folder-tree-row:hover .folder-tree-act,.folder-tree-act:focus-visible{display:inline-flex}
+/* 目录树行内操作：默认隐藏，悬停 / 选中 / 聚焦时整组淡入右滑。
+   容器承载多个按钮（分享 / 重命名 / 删除），对齐 index 的 .tree-row__actions。
+   用 opacity + translateX 过渡而非 display 切换 —— display 无法参与过渡，会硬切。 */
+.folder-tree-acts{display:flex;gap:2px;margin-left:auto;flex:none;opacity:0;transform:translateX(6px);transition:opacity .24s var(--ease-apple),transform .3s var(--ease-spring)}
+.folder-tree-row:hover .folder-tree-acts,.folder-tree-row.active .folder-tree-acts,.folder-tree-acts:focus-within{opacity:1;transform:translateX(0)}
+.folder-tree-act{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font-size:.68rem;cursor:pointer;opacity:.75;transition:background .18s var(--ease-apple),color .18s var(--ease-apple),opacity .18s var(--ease-apple)}
 .folder-tree-act:hover{background:rgba(var(--primary-rgb),.16);color:var(--primary);opacity:1}
+.folder-tree-act.danger:hover{background:rgba(220,38,38,.14);color:var(--c-danger-strong,#dc2626)}
+/* 移动端无 hover：直接常显，否则行内操作永远点不到 */
+@media (max-width:680px){.folder-tree-acts{opacity:1;transform:none}}
 /* =========================================================
 API Token 管理面板
 ========================================================= */
@@ -652,13 +660,6 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 #app:not(.is-booted) .tool-hub-items > *:nth-child(7){animation-delay:.32s;}
 #app:not(.is-booted) .tool-hub-items > *:nth-child(n+8){animation-delay:.35s;}
 #app:not(.is-booted) .folder-tree-row{animation:riseInSm .4s var(--ease-fluid) backwards;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(1){animation-delay:.16s;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(2){animation-delay:.18s;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(3){animation-delay:.2s;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(4){animation-delay:.22s;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(5){animation-delay:.24s;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(6){animation-delay:.26s;}
-#app:not(.is-booted) .folder-tree-panel > *:nth-child(n+7){animation-delay:.28s;}
 #app:not(.is-booted) .empty-state    {animation:riseIn .52s var(--ease-fluid) .2s backwards;}
 #app:not(.is-booted) .pager          {animation:riseInSm .44s var(--ease-fluid) .22s backwards;}
 #app:not(.is-booted) .kv-usage-panel {animation:panelIn .5s var(--ease-fluid) backwards;}
@@ -1517,6 +1518,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       </div>
 
       <div class="folder-tree-panel">
+        <!-- 根目录：不是树节点，单独一行，行为与既有保持一致 -->
         <div class="folder-tree-row" :class="{active: !folderPath, 'drop-target': drag.target===''}"
              @click="selectFolder('')"
              @dragover.prevent="drag.target=''"
@@ -1525,31 +1527,31 @@ html[data-perf="low"] .ambient-orb{animation:none}
           <span class="folder-tree-arrow empty"></span>
           <i class="fas fa-house folder-tree-icon icon-home"></i>
           <span class="folder-tree-name">根目录</span>
-          <button class="folder-tree-act" @click.stop="openFolderShare('', '根目录')"
-                  title="分享根目录"><i class="fas fa-share-nodes"></i></button>
+          <div class="folder-tree-acts">
+            <button class="folder-tree-act" @click.stop="openFolderShare('', '根目录')"
+                    title="分享根目录"><i class="fas fa-share-nodes"></i></button>
+          </div>
         </div>
 
-        <div v-for="f in folderTreeNodes" :key="f.path"
-             class="folder-tree-row"
-             :class="{active: folderPath===f.path, 'drop-target': drag.target===f.path}"
-             :style="{paddingLeft: (10 + (f.depth-1)*16) + 'px'}"
-             @click="selectFolder(f.path)"
-             @dragover.prevent="drag.target=f.path"
-             @dragleave="drag.target=null"
-             @drop.prevent="dropFolder(f.path, $event)">
-          <span class="folder-tree-arrow empty"></span>
-          <i class="fas folder-tree-icon" :class="folderPath===f.path ? 'fa-folder-open' : 'fa-folder'"></i>
-          <span class="folder-tree-name" :title="f.path">{{ f.name }}</span>
-          <span class="folder-tree-count" v-if="f.fileCount">{{ f.fileCount }}</span>
-          <button class="folder-tree-act" @click.stop="shareFolderNode(f)"
-                  :title="'分享目录 ' + f.path"><i class="fas fa-share-nodes"></i></button>
-        </div>
+        <!-- 递归子树：顶层节点（depth=0，使 paddingLeft 与旧扁平列表的顶层一致） -->
+        <folder-node v-for="node in folderTreeRoot.children" :key="node.path"
+                     :node="node" :depth="0"
+                     :current-path="folderPath" :expanded="expandedFolders"
+                     :drag-target="drag.target"
+                     @select="selectFolder"
+                     @toggle="toggleFolderExpand"
+                     @rename="handleRenameFolderNode"
+                     @delete="handleDeleteFolderNode"
+                     @share="shareFolderNode"
+                     @dragover-node="onTreeNodeDragover"
+                     @dragleave-node="onTreeNodeDragleave"
+                     @drop-node="onTreeNodeDrop"></folder-node>
 
-        <div class="folder-tree-empty" v-if="folderLoading && !folderTreeNodes.length">
+        <div class="folder-tree-empty" v-if="folderLoading && !folderTreeRoot.children.length">
           <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
           <span>正在读取目录...</span>
         </div>
-        <div class="folder-tree-empty" v-else-if="!folderTreeNodes.length">
+        <div class="folder-tree-empty" v-else-if="!folderTreeRoot.children.length">
           <i class="fas fa-folder-open"></i>
           <span>暂无子目录</span>
         </div>
@@ -2811,7 +2813,94 @@ const TIME_FMT = new Intl.DateTimeFormat('zh-CN', {
 /* 删除的撤销窗口（同时用作撤销 Toast 的停留时长） */
 const UNDO_MS = 8000;
 
+/* ===== 目录树递归组件 =====
+   与 index 的 folder-node 同构，但沿用 admin 的 .folder-tree-* 类名以复用现有样式；
+   index 版无拖拽，这里额外把 dragover/dragleave/drop 透传给根组件，保持 admin
+   「拖文件到目录行即移动」的既有能力。纯展示 + 事件冒泡，不持有任何业务状态。
+
+   注意模板必须单根（<div> 包裹）—— 子层的 <transition name="tree-children">
+   需要一个唯一根才能正确参与进出场；多根会报警且动画失效。 */
+const folderNodeComponent = {
+  name: 'folder-node',
+  props: {
+    node:        { type: Object, required: true },
+    depth:       { type: Number, default: 0 },
+    currentPath: { type: String, default: '' },
+    expanded:    { type: Object, default: () => ({}) },
+    dragTarget:  { type: String, default: null },
+  },
+  computed: {
+    hasChildren() { return !!(this.node.children && this.node.children.length); },
+    isExpanded()  { return !!this.expanded[this.node.path]; },
+    isActive()    { return this.node.path === this.currentPath; },
+    isDropTarget() { return this.dragTarget === this.node.path; },
+  },
+  methods: {
+    onSelect() { this.$emit('select', this.node.path); },
+    onToggle(e) {
+      e.stopPropagation();
+      if (!this.hasChildren) return;
+      this.$emit('toggle', this.node.path);
+    },
+    onRename(e) { e.stopPropagation(); this.$emit('rename', this.node); },
+    onDelete(e) { e.stopPropagation(); this.$emit('delete', this.node); },
+    onShare(e)  { e.stopPropagation(); this.$emit('share', this.node); },
+    onDragOver()  { this.$emit('dragover-node', this.node.path); },
+    onDragLeave() { this.$emit('dragleave-node'); },
+    onDrop(e)     { e.preventDefault(); this.$emit('drop-node', this.node.path, e); },
+  },
+  template: `
+    <div>
+      <div class="folder-tree-row"
+           :class="{ active: isActive, 'drop-target': isDropTarget }"
+           :style="{ paddingLeft: (10 + depth * 16) + 'px' }"
+           @click="onSelect"
+           @dragover.prevent="onDragOver"
+           @dragleave="onDragLeave"
+           @drop.prevent="onDrop">
+        <span class="folder-tree-arrow" :class="{ empty: !hasChildren }" @click="onToggle">
+          <i v-if="hasChildren" class="fas fa-chevron-right"
+             :style="{ transform: isExpanded ? 'rotate(90deg)' : 'none' }"></i>
+        </span>
+        <i class="fas folder-tree-icon"
+           :class="(hasChildren && isExpanded) ? 'fa-folder-open' : 'fa-folder'"></i>
+        <span class="folder-tree-name" :title="node.path">{{ node.name }}</span>
+        <transition name="count">
+          <span class="folder-tree-count" v-if="node.fileCount">{{ node.fileCount }}</span>
+        </transition>
+        <div class="folder-tree-acts">
+          <button class="folder-tree-act" @click="onShare" title="分享此目录"><i class="fas fa-share-nodes"></i></button>
+          <button class="folder-tree-act" @click="onRename" title="重命名"><i class="fas fa-pen"></i></button>
+          <button class="folder-tree-act danger" @click="onDelete" title="删除目录"><i class="fas fa-trash"></i></button>
+        </div>
+      </div>
+
+      <transition name="tree-children">
+        <div class="tree-children" v-if="hasChildren && isExpanded">
+          <div>
+            <folder-node v-for="child in node.children" :key="child.path"
+                         :node="child" :depth="depth + 1"
+                         :current-path="currentPath" :expanded="expanded"
+                         :drag-target="dragTarget"
+                         @select="$emit('select', $event)"
+                         @toggle="$emit('toggle', $event)"
+                         @rename="$emit('rename', $event)"
+                         @delete="$emit('delete', $event)"
+                         @share="$emit('share', $event)"
+                         @dragover-node="$emit('dragover-node', $event)"
+                         @dragleave-node="$emit('dragleave-node')"
+                         @drop-node="(p, ev) => $emit('drop-node', p, ev)"></folder-node>
+          </div>
+        </div>
+      </transition>
+    </div>
+  `,
+};
+
 const __kvApp = Vue.createApp({
+  components: {
+    'folder-node': folderNodeComponent,
+  },
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
@@ -2837,6 +2926,7 @@ const __kvApp = Vue.createApp({
 
     folderPath: '', folderLoading: false,
     folderPanelCollapsed: false,
+    expandedFolders: {},
     toolHubOpen: false,
 
     logoSrc: '/assets/img/logo-64.png',
@@ -3211,6 +3301,47 @@ const __kvApp = Vue.createApp({
         });
       });
       return out.sort((x, y) => x.path.localeCompare(y.path, 'zh-CN'));
+    },
+    /* 把扁平列表折叠成递归树，供 <folder-node> 渲染。
+       根容器 path='' 不出现在 UI（模板只渲染 .children）。
+
+       为什么要「补中间层级」：后端理论上返回全部层级路径，但若某一层因
+       KV 分片 / 迁移缺失而缺席，直接按扁平列表成树就会让子孙节点挂不到
+       根部、变成树里看不见的孤儿。这里按路径分段补出缺失的中间节点，
+       保证任何路径都能从根一路展开到它。 */
+    folderTreeRoot() {
+      const root = { name: '', path: '', children: [] };
+      const map = { '': root };
+
+      this.folderTreeNodes.forEach(node => {
+        const parts = node.path.split('/').filter(Boolean);
+        let cur = '';
+        let parent = root;
+        parts.forEach((part, i) => {
+          cur = cur ? cur + '/' + part : part;
+          if (!map[cur]) {
+            const isLeaf = i === parts.length - 1;
+            map[cur] = {
+              name: part,
+              path: cur,
+              depth: i + 1,
+              fileCount: isLeaf ? node.fileCount : 0,
+              children: [],
+            };
+            parent.children.push(map[cur]);
+          }
+          parent = map[cur];
+        });
+        /* 叶子可能与先前补出的中间节点重合，回填真实 fileCount */
+        if (map[node.path]) map[node.path].fileCount = node.fileCount;
+      });
+
+      const sortRec = (n) => {
+        n.children.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+        n.children.forEach(sortRec);
+      };
+      sortRec(root);
+      return root;
     },
     crumbs() {
       const parts = this.normalizeFolderPath(this.folderPath).split('/').filter(Boolean);
@@ -3722,6 +3853,7 @@ const __kvApp = Vue.createApp({
            说明拿到的是过期数据 —— 丢弃本次刷新，保持乐观状态不动 */
         if (this.folderDataIsStale(incoming)) return;
         this.folders = incoming;
+        this.pruneExpanded();
       } catch (e) {
         this.folders = [];
       } finally {
@@ -3758,6 +3890,52 @@ const __kvApp = Vue.createApp({
       await Promise.all([this.loadFolders(), this.loadList()]);
     },
 
+    /* ================= 目录树展开态 =================
+       与 index 的 folderTreeExpanded 分开存（key 不同），两页展开态互不污染。 */
+    persistExpanded() {
+      try { localStorage.setItem('adminFolderTreeExpanded', JSON.stringify(this.expandedFolders)); } catch (e) {}
+    },
+    restoreExpanded() {
+      try {
+        const raw = localStorage.getItem('adminFolderTreeExpanded');
+        if (raw) this.expandedFolders = JSON.parse(raw) || {};
+      } catch (e) { this.expandedFolders = {}; }
+    },
+    toggleFolderExpand(path) {
+      const p = this.normalizeFolderPath(path);
+      if (!p) return;
+      this.expandedFolders = Object.assign({}, this.expandedFolders, { [p]: !this.expandedFolders[p] });
+      this.persistExpanded();
+    },
+    /* 自动展开某路径的祖先链（不含自身），使目标节点在树中可见 */
+    autoExpandAncestors(path) {
+      const parts = this.normalizeFolderPath(path).split('/').filter(Boolean);
+      let cur = '';
+      for (let i = 0; i < parts.length - 1; i++) {
+        cur = cur ? cur + '/' + parts[i] : parts[i];
+        this.expandedFolders[cur] = true;
+      }
+      this.persistExpanded();
+    },
+    /* 清理已不存在的目录的展开键，避免 localStorage 无限增长、
+       以及「删掉 A 又新建同名 A」继承旧的展开状态 */
+    pruneExpanded() {
+      const live = new Set((this.folders || [])
+        .map(f => this.normalizeFolderPath(f.path || f.folderPath || ''))
+        .filter(Boolean));
+      const next = {};
+      Object.keys(this.expandedFolders || {}).forEach(k => {
+        if (live.has(k)) next[k] = true;
+      });
+      this.expandedFolders = next;
+      this.persistExpanded();
+    },
+
+    /* 拖拽：由递归组件 $emit 上来 */
+    onTreeNodeDragover(path) { this.drag.target = path; },
+    onTreeNodeDragleave() { this.drag.target = null; },
+    onTreeNodeDrop(path, e) { return this.dropFolder(path, e); },
+
     selectFolder(path) {
       const next = this.normalizeFolderPath(path);
       if (next === this.folderPath) return;
@@ -3771,6 +3949,8 @@ const __kvApp = Vue.createApp({
       this.folderPath = next;
       this.currentPage = 1;
       try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
+      /* 选中即展开祖先链，保证该节点在树里可见（对齐 index 的 selectUploadFolder） */
+      if (next) this.autoExpandAncestors(next);
     },
 
 
@@ -3906,10 +4086,17 @@ const __kvApp = Vue.createApp({
 
       // 乐观更新：先本地插入目录，界面即时响应；请求转后台，失败回滚
       const foldersSnapshot = this.folders;
+      const expandedSnapshot = Object.assign({}, this.expandedFolders);
       const exists = (this.folders || []).some(f => this.normalizeFolderPath(f.path) === path);
       if (!exists) {
         this.folders = [...(this.folders || []), { path, name: path.split('/').pop() || path, depth: path.split('/').length, fileCount: 0 }];
       }
+      /* 新目录作为「当前目录」的子节点出现在树里：展开祖先链让它可见、
+       自身也展开、并选中它 —— 全程不跳页，只是树内的展开 + 高亮迁移。 */
+      this.autoExpandAncestors(path);
+      this.expandedFolders = Object.assign({}, this.expandedFolders, { [path]: true });
+      this.persistExpanded();
+      this.selectFolder(path);
 
       try {
         /* 成功判定必须放在被追踪函数内部：HTTP 500 不会让 fetch reject，
@@ -3933,27 +4120,36 @@ const __kvApp = Vue.createApp({
         if (this.syncVerifier) this.syncVerifier.queueVerify([{ type: 'create', path }], '新建目录');
       } catch (e) {
         this.folders = foldersSnapshot;
+        /* 展开态与选中态一并回滚，避免留下「指向不存在目录」的展开键 */
+        this.expandedFolders = expandedSnapshot;
+        this.persistExpanded();
         /* 追踪器失败时已弹过 toast（e._syncedShown），这里不再重复提示 */
         if (!e || !e._syncedShown) this.showToast(e.message || '创建失败', 'error');
       }
     },
 
-    async renameFolder() {
-      if (!this.folderPath) return;
-      const arr = this.folderPath.split('/');
+    /* 工具栏入口：重命名「当前选中目录」 */
+    async renameFolder() { return this.renameFolderAt(this.folderPath); },
+
+    /* 重命名实现：path 为要改的目录（行内按钮传 node.path，工具栏传 folderPath）。
+       根目录不可改名，空路径直接返回。 */
+    async renameFolderAt(path) {
+      const source = this.normalizeFolderPath(path || '');
+      if (!source) return;
+      const arr = source.split('/');
       const old = arr.pop();
       const pre = arr.join('/');
       const val = await this.askPrompt('重命名目录', old, '输入新的目录名称');
       if (val === null) return;
       const target = this.normalizeFolderPath(pre ? pre + '/' + val : val);
-      if (!target || target === this.folderPath) return;
+      if (!target || target === source) return;
 
-      const source = this.folderPath;
       const prefix = source + '/';
 
       // 乐观更新：先本地改目录树与当前路径，界面即时响应；请求转后台，失败回滚
       const foldersSnapshot = this.folders;
       const pathSnapshot = this.folderPath;
+      const expandedSnapshot = Object.assign({}, this.expandedFolders);
       this.folders = this.folders.map(f => {
         const p = this.normalizeFolderPath(f.path);
         if (p === source) return Object.assign({}, f, { path: target, name: target.split('/').pop() || target });
@@ -3963,8 +4159,23 @@ const __kvApp = Vue.createApp({
         }
         return f;
       });
-      this.folderPath = target;
-      try { localStorage.setItem('adminFolderPath', target); } catch (e) {}
+      /* 当前路径若位于被改目录内，跟着一起迁移；否则保持不动
+         （行内重命名一个「非当前」目录时不该把右侧内容切走） */
+      const inRenamed = this.folderPath === source || this.folderPath.startsWith(prefix);
+      if (inRenamed) {
+        const suffix = this.folderPath.slice(source.length);
+        this.folderPath = target + suffix;
+        try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
+      }
+      /* 展开态键随路径迁移，保住用户已展开的层级 */
+      const nextExpanded = {};
+      Object.keys(expandedSnapshot).forEach(k => {
+        if (k === source) nextExpanded[target] = true;
+        else if (k.startsWith(prefix)) nextExpanded[target + k.slice(source.length)] = true;
+        else nextExpanded[k] = true;
+      });
+      this.expandedFolders = nextExpanded;
+      this.persistExpanded();
 
       try {
         /* 成功判定在追踪函数内部（理由同上），失败才触发重试与红点。
@@ -3997,41 +4208,63 @@ const __kvApp = Vue.createApp({
       } catch (e) {
         this.folders = foldersSnapshot;
         this.folderPath = pathSnapshot;
+        this.expandedFolders = expandedSnapshot;
+        this.persistExpanded();
         try { localStorage.setItem('adminFolderPath', pathSnapshot); } catch (e2) {}
         if (!e || !e._syncedShown) this.showToast(e.message || '重命名失败', 'error');
       }
     },
 
+    /* 递归组件 @rename 回调：node → path */
+    handleRenameFolderNode(node) { if (node && node.path) this.renameFolderAt(node.path); },
+
     /* 删除目录：把目录内文件移回根目录（文件不删、直链不失效）。
        后端要逐个改写目录内所有文件的 metadata，文件多时为串行耗时可达数秒。
        因此这里采用【乐观更新】：先本地移除目录并跳回父目录，界面即时响应；
        请求在后台进行，成功静默校正、失败回滚。 */
-    async deleteFolder() {
-      if (!this.folderPath) return;
+    /* 工具栏入口：删除「当前选中目录」 */
+    async deleteFolder() { return this.deleteFolderAt(this.folderPath); },
+
+    /* 删除实现：path 为要删的目录（行内按钮传 node.path，工具栏传 folderPath）。
+       根目录不可删，空路径直接返回。 */
+    async deleteFolderAt(path) {
+      const target = this.normalizeFolderPath(path || '');
+      if (!target) return;
       const ok = await this.askConfirm(
         '删除目录标记并将目录内文件移回根目录？<br><span style="color:var(--text-muted);font-size:.8rem">文件直链不会失效。</span>',
         '删除目录', true
       );
       if (!ok) return;
 
-      const target = this.folderPath;
       const parent = target.split('/').slice(0, -1).join('/');
 
       // 快照供失败回滚
       const foldersSnapshot = this.folders;
       const filesSnapshot = this.files;
       const pathSnapshot = this.folderPath;
+      const expandedSnapshot = Object.assign({}, this.expandedFolders);
 
-      // ① 乐观更新：立即从侧栏移除该目录及其子目录，并跳回父目录
+      // ① 乐观更新：立即从侧栏移除该目录及其子目录
       const prefix = target + '/';
       /* 先捕获将被乐观移除的目录（含子目录），供写后校正做防回退比对 */
       const removedPaths = this.folders
         .filter(f => f.path === target || f.path.startsWith(prefix))
         .map(f => f.path);
       this.folders = this.folders.filter(f => f.path !== target && !f.path.startsWith(prefix));
-      this.folderPath = parent;
-      this.currentPage = 1;
-      try { localStorage.setItem('adminFolderPath', parent); } catch (e) {}
+      /* 仅当当前路径正处于被删目录内时才跳回父目录 —— 行内删除一个
+         「非当前」目录时不该把右侧内容切走（工具栏删当前目录 → 行为不变） */
+      if (this.folderPath === target || this.folderPath.startsWith(prefix)) {
+        this.folderPath = parent;
+        this.currentPage = 1;
+        try { localStorage.setItem('adminFolderPath', parent); } catch (e) {}
+      }
+      /* 清理被删目录及其子孙的展开键 */
+      const nextExpanded = {};
+      Object.keys(expandedSnapshot).forEach(k => {
+        if (k !== target && !k.startsWith(prefix)) nextExpanded[k] = true;
+      });
+      this.expandedFolders = nextExpanded;
+      this.persistExpanded();
 
       // ② 本地就地更新受影响文件：后端恒把目录内文件移回【根目录】，
       //    故把 folderPath 清空即可（省掉一次 list?limit=1000 全量刷新）
@@ -4069,9 +4302,14 @@ const __kvApp = Vue.createApp({
         this.folders = foldersSnapshot;
         this.files = filesSnapshot;
         this.folderPath = pathSnapshot;
+        this.expandedFolders = expandedSnapshot;
+        this.persistExpanded();
         if (!e || !e._syncedShown) this.showToast(e.message || '删除失败', 'error');
       }
     },
+
+    /* 递归组件 @delete 回调：node → path */
+    handleDeleteFolderNode(node) { if (node && node.path) this.deleteFolderAt(node.path); },
 
     /* ================= 拖拽移动 ================= */
     dragStart(item, e) {
@@ -5646,6 +5884,11 @@ const __kvApp = Vue.createApp({
       this.viewMode  = localStorage.getItem('adminViewMode') || this.viewMode;
       this.folderPath = this.normalizeFolderPath(localStorage.getItem('adminFolderPath') || '');
     } catch (e) {}
+
+    /* 展开态必须在 loadFolders 之前恢复：loadFolders 成功后会用 pruneExpanded
+       按实际目录清单裁剪展开键，若此刻尚未载入，就会把全部键清空。 */
+    this.restoreExpanded();
+    if (this.folderPath) this.autoExpandAncestors(this.folderPath);
 
     await Promise.all([this.loadFolders(), this.loadList()]);
 
