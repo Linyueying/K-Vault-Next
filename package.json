@@ -12,7 +12,7 @@
     "test": "node scripts/test-file-record.mjs && node scripts/test-file-record-upload.mjs && node scripts/test-list-d1.mjs && node scripts/test-quota.mjs && node scripts/test-folders-shares.mjs && node scripts/test-bundles.mjs && node scripts/test-schema.mjs && node scripts/test-usage-d1.mjs && node scripts/test-storage-filter.mjs && node scripts/test-stats-aggregate.mjs && node scripts/test-shortlink-d1.mjs && node scripts/test-dedup-d1.mjs && node scripts/test-folder-kv-guard.mjs && node scripts/test-p5-d1.mjs && node scripts/test-runtime-config.mjs && node scripts/test-slug-owner-d1.mjs && node scripts/test-metadata-write-d1.mjs && node scripts/test-rollback-mode.mjs && node scripts/test-branding.mjs && node scripts/verify-templates.mjs",
     "test:templates": "node scripts/verify-templates.mjs",
     "test:styles": "python3 scripts/check_styles.py",
-    "check": "python3 scripts/check_styles.py && python3 scripts/check_shared.py && python3 scripts/check_functions.py && node scripts/verify-templates.mjs"
+    "check": "python3 scripts/check_style.py && python3 scripts/check_tokens.py && python3 scripts/check_styles.py && python3 scripts/check_shared.py && python3 scripts/check_functions.py && node scripts/verify-templates.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.98.0"

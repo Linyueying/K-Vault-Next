@@ -73,6 +73,21 @@
   animation: adPop 0.28s var(--ease-apple) backwards;
 }
 
+/* 元素"弹出来"：BETA 徽章入场、节点完成时打勾图标。
+   此前只写了 animation 却漏了关键帧定义，动画一直静默失效（引用不存在的
+   关键帧不报错，就是不播）。只动 transform / opacity，回弹交给调用方的
+   --ease-spring，关键帧本身只负责 0.6 → 1 的放大。 */
+@keyframes adPop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 html[data-theme='dark'] .ad-beta {
   color: var(--primary-light);
   border-color: rgba(var(--primary-rgb), 0.4);

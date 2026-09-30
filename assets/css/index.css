@@ -1265,7 +1265,10 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
 
       /* 结果面板里的标题 / 说明回显。标题加粗是"这个分享叫什么"，
          说明压低对比度是给访客看的旁白，两者层级必须一眼可分。 */
-      .share-result__title { font-size: var(--fs-base); font-weight: 800; color: var(--text-main); line-height: 1.4; word-break: break-word; }
+      /* --fs-base 在设计系统里并不存在（字号只有 xs/sm/md/lg/xl/2xl 六档），
+         引用它等于引用一个空值，font-size 会失效、回落到继承值。--fs-lg = 1rem，
+         正是它失效时实际继承到的 body 字号 —— 换成它，渲染结果不变但变量有效。 */
+      .share-result__title { font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); line-height: 1.4; word-break: break-word; }
       .share-result__desc { font-size: var(--fs-sm); color: var(--text-sub); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 
       /* 二维码。背景强制纯白、模块强制深色 —— 扫描器对反色码的兼容性参差，
