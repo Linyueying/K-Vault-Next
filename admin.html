@@ -231,6 +231,18 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .tool-btn i:first-child{font-size:var(--fs-sm)}
 .tool-btn .caret{font-size:.55rem;opacity:.6;transition:transform .34s var(--ease-spring)}
 .tool-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+/* 主操作（新建文件夹）：唯一实心按钮，避免「一排都是实心」导致没有重点 */
+.tool-btn.primary{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border-color:transparent;box-shadow:0 4px var(--sp-3) rgba(var(--primary-rgb),.28)}
+.tool-btn.primary:hover{color:#fff;box-shadow:0 6px 18px rgba(var(--primary-rgb),.34);transform:translateY(-2px)}
+.tool-btn.danger:hover{border-color:var(--c-danger-strong);color:var(--c-danger-strong);background:var(--c-danger-soft)}
+/* 目录操作组：与「筛选」同排，靠左聚拢；与右侧统计之间用间距分开 */
+.dir-actions{display:inline-flex;align-items:center;gap:var(--sp-1);flex-wrap:wrap}
+/* 小屏把文字收进图标，只保留「新建文件夹」的文字，其余靠 title 提示 */
+@media (max-width:680px){
+  .dir-actions{gap:2px;flex-wrap:nowrap}
+  .dir-actions .tool-btn span{display:none}
+  .dir-actions .tool-btn.primary span{display:inline}
+}
 /* 下拉面板：transform-origin 决定「从触发点长出来」的方向感 */
 .dropdown-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:190px;z-index:999;padding:6px;border-radius:var(--r-md);background:var(--glass-elevated);backdrop-filter:blur(28px) saturate(1.8);-webkit-backdrop-filter:blur(28px) saturate(1.8);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);transform-origin:top left;}
 .dropdown-panel.right{left:auto;right:0;transform-origin:top right}
@@ -303,6 +315,10 @@ html[data-theme="dark"] .kv-usage-warn{color:#fbbf24}
 主布局
 ========================================================= */
 .admin-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:var(--sp-4);align-items:start}
+/* 单列布局：左侧目录树移除后内容区独占整宽。
+   不直接改 .admin-layout 的列定义，是因为「移动到目录」等面板仍复用
+   双列网格的旧假设；用变体类只覆盖本页主布局，风险最小。 */
+.admin-layout--single{grid-template-columns:minmax(0,1fr)}
 .folders-panel{padding:var(--sp-3);max-height:calc(100dvh - 190px);display:flex;flex-direction:column;min-height:0;z-index:1}
 .folders-panel.collapsed .folder-tree-panel{display:none}
 .folders-panel.collapsed{max-height:none}
@@ -376,6 +392,66 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .card-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-meta i{font-size:.66rem}
 .card-meta .push{margin-left:auto}
+/* =========================================================
+文件夹条目（与文件卡片 / 行混排在同一内容区，对齐百度网盘）
+========================================================= 
+   文件夹不是文件：没有下载 / 预览 / 大小 / 存储后端，因此单独一套视觉：
+     · 缩略图区用文件夹图标 + 品牌色底，而不是图片占位
+     · 角标写「文件夹」，替换掉文件类型角标
+     · 整块可点进入，箭头提示「进入」语义
+   尺寸、圆角、间距完全复用卡片 / 行的既有变量，保证两种条目并排时不跳脱。 */
+.card-thumb--folder{
+  background:linear-gradient(150deg,rgba(251,191,36,.16),rgba(245,158,11,.07));
+  cursor:pointer;
+}
+html[data-theme="dark"] .card-thumb--folder{
+  background:linear-gradient(150deg,rgba(251,191,36,.13),rgba(245,158,11,.05));
+}
+.card-thumb--folder>i{
+  font-size:2.9rem;color:#f59e0b;opacity:.9;
+  transition:transform .42s var(--ease-spring);
+}
+@media(hover:hover){.vault-card:hover .card-thumb--folder>i{transform:scale(1.09) rotate(-3deg)}}
+/* 文件夹角标：与文件角标同位置同尺寸，只换配色，避免并排时错位 */
+.card-thumb--folder .card-badge{background:rgba(245,158,11,.86)}
+/* 文件夹专属：进入箭头（hover 时从卡片右侧滑入，给出「可进入」的动势） */
+.card-thumb--folder::after{
+  content:'\f105';font-family:'Font Awesome 6 Free';font-weight:900;
+  position:absolute;top:50%;right:12px;transform:translate(10px,-50%);
+  font-size:.9rem;color:#f59e0b;opacity:0;
+  transition:opacity .3s var(--ease-apple),transform .42s var(--ease-spring);
+}
+@media(hover:hover){.vault-card:hover .card-thumb--folder::after{opacity:.85;transform:translate(0,-50%)}}
+/* 文件夹卡片有操作按钮，hover 位移比文件卡片更克制（避免顶到邻格） */
+.vault-card.is-folder:active{transform:translateY(-1px) scale(.99)}
+/* 列表视图：文件夹行缩略图 */
+.row-thumb--folder{
+  background:linear-gradient(150deg,rgba(251,191,36,.18),rgba(245,158,11,.08));
+  border-color:rgba(245,158,11,.28);
+  color:#f59e0b;
+}
+.row-thumb--folder>i{font-size:1.15rem}
+html[data-theme="dark"] .row-thumb--folder{
+  background:linear-gradient(150deg,rgba(251,191,36,.14),rgba(245,158,11,.06));
+  border-color:rgba(245,158,11,.24);
+}
+/* 列表视图：文件夹行没有勾选框，用同宽占位符对齐文件行的缩进
+   （宽高与 .check 一致，见下方 .check 定义） */
+.check-checkbox-spacer{width:22px;height:22px;flex:none}
+/* 文件夹行：整行可点进入 */
+.vault-row.is-folder{cursor:pointer}
+.vault-row.is-folder .row-name{color:var(--primary-text)}
+.vault-row.is-folder .row-meta .tag{
+  background:rgba(245,158,11,.14);color:#b45309;
+}
+html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
+/* 拖拽到文件夹上：卡片 / 行都要有明确的落点反馈 */
+.vault-card.is-folder.drop-target,
+.vault-row.is-folder.drop-target{
+  border-color:#22c55e;
+  box-shadow:0 0 0 2px rgba(34,197,94,.28);
+  background:rgba(34,197,94,.06);
+}
 /* 列表视图（错峰入场，见动画应用层） */
 .vault-list{display:flex;flex-direction:column;gap:7px;width:100%;flex:1}
 .vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);width:100%;box-sizing:border-box;}
@@ -809,6 +885,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
   /* 44px 热区在 gap:2px 下会互相重叠约 2px，撑开间距消除误触 */
   .row-actions,.card-actions{gap:6px}
   .check{width:28px;height:28px}
+  .check-checkbox-spacer{width:28px;height:28px}
   .move-item{padding:12px 11px}
 }
 
@@ -1027,8 +1104,39 @@ html[data-perf="low"] .ambient-orb{animation:none}
       </div>
     </div>
 
-    <!-- 第二层：筛选入口 + 统计 -->
+    <!-- 第二层：目录操作 + 筛选入口 + 统计 -->
     <div class="toolbar-tools">
+      <!-- 目录操作组：操作对象是「当前目录」（folderPath 为空即根目录）。
+           原先这些按钮挂在左侧目录树面板上，面板移除后迁到这里，
+           与新目录的建立/改名/删除/分享入口保持同一位置。 -->
+      <div class="dir-actions">
+        <button class="tool-btn primary" @click="createFolder" title="在当前目录下新建文件夹">
+          <i class="fas fa-folder-plus"></i>
+          <span>新建文件夹</span>
+        </button>
+        <button class="tool-btn" @click="renameFolder" :disabled="!folderPath" title="重命名当前文件夹">
+          <i class="fas fa-pen"></i>
+          <span>重命名</span>
+        </button>
+        <button class="tool-btn" @click="shareCurrentFolder" title="分享当前文件夹（实时同步内容）">
+          <i class="fas fa-share-nodes"></i>
+          <span>分享</span>
+        </button>
+        <button class="tool-btn danger" @click="deleteFolder" :disabled="!folderPath" title="删除当前文件夹">
+          <i class="fas fa-trash"></i>
+          <span>删除</span>
+        </button>
+        <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
+             点击查看「延迟为何不可避免」 -->
+        <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
+                @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
+          <span class="sync-dot" :class="syncDotClass"></span>
+        </button>
+        <button class="tool-btn" @click="refresh" :disabled="folderLoading" title="刷新目录">
+          <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
+        </button>
+      </div>
+
       <button class="tool-btn filter-trigger" :class="{active: filterSheetOpen}"
               @click.stop="filterSheetOpen = !filterSheetOpen">
         <i class="fas fa-sliders"></i>
@@ -1038,7 +1146,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
       </button>
 
       <span class="tool-stat">
-        总记录 <strong>{{ total }}</strong> · 已加载 <strong>{{ files.length }}</strong> · 显示 <strong>{{ paginationTotal }}</strong>
+        总记录 <strong>{{ total }}</strong> · 已加载 <strong>{{ files.length }}</strong> · 当前目录 <strong>{{ entriesTotal }}</strong> 项
       </span>
     </div>
 
@@ -1488,75 +1596,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
   </section>
 
   <!-- ===== 主布局 ===== -->
-  <div class="admin-layout">
-
-    <!-- 目录树 -->
-    <aside class="liquid-card folders-panel" :class="{collapsed: folderPanelCollapsed}">
-      <div class="panel-head">
-        <h2 class="panel-title"><i class="fas fa-folder-tree"></i> 目录管理</h2>
-        <div class="panel-actions">
-          <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
-               点击查看「延迟为何不可避免」。放在目录操作区旁，语义即「目录与云端的同步」 -->
-          <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
-                  @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
-            <span class="sync-dot" :class="syncDotClass"></span>
-          </button>
-          <button class="mini-icon-btn collapse-only" @click="folderPanelCollapsed = !folderPanelCollapsed"
-                  :title="folderPanelCollapsed ? '展开目录' : '收起目录'">
-            <i class="fas" :class="folderPanelCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"></i>
-          </button>
-          <button class="mini-icon-btn" @click="refresh" :disabled="folderLoading" title="刷新">
-            <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
-          </button>
-          <button class="mini-icon-btn" @click="createFolder" title="新建目录"><i class="fas fa-plus"></i></button>
-          <!-- 目录分享：与 index 对齐。分享的是目录本身（实时同步），
-               之后往该目录增删文件，已发出的链接会自动反映。 -->
-          <button class="mini-icon-btn" @click="shareCurrentFolder" title="分享当前目录"><i class="fas fa-share-nodes"></i></button>
-          <button class="mini-icon-btn" @click="renameFolder" :disabled="!folderPath" title="重命名当前目录"><i class="fas fa-pen"></i></button>
-          <button class="mini-icon-btn danger" @click="deleteFolder" :disabled="!folderPath" title="删除当前目录"><i class="fas fa-trash"></i></button>
-        </div>
-      </div>
-
-      <div class="folder-tree-panel">
-        <!-- 根目录：不是树节点，单独一行，行为与既有保持一致 -->
-        <div class="folder-tree-row" :class="{active: !folderPath, 'drop-target': drag.target===''}"
-             @click="selectFolder('')"
-             @dragover.prevent="drag.target=''"
-             @dragleave="drag.target=null"
-             @drop.prevent="dropFolder('', $event)">
-          <span class="folder-tree-arrow empty"></span>
-          <i class="fas fa-house folder-tree-icon icon-home"></i>
-          <span class="folder-tree-name">根目录</span>
-          <div class="folder-tree-acts">
-            <button class="folder-tree-act" @click.stop="openFolderShare('', '根目录')"
-                    title="分享根目录"><i class="fas fa-share-nodes"></i></button>
-          </div>
-        </div>
-
-        <!-- 递归子树：顶层节点（depth=0，使 paddingLeft 与旧扁平列表的顶层一致） -->
-        <folder-node v-for="node in folderTreeRoot.children" :key="node.path"
-                     :node="node" :depth="0"
-                     :current-path="folderPath" :expanded="expandedFolders"
-                     :drag-target="drag.target"
-                     @select="selectFolder"
-                     @toggle="toggleFolderExpand"
-                     @rename="handleRenameFolderNode"
-                     @delete="handleDeleteFolderNode"
-                     @share="shareFolderNode"
-                     @dragover-node="onTreeNodeDragover"
-                     @dragleave-node="onTreeNodeDragleave"
-                     @drop-node="onTreeNodeDrop"></folder-node>
-
-        <div class="folder-tree-empty" v-if="folderLoading && !folderTreeRoot.children.length">
-          <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
-          <span>正在读取目录...</span>
-        </div>
-        <div class="folder-tree-empty" v-else-if="!folderTreeRoot.children.length">
-          <i class="fas fa-folder-open"></i>
-          <span>暂无子目录</span>
-        </div>
-      </div>
-    </aside>
+  <!-- 左侧「目录管理」树已移除：文件夹改为与文件同列的卡片，排在内容区里
+       （对齐百度网盘 / 阿里云盘的浏览方式）。进入子目录靠点击文件夹卡片，
+       返回上级靠上方面包屑。目录的新建 / 重命名 / 删除 / 分享入口保留在
+       工具栏，操作对象即「当前目录」。 -->
+  <div class="admin-layout admin-layout--single">
 
     <!-- 内容区 -->
     <section class="content-area">
@@ -1567,13 +1611,13 @@ html[data-perf="low"] .ambient-orb{animation:none}
         <span class="folder-crumb" @click="selectFolder('')">
           <i class="fas fa-house crumb-home"></i> 根目录
         </span>
-        <template v-for="(c, i) in crumbs">
-          <i class="fas fa-chevron-right folder-crumb-sep" :key="'s'+i"></i>
-          <span class="folder-crumb" :key="'c'+i" @click="selectFolder(c.path)">{{ c.name }}</span>
+        <template v-for="(c, i) in crumbs" :key="c.path">
+          <i class="fas fa-chevron-right folder-crumb-sep"></i>
+          <span class="folder-crumb" @click="selectFolder(c.path)">{{ c.name }}</span>
         </template>
         <span class="spacer"></span>
         <span class="tool-stat no-margin">
-          {{ pageData.length }} / {{ paginationTotal }} 项
+          <strong>{{ currentFolders.length }}</strong> 个文件夹 · <strong>{{ sorted.length }}</strong> 个文件
         </span>
       </div>
 
@@ -1590,14 +1634,55 @@ html[data-perf="low"] .ambient-orb{animation:none}
            网格 ⇄ 列表的方向感知转场（view-forward/back）仍由 setView() 触发
            外层转场；切到空目录时外层用无方向 view-fade 淡入。 -->
       <transition :name="viewTransition">
-      <div v-if="viewMode==='grid' && pageData.length" class="vault-grid" key="grid">
-        <div v-for="item in pageData" :key="item.name"
+      <div v-if="viewMode==='grid' && pageEntries.length" class="vault-grid" key="grid">
+        <div v-for="item in pageEntries" :key="item.name"
              class="vault-card"
-             :class="{selected:item.selected, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
-             draggable="true"
-             @dragstart="dragStart(item,$event)"
-             @dragend="dragEnd">
+             :class="{selected:item.selected, 'is-folder':item.__isFolder, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
+             :draggable="!item.__isFolder"
+             @dragstart="!item.__isFolder && dragStart(item,$event)"
+             @dragend="dragEnd"
+             @dragover.prevent="item.__isFolder && (drag.target=item.path)"
+             @dragleave="item.__isFolder && (drag.target=null)"
+             @drop.prevent="item.__isFolder && dropFolder(item.path,$event)">
 
+          <!-- ===== 文件夹分支 =====
+               文件夹没有下载 / 预览 / 大小 / 存储后端这些文件属性，
+               因此不复用文件卡片的元信息区，只保留「名称 + 计数 + 进入」，
+               并给出重命名 / 删除入口。整张卡片可点即进入该目录。 -->
+          <template v-if="item.__isFolder">
+            <div class="card-thumb card-thumb--folder" @click="selectFolder(item.path)"
+                 :class="{ 'drop-target': drag.target===item.path }">
+              <i class="fas fa-folder"></i>
+              <span class="card-badge">文件夹</span>
+            </div>
+            <div class="card-body" @click="selectFolder(item.path)">
+              <div class="card-name" :title="item.folderName">{{ item.folderName }}</div>
+              <div class="card-meta">
+                <span><i class="fas fa-folder-open"></i> {{ item.fileCount }} 个文件</span>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button class="act" @click.stop="selectFolder(item.path)" title="打开"><i class="fas fa-folder-open"></i></button>
+              <button class="act" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})" title="重命名"><i class="fas fa-pen"></i></button>
+              <button class="act danger" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})" title="删除"><i class="fas fa-trash"></i></button>
+              <div class="act-wrap">
+                <button class="act" :class="{on:openMenu==='card:'+item.name}" @click.stop="toggleMenu('card:'+item.name)" title="更多操作">
+                  <i class="fas fa-ellipsis"></i>
+                </button>
+                <transition name="menu">
+                <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
+                  <button class="dropdown-item" @click.stop="openFolderShare(item.path, item.folderName)"><i class="fas fa-share-nodes"></i><span>分享文件夹</span></button>
+                  <button class="dropdown-item" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-pen"></i><span>重命名</span></button>
+                  <div class="dropdown-divider"></div>
+                  <button class="dropdown-item danger-item" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-trash"></i><span>删除文件夹</span></button>
+                </div>
+                </transition>
+              </div>
+            </div>
+          </template>
+
+          <!-- ===== 文件分支（原有） ===== -->
+          <template v-else>
           <label class="check card-check" :class="{on:item.selected}" @click.stop.prevent="toggleSelect(item)">
             <i class="fas fa-check"></i>
             <input type="checkbox" v-model="item.selected" tabindex="-1">
@@ -1645,56 +1730,96 @@ html[data-perf="low"] .ambient-orb{animation:none}
               </transition>
             </div>
           </div>
+          </template>
         </div>
       </div>
 
       <!-- 列表视图 -->
-      <div v-else-if="viewMode==='list' && pageData.length" class="vault-list" key="list">
-        <div v-for="item in pageData" :key="item.name"
+      <div v-else-if="viewMode==='list' && pageEntries.length" class="vault-list" key="list">
+        <div v-for="item in pageEntries" :key="item.name"
              class="vault-row"
-             :class="{selected:item.selected, 'menu-open': openMenu==='row:'+item.name}">
-          <label class="check" :class="{on:item.selected}" @click.stop.prevent="toggleSelect(item)">
-            <i class="fas fa-check"></i>
-            <input type="checkbox" v-model="item.selected" tabindex="-1">
-          </label>
-          <div class="row-thumb" @click="openPreview(item)">
-            <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
-                 :alt="item.metadata.fileName || item.name">
-            <i v-else :class="icon(item.name)"></i>
-          </div>
-          <div class="row-info">
-            <div class="row-name" :title="item.metadata.fileName||item.name">{{ item.metadata.fileName||item.name }}</div>
-            <div class="row-meta">
-              <span class="tag">{{ typeLabelOf(item.name) }}</span>
-              <span>{{ formatSize(item.metadata.fileSize||0) }}</span>
-              <span>{{ storageLabel(item.name) }}</span>
-              <span v-if="item.metadata.folderPath">/{{ item.metadata.folderPath }}</span>
+             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'menu-open': openMenu==='row:'+item.name}"
+             @dragover.prevent="item.__isFolder && (drag.target=item.path)"
+             @dragleave="item.__isFolder && (drag.target=null)"
+             @drop.prevent="item.__isFolder && dropFolder(item.path,$event)">
+          <!-- 文件夹分支：无下载 / 大小 / 存储，整行可点进入 -->
+          <template v-if="item.__isFolder">
+            <span class="check-checkbox-spacer"></span>
+            <div class="row-thumb row-thumb--folder" @click="selectFolder(item.path)">
+              <i class="fas fa-folder"></i>
             </div>
-          </div>
-          <div class="row-actions">
-            <button class="act" @click.stop="triggerDownload(baseURL + '/file/' + item.name, item.metadata.fileName || item.name)" title="下载">
-              <i class="fas fa-download"></i>
-            </button>
-            <div class="act-wrap">
-              <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
-                <i class="fas fa-ellipsis"></i>
-              </button>
-              <transition name="menu">
-              <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
-                <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
-                <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
-                <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
-                <button class="dropdown-item" @click.stop="menuRun('like',item)">
-                  <i :class="item.metadata.liked?'fas fa-bookmark':'far fa-bookmark'"></i>
-                  <span>{{ item.metadata.liked?'取消收藏':'收藏' }}</span>
-                </button>
-                <button class="dropdown-item" @click.stop="menuRun('move',item)"><i class="fas fa-folder-tree"></i><span>移动到目录</span></button>
-                <div class="dropdown-divider"></div>
-                <button class="dropdown-item danger-item" @click.stop="menuRun('delete',item)"><i class="fas fa-trash"></i><span>删除</span></button>
+            <div class="row-info" @click="selectFolder(item.path)">
+              <div class="row-name" :title="item.folderName">{{ item.folderName }}</div>
+              <div class="row-meta">
+                <span class="tag">文件夹</span>
+                <span>{{ item.fileCount }} 个文件</span>
               </div>
-              </transition>
             </div>
-          </div>
+            <div class="row-actions">
+              <button class="act" @click.stop="selectFolder(item.path)" title="打开"><i class="fas fa-folder-open"></i></button>
+              <button class="act" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})" title="重命名"><i class="fas fa-pen"></i></button>
+              <button class="act danger" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})" title="删除"><i class="fas fa-trash"></i></button>
+              <div class="act-wrap">
+                <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
+                  <i class="fas fa-ellipsis"></i>
+                </button>
+                <transition name="menu">
+                <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
+                  <button class="dropdown-item" @click.stop="openFolderShare(item.path, item.folderName)"><i class="fas fa-share-nodes"></i><span>分享文件夹</span></button>
+                  <button class="dropdown-item" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-pen"></i><span>重命名</span></button>
+                  <div class="dropdown-divider"></div>
+                  <button class="dropdown-item danger-item" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-trash"></i><span>删除文件夹</span></button>
+                </div>
+                </transition>
+              </div>
+            </div>
+          </template>
+
+          <!-- 文件分支（原有） -->
+          <template v-else>
+            <label class="check" :class="{on:item.selected}" @click.stop.prevent="toggleSelect(item)">
+              <i class="fas fa-check"></i>
+              <input type="checkbox" v-model="item.selected" tabindex="-1">
+            </label>
+            <div class="row-thumb" @click="openPreview(item)">
+              <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
+                   :alt="item.metadata.fileName || item.name">
+              <i v-else :class="icon(item.name)"></i>
+            </div>
+            <div class="row-info">
+              <div class="row-name" :title="item.metadata.fileName||item.name">{{ item.metadata.fileName||item.name }}</div>
+              <div class="row-meta">
+                <span class="tag">{{ typeLabelOf(item.name) }}</span>
+                <span>{{ formatSize(item.metadata.fileSize||0) }}</span>
+                <span>{{ storageLabel(item.name) }}</span>
+                <span v-if="item.metadata.folderPath">/{{ item.metadata.folderPath }}</span>
+              </div>
+            </div>
+            <div class="row-actions">
+              <button class="act" @click.stop="triggerDownload(baseURL + '/file/' + item.name, item.metadata.fileName || item.name)" title="下载">
+                <i class="fas fa-download"></i>
+              </button>
+              <div class="act-wrap">
+                <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
+                  <i class="fas fa-ellipsis"></i>
+                </button>
+                <transition name="menu">
+                <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
+                  <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
+                  <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
+                  <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
+                  <button class="dropdown-item" @click.stop="menuRun('like',item)">
+                    <i :class="item.metadata.liked?'fas fa-bookmark':'far fa-bookmark'"></i>
+                    <span>{{ item.metadata.liked?'取消收藏':'收藏' }}</span>
+                  </button>
+                  <button class="dropdown-item" @click.stop="menuRun('move',item)"><i class="fas fa-folder-tree"></i><span>移动到目录</span></button>
+                  <div class="dropdown-divider"></div>
+                  <button class="dropdown-item danger-item" @click.stop="menuRun('delete',item)"><i class="fas fa-trash"></i><span>删除</span></button>
+                </div>
+                </transition>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -1714,10 +1839,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
         </template>
       </div>
       </transition>
+      </div><!-- /.view-stage -->
 
       <!-- 分页（nextCursor 在 loadList 中恒为 null，「加载更多」永远不会出现，
            原 v-if 里的 `|| nextCursor` 是死条件，已移除） -->
-      <div class="pager" v-if="paginationTotal > pageSize">
+      <div class="pager" v-if="entriesTotal > pageSize">
         <div class="pager-pages">
           <button class="page-btn" :disabled="currentPage<=1" @click="currentPage--">
             <i class="fas fa-chevron-left"></i>
@@ -3260,8 +3386,52 @@ const __kvApp = Vue.createApp({
     pageData() {
       return this.sorted.slice((this.currentPage - 1) * this.pageSize, this.currentPage * this.pageSize);
     },
-    paginationTotal() { return this.filtered.length; },
-    totalPages() { return Math.max(1, Math.ceil(this.paginationTotal / this.pageSize)); },
+    /* ===== 当前目录下的条目：子文件夹 + 文件，混排 =====
+       标准云盘（百度网盘 / 阿里云盘）的浏览方式：文件夹不单独占一栏导航，
+       而是和文件一样作为卡片排进内容区，点文件夹卡片即进入。
+
+       为什么文件夹排前面：与主流云盘一致；也让「先进目录、后看文件」的
+       视觉动线稳定，不随文件名排序来回穿插。
+
+       文件夹条目的形状刻意与文件条目区分：
+         · __isFolder = true  →  模板据此走文件夹分支
+         · name 用 `dir:<path>` 前缀  →  保证与真实文件名不冲突（:key 唯一）
+         · id 同样是 `dir:<path>`，拖拽时不会被误当成文件 id */
+    currentFolders() {
+      const cur = this.normalizeFolderPath(this.folderPath);
+      const prefix = cur ? cur + '/' : '';
+      const out = [];
+      (this.folders || []).forEach(f => {
+        const p = this.normalizeFolderPath(f.path || f.folderPath || '');
+        if (!p) return;
+        /* 只取「当前目录的直接子目录」：剥掉当前前缀后不含 '/' */
+        if (cur) {
+          if (!p.startsWith(prefix)) return;
+          if (p.slice(prefix.length).includes('/')) return;
+        } else if (p.includes('/')) {
+          return;
+        }
+        out.push({
+          __isFolder: true,
+          id: 'dir:' + p,
+          name: 'dir:' + p,
+          path: p,
+          folderName: f.name || p.split('/').pop() || p,
+          fileCount: f.fileCount || 0,
+          selected: false,
+        });
+      });
+      return out.sort((a, b) => a.folderName.localeCompare(b.folderName, 'zh-CN'));
+    },
+    /* 文件夹在前 + 文件在后，作为内容区的统一数据源 */
+    currentEntries() {
+      return this.currentFolders.concat(this.sorted);
+    },
+    pageEntries() {
+      return this.currentEntries.slice((this.currentPage - 1) * this.pageSize, this.currentPage * this.pageSize);
+    },
+    entriesTotal() { return this.currentEntries.length; },
+    totalPages() { return Math.max(1, Math.ceil(this.entriesTotal / this.pageSize)); },
     pageNumbers() {
       const tp = this.totalPages, cur = this.currentPage, out = [];
       let start = Math.max(1, cur - 2);
