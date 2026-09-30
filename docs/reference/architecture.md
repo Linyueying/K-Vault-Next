@@ -71,10 +71,11 @@ K-Vault-Next 是一个跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图
 
 ### 1. 前端
 
-- **形态**：仓库根目录的单文件 HTML（内联 CSS/JS），无构建步骤
+- **形态**：8 个页面入口（根目录 HTML）+ `assets/` 共享层，**无构建步骤**。页面的 CSS / JS 已外置到 `assets/css/` 与 `assets/js/`，页面本身只保留「本页增量」——少量内联 `<style>` 与本页脚本
 - **设计系统**：`design-system.css` 是全站唯一的事实来源——设计令牌、通用组件（`.card` / `.btn` / `.input` / `.switch` / `.spinner` / `.toast` / `.empty-state` …）、37 个动效关键帧、Vue 过渡族
-- **页面级 `<style>` 只允许写本页增量**，不允许重复定义共享实现
-- **守卫脚本**：`scripts/check_style.py`（括号平衡 / 禁止页面内定义 `@keyframes` / 必须引入设计系统）、`scripts/check_tokens.py`（校验 `var(--x)` 与 animation 名称可解析）
+- **共享 JS**：`app-core.js`（挂在 `window.KVault`）—— `formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` 各只有这一份实现
+- **页面级样式只允许写本页增量**，不允许重复定义共享实现
+- **守卫脚本**：`scripts/check_style.py`（括号平衡 / 禁止页面内定义 `@keyframes` / 必须引入设计系统）、`scripts/check_tokens.py`（`var(--x)` 与 animation 名可解析，含外置 CSS 与 JS 动态注入的变量）、`scripts/check_styles.py`（从模板反查样式）、`scripts/check_shared.py`（跨页共享层一致性，防「一次改动只生效一页」）。四道守卫 + 模板编译已串进 `npm run check`
 - **页面**：`/`、`/admin.html`（分区路径 `/admin/files|shares|storage|system`）、`/share.html`、`/paste.html`、`/gallery.html`、`/preview.html`、`/webdav.html`、`/login.html`
 
 ### 2. 后端
@@ -106,10 +107,17 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 
 | 绑定 | 名称 | 用途 | 必需 |
 | :--- | :--- | :--- | :---: |
-| KV | **`img_url`** | 文件元数据、会话、Token、分片任务、运行时配置 | ✅ |
+| KV | **`img_url`** | 会话、Token、分片任务、运行时配置；未绑 D1 时的文件元数据 | ✅ |
 | R2 | **`R2_BUCKET`** | 对象存储，唯一支持原生分片的后端 | 强烈推荐 |
+| D1 | **`DB`** | 文件元数据、文件夹标记、合集分享、API Token、粘贴、审计日志、Airdrop | 可选 |
 
-两者都是 **Pages 绑定**（Settings → Functions），**不是环境变量**。名称写错整个项目跑不起来。
+三者都是 **Pages 绑定**（Settings → Functions），**不是环境变量**。名称写错整个项目跑不起来。
+
+**D1 是渐进启用的**：代码层走「D1 优先 / KV 兜底」双路径，**不绑 D1 时行为与接入前完全一致**，所以可以先合代码、后建库，不存在「必须同时切」的压力。
+
+- **建表是自动的**：运行时首次访问 D1 触发懒迁移（`functions/utils/schema.js` 的 `ensureSchema()`），按 `schema_migrations` 记账依次补齐，同 isolate 内只跑一次。DDL 的唯一真源是 `schema.js` 里的 JS 常量——Workers 没有文件系统，读不到 `.sql`；`migrations/*.sql` 只是 `scripts/gen-migrations.py` 生成的副本，**不要手改**（会被覆盖）
+- **建库只能靠 CLI**：`bash scripts/setup-d1.sh`（Cloudflare 没有「部署时建库」的 API）。它会建库并把 `database_id` 回填进 `wrangler.toml`，这是全流程唯一需要动手的地方
+- 上线与灰度验证的完整清单见 [`guides/d1-migration-checklist.md`](../guides/d1-migration-checklist.md)
 
 ### 4. 存储后端
 

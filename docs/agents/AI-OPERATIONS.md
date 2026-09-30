@@ -63,7 +63,7 @@ git push "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev
 | :--- | :--- |
 | **Cloudflare Pages + Pages Functions** | 后端全部在 `functions/` 下，走 Web Standard `Request`/`Response`，**不是 Node 运行时** |
 | **无构建步骤** | 根目录就是产物。**不要**引入打包器、TS 编译、`dist/` 输出 |
-| **8 个单文件 HTML** | `index / admin / gallery / paste / share / preview / webdav / login`。每页 CSS、JS 全内联在 `<style>` / `<script>` 里 |
+| **8 个页面入口 + `assets/` 共享层** | `index / admin / gallery / paste / share / preview / webdav / login`。页面的 CSS、JS **已外置**到 `assets/css/` 与 `assets/js/`，页面本身只留「本页增量」——少量内联 `<style>` 与本页脚本。**不要**再按「全内联」的旧认知去找代码 |
 | **唯一共享样式层** | `design-system.css`。页面内联 `<style>` 只允许写「本页增量」 |
 | **唯一共享 JS 层** | `app-core.js`（`window.KVault`）。`formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` / `escapeHtml` / `debounce` 只有这一份实现 |
 | **Vue 3（纯，无 `@vue/compat`）** | 前端框架已是 Vue 3，`createApp` 全局挂载 |
@@ -144,7 +144,13 @@ python3 scripts/check_style.py       # 页面内联 <style> 合法性
 python3 scripts/check_tokens.py      # 变量 / 动画名可解析 + 共享层无死关键帧
 python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号
 python3 scripts/check_shared.py      # 跨页共享层一致性（防「一改只生效一页」）
+
+# 或直接跑串好的一条（上面四道 + check_styles.py + 模板编译）
+npm run check
 ```
+
+> 历史上 `npm run check` **漏了 `check_style.py` 与 `check_tokens.py`**，导致 `check_tokens.py`
+> 长期 exit=1 却无人发现。现已补齐 —— 往 `package.json` 加脚本时记得同步检查它覆盖全了没有。
 
 各脚本具体查什么：
 
@@ -156,9 +162,15 @@ python3 scripts/check_shared.py      # 跨页共享层一致性（防「一改�
 5. 每个页面必须引入本地 FontAwesome（`assets/vendor/fontawesome/css/all.min.css`）
 
 **`check_tokens.py`**
-1. 页面里 `var(--x)` 引用的变量，必须能在共享层或本页找到定义
-2. `animation:` 里用到的动画名，必须能找到对应 `@keyframes`
-3. 共享层里**定义了但全站无人引用**的 `@keyframes`（「死动画」）—— 这类残留会误导动效排查
+1. `var(--x)` 引用的变量必须能找到定义；2. `animation:` 里的动画名必须能找到 `@keyframes`；
+3. 共享层里**全站无人引用**的 `@keyframes`（「死动画」）—— 这类残留会误导动效排查
+
+> ⚠️ **「可见定义」的范围 = 共享层 + 该页 `<link>` 引入的每个 `assets/css/*.css` + 本页内联 `<style>` + JS 动态注入的变量。**
+> 旧版只扫 HTML 内联 `<style>`，CSS 外置后就两头失真：把 `index.css` 里活着的
+> `titleIn` / `bounceDown` 判成死关键帧（假阳性），外置 CSS 里的未定义变量又一格查不到
+> （假阴性 —— 实际藏了 `--fs-base` 失效、`adPop` 引用不存在的关键帧两处真 bug）。
+> **动态注入的变量**（Vue `:style="{'--x': v}"` 或 `setProperty('--x')`）没有 CSS 定义处，
+> 脚本会扫页面引入的 `assets/js/*.js` 来识别，不算未定义。加新样式表无需改脚本 —— CSS 清单是从各页 `<link>` 实时解析的。
 
 **`check_functions.py`**
 1. `functions/` 下每个 `.js` 做 `node --check`
@@ -511,7 +523,7 @@ GPU 空闲时两条曲线相位接近，肉眼看不出问题；低端设备一�
 1. **每一个用到的 import 都要真的 import 进来**，然后跑 `check_functions.py`。
 2. 环境变量统一走 `functions/utils/env-config.js` 的读取层（`envValue` / `envHas`），不要直接 `env.XXX`——读取层处理了大小写别名（`ALIASES` map）。
 3. 需要「后台可改、即时生效」的配置走 `functions/utils/runtime-config.js`，优先级 **KV 覆盖 > 环境变量**。
-4. 新增配置项时，同时更新：`.env.example`、`README.md` 的变量清单、`docs/README-full-reference.md`。
+4. 新增配置项时，同时更新：`.env.example` 与 `README.md` 的变量清单。（旧文档里还提过 `docs/README-full-reference.md`，该文件在文档分层下沉时已并入 `README.md`，**引用是死链，别去找它**。）
 5. 改了 API 行为/字段，同步更新 `docs/openapi.yaml`。
 
 ---
@@ -723,7 +735,7 @@ git ls-remote 验证远端 SHA == 本地 HEAD
 | 验证推送 | `git ls-remote "https://<PAT>@ghfast.top/https://github.com/<owner>/<repo>.git" dev` |
 | 还原浏览器 | `agent-browser close --all && rm -rf /tmp/org.chromium.Chromium.*` |
 | 看变量清单 | `.env.example` |
-| 看完整配置参考 | `docs/README-full-reference.md` |
+| 看完整配置参考 | `README.md` → 环境变量完整清单（原 `docs/README-full-reference.md` 已并入，勿再引用） |
 | 看 API 定义 | `docs/openapi.yaml` |
 
 ---

@@ -141,13 +141,28 @@ mode 序列 : False -> True
 静态守卫全过（含共享层，因为动了 `design-system.css`）：
 
 ```
-check_style.py     OK（8 页模板）      check_tokens.py    exit=0
+check_style.py     OK（8 页模板）      check_tokens.py    exit=1（见下）
 check_styles.py    OK（共享层 461 定义） check_shared.py    全部通过
 check_functions.py OK
 ```
 
+> ⚠️ **勘误**：此处原文写的是 `check_tokens.py exit=0`，**与事实不符**，实测一直是 **exit=1**。
+> 当时没被发现，是因为 `npm run check` 根本没把 `check_tokens.py` 编进去（只有 `check_styles.py`），
+> 而它是四道守卫之一。这条错误记载会误导后来人以为「这 3 处是干净的」，务必以实测为准。
+
 > `check_tokens.py` 报的 3 处（admin.html `--vt-pos`、share.html `--shadow-sm/--surface-3`、
 > design-system.css 的 `bounceDown`/`titleIn` 无人引用）是**改动前就存在**的，与本次无关，未被拦截。
+>
+> **后续已查明这 3 处的真实性质（不是「历史遗留、无害」那么简单）**：
+> - `--vt-pos`（admin）、`bounceDown` / `titleIn`（design-system.css）—— **脚本的假阳性**。
+>   `bounceDown` / `titleIn` 其实被 `assets/css/index.css` 引用着，而旧版 `check_tokens.py`
+>   **只扫 HTML 内联 `<style>`**，CSS 外置到 `assets/css/` 后它根本看不见，于是把活着的
+>   关键帧判成「无人引用」。`--vt-pos` 同理：它由 Vue `:style` 绑定注入，没有 CSS 定义处。
+> - `--shadow-sm` / `--surface-3`（share.html）—— **真问题**。`--surface-3` 在设计系统里
+>   不存在且无 fallback，`background` 实际是失效的。
+>
+> 修法：脚本改为按各页 `<link>` 实时解析外置 CSS、并把 JS 动态注入的变量计入「已定义」；
+> 同时把 `check_style.py` / `check_tokens.py` 补进 `npm run check`。
 
 **闪回归归**（四种点击间隔，底栏高度序列）：
 
