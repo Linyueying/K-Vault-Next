@@ -28,6 +28,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
+  /* 禁止整个隔空投送面板滚动 / 出现滚动条：它应该是一张固定的卡片。
+     继承自 .modal 的 overflow-y: auto 会在这里产生滚动条，并导致
+     PC 上「组件 UI 会动」的观感。 */
+  overflow: hidden;
 }
 
 .ad-head {
@@ -81,7 +85,8 @@ html[data-theme='dark'] .ad-beta {
   align-items: center;
   justify-content: center;
   gap: var(--sp-4);
-  overflow-y: auto;
+  /* 隔空投送组件整体不允许滚动：长列表用自己的滚动容器，但主框架固定。 */
+  overflow: hidden;
 }
 
 /* ── 角色选择 ──────────────────────────────────────────── */
@@ -935,6 +940,19 @@ html[data-theme='dark'] .ad-digit {
   text-align: center;
   font-size: var(--fs-sm);
   color: var(--text-muted);
+}
+
+/* 内部滚动容器（云端列表、已选文件列表）仍可在溢出时滚动，
+   但隐藏原生日程条：PC 上滚动条会破坏「固定卡片」的观感。 */
+.ad-cloud,
+.ad-files__list {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge legacy */
+}
+
+.ad-cloud::-webkit-scrollbar,
+.ad-files__list::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Edge */
 }
 
 /* ── 底部 ──────────────────────────────────────────────── */

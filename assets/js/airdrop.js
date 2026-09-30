@@ -889,6 +889,10 @@
           return;
         }
         this.busy = true;
+        // 发送开始时收起云端选择窗口：否则上传/完成态它仍会挂在下面，
+        // 且里面的行仍可点击，造成「投送完成后还能选择文件」的错觉。
+        this.cloudOpen = false;
+        this.cloudFiles = [];
         this.phase = 'uploading';
         this.uploadProgress = 0;
         this.sentBytes = 0;
