@@ -223,43 +223,60 @@
         return Boolean(this.role) && this.phase !== 'choose' && this.phase !== 'failed';
       },
 
-      upLive() {
-        return ['linked', 'picking', 'uploading', 'staged', 'waiting-file', 'downloading', 'done'].includes(this.phase);
+      /** 是否正在传输中：只有这两相才在环形里显示百分比读数 */
+      transferring() {
+        return this.phase === 'uploading' || this.phase === 'downloading';
       },
 
-      upFlowing() {
-        return this.phase === 'uploading';
+      /** 环形进度值（0~1）。完成态强制画满，否则会出现「0% 配一个勾」的割裂感 */
+      ringProgress() {
+        if (this.phase === 'done') return 1;
+        return this.activeProgress;
       },
 
-      downLive() {
-        return ['staged', 'downloading', 'done'].includes(this.phase) ||
-          (this.role === 'recv' && ['linked', 'waiting-file'].includes(this.phase));
+      /** 环形中心：传输中显示百分比，其余相位显示状态图标 */
+      flowCoreIcon() {
+        if (this.phase === 'done') return 'fa-check';
+        if (this.phase === 'failed') return 'fa-xmark';
+        if (this.role === 'send') return 'fa-paper-plane';
+        return 'fa-download';
       },
 
-      downFlowing() {
-        return this.phase === 'downloading';
+      /** 上传腿 idle|live|done。收端没有 uploading 相位，靠 session.status 感知发端在传 */
+      uploadLegState() {
+        const st = this.session && this.session.status;
+        if (this.phase === 'uploading' || st === 'uploading') return 'live';
+        if (['staged', 'downloading', 'done'].includes(this.phase)) return 'done';
+        if (st === 'uploaded' || st === 'done') return 'done';
+        return 'idle';
       },
 
-      meNodeState() {
-        if (this.phase === 'done') return 'is-done';
-        if (this.upLive) return 'is-live';
-        return '';
+      /** 下载腿 idle|live|done */
+      downloadLegState() {
+        if (this.phase === 'downloading') return 'live';
+        if (this.phase === 'done') return 'done';
+        return 'idle';
       },
 
-      cloudNodeState() {
-        if (this.phase === 'done') return 'is-done';
-        if (['staged', 'downloading'].includes(this.phase)) return 'is-live';
-        if (this.phase === 'uploading') return 'is-live is-active';
-        return '';
+      uploadLegText() {
+        const s = this.uploadLegState;
+        if (s === 'live') return '上传中';
+        if (s === 'done') return '已上传';
+        return '待开始';
       },
 
-      peerNodeState() {
-        if (this.phase === 'done') return 'is-done';
-        if (this.upLive) return 'is-live';
-        return '';
+      downloadLegText() {
+        const s = this.downloadLegState;
+        if (s === 'live') {
+          const total = this.session ? this.session.fileCount : 0;
+          return total ? ('接收中 ' + this.doneCount + '/' + total) : '接收中';
+        }
+        if (s === 'done') return '已完成';
+        if (this.uploadLegState === 'done') return '待接收';
+        return '待开始';
       },
 
-      /** 当前进度值（0~1），驱动进度环与文件包位置 */
+      /** 当前进度值（0~1），驱动进度环 */
       activeProgress() {
         if (this.phase === 'uploading') return this.uploadProgress;
         if (this.phase === 'downloading') return this.downloadProgress;
@@ -1131,38 +1148,37 @@
           </button>
         </div>
 
-        <!-- 三节点舞台 -->
-        <div class="ad-stage" v-if="stageVisible">
-          <div class="ad-node" :class="meNodeState">
-            <span class="ad-node__pulse"></span>
-            <i class="fas" :class="role === 'send' ? 'fa-paper-plane' : 'fa-download'"></i>
-            <span class="ad-node__label">我</span>
+        <!-- 传送指示：环形读数 + 上传/下载两条腿 -->
+        <div class="ad-flow" v-if="stageVisible">
+          <div class="ad-flow__ring" :class="{ 'is-done': phase === 'done', 'is-live': transferring }">
+            <svg class="ad-ring" viewBox="0 0 62 62" :style="{ '--ad-p': ringProgress }">
+              <circle class="ad-ring__bg" cx="31" cy="31" r="26"></circle>
+              <circle class="ad-ring__val" cx="31" cy="31" r="26"></circle>
+            </svg>
+            <div class="ad-flow__core">
+              <template v-if="transferring">
+                <span class="ad-flow__pct">{{ Math.round(ringProgress * 100) }}</span>
+                <span class="ad-flow__unit">%</span>
+              </template>
+              <i v-else class="fas" :class="flowCoreIcon"></i>
+            </div>
           </div>
 
-          <div class="ad-track" :class="{ 'is-live': upLive, 'is-flowing': upFlowing }"
-               :style="{ '--ad-p': activeProgress }">
-            <span class="ad-track__fill"></span>
-            <span class="ad-track__beam"></span>
-            <span class="ad-packet"><i class="fas fa-file-lines"></i></span>
-          </div>
-
-          <div class="ad-node ad-node--cloud" :class="cloudNodeState">
-            <span class="ad-node__pulse"></span>
-            <i class="fas fa-cloud"></i>
-            <span class="ad-node__label">存储节点</span>
-          </div>
-
-          <div class="ad-track" :class="{ 'is-live': downLive, 'is-flowing': downFlowing }"
-               :style="{ '--ad-p': activeProgress }">
-            <span class="ad-track__fill"></span>
-            <span class="ad-track__beam"></span>
-            <span class="ad-packet"><i class="fas fa-file-lines"></i></span>
-          </div>
-
-          <div class="ad-node" :class="peerNodeState">
-            <span class="ad-node__pulse"></span>
-            <i class="fas" :class="role === 'send' ? 'fa-download' : 'fa-paper-plane'"></i>
-            <span class="ad-node__label">对方</span>
+          <div class="ad-flow__legs">
+            <div class="ad-flow__leg" :class="'is-' + uploadLegState">
+              <span class="ad-flow__leg-icon"><i class="fas fa-upload"></i></span>
+              <span class="ad-flow__leg-text">
+                <b>上传</b>
+                <small>{{ uploadLegText }}</small>
+              </span>
+            </div>
+            <div class="ad-flow__leg" :class="'is-' + downloadLegState">
+              <span class="ad-flow__leg-icon"><i class="fas fa-download"></i></span>
+              <span class="ad-flow__leg-text">
+                <b>下载</b>
+                <small>{{ downloadLegText }}</small>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -1284,24 +1300,6 @@
               </span>
             </div>
           </div>
-        </div>
-
-        <!-- 传输进度 -->
-        <div class="ad-progress" v-if="phase === 'uploading' || phase === 'downloading'">
-          <svg class="ad-ring" viewBox="0 0 62 62" :style="{ '--ad-p': activeProgress }">
-            <circle class="ad-ring__bg" cx="31" cy="31" r="26"></circle>
-            <circle class="ad-ring__val" cx="31" cy="31" r="26"></circle>
-          </svg>
-          <div class="ad-progress__text">{{ Math.round(activeProgress * 100) }}%</div>
-          <div class="ad-progress__sub">{{ phase === 'uploading' ? '上传到存储节点' : ('接收中 ' + doneCount + '/' + (session ? session.fileCount : 0)) }}</div>
-        </div>
-
-        <!-- 完成 -->
-        <div class="ad-done" v-if="phase === 'done'">
-          <svg class="ad-check" viewBox="0 0 84 84" aria-hidden="true">
-            <circle class="ad-check__circle" cx="42" cy="42" r="34"></circle>
-            <path class="ad-check__mark" d="M26 43 L38 55 L58 32"></path>
-          </svg>
         </div>
 
         <!-- 提示条 -->
