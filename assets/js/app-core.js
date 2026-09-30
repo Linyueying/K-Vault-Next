@@ -671,7 +671,8 @@
    * 做法：检测 UA → 命中则拦下这次下载 → 尽力唤起系统浏览器 → 弹引导层兜底。
    *
    * 「自动跳转」的现实约束（写在这里，免得日后被当成 bug 改坏）：
-   *   - Android：可用 intent:// 协议唤起 Chrome / 系统浏览器，成功率较高。
+   *   - Android：用通用 VIEW+BROWSABLE 的 intent:// 唤起系统默认浏览器
+   *     （不写死 Chrome 包名，并改用隐藏 iframe 派发以绕过 QQ X5 的吞掉）。
    *   - iOS：微信/QQ 的 WKWebView 不暴露任何跳转 Safari 的接口，
    *     window.open 会被就地拦下。所以 iOS 只能靠引导层让用户手动点
    *     右上角「··· → 在 Safari 中打开」。这是平台限制，不是实现缺陷。
@@ -720,12 +721,38 @@
    * 直接跑 openInDefaultBrowser 会真的把页面导航走，没法在测试里断言。
    */
   function buildBrowserIntentUrl(url) {
-    var pu = new URL(url);
+    var pu;
+    try { pu = new URL(url, window.location.href); } catch (e) { return ""; }
     if (pu.protocol !== "http:" && pu.protocol !== "https:") return "";
+    /* 不带 package=com.android.chrome：写死 Chrome 包名时，若用户没装 Chrome、
+       或 QQ 的 X5 内核拒绝解析该包名，整个 intent 会静默失效——这正是「QQ 内
+       点下载浏览器起不来」的主因。改成通用 VIEW+BROWSABLE intent，交给系统
+       自行选择默认浏览器或弹出选择器，兼容性最好。 */
     return "intent://" + pu.host + pu.pathname + pu.search +
       "#Intent;scheme=" + pu.protocol.replace(":", "") +
-      ";package=com.android.chrome;S.browser_fallback_url=" +
-      encodeURIComponent(pu.href) + ";end";
+      ";action=android.intent.action.VIEW" +
+      ";category=android.intent.category.BROWSABLE" +
+      ";S.browser_fallback_url=" + encodeURIComponent(pu.href) +
+      ";end";
+  }
+
+  /* 用隐藏 iframe 派发 intent。QQ 的 X5 内核常在「捕获阶段」把
+     window.location.href = intent 直接吞掉（表现为点了没反应），
+     而通过一个真实挂载到 DOM 的 iframe 去导航，X5 才会真正交给系统解析。 */
+  function tryIntentIframe(intent) {
+    try {
+      if (typeof document === "undefined" || !document.body) return false;
+      var ifr = document.createElement("iframe");
+      ifr.setAttribute("src", intent);
+      ifr.style.cssText = "display:none;width:0;height:0;border:0;position:absolute;";
+      document.body.appendChild(ifr);
+      setTimeout(function () {
+        if (ifr && ifr.parentNode) ifr.parentNode.removeChild(ifr);
+      }, 1500);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   function openInDefaultBrowser(url) {
@@ -734,13 +761,14 @@
     if (!target) return "none";
 
     if (isAndroidDevice()) {
-      try {
-        var intent = buildBrowserIntentUrl(target);
-        if (intent) {
-          window.location.href = intent;
-          return "intent";
+      var intent = buildBrowserIntentUrl(target);
+      if (intent) {
+        /* 优先隐藏 iframe（绕过 X5 对 location 的吞掉）；失败再退回 location。 */
+        if (!tryIntentIframe(intent)) {
+          try { window.location.href = intent; } catch (e) { /* 落到 window.open */ }
         }
-      } catch (e) { /* 落到 window.open */ }
+        return "intent";
+      }
     }
     try {
       window.open(target, "_blank", "noopener");
