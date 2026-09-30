@@ -1512,12 +1512,17 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    抽屉翻页（<transition name="pane-*"> 的 -enter-active 期间）背后并没有在动，
    若一并撤掉就会出现「滑动中没模糊、停下又冒出来」的闪烁；而 dock 等被遮罩
    盖住的玻璃已单独冻结，遮罩模糊此时是滤静止内容、开销极低。故排除 .modal-mask。 */
-html:has([class*="-enter-active"]) *:not(.modal-mask),
-html:has([class*="-enter-active"]) *:not(.modal-mask)::before,
-html:has([class*="-enter-active"]) *:not(.modal-mask)::after,
-html:has([class*="-leave-active"]) *:not(.modal-mask),
-html:has([class*="-leave-active"]) *:not(.modal-mask)::before,
-html:has([class*="-leave-active"]) *:not(.modal-mask)::after {
+/* .dock 例外：它是常驻底部栏、不被普通视图切换动画遮挡，且用户要它始终维持
+   磨砂观感；否则点 dock 切换主视图（无 .modal-mask，但主区域有 -enter-active）
+   时本规则会把它连带着撤成全透明，直到动画结束才恢复 —— 即「点按钮 dock 闪一下」。
+   dock 真正被遮罩盖住、该撤模糊的时机由下方 html:has(.modal-mask) .dock 单独处理，
+   此处只把它从「任意进场动画即撤」的白名单里剔除即可，性能开销可忽略（面积小）。 */
+html:has([class*="-enter-active"]) *:not(.modal-mask):not(.dock),
+html:has([class*="-enter-active"]) *:not(.modal-mask):not(.dock)::before,
+html:has([class*="-enter-active"]) *:not(.modal-mask):not(.dock)::after,
+html:has([class*="-leave-active"]) *:not(.modal-mask):not(.dock),
+html:has([class*="-leave-active"]) *:not(.modal-mask):not(.dock)::before,
+html:has([class*="-leave-active"]) *:not(.modal-mask):not(.dock)::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
