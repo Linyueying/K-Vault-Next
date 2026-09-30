@@ -91,7 +91,7 @@
 | 页面 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | 首页 / 上传 | `/` | 拖拽、粘贴、批量上传；URL 转存；分片上传；智能节点选择；上传目录树；上传历史；直链 / Markdown / HTML / BBCode 多种格式；按条目配置分享 |
-| 管理后台 | `/admin.html` | 文件与目录管理、收藏、重命名、批量移动与删除、KV/R2 用量监控、API Token 管理、**分享管理**、运行时配置 |
+| 管理后台 | `/admin/files` | 文件与目录管理、收藏、重命名、批量移动与删除、KV/R2 用量监控、API Token 管理、**分享管理**、运行时配置。分区路径：`/admin/files`、`/admin/shares`、`/admin/storage`、`/admin/system`（`/admin.html` 仍可访问，会自动规范化到 `/admin/files`） |
 | 分享页 | `/share.html` | `/s/:slug` 短链的落地页，提供预览与下载；密码保护、失效原因提示 |
 | 文本粘贴 | `/paste.html` | 创建 / 列表 / 查看 / 删除 Paste，支持有效期与访问密码 |
 | 图片画廊 | `/gallery.html` | 图片浏览、搜索、批量复制直链 / 下载 / 删除 |
@@ -113,7 +113,7 @@ Cloudflare Pages 里有三种「配置」，它们的生效方式完全不同：
 | :--- | :--- | :--- | :--- |
 | **绑定（Binding）** | Settings → **Functions** → KV namespace bindings / R2 bucket bindings | **要** | `img_url`、`R2_BUCKET` |
 | **环境变量** | Settings → **Environment variables** | **要** | `BASIC_USER`、`TG_Bot_Token` … |
-| **后台配置（写 KV）** | `/admin.html` → 设置面板 | **不要**，即时生效 | 访客上传、CORS、分片暂存后端 |
+| **后台配置（写 KV）** | `/admin/storage` → 设置面板 | **不要**，即时生效 | 访客上传、CORS、分片暂存后端 |
 
 **最常见的三个坑**：
 
@@ -156,7 +156,7 @@ Cloudflare Pages 的环境变量**区分大小写**。历史上同一配置出�
 
 ### 哪些变量根本不用在部署时填
 
-以下三组可以在 `/admin.html` → 设置面板里改，**改完即时生效，不需要改环境变量、也不需要重新部署**。它们存在 KV 里（`config:guest` / `config:cors` / `config:upload`），读取优先级是 **KV 覆盖 > 环境变量**。
+以下三组可以在 `/admin/storage` → 设置面板里改，**改完即时生效，不需要改环境变量、也不需要重新部署**。它们存在 KV 里（`config:guest` / `config:cors` / `config:upload`），读取优先级是 **KV 覆盖 > 环境变量**。
 
 | 分组 | 包含 | 对应环境变量（仅作基线） |
 | :--- | :--- | :--- |
@@ -253,7 +253,7 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 #### 7. 验证
 
 - 打开 `/` 传个小文件，看能否拿到直链
-- 打开 `/admin.html` 用你设的账密登录
+- 打开 `/admin/files` 用你设的账密登录
 - 打开 `/api/status` 看各后端状态（未登录时只返回"是否已配置"，不触发连通性探测）
 
 ---
@@ -405,7 +405,7 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 
 - `/s/:slug` **只做跳转**，不再直接吐出文件流。
 - 分享页 `/share.html` 提供**预览与下载**两个入口；只有点「下载」（即带 `dl=1` 请求）才计入下载次数，预览不计次。
-- `admin.html` → 工具菜单 → **分享管理**：汇总所有已分享条目，可见有效期、剩余时长、已用/总次数、密码状态，并支持按状态筛选、搜索、复制链接与取消分享。
+- `/admin/files` → 工具菜单 → **分享管理**：汇总所有已分享条目，可见有效期、剩余时长、已用/总次数、密码状态，并支持按状态筛选、搜索、复制链接与取消分享。
 
 > ⚠️ **行为变更（breaking change）**：上游的 `/s/:slug` 会 `302` 到 `/file/:id` 而**直接下载文件**。
 > 现在它跳转到分享页。旧链接**无需迁移**即可自动获得新的分享页体验；副作用是直接访问短链的
@@ -420,7 +420,7 @@ Token 的 scope 有四种：`upload`、`read`、`delete`、`paste`。Token 还�
 Cloudflare Pages **没有构建步骤**，仓库根目录即站点根目录 —— `wrangler pages deploy .` 会原样发布这些路径。因此下面两个目录请**不要移动**：
 
 - `functions/` —— Pages Functions 的硬约定，文件路径字面即 API 路由
-- 根目录的 8 个 HTML —— 它们是线上 URL 本身（`/admin.html`）
+- 根目录的 8 个 HTML —— 它们是线上 URL 本身（`/index.html`、`/admin.html` 等；`/admin/*` 由 `functions/admin/[[path]].js` 回落到 `admin.html`）
 
 ```text
 ├── index.html admin.html paste.html gallery.html      # 页面入口（根即站点根，勿移动）

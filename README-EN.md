@@ -116,7 +116,7 @@ Upstream is a general-purpose file host with **both Cloudflare Pages and Docker*
 | Page | Path | What it is |
 | :--- | :--- | :--- |
 | Home / upload | `/` | Drag-and-drop, paste and batch upload; upload-from-URL; chunked upload; smart routing; upload folder tree; upload history; direct / Markdown / HTML / BBCode link formats; per-item share config |
-| Admin | `/admin.html` | File and folder management, favourites, rename, batch move/delete, KV & R2 usage monitoring, API token management, share management, runtime settings |
+| Admin | `/admin/files` | File and folder management, favourites, rename, batch move/delete, KV & R2 usage monitoring, API token management, share management, runtime settings |
 | Share | `/share.html` | Landing page for `/s/:slug`; preview and download, password gate, expiry reasons |
 | Text paste | `/paste.html` | Create / list / view / delete pastes, with expiry and password |
 | Gallery | `/gallery.html` | Image browsing, search, batch copy / download / delete |
@@ -138,7 +138,7 @@ Cloudflare Pages has three kinds of configuration, and they behave completely di
 | :--- | :--- | :--- | :--- |
 | **Binding** | Settings → **Functions** → KV namespace bindings / R2 bucket bindings | **Yes** | `img_url`, `R2_BUCKET` |
 | **Environment variable** | Settings → **Environment variables** | **Yes** | `BASIC_USER`, `TG_Bot_Token`, … |
-| **Runtime config (in KV)** | `/admin.html` → settings panel | **No** — live immediately | guest uploads, CORS, chunk staging backend |
+| **Runtime config (in KV)** | `/admin/storage` → settings panel | **No** — live immediately | guest uploads, CORS, chunk staging backend |
 
 **The three classic mistakes**:
 
@@ -179,7 +179,7 @@ Now the backend has a single read layer, `functions/utils/env-config.js`, which 
 
 ### Variables you never need to set at deploy time
 
-These three groups are editable in `/admin.html` → settings panel and take effect **immediately, with no redeploy**. They are stored in KV (`config:guest` / `config:cors` / `config:upload`), and the read order is **KV override > environment variable**.
+These three groups are editable in `/admin/storage` → settings panel and take effect **immediately, with no redeploy**. They are stored in KV (`config:guest` / `config:cors` / `config:upload`), and the read order is **KV override > environment variable**.
 
 | Group | Contents | Environment variables (baseline only) |
 | :--- | :--- | :--- |
@@ -276,7 +276,7 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # validate an existing one
 #### 7. Verify
 
 - Open `/` and upload a small file, then check that you get a direct link
-- Open `/admin.html` and sign in with the credentials you configured
+- Open `/admin/files` and sign in with the credentials you configured
 - Open `/api/status` to see backend state (while logged out it only reports what is configured, without probing connectivity)
 
 ---
@@ -403,7 +403,7 @@ Protected files behave like this: expired or over the download limit returns `41
 Cloudflare Pages has **no build step** — the repository root _is_ the site root, since `wrangler pages deploy .` publishes these paths as-is. So leave these two alone:
 
 - `functions/` — a hard Pages Functions convention; the file path _is_ the API route
-- the 8 HTML files in the root — they are the URLs themselves (`/admin.html`)
+- the 8 HTML files in the root — they are the URLs themselves (e.g. `/index.html`, `/admin.html`; `/admin/*` falls back to `admin.html` via `functions/admin/[[path]].js`)
 
 ```text
 ├── index.html admin.html paste.html gallery.html      # page entrypoints (root = site root, do not move)

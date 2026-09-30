@@ -3135,8 +3135,9 @@ const folderNodeComponent = {
 };
 
 /* ===== 板块分页常量 =====
-   四个板块与 dock 四格一一对应。SECTION_ORDER 决定 hash 合法值与前后顺序；
-   DOCK_SLOT_BY_SECTION 是「板块 -> 指示器格位」的映射（恒为 0..3）。 */
+   四个板块与 dock 四格一一对应。SECTION_ORDER 既是合法路径段的取值域，
+   也决定前后顺序（前进后退依赖它）；DOCK_SLOT_BY_SECTION 是
+   「板块 -> 指示器格位」的映射（恒为 0..3）。 */
 const SECTION_ORDER = ['files', 'shares', 'storage', 'system'];
 const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, storage: 2, system: 3 };
 
@@ -3149,7 +3150,8 @@ const __kvApp = Vue.createApp({
     baseURL: location.origin,
 
     /* ===== 板块分页（dock 导航） =====
-       activeSection 是唯一真源；URL hash 与之双向同步（见 goSection / mounted）。
+       activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
+       （见 goSection / mounted）。
        dockDrag 是滑动指示器的跟手拖拽状态，pos 以「格」为单位（可为小数）。 */
     activeSection: 'files',
     dockDrag: { active:false, lock:'', x0:0, y0:0, pos0:0, pos:0, from:-1, to:-1, moved:false, pointerId:-1, el:null },
@@ -3765,7 +3767,7 @@ const __kvApp = Vue.createApp({
       this.syncVerifier = KVault.createSyncVerifier({
         tracker: this.syncTracker,
         /* 证据判定用全量列表（不带 storage 过滤，过滤维度会干扰路径判定） */
-        fetcher: () => fetch('./api/manage/folders?fresh=1&_t=' + Date.now(), { credentials: 'include' })
+        fetcher: () => fetch('/api/manage/folders?fresh=1&_t=' + Date.now(), { credentials: 'include' })
           .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
         onApply: (folders) => {
           /* 证据数据是云端真实状态，直接应用；storage 过滤模式下语义不同，退回普通刷新 */
@@ -4118,7 +4120,7 @@ const __kvApp = Vue.createApp({
       try {
         /* 文件列表是读操作，【不】走同步状态点 —— 绿点只由用户写操作驱动，
            否则后台刷新的成功/失败会稀释「我的操作已同步」的语义 */
-        const res = await fetch('./api/manage/list?' + p, { credentials: 'include' });
+        const res = await fetch('/api/manage/list?' + p, { credentials: 'include' });
         const r = await res.json();
         if (!res.ok) throw new Error((r && r.error) || `列表获取失败（HTTP ${res.status}）`);
         const arr = (r.keys || []).map(x => ({
@@ -4150,7 +4152,7 @@ const __kvApp = Vue.createApp({
            把刚删的目录刷回界面。读操作【不】走同步状态点：
            绿点只由用户的写操作驱动，否则后台刷新会给过期数据"背书"。 */
         if (opts.fresh) p.set('fresh', '1');
-        const r = await fetch('./api/manage/folders?' + p, { credentials: 'include' }).then(r => {
+        const r = await fetch('/api/manage/folders?' + p, { credentials: 'include' }).then(r => {
           if (!r.ok) throw new Error(`目录列表获取失败（HTTP ${r.status}）`);
           return r.json();
         });
@@ -4266,7 +4268,7 @@ const __kvApp = Vue.createApp({
       this.kvUsage.loading = true;
       this.kvUsage.error = '';
       try {
-        const r = await fetch('./api/manage/usage?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json());
+        const r = await fetch('/api/manage/usage?_t=' + Date.now(), { credentials: 'include' }).then(r => r.json());
         if (!r.success) {
           this.kvUsage.configured = r.configured === false ? false : true;
           this.kvUsage.error = r.error || '查询失败';
@@ -4369,17 +4371,22 @@ const __kvApp = Vue.createApp({
     },
 
     /* ================= 板块分页导航（dock） ================= */
-    sectionFromHash() {
-      const h = (location.hash || '').replace(/^#/, '');
-      return SECTION_ORDER.indexOf(h) > -1 ? h : 'files';
+    /* 从真实路径末段取板块名：/admin/storage → 'storage'。
+       非 /admin/* 的路径（如直接开 /admin.html）与未知段一律回落 'files'，
+       由 mounted 里的 replaceState 一次性规范化成 /admin/<section>。 */
+    sectionFromPath() {
+      const seg = String(location.pathname || '').split('/').filter(Boolean).pop() || '';
+      return SECTION_ORDER.indexOf(seg) > -1 ? seg : 'files';
     },
-    /* 切板块唯一入口：改状态 + 写 hash + 触发进入钩子。
-       同一板块重复点击直接返回，避免在浏览器历史里堆栈。 */
+    /* 切板块唯一入口：改状态 + 写路径 + 触发进入钩子。
+       同一板块重复点击直接返回，避免在浏览器历史里堆栈。
+       用真实路径（非 hash）是为了去掉锚点滚动与历史污染带来的卡顿。 */
     goSection(name) {
       if (SECTION_ORDER.indexOf(name) < 0) name = 'files';
       if (this.activeSection === name) return;
       this.activeSection = name;
-      try { history.pushState(null, '', '#' + name); } catch (e) { location.hash = name; }
+      try { history.pushState(null, '', '/admin/' + name); }
+      catch (e) { /* 极端环境下 pushState 不可用：状态照切，只是地址栏不同步 */ }
       this.preview = null;          // 切板块收起预览灯箱，避免悬浮在新板块上
       this.openMenu = null;
       window.scrollTo(0, 0);
@@ -4557,7 +4564,7 @@ const __kvApp = Vue.createApp({
            settle:'evidence'：请求成功后黄点保持，等验证管理器读到确切 KV
            证据（目录列表里真的有这个路径）才点亮绿点 */
         const r = await this._syncTrack(async () => {
-          const res = await fetch('./api/manage/folders', {
+          const res = await fetch('/api/manage/folders', {
             method: 'POST', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path })
@@ -4635,7 +4642,7 @@ const __kvApp = Vue.createApp({
            settle:'evidence'：请求成功后黄点保持，等验证管理器确认
            「新路径已出现、旧路径已消失」才点亮绿点 */
         const r = await this._syncTrack(async () => {
-          const res = await fetch('./api/manage/folders', {
+          const res = await fetch('/api/manage/folders', {
             method: 'PUT', credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sourcePath: source, targetPath: target })
@@ -4734,7 +4741,7 @@ const __kvApp = Vue.createApp({
            settle:'evidence'：请求成功后黄点保持，等验证管理器确认
            「目录列表里真的没有这些路径了」才点亮绿点 */
         const r = await this._syncTrack(async () => {
-          const res = await fetch('./api/manage/folders?path=' + encodeURIComponent(target) + '&recursive=1', {
+          const res = await fetch('/api/manage/folders?path=' + encodeURIComponent(target) + '&recursive=1', {
             method: 'DELETE', credentials: 'include'
           });
           const d = await res.json();
@@ -4816,7 +4823,7 @@ const __kvApp = Vue.createApp({
       const path = this.normalizeFolderPath(this.newFolder);
       if (!path) { this.showToast('请输入目录路径', 'error'); return; }
       try {
-        const r = await fetch('./api/manage/folders', {
+        const r = await fetch('/api/manage/folders', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path })
@@ -4844,7 +4851,7 @@ const __kvApp = Vue.createApp({
         }
       }));
 
-      const r = await fetch('./api/manage/files/move-folder', {
+      const r = await fetch('/api/manage/files/move-folder', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids, files: payload, targetFolderPath: target })
@@ -4865,7 +4872,7 @@ const __kvApp = Vue.createApp({
       const old = !!item.metadata.liked;
       item.metadata.liked = !old;
       try {
-        const r = await fetch('./api/manage/toggleLike/' + encodeURIComponent(item.name), { credentials: 'include' }).then(r => r.json());
+        const r = await fetch('/api/manage/toggleLike/' + encodeURIComponent(item.name), { credentials: 'include' }).then(r => r.json());
         if (!r.success) throw 0;
         this.showToast(item.metadata.liked ? '已加入收藏' : '已取消收藏', 'success');
             } catch (e) {
@@ -4897,7 +4904,7 @@ const __kvApp = Vue.createApp({
         clearTimeout(rec.timer);
         try {
           // keepalive 让请求在页面卸载过程中仍能发出
-          fetch('./api/manage/delete/' + encodeURIComponent(rec.name), {
+          fetch('/api/manage/delete/' + encodeURIComponent(rec.name), {
             credentials: 'include', keepalive: true
           }).catch(() => {});
         } catch (e) {}
@@ -4906,7 +4913,7 @@ const __kvApp = Vue.createApp({
 
     async _commitDelete(rec) {
       try {
-        const r = await fetch('./api/manage/delete/' + encodeURIComponent(rec.name), { credentials: 'include' })
+        const r = await fetch('/api/manage/delete/' + encodeURIComponent(rec.name), { credentials: 'include' })
           .then(r => r.json());
         if (!r.success) throw new Error(r.error || '删除失败');
       } catch (e) {
@@ -4969,7 +4976,7 @@ const __kvApp = Vue.createApp({
         this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
         try {
           const results = await Promise.all(list.map(f =>
-            fetch('./api/manage/delete/' + encodeURIComponent(f.name), { credentials: 'include' })
+            fetch('/api/manage/delete/' + encodeURIComponent(f.name), { credentials: 'include' })
               .then(r => r.json())
           ));
           const failed = results.filter(r => !r || !r.success).length;
@@ -4986,7 +4993,7 @@ const __kvApp = Vue.createApp({
       if (val === null) return;
       try {
         const r = await fetch(
-          './api/manage/editName/' + encodeURIComponent(item.name) + '?newName=' + encodeURIComponent(val),
+          '/api/manage/editName/' + encodeURIComponent(item.name) + '?newName=' + encodeURIComponent(val),
           { credentials: 'include' }
         ).then(r => r.json());
         if (!r.success) throw new Error(r.error || '重命名失败');
@@ -5080,7 +5087,7 @@ const __kvApp = Vue.createApp({
       } else if (c === 'status') {
         this.checkStatus();
       } else if (c === 'paste') {
-        window.open('./paste.html', '_blank', 'noopener');
+        window.open('/paste.html', '_blank', 'noopener');
       } else if (c === 'export') {
         if (!this.files.length) { this.showToast('没有可导出的链接', 'info'); return; }
         const t = this.files.map(f => this.baseURL + '/file/' + f.name).join('\n');
@@ -5111,7 +5118,7 @@ const __kvApp = Vue.createApp({
     async loadAirdropSettings() {
       this.airdropLoading = true;
       try {
-        const res = await fetch('./api/manage/settings', { credentials: 'include' });
+        const res = await fetch('/api/manage/settings', { credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '读取设置失败');
         this.applyAirdropView(data);
@@ -5145,7 +5152,7 @@ const __kvApp = Vue.createApp({
 
       this.airdropSaving = true;
       try {
-        const res = await fetch('./api/manage/settings', {
+        const res = await fetch('/api/manage/settings', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -5173,7 +5180,7 @@ const __kvApp = Vue.createApp({
     async resetAirdropSettings() {
       this.airdropSaving = true;
       try {
-        const res = await fetch('./api/manage/settings?group=airdrop', { method: 'DELETE', credentials: 'include' });
+        const res = await fetch('/api/manage/settings?group=airdrop', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '恢复默认失败');
         this.applyAirdropView(data);
@@ -5189,7 +5196,7 @@ const __kvApp = Vue.createApp({
       this.airdropStatsLoading = true;
       this.airdropStatsError = '';
       try {
-        const res = await fetch('./api/manage/airdrop-stats?days=' + encodeURIComponent(this.airdropDays), {
+        const res = await fetch('/api/manage/airdrop-stats?days=' + encodeURIComponent(this.airdropDays), {
           credentials: 'include',
           cache: 'no-store'
         });
@@ -5212,7 +5219,7 @@ const __kvApp = Vue.createApp({
       if (!ok) return;
       this.airdropStatsLoading = true;
       try {
-        const res = await fetch('./api/manage/airdrop-stats', { method: 'DELETE', credentials: 'include' });
+        const res = await fetch('/api/manage/airdrop-stats', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '清空失败');
         this.showToast('使用记录已清空', 'success');
@@ -5241,7 +5248,7 @@ const __kvApp = Vue.createApp({
     async loadSettings() {
       this.settingsLoading = true;
       try {
-        const res = await fetch('./api/manage/settings', { credentials: 'include' });
+        const res = await fetch('/api/manage/settings', { credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '读取设置失败');
         this.applySettingsView(data);
@@ -5308,7 +5315,7 @@ const __kvApp = Vue.createApp({
 
       this.settingsSaving = true;
       try {
-        const res = await fetch('./api/manage/settings', {
+        const res = await fetch('/api/manage/settings', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -5350,13 +5357,13 @@ const __kvApp = Vue.createApp({
       try {
         // 逐组清除：两个组可能只有一个被 KV 覆盖过，
         // 全量 DELETE 会把没保存过的那组也无谓地"重置"一遍。
-        const res = await fetch('./api/manage/settings?group=guest', { method: 'DELETE', credentials: 'include' });
+        const res = await fetch('/api/manage/settings?group=guest', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '重置失败');
         this.applySettingsView(data);
 
         if (this.storageSource === 'kv') {
-          const res2 = await fetch('./api/manage/settings?group=storage', { method: 'DELETE', credentials: 'include' });
+          const res2 = await fetch('/api/manage/settings?group=storage', { method: 'DELETE', credentials: 'include' });
           const data2 = await res2.json();
           if (!res2.ok) throw new Error(data2.error || '重置存储设置失败');
           this.applySettingsView(data2);
@@ -5386,7 +5393,7 @@ const __kvApp = Vue.createApp({
 
       this.brandingSaving = true;
       try {
-        const res = await fetch('./api/manage/settings', {
+        const res = await fetch('/api/manage/settings', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -5415,7 +5422,7 @@ const __kvApp = Vue.createApp({
 
       this.brandingSaving = true;
       try {
-        const res = await fetch('./api/manage/settings?group=branding', {
+        const res = await fetch('/api/manage/settings?group=branding', {
           method: 'DELETE',
           credentials: 'include'
         });
@@ -5459,7 +5466,7 @@ const __kvApp = Vue.createApp({
     async loadTokens() {
       this.tokenLoading = true;
       try {
-        const res = await fetch('./api/admin/tokens', { credentials: 'include' });
+        const res = await fetch('/api/admin/tokens', { credentials: 'include' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
         this.tokens = Array.isArray(data.tokens) ? data.tokens : [];
@@ -5526,7 +5533,7 @@ const __kvApp = Vue.createApp({
       this.tokenSubmitting = true;
       try {
         if (this.tokenEditingId) {
-          const res = await fetch('./api/admin/tokens/' + encodeURIComponent(this.tokenEditingId), {
+          const res = await fetch('/api/admin/tokens/' + encodeURIComponent(this.tokenEditingId), {
             method: 'PATCH',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -5538,7 +5545,7 @@ const __kvApp = Vue.createApp({
           this.resetTokenForm();
         } else {
           payload.name = name;
-          const res = await fetch('./api/admin/tokens', {
+          const res = await fetch('/api/admin/tokens', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -5559,7 +5566,7 @@ const __kvApp = Vue.createApp({
     },
     async toggleTokenEnabled(token) {
       try {
-        const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id), {
+        const res = await fetch('/api/admin/tokens/' + encodeURIComponent(token.id), {
           method: 'PATCH',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -5582,7 +5589,7 @@ const __kvApp = Vue.createApp({
       );
       if (!ok) return;
       try {
-        const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id) + '/rotate', {
+        const res = await fetch('/api/admin/tokens/' + encodeURIComponent(token.id) + '/rotate', {
           method: 'POST',
           credentials: 'include'
         });
@@ -5603,7 +5610,7 @@ const __kvApp = Vue.createApp({
       );
       if (!ok) return;
       try {
-        const res = await fetch('./api/admin/tokens/' + encodeURIComponent(token.id), {
+        const res = await fetch('/api/admin/tokens/' + encodeURIComponent(token.id), {
           method: 'DELETE',
           credentials: 'include'
         });
@@ -5656,7 +5663,7 @@ const __kvApp = Vue.createApp({
     async loadShares() {
       this.sharesLoading = true;
       try {
-        const res = await fetch('./api/manage/shares', {
+        const res = await fetch('/api/manage/shares', {
           headers: { 'Accept': 'application/json' },
           credentials: 'same-origin',
           cache: 'no-store'
@@ -5691,7 +5698,7 @@ const __kvApp = Vue.createApp({
     async loadShareBundles() {
       this.shareBundlesLoading = true;
       try {
-        const res = await fetch('./api/manage/share-bundles', {
+        const res = await fetch('/api/manage/share-bundles', {
           headers: { 'Accept': 'application/json' },
           credentials: 'same-origin',
           cache: 'no-store'
@@ -5736,7 +5743,7 @@ const __kvApp = Vue.createApp({
       if (!ok) return;
       this.shareBundleRevokingSlug = b.slug;
       try {
-        const res = await fetch('./api/manage/share-bundle', {
+        const res = await fetch('/api/manage/share-bundle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
@@ -5982,7 +5989,7 @@ const __kvApp = Vue.createApp({
       this.bundleError = '';
       this.bundleResult = null;
       try {
-        const res = await fetch('./api/manage/share-bundle', {
+        const res = await fetch('/api/manage/share-bundle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
@@ -6054,7 +6061,7 @@ const __kvApp = Vue.createApp({
       this.bundleError = '';
       this.bundleResult = null;
       try {
-        const res = await fetch('./api/manage/share/' + encodeURIComponent(key), {
+        const res = await fetch('/api/manage/share/' + encodeURIComponent(key), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
@@ -6098,7 +6105,7 @@ const __kvApp = Vue.createApp({
 
       this.shareRevokingKey = s.kvKey;
       try {
-        const res = await fetch('./api/manage/share/' + encodeURIComponent(s.kvKey), {
+        const res = await fetch('/api/manage/share/' + encodeURIComponent(s.kvKey), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
@@ -6164,7 +6171,7 @@ const __kvApp = Vue.createApp({
     async checkStatus() {
       this.statusChecking = true;
       try {
-        const r = await fetch('./api/status', { credentials: 'include' }).then(r => r.json());
+        const r = await fetch('/api/status', { credentials: 'include' }).then(r => r.json());
         this.status = Object.assign({}, this.status, r, { github: r.github || this.status.github });
 
         const row = (k, n, i) => {
@@ -6199,16 +6206,16 @@ const __kvApp = Vue.createApp({
       }
     },
 
-    goHome() { location.href = './'; },
+    goHome() { location.href = '/'; },
 
     async logout() {
       const ok = await this.askConfirm('确定要退出当前登录状态吗？', '退出登录', false);
       if (!ok) return;
       try {
-        await fetch('./api/auth/logout', { method: 'POST', credentials: 'include' });
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
         sessionStorage.clear();
         this.showToast('已退出登录', 'success');
-        setTimeout(() => location.replace('./login.html'), 300);
+        setTimeout(() => location.replace('/login.html'), 300);
       } catch (e) {
         this.showToast('退出失败', 'error');
       }
@@ -6281,14 +6288,16 @@ const __kvApp = Vue.createApp({
     };
     document.addEventListener('keydown', this._escHandler);
 
-    /* ===== 板块分页：URL hash 同步 =====
-       hash 是「可刷新 / 可分享 / 可前进后退」的唯一入口。
-       初始以 hash 为准（无 hash 则规范化补 #files）。 */
-    this.activeSection = this.sectionFromHash();
-    try { history.replaceState(null, '', '#' + this.activeSection); } catch (e) { /* noop */ }
+    /* ===== 板块分页：真实路径同步 =====
+       /admin/<section> 是「可刷新 / 可分享 / 可前进后退」的唯一入口。
+       初始以路径为准；/admin（裸路径）与 /admin.html（旧入口）都会被
+       replaceState 规范化到 /admin/<section>，且不留额外历史记录。 */
+    this.activeSection = this.sectionFromPath();
+    try { history.replaceState(null, '', '/admin/' + this.activeSection); } catch (e) { /* noop */ }
     this.onSectionEnter(this.activeSection);
-    this._hashHandler = () => {
-      const s = this.sectionFromHash();
+    /* pushState 不触发 hashchange，历史回退走 popstate */
+    this._popHandler = () => {
+      const s = this.sectionFromPath();
       if (s !== this.activeSection) {
         this.activeSection = s;
         this.preview = null;
@@ -6297,7 +6306,7 @@ const __kvApp = Vue.createApp({
         this.onSectionEnter(s);
       }
     };
-    window.addEventListener('hashchange', this._hashHandler);
+    window.addEventListener('popstate', this._popHandler);
 
     /* 离开页面时把「撤销窗口内未提交的删除」立即落盘，避免删除丢失 */
     this._pageHideHandler = () => this._flushPendingDeletes();
@@ -6308,9 +6317,9 @@ const __kvApp = Vue.createApp({
 
     /* 登录校验 */
     try {
-      const a = await fetch('./api/auth/check', { credentials: 'include' }).then(r => r.json());
+      const a = await fetch('/api/auth/check', { credentials: 'include' }).then(r => r.json());
       if (a.authRequired && !a.authenticated) {
-        location.href = './login.html?redirect=' + encodeURIComponent(location.pathname);
+        location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname);
         return;
       }
     } catch (e) {
@@ -6335,7 +6344,7 @@ const __kvApp = Vue.createApp({
 
     await Promise.all([this.loadFolders(), this.loadList()]);
 
-    fetch('./api/status', { credentials: 'include' })
+    fetch('/api/status', { credentials: 'include' })
       .then(r => r.json())
       .then(r => { this.status = Object.assign({}, this.status, r, { github: r.github || this.status.github }); })
       .catch(() => {});
@@ -6345,7 +6354,7 @@ const __kvApp = Vue.createApp({
     document.removeEventListener('click', this._closeMenusHandler);
     document.removeEventListener('keydown', this._escHandler);
     window.removeEventListener('pagehide', this._pageHideHandler);
-    window.removeEventListener('hashchange', this._hashHandler);
+    window.removeEventListener('popstate', this._popHandler);
     try {
       if (this._schemeHandler) {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);

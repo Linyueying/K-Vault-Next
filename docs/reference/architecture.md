@@ -75,7 +75,7 @@ K-Vault-Next 是一个跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图
 - **设计系统**：`design-system.css` 是全站唯一的事实来源——设计令牌、通用组件（`.card` / `.btn` / `.input` / `.switch` / `.spinner` / `.toast` / `.empty-state` …）、37 个动效关键帧、Vue 过渡族
 - **页面级 `<style>` 只允许写本页增量**，不允许重复定义共享实现
 - **守卫脚本**：`scripts/check_style.py`（括号平衡 / 禁止页面内定义 `@keyframes` / 必须引入设计系统）、`scripts/check_tokens.py`（校验 `var(--x)` 与 animation 名称可解析）
-- **页面**：`/`、`/admin.html`、`/share.html`、`/paste.html`、`/gallery.html`、`/preview.html`、`/webdav.html`、`/login.html`
+- **页面**：`/`、`/admin.html`（分区路径 `/admin/files|shares|storage|system`）、`/share.html`、`/paste.html`、`/gallery.html`、`/preview.html`、`/webdav.html`、`/login.html`
 
 ### 2. 后端
 
@@ -131,7 +131,7 @@ Telegram（默认）、Cloudflare R2、S3 兼容、Discord、HuggingFace、WebDA
 | :--- | :--- | :---: |
 | 绑定（KV / R2） | Settings → **Functions** | ✅ 要 |
 | 环境变量 | Settings → **Environment variables** | ✅ 要 |
-| 后台配置（guest / cors / upload） | `/admin.html` → 设置面板 | ❌ 不要，即时生效 |
+| 后台配置（guest / cors / upload） | `/admin/storage` → 设置面板 | ❌ 不要，即时生效 |
 
 三个最常见的问题：
 
