@@ -75,7 +75,7 @@ App 布局
   padding:
     calc(var(--sp-4) + env(safe-area-inset-top,0px))
     calc(var(--sp-5) + env(safe-area-inset-right,0px))
-    calc(130px + env(safe-area-inset-bottom,0px))
+    calc(156px + env(safe-area-inset-bottom,0px))
     calc(var(--sp-5) + env(safe-area-inset-left,0px));}
 /* 顶栏 */
 .micro-topbar{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);margin-bottom:18px;padding:var(--sp-1);flex-wrap:wrap}
@@ -936,7 +936,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
     padding:
       calc(var(--sp-3) + env(safe-area-inset-top,0px))
       calc(var(--sp-3) + env(safe-area-inset-right,0px))
-      calc(160px + env(safe-area-inset-bottom,0px))
+      calc(230px + env(safe-area-inset-bottom,0px))
       calc(var(--sp-3) + env(safe-area-inset-left,0px));
   }
   .brand-text-wrap h1{font-size:1.02rem}
@@ -1032,7 +1032,146 @@ html[data-perf="low"] .ambient-orb{animation:none}
     animation-duration:.9s !important;
     animation-iteration-count:infinite !important;
   }
-}</style>
+  /* Dock：小屏收紧间距并缩字号；指示器宽度用百分比，自动等分无需改公式。
+     blur 也要降级 —— .dock 内联的 --glass-blur 特异性高于共享层，不显式覆盖就不会降。 */
+  .dock{--dock-pad:5px;--dock-gap:5px;--glass-blur:14px;--glass-saturate:1.5}
+  .dock__btn{padding:var(--sp-1);gap:2px}
+  .dock__btn i{font-size:.98rem}
+  .dock__btn span{font-size:.68rem}
+}
+
+/* =========================================================
+   板块分页容器
+   ---------------------------------------------------------
+   四个板块（文件浏览 / 分享管理 / 存储与上传 / 系统设置）同处一页，
+   由 v-show 控制显隐 —— 切板块不重挂载，保留搜索词、列表与滚动位置，
+   也不会重播首屏动画（与「切目录不抽搐」的既有理念一致）。
+   ========================================================= */
+.section-host{display:block}
+.section{display:flex;flex-direction:column;gap:var(--sp-4)}
+/* 板块内联面板：原模态剥壳后的普通容器，去掉浮层定位与裁切 */
+.panel-inline{display:flex;flex-direction:column}
+
+/* =========================================================
+   底部 Dock（复用 index 的 iOS 27 式高透液态玻璃 + 滑动指示器）
+   ---------------------------------------------------------
+   玻璃底/边/模糊/rim/bloom 由 glassfx 的 .glass 承担，
+   这里只覆盖 --glass-* 令牌，**不声明** background / backdrop-filter / border
+   —— 内联样式优先级高于共享层，重写会压掉 glassfx。
+   ========================================================= */
+.dock{
+  position:fixed;
+  bottom:max(16px,env(safe-area-inset-bottom,16px));
+  left:50%;transform:translateX(-50%);
+  width:min(500px,calc(100% - 24px));
+  /* 几何令牌：指示器位移公式依赖它们，改这里即可整体调间距 */
+  --dock-pad:6px;
+  --dock-gap:6px;
+  /* 指示器位置真源（单位：格，可为小数）：静态默认 0。
+     点击 -> 整数落点；拖拽 -> 连续小数。 */
+  --dock-pos:0;
+  --glass-tint:255,255,255;
+  --glass-alpha:.42;
+  --glass-blur:20px;
+  --glass-saturate:1.8;
+  --glass-sheen:.16;
+  --glass-rim:.55;
+  --glass-radius:9999px;
+  padding:var(--dock-pad);
+  border-radius:var(--r-pill);
+  box-shadow:0 16px 40px -10px rgba(2,132,199,.22),0 4px 14px -3px rgba(0,0,0,.08);
+  z-index:100;
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:var(--dock-gap);
+  overflow:visible;
+  touch-action:pan-y;
+  -webkit-user-select:none;
+  user-select:none;
+}
+/* 批量操作栏出现时把 dock 抬到它之上（batch-dock 宽 680 > dock 宽 500），
+   否则批量栏会盖住导航。 */
+body:has(.batch-dock) .dock{bottom:max(78px,calc(env(safe-area-inset-bottom,0px) + 72px))}
+.dock__btn{
+  position:relative;z-index:1;   /* 抬到指示器之上，保证命中区不被盖 */
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;padding:var(--sp-2) var(--sp-1);
+  border-radius:var(--r-pill);
+  border:1px solid transparent;
+  background:transparent;
+  color:var(--text-sub);
+  cursor:pointer;
+  transition:background .3s var(--ease-apple),color .3s var(--ease-apple),
+             border-color .3s var(--ease-apple),box-shadow .3s var(--ease-apple),
+             transform .1s var(--ease-press);
+  text-decoration:none;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+.dock__btn i{font-size:1.05rem;transition:transform .4s var(--ease-spring)}
+.dock__btn span{font-size:.74rem;font-weight:600;white-space:nowrap}
+.dock__btn:hover{color:var(--primary);background:rgba(2,132,199,.06)}
+.dock__btn:hover i{transform:scale(1.14) translateY(-1px)}
+.dock__btn:active{transform:scale(.92)}
+/* 选中态：背景由滑动指示器承担，这里只负责文字/图标变色 */
+.dock__btn.active{color:var(--primary-dark);background:transparent;border-color:transparent;box-shadow:none}
+html[data-theme="dark"] .dock__btn.active{color:#f0f9ff;background:transparent;border-color:transparent}
+
+/* 滑动指示器（液态玻璃胶囊）
+   独立绝对定位层，不参与 grid 轨道；由单一变量 --dock-pos 驱动位移：
+     translateX = pos * (自身宽 + gap)
+   translateX 里的 100% 指「指示器自身宽」= 槽宽 W，
+   故 100% + gap == W + gap，天然对齐 grid 间隙、无需知道 dock 像素宽。 */
+.dock__indicator{
+  position:absolute;
+  top:var(--dock-pad);
+  bottom:var(--dock-pad);
+  left:var(--dock-pad);
+  /* absolute 的 % 参照 padding box（含 dock padding），而按钮槽宽基于内容盒，
+     故先减掉两侧 padding 还原内容盒宽，再 4 等分减 3 个 gap。 */
+  width:calc((100% - 2 * var(--dock-pad) - 3 * var(--dock-gap)) / 4);
+  border-radius:var(--r-pill);
+  z-index:0;
+  pointer-events:none;
+  background:linear-gradient(
+    180deg,
+    rgba(255,255,255,.72),
+    rgba(255,255,255,.34) 42%,
+    rgba(255,255,255,.22)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),
+    inset 0 -1px 1px rgba(0,0,0,.06),
+    0 6px 16px -4px rgba(2,132,199,.28),
+    0 2px 6px -2px rgba(0,0,0,.12);
+  transform:translate3d(calc(var(--dock-pos,0) * (100% + var(--dock-gap))),0,0)
+            scale(var(--dock-scale,1));
+  transition:transform .52s var(--ease-spring);
+  will-change:transform;
+  transform-origin:center;
+}
+/* 跟手拖拽：仅关掉过渡 + 轻微缩放。transform 公式与常态完全一致 ——
+   拖拽期间位移已由浮点 pos 连续表达，再叠加像素偏移就会重复计算。 */
+.dock.is-dragging .dock__indicator{--dock-scale:.96;transition:none}
+
+/* 暗色：指示器转冷调半透，避免白胶囊过亮 */
+html[data-theme="dark"] .dock{--glass-tint:30,38,48;--glass-alpha:.42;--glass-rim:.32;--glass-sheen:.1}
+html[data-theme="dark"] .dock__indicator{
+  background:linear-gradient(
+    180deg,
+    rgba(255,255,255,.16),
+    rgba(255,255,255,.08) 45%,
+    rgba(56,189,248,.1)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.22),
+    inset 0 -1px 1px rgba(0,0,0,.3),
+    0 6px 16px -4px rgba(0,0,0,.5),
+    0 0 0 1px rgba(56,189,248,.12);
+}
+/* 首屏入场：与 index 同一条 dockIn（保留 -50% 水平居中偏移，否则会横向跳位） */
+#app:not(.is-booted) .dock{animation:dockIn .72s var(--ease-fluid) .1s backwards}
+</style>
 </head>
 <body>
 
@@ -1086,6 +1225,16 @@ html[data-perf="low"] .ambient-orb{animation:none}
   </header>
 
   <!-- ===== 工具栏 ===== -->
+  <!-- ===== 板块容器：dock 切换的四个分页 =====
+       文件浏览 / 分享管理 / 存储与上传 / 系统设置。
+       用 v-show 而非 v-if —— 切板块不重挂载，保留搜索词、列表与滚动位置，
+       也不会重播首屏动画。 -->
+  <main class="section-host">
+
+  <!-- ① 文件浏览：工具栏 + 文件列表（面包屑 / 网格 / 列表 / 分页） -->
+  <section class="section" data-section="files" v-show="activeSection==='files'">
+
+  <!-- ===== 工具栏（搜索 / 视图切换 / 目录操作 / 筛选） ===== -->
   <section class="liquid-card toolbar-card">
     <!-- 第一层：搜索 + 视图切换 -->
     <div class="toolbar-top">
@@ -1253,38 +1402,15 @@ html[data-perf="low"] .ambient-orb{animation:none}
         全部清除
       </button>
     </transition-group>
+  </section>
 
-    <!-- ===== 工具箱 ===== -->
+    <!-- ===== 工具箱（文件浏览专属：连接状态 / 文本粘贴 / 导出 / 批量） ===== -->
     <div class="tool-hub" :class="{'is-open': toolHubOpen}">
       <span class="tool-hub-label"><i class="fas fa-toolbox"></i>工具箱</span>
       <div class="tool-hub-items">
-        <button class="tool-chip" :class="{on: kvUsage.visible}" @click="handleTool('kvUsage')" title="KV / R2 用量监控">
-          <span class="chip-icon"><i class="fas fa-chart-pie"></i></span>
-          <span>用量监控</span>
-        </button>
         <button class="tool-chip" @click="handleTool('status')" title="检查全部连接状态">
           <span class="chip-icon"><i class="fas fa-heart-pulse"></i></span>
           <span>连接状态</span>
-        </button>
-        <button class="tool-chip" :class="{on: sharePanelVisible}" @click="handleTool('shares')" title="管理已创建的分享">
-          <span class="chip-icon"><i class="fas fa-share-nodes"></i></span>
-          <span>分享管理</span>
-        </button>
-        <button class="tool-chip" :class="{on: settingsPanelVisible}" @click="handleTool('settings')" title="访客上传与上传策略设置">
-          <span class="chip-icon"><i class="fas fa-sliders"></i></span>
-          <span>上传设置</span>
-        </button>
-        <button class="tool-chip" :class="{on: airdropPanelVisible}" @click="handleTool('airdrop')" title="隔空投送：访客使用权限与使用情况">
-          <span class="chip-icon"><i class="fas fa-paper-plane"></i></span>
-          <span>隔空投送<span class="badge-beta">BETA</span></span>
-        </button>
-        <button class="tool-chip tool-chip--extra" :class="{on: brandingPanelVisible}" @click="handleTool('branding')" title="自定义网站名称与浏览器标题">
-          <span class="chip-icon"><i class="fas fa-signature"></i></span>
-          <span>网站信息</span>
-        </button>
-        <button class="tool-chip tool-chip--extra" @click="handleTool('tokens')" title="API Token 管理">
-          <span class="chip-icon"><i class="fas fa-key"></i></span>
-          <span>Token</span>
         </button>
         <button class="tool-chip tool-chip--extra" @click="handleTool('paste')" title="打开文本粘贴工具">
           <span class="chip-icon"><i class="fas fa-paste"></i></span>
@@ -1338,262 +1464,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
         </button>
       </div>
     </div>
-
-    <!-- ===== KV / R2 用量面板（进场走 panelIn，内部错峰） ===== -->
-    <transition name="rise">
-    <div class="kv-usage-panel" v-if="kvUsage.visible">
-      <div class="kv-usage-head">
-        <span class="kv-usage-title">
-          <i class="fas fa-chart-pie" :class="{'is-settling': kvUsage.loading}"></i> 用量监控
-          <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.planType" :key="kvUsage.planType">
-            {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
-          </span>
-          <span class="kv-usage-date" v-if="kvUsage.date">{{ kvUsage.date }}</span>
-        </span>
-        <div class="kv-usage-actions">
-          <button class="mini-icon-btn" @click="loadKvUsage" :disabled="kvUsage.loading" title="刷新">
-            <i class="fas fa-rotate" :class="{'fa-spin':kvUsage.loading}"></i>
-          </button>
-          <button class="mini-icon-btn" @click="kvUsage.visible=false" title="关闭">
-            <i class="fas fa-xmark"></i>
-          </button>
-        </div>
-      </div>
-
-      <transition name="pop">
-      <div class="kv-usage-warn" v-if="kvUsage.detectionError">
-        <i class="fas fa-triangle-exclamation"></i>
-        <span>计划检测失败（已回退到免费计划）：{{ kvUsage.detectionError }}。如需准确显示，请为 API Token 添加 <b>Account Settings:Read</b> 权限。</span>
-      </div>
-      </transition>
-
-      <transition name="fade" mode="out-in">
-      <div v-if="!kvUsage.configured && !kvUsage.loading" class="kv-usage-empty" key="no-cfg">
-        <i class="fas fa-plug-circle-xmark"></i>
-        <span>{{ kvUsage.error || '未检测到 KV 或 R2 绑定，请检查 Pages 项目设置' }}</span>
-      </div>
-
-      <div v-else-if="kvUsage.loading" class="kv-usage-empty" key="loading">
-        <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
-        <span>正在查询用量...</span>
-      </div>
-
-      <div v-else class="kv-usage-body" key="body">
-
-        <!-- KV 存储用量 -->
-        <div class="kv-usage-block" v-if="kvUsage.kv">
-          <div class="kv-usage-label">
-            <span><i class="fas fa-database"></i> KV 存储用量</span>
-            <span class="kv-usage-total">
-              {{ formatSize(kvUsage.kv.storage.usedBytes) }}<template v-if="kvUsage.kv.storage.totalBytes"> / {{ formatSize(kvUsage.kv.storage.totalBytes) }}</template>
-            </span>
-          </div>
-
-          <div v-if="kvUsage.kv.error" class="kv-usage-empty pad-sm">
-            <i class="fas fa-triangle-exclamation"></i>
-            <span class="tiny">{{ kvUsage.kv.error }}</span>
-          </div>
-
-          <template v-else>
-            <div class="progress progress--lg" v-if="kvUsage.kv.storage.totalBytes" :key="'kv-'+kvUsage.kv.storage.usagePercent">
-              <div class="progress__val"
-                   :class="{ warn: (kvUsage.kv.storage.usagePercent || 0) > 70 && (kvUsage.kv.storage.usagePercent || 0) <= 90, danger: (kvUsage.kv.storage.usagePercent || 0) > 90 }"
-                   :style="{ transform: 'scaleX(' + Math.min(100, kvUsage.kv.storage.usagePercent || 0) / 100 + ')' }"></div>
-            </div>
-            <div class="kv-usage-meta">
-              <span>键数量 <strong>{{ kvUsage.kv.storage.keyCount }}</strong></span>
-              <span v-if="kvUsage.kv.storage.totalBytes">已用 <strong>{{ (kvUsage.kv.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
-              <span v-else>付费计划 · 存储按量计费</span>
-            </div>
-
-            <!-- 标题在内容之前（原来挂在了操作项下方） -->
-            <div class="kv-usage-label" style="margin-top:12px">
-              <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
-            </div>
-            <div class="kv-ops-grid">
-              <template v-for="op in kvOpDefs" :key="op.key">
-                <div class="kv-op-item" v-if="kvUsage.kv.operations[op.key]">
-                  <div class="kv-op-head">
-                    <i :class="op.icon" :style="{color: op.color}"></i>
-                    <span>{{ op.label }}</span>
-                  </div>
-                  <div class="kv-op-bar">
-                    <div class="kv-op-bar-inner"
-                         :style="{ transform: 'scaleX(' + opPercent(kvUsage.kv.operations[op.key]) / 100 + ')', background: op.color }"></div>
-                  </div>
-                  <div class="kv-op-nums">
-                    <span>{{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].used) || 0 }} / {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].limit) || 0 }}</span>
-                    <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.kv.operations[op.key]) }">
-                      剩余 {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].remaining) || 0 }}
-                    </span>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </template>
-        </div>
-
-        <!-- R2 未绑定 -->
-        <template v-if="!kvUsage.r2Available">
-        <div class="kv-usage-block">
-          <div class="kv-usage-label">
-            <span><i class="fas fa-cloud"></i> R2 对象存储</span>
-            <span class="kv-usage-total muted">未绑定</span>
-          </div>
-          <div class="kv-usage-empty pad-xs">
-            <i class="fas fa-plug-circle-xmark" style="font-size:1.2rem"></i>
-            <span class="tiny-muted">
-              未检测到 R2 桶绑定。如需监控 R2 用量，请在 Pages 项目设置中绑定 R2 桶，
-              或通过环境变量 <code class="kv-code">R2_BUCKET_NAMES</code> 指定桶名。
-            </span>
-          </div>
-        </div>
-        </template>
-
-        <!-- R2 已绑定：v-for + v-else 在 Vue 3 中不可同标签共存，改用 template 包裹 -->
-        <template v-for="r2 in kvUsage.r2Buckets" :key="r2.binding">
-        <div class="kv-usage-block">
-          <div class="kv-usage-label">
-            <span>
-              <i class="fas fa-cloud"></i> R2 · {{ r2.bucketName }}
-              <span v-if="r2.source === 'env'" class="badge-env">环境变量</span>
-            </span>
-            <span class="kv-usage-total">
-              {{ formatSize(r2.storage.usedBytes) }}<template v-if="r2.storage.totalBytes"> / {{ formatSize(r2.storage.totalBytes) }}</template>
-            </span>
-          </div>
-
-          <div v-if="r2.error" class="kv-usage-empty pad-sm">
-            <i class="fas fa-triangle-exclamation"></i>
-            <span class="tiny">{{ r2.error }}</span>
-          </div>
-
-          <template v-else>
-            <div class="progress progress--lg" v-if="r2.storage.totalBytes">
-              <div class="progress__val"
-                   :class="{ warn: (r2.storage.usagePercent || 0) > 70 && (r2.storage.usagePercent || 0) <= 90, danger: (r2.storage.usagePercent || 0) > 90 }"
-                   :style="{ transform: 'scaleX(' + Math.min(100, r2.storage.usagePercent || 0) / 100 + ')' }"></div>
-            </div>
-            <div class="kv-usage-meta">
-              <span>对象数 <strong>{{ r2.storage.objectCount }}</strong></span>
-              <span v-if="r2.storage.uploadCount">分片上传 <strong>{{ r2.storage.uploadCount }}</strong></span>
-              <span v-if="r2.storage.totalBytes">已用 <strong>{{ (r2.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
-              <span v-else>付费计划 · 按量计费</span>
-            </div>
-
-            <div class="kv-ops-grid" style="margin-top:10px">
-              <template v-for="op in r2OpDefs" :key="op.key">
-                <div class="kv-op-item" v-if="r2.operations && r2.operations[op.key]">
-                  <div class="kv-op-head">
-                    <i :class="op.icon" :style="{color: op.color}"></i>
-                    <span>{{ op.label }}</span>
-                  </div>
-                  <div class="kv-op-bar">
-                    <div class="kv-op-bar-inner"
-                         :style="{ transform: 'scaleX(' + opPercent(r2.operations[op.key]) / 100 + ')', background: op.color }"></div>
-                  </div>
-                  <div class="kv-op-nums">
-                    <span>{{ (r2.operations[op.key] && r2.operations[op.key].used) || 0 }} / {{ (r2.operations[op.key] && r2.operations[op.key].limit) || 0 }}</span>
-                    <span class="kv-op-remain"
-                          :class="{ low: isOpLow(r2.operations[op.key]) }"
-                          v-if="r2.operations[op.key].remaining !== null">
-                      剩余 {{ r2.operations[op.key].remaining }}
-                    </span>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </template>
-        </div>
-        </template>
-
-        <!-- D1 未绑定 -->
-        <div class="kv-usage-block" v-if="!kvUsage.d1Available">
-          <div class="kv-usage-label">
-            <span><i class="fas fa-table"></i> D1 数据库</span>
-            <span class="kv-usage-total muted">未绑定</span>
-          </div>
-          <div class="kv-usage-empty pad-xs">
-            <i class="fas fa-database" style="font-size:1.2rem"></i>
-            <span class="tiny-muted">
-              未检测到 D1 绑定，元数据目前完全存放在 KV。
-              如需启用 SQL 分页与原子下载计数，请在 Pages 设置 → Functions → D1 database bindings
-              绑定一个数据库，变量名填 <code class="kv-code">DB</code>。
-            </span>
-          </div>
-        </div>
-
-        <!-- D1 已绑定 -->
-        <div class="kv-usage-block" v-else>
-          <div class="kv-usage-label">
-            <span><i class="fas fa-table"></i> D1 数据库 · 存储</span>
-            <span class="kv-usage-total">
-              <template v-if="kvUsage.d1.storage.sizeEstimated">—</template>
-              <template v-else>{{ formatSize(kvUsage.d1.storage.usedBytes) }}<template v-if="kvUsage.d1.storage.totalBytes"> / {{ formatSize(kvUsage.d1.storage.totalBytes) }}</template></template>
-            </span>
-          </div>
-
-          <div class="progress progress--lg" v-if="kvUsage.d1.storage.totalBytes && !kvUsage.d1.storage.sizeEstimated" :key="'d1-'+kvUsage.d1.storage.usagePercent">
-            <div class="progress__val"
-                 :class="{ warn: (kvUsage.d1.storage.usagePercent || 0) > 70 && (kvUsage.d1.storage.usagePercent || 0) <= 90, danger: (kvUsage.d1.storage.usagePercent || 0) > 90 }"
-                 :style="{ transform: 'scaleX(' + Math.min(100, kvUsage.d1.storage.usagePercent || 0) / 100 + ')' }"></div>
-          </div>
-
-          <div class="kv-usage-meta">
-            <span>表 <strong>{{ kvUsage.d1.storage.tableCount }}/{{ kvUsage.d1.storage.expectedTableCount }}</strong></span>
-            <span v-for="(n, t) in kvUsage.d1.storage.rowsByTable" :key="t">{{ t }} <strong>{{ n == null ? '—' : n }}</strong></span>
-            <span v-if="kvUsage.d1.storage.totalBytes && !kvUsage.d1.storage.sizeEstimated">已用 <strong>{{ (kvUsage.d1.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
-            <span v-else-if="kvUsage.d1.storage.sizeEstimated">大小不可用（未返回 size_after）</span>
-          </div>
-
-          <div v-if="!kvUsage.d1.schema.healthy" class="kv-usage-empty pad-sm">
-            <i class="fas fa-triangle-exclamation"></i>
-            <span class="tiny">{{ kvUsage.d1.schema.error || ('迁移缺失：' + kvUsage.d1.schema.missing.join(', ')) }}</span>
-          </div>
-
-          <template v-if="kvUsage.d1.operations">
-            <div class="kv-usage-label" style="margin-top:12px">
-              <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本周期行数' : '今日行数' }}</span>
-            </div>
-            <div class="kv-ops-grid">
-              <template v-for="op in d1OpDefs" :key="op.key">
-                <div class="kv-op-item" v-if="kvUsage.d1.operations[op.key]">
-                  <div class="kv-op-head">
-                    <i :class="op.icon" :style="{color: op.color}"></i>
-                    <span>{{ op.label }}</span>
-                  </div>
-                  <div class="kv-op-bar">
-                    <div class="kv-op-bar-inner"
-                         :style="{ transform: 'scaleX(' + opPercent(kvUsage.d1.operations[op.key]) / 100 + ')', background: op.color }"></div>
-                  </div>
-                  <div class="kv-op-nums">
-                    <span>{{ (kvUsage.d1.operations[op.key] && kvUsage.d1.operations[op.key].used) || 0 }} / {{ (kvUsage.d1.operations[op.key] && kvUsage.d1.operations[op.key].limit) || 0 }}</span>
-                    <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.d1.operations[op.key]) }">
-                      剩余 {{ (kvUsage.d1.operations[op.key] && kvUsage.d1.operations[op.key].remaining) || 0 }}
-                    </span>
-                  </div>
-                </div>
-              </template>
-            </div>
-            <div class="kv-usage-meta" v-if="kvUsage.d1.queries">
-              <span>查询次数 读 <strong>{{ kvUsage.d1.queries.read }}</strong> · 写 <strong>{{ kvUsage.d1.queries.write }}</strong></span>
-            </div>
-          </template>
-
-          <div v-if="kvUsage.d1.analyticsError" class="kv-usage-empty pad-xs">
-            <i class="fas fa-circle-info"></i>
-            <span class="tiny-muted">{{ kvUsage.d1.analyticsError }}</span>
-          </div>
-        </div>
-
-        <div class="kv-usage-footer">
-          <i class="fas fa-clock"></i> {{ kvUsage.planType === 'paid' ? '按月计费，超出按量付费' : 'KV 每日 00:00 UTC 重置 · R2 按月重置' }}
-        </div>
-      </div>
-      </transition>
-    </div>
-    </transition>
-  </section>
 
   <!-- ===== 主布局 ===== -->
   <!-- 左侧「目录管理」树已移除：文件夹改为与文件同列的卡片，排在内容区里
@@ -1859,49 +1729,268 @@ html[data-perf="low"] .ambient-orb{animation:none}
     </section>
   </div>
 
-  <!-- ===== 底部批量操作栏（进出场由 <transition name="bar"> 统一负责） ===== -->
-  <transition name="bar">
-  <div class="batch-dock" v-if="selectedFiles.length">
-    <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
-    <div class="batch-dock__actions">
-      <button class="dock-act" @click="batchCopy" title="复制所选文件的直链"><i class="fas fa-link"></i><span>复制链接</span></button>
-      <button class="dock-act" @click="openBundleShare()" title="生成分享链接（单个或多个文件均可）"><i class="fas fa-share-nodes"></i><span>分享</span></button>
-      <button class="dock-act" @click="openMove()" title="把所选文件移动到其它目录"><i class="fas fa-folder-tree"></i><span>移动到</span></button>
-      <button class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
-      <button class="dock-act danger" @click="batchDelete" title="批量删除"><i class="fas fa-trash"></i><span>删除</span></button>
-      <button class="dock-act" @click="clearSelection" title="取消选择"><i class="fas fa-xmark"></i><span>取消</span></button>
-    </div>
-  </div>
-  </transition>
+  </section>
+  <!-- /① 文件浏览（工具栏 + 工具箱 + 文件列表） -->
 
-  <!-- ===== 通用对话框（遮罩淡入 + 面板回弹放大）
-       注意：危险操作点遮罩不关闭（HIG：不可逆操作不得因误触外部而取消）
-       ============================================================ -->
-  <transition name="dialog">
-  <div class="overlay dialog-overlay" v-if="dialog.visible" @click.self="dialog.danger || dialogCancel()">
-    <div class="dialog-panel">
-      <h2 class="dialog-title" :class="{danger: dialog.danger}">
-        <i :class="dialog.danger ? 'fas fa-triangle-exclamation' : 'fas fa-circle-info'"></i>
-        <span>{{ dialog.title }}</span>
-      </h2>
-      <div class="dialog-message" v-if="dialog.message" v-html="dialog.message"></div>
-      <div class="dialog-message" v-if="dialog.html" v-html="dialog.html"></div>
-      <input v-if="dialog.input" ref="dialogInput" class="dialog-input" type="text"
-             v-model="dialog.value" @keyup.enter="dialogOk" :placeholder="dialog.placeholder||''">
-      <div class="dialog-actions">
-        <button class="btn" @click="dialogCancel" v-if="dialog.showCancel!==false">取消</button>
-        <button class="btn" :class="dialog.danger ? 'btn--danger-solid' : 'btn--primary'" @click="dialogOk">
-          {{ dialog.okText || '确定' }}
-        </button>
+  <!-- ③ 存储与上传：用量监控 / 上传设置 / 隔空投送 -->
+  <section class="section" data-section="storage" v-show="activeSection==='storage'">
+
+    <!-- ===== KV / R2 / D1 用量监控（进场走 panelIn，内部错峰） =====
+         原为可折叠面板，现改为常驻卡片：数据由 onSectionEnter('storage') 加载。 -->
+    <section class="liquid-card">
+    <div class="kv-usage-panel">
+      <div class="kv-usage-head">
+        <span class="kv-usage-title">
+          <i class="fas fa-chart-pie" :class="{'is-settling': kvUsage.loading}"></i> 用量监控
+          <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.planType" :key="kvUsage.planType">
+            {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
+          </span>
+          <span class="kv-usage-date" v-if="kvUsage.date">{{ kvUsage.date }}</span>
+        </span>
+        <div class="kv-usage-actions">
+          <button class="mini-icon-btn" @click="loadKvUsage" :disabled="kvUsage.loading" title="刷新">
+            <i class="fas fa-rotate" :class="{'fa-spin':kvUsage.loading}"></i>
+          </button>
+        </div>
       </div>
-    </div>
-  </div>
-  </transition>
 
-  <!-- ===== 上传设置（访客上传开关 + 限额）===== -->
-  <transition name="dialog">
-  <div class="overlay" v-if="settingsPanelVisible" @click.self="closeSettingsPanel">
-    <div class="dialog-panel wide">
+      <transition name="pop">
+      <div class="kv-usage-warn" v-if="kvUsage.detectionError">
+        <i class="fas fa-triangle-exclamation"></i>
+        <span>计划检测失败（已回退到免费计划）：{{ kvUsage.detectionError }}。如需准确显示，请为 API Token 添加 <b>Account Settings:Read</b> 权限。</span>
+      </div>
+      </transition>
+
+      <transition name="fade" mode="out-in">
+      <div v-if="!kvUsage.configured && !kvUsage.loading" class="kv-usage-empty" key="no-cfg">
+        <i class="fas fa-plug-circle-xmark"></i>
+        <span>{{ kvUsage.error || '未检测到 KV 或 R2 绑定，请检查 Pages 项目设置' }}</span>
+      </div>
+
+      <div v-else-if="kvUsage.loading" class="kv-usage-empty" key="loading">
+        <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
+        <span>正在查询用量...</span>
+      </div>
+
+      <div v-else class="kv-usage-body" key="body">
+
+        <!-- KV 存储用量 -->
+        <div class="kv-usage-block" v-if="kvUsage.kv">
+          <div class="kv-usage-label">
+            <span><i class="fas fa-database"></i> KV 存储用量</span>
+            <span class="kv-usage-total">
+              {{ formatSize(kvUsage.kv.storage.usedBytes) }}<template v-if="kvUsage.kv.storage.totalBytes"> / {{ formatSize(kvUsage.kv.storage.totalBytes) }}</template>
+            </span>
+          </div>
+
+          <div v-if="kvUsage.kv.error" class="kv-usage-empty pad-sm">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span class="tiny">{{ kvUsage.kv.error }}</span>
+          </div>
+
+          <template v-else>
+            <div class="progress progress--lg" v-if="kvUsage.kv.storage.totalBytes" :key="'kv-'+kvUsage.kv.storage.usagePercent">
+              <div class="progress__val"
+                   :class="{ warn: (kvUsage.kv.storage.usagePercent || 0) > 70 && (kvUsage.kv.storage.usagePercent || 0) <= 90, danger: (kvUsage.kv.storage.usagePercent || 0) > 90 }"
+                   :style="{ transform: 'scaleX(' + Math.min(100, kvUsage.kv.storage.usagePercent || 0) / 100 + ')' }"></div>
+            </div>
+            <div class="kv-usage-meta">
+              <span>键数量 <strong>{{ kvUsage.kv.storage.keyCount }}</strong></span>
+              <span v-if="kvUsage.kv.storage.totalBytes">已用 <strong>{{ (kvUsage.kv.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
+              <span v-else>付费计划 · 存储按量计费</span>
+            </div>
+
+            <!-- 标题在内容之前（原来挂在了操作项下方） -->
+            <div class="kv-usage-label" style="margin-top:12px">
+              <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本月操作次数' : '今日操作次数' }}</span>
+            </div>
+            <div class="kv-ops-grid">
+              <template v-for="op in kvOpDefs" :key="op.key">
+                <div class="kv-op-item" v-if="kvUsage.kv.operations[op.key]">
+                  <div class="kv-op-head">
+                    <i :class="op.icon" :style="{color: op.color}"></i>
+                    <span>{{ op.label }}</span>
+                  </div>
+                  <div class="kv-op-bar">
+                    <div class="kv-op-bar-inner"
+                         :style="{ transform: 'scaleX(' + opPercent(kvUsage.kv.operations[op.key]) / 100 + ')', background: op.color }"></div>
+                  </div>
+                  <div class="kv-op-nums">
+                    <span>{{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].used) || 0 }} / {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].limit) || 0 }}</span>
+                    <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.kv.operations[op.key]) }">
+                      剩余 {{ (kvUsage.kv.operations[op.key] && kvUsage.kv.operations[op.key].remaining) || 0 }}
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+
+        <!-- R2 未绑定 -->
+        <template v-if="!kvUsage.r2Available">
+        <div class="kv-usage-block">
+          <div class="kv-usage-label">
+            <span><i class="fas fa-cloud"></i> R2 对象存储</span>
+            <span class="kv-usage-total muted">未绑定</span>
+          </div>
+          <div class="kv-usage-empty pad-xs">
+            <i class="fas fa-plug-circle-xmark" style="font-size:1.2rem"></i>
+            <span class="tiny-muted">
+              未检测到 R2 桶绑定。如需监控 R2 用量，请在 Pages 项目设置中绑定 R2 桶，
+              或通过环境变量 <code class="kv-code">R2_BUCKET_NAMES</code> 指定桶名。
+            </span>
+          </div>
+        </div>
+        </template>
+
+        <!-- R2 已绑定：v-for + v-else 在 Vue 3 中不可同标签共存，改用 template 包裹 -->
+        <template v-for="r2 in kvUsage.r2Buckets" :key="r2.binding">
+        <div class="kv-usage-block">
+          <div class="kv-usage-label">
+            <span>
+              <i class="fas fa-cloud"></i> R2 · {{ r2.bucketName }}
+              <span v-if="r2.source === 'env'" class="badge-env">环境变量</span>
+            </span>
+            <span class="kv-usage-total">
+              {{ formatSize(r2.storage.usedBytes) }}<template v-if="r2.storage.totalBytes"> / {{ formatSize(r2.storage.totalBytes) }}</template>
+            </span>
+          </div>
+
+          <div v-if="r2.error" class="kv-usage-empty pad-sm">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span class="tiny">{{ r2.error }}</span>
+          </div>
+
+          <template v-else>
+            <div class="progress progress--lg" v-if="r2.storage.totalBytes">
+              <div class="progress__val"
+                   :class="{ warn: (r2.storage.usagePercent || 0) > 70 && (r2.storage.usagePercent || 0) <= 90, danger: (r2.storage.usagePercent || 0) > 90 }"
+                   :style="{ transform: 'scaleX(' + Math.min(100, r2.storage.usagePercent || 0) / 100 + ')' }"></div>
+            </div>
+            <div class="kv-usage-meta">
+              <span>对象数 <strong>{{ r2.storage.objectCount }}</strong></span>
+              <span v-if="r2.storage.uploadCount">分片上传 <strong>{{ r2.storage.uploadCount }}</strong></span>
+              <span v-if="r2.storage.totalBytes">已用 <strong>{{ (r2.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
+              <span v-else>付费计划 · 按量计费</span>
+            </div>
+
+            <div class="kv-ops-grid" style="margin-top:10px">
+              <template v-for="op in r2OpDefs" :key="op.key">
+                <div class="kv-op-item" v-if="r2.operations && r2.operations[op.key]">
+                  <div class="kv-op-head">
+                    <i :class="op.icon" :style="{color: op.color}"></i>
+                    <span>{{ op.label }}</span>
+                  </div>
+                  <div class="kv-op-bar">
+                    <div class="kv-op-bar-inner"
+                         :style="{ transform: 'scaleX(' + opPercent(r2.operations[op.key]) / 100 + ')', background: op.color }"></div>
+                  </div>
+                  <div class="kv-op-nums">
+                    <span>{{ (r2.operations[op.key] && r2.operations[op.key].used) || 0 }} / {{ (r2.operations[op.key] && r2.operations[op.key].limit) || 0 }}</span>
+                    <span class="kv-op-remain"
+                          :class="{ low: isOpLow(r2.operations[op.key]) }"
+                          v-if="r2.operations[op.key].remaining !== null">
+                      剩余 {{ r2.operations[op.key].remaining }}
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+        </template>
+
+        <!-- D1 未绑定 -->
+        <div class="kv-usage-block" v-if="!kvUsage.d1Available">
+          <div class="kv-usage-label">
+            <span><i class="fas fa-table"></i> D1 数据库</span>
+            <span class="kv-usage-total muted">未绑定</span>
+          </div>
+          <div class="kv-usage-empty pad-xs">
+            <i class="fas fa-database" style="font-size:1.2rem"></i>
+            <span class="tiny-muted">
+              未检测到 D1 绑定，元数据目前完全存放在 KV。
+              如需启用 SQL 分页与原子下载计数，请在 Pages 设置 → Functions → D1 database bindings
+              绑定一个数据库，变量名填 <code class="kv-code">DB</code>。
+            </span>
+          </div>
+        </div>
+
+        <!-- D1 已绑定 -->
+        <div class="kv-usage-block" v-else>
+          <div class="kv-usage-label">
+            <span><i class="fas fa-table"></i> D1 数据库 · 存储</span>
+            <span class="kv-usage-total">
+              <template v-if="kvUsage.d1.storage.sizeEstimated">—</template>
+              <template v-else>{{ formatSize(kvUsage.d1.storage.usedBytes) }}<template v-if="kvUsage.d1.storage.totalBytes"> / {{ formatSize(kvUsage.d1.storage.totalBytes) }}</template></template>
+            </span>
+          </div>
+
+          <div class="progress progress--lg" v-if="kvUsage.d1.storage.totalBytes && !kvUsage.d1.storage.sizeEstimated" :key="'d1-'+kvUsage.d1.storage.usagePercent">
+            <div class="progress__val"
+                 :class="{ warn: (kvUsage.d1.storage.usagePercent || 0) > 70 && (kvUsage.d1.storage.usagePercent || 0) <= 90, danger: (kvUsage.d1.storage.usagePercent || 0) > 90 }"
+                 :style="{ transform: 'scaleX(' + Math.min(100, kvUsage.d1.storage.usagePercent || 0) / 100 + ')' }"></div>
+          </div>
+
+          <div class="kv-usage-meta">
+            <span>表 <strong>{{ kvUsage.d1.storage.tableCount }}/{{ kvUsage.d1.storage.expectedTableCount }}</strong></span>
+            <span v-for="(n, t) in kvUsage.d1.storage.rowsByTable" :key="t">{{ t }} <strong>{{ n == null ? '—' : n }}</strong></span>
+            <span v-if="kvUsage.d1.storage.totalBytes && !kvUsage.d1.storage.sizeEstimated">已用 <strong>{{ (kvUsage.d1.storage.usagePercent || 0).toFixed(1) }}%</strong></span>
+            <span v-else-if="kvUsage.d1.storage.sizeEstimated">大小不可用（未返回 size_after）</span>
+          </div>
+
+          <div v-if="!kvUsage.d1.schema.healthy" class="kv-usage-empty pad-sm">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span class="tiny">{{ kvUsage.d1.schema.error || ('迁移缺失：' + kvUsage.d1.schema.missing.join(', ')) }}</span>
+          </div>
+
+          <template v-if="kvUsage.d1.operations">
+            <div class="kv-usage-label" style="margin-top:12px">
+              <span><i class="fas fa-bolt"></i> {{ kvUsage.planType === 'paid' ? '本周期行数' : '今日行数' }}</span>
+            </div>
+            <div class="kv-ops-grid">
+              <template v-for="op in d1OpDefs" :key="op.key">
+                <div class="kv-op-item" v-if="kvUsage.d1.operations[op.key]">
+                  <div class="kv-op-head">
+                    <i :class="op.icon" :style="{color: op.color}"></i>
+                    <span>{{ op.label }}</span>
+                  </div>
+                  <div class="kv-op-bar">
+                    <div class="kv-op-bar-inner"
+                         :style="{ transform: 'scaleX(' + opPercent(kvUsage.d1.operations[op.key]) / 100 + ')', background: op.color }"></div>
+                  </div>
+                  <div class="kv-op-nums">
+                    <span>{{ (kvUsage.d1.operations[op.key] && kvUsage.d1.operations[op.key].used) || 0 }} / {{ (kvUsage.d1.operations[op.key] && kvUsage.d1.operations[op.key].limit) || 0 }}</span>
+                    <span class="kv-op-remain" :class="{ low: isOpLow(kvUsage.d1.operations[op.key]) }">
+                      剩余 {{ (kvUsage.d1.operations[op.key] && kvUsage.d1.operations[op.key].remaining) || 0 }}
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div class="kv-usage-meta" v-if="kvUsage.d1.queries">
+              <span>查询次数 读 <strong>{{ kvUsage.d1.queries.read }}</strong> · 写 <strong>{{ kvUsage.d1.queries.write }}</strong></span>
+            </div>
+          </template>
+
+          <div v-if="kvUsage.d1.analyticsError" class="kv-usage-empty pad-xs">
+            <i class="fas fa-circle-info"></i>
+            <span class="tiny-muted">{{ kvUsage.d1.analyticsError }}</span>
+          </div>
+        </div>
+
+        <div class="kv-usage-footer">
+          <i class="fas fa-clock"></i> {{ kvUsage.planType === 'paid' ? '按月计费，超出按量付费' : 'KV 每日 00:00 UTC 重置 · R2 按月重置' }}
+        </div>
+      </div>
+      </transition>
+    </div>
+    </section>
+
+
+    <!-- ===== 上传设置（原模态，已内联为板块内容） ===== -->
+    <section class="liquid-card panel-inline">
       <h2 class="dialog-title">
         <i class="fas fa-user-lock"></i>
         <span>上传设置</span>
@@ -2008,24 +2097,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
           </div>
         </div>
 
-        <div class="dialog-actions mt">
-          <button class="btn" @click="resetGuestSettings" :disabled="settingsSaving || (settingsSource !== 'kv' && storageSource !== 'kv')"
-                  title="清除 KV 覆盖，回退到环境变量取值">恢复默认</button>
-          <button class="btn" @click="closeSettingsPanel">取消</button>
-          <button class="btn btn--primary" @click="saveGuestSettings" :disabled="settingsSaving">
-            <i class="fas" :class="settingsSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i>
-            {{ settingsSaving ? '保存中...' : '保存' }}
-          </button>
-        </div>
       </template>
-    </div>
-  </div>
-  </transition>
+    </section>
 
-  <!-- ===== 隔空投送（Beta）：访客使用权限 + 使用情况 ===== -->
-  <transition name="dialog">
-  <div class="overlay" v-if="airdropPanelVisible" @click.self="closeAirdropPanel">
-    <div class="dialog-panel wide">
+    <!-- ===== 隔空投送（原模态，已内联为板块内容） ===== -->
+    <section class="liquid-card panel-inline">
       <h2 class="dialog-title">
         <i class="fas fa-paper-plane"></i>
         <span>隔空投送</span>
@@ -2190,239 +2266,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
           </div>
         </div>
 
-        <div class="dialog-actions mt">
-          <button class="btn" @click="resetAirdropSettings" :disabled="airdropSaving || airdropSource !== 'kv'"
-                  title="清除 KV 覆盖，回退到环境变量取值">恢复默认</button>
-          <button class="btn btn--danger" @click="clearAirdropStats" :disabled="airdropStatsLoading"
-                  title="清空使用统计（不影响进行中的房间）">清空记录</button>
-          <button class="btn" @click="closeAirdropPanel">取消</button>
-          <button class="btn btn--primary" @click="saveAirdropSettings" :disabled="airdropSaving">
-            <i class="fas" :class="airdropSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i>
-            {{ airdropSaving ? '保存中...' : '保存' }}
-          </button>
-        </div>
       </template>
-    </div>
-  </div>
-  </transition>
+    </section>
+  </section>
 
-  <!-- ===== 站点品牌（自定义网站名 / 标题） ===== -->
-  <transition name="dialog">
-  <div class="overlay" v-if="brandingPanelVisible" @click.self="closeBrandingPanel">
-    <div class="dialog-panel wide">
-      <h2 class="dialog-title">
-        <i class="fas fa-signature"></i>
-        <span>网站信息</span>
-      </h2>
-      <div class="dialog-message">
-        自定义站点对外的<strong>显示名称</strong>与浏览器<strong>标签标题</strong>。保存在 <code class="kv-code">KV</code> 运行时配置，<strong>保存后立即对所有页面生效</strong>，无需重新部署。留空即恢复默认（{{ brandingEnvBaseline.siteName }}）。
-      </div>
-
-      <div class="token-section">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas fa-tag"></i>
-            <span>网站名称与标题</span>
-          </h3>
-          <span class="badge-env" v-if="brandingSource === 'kv'">KV 覆盖中</span>
-          <span class="badge-env" v-else>来自环境变量</span>
-        </div>
-
-        <div class="token-field">
-          <label>网站名字（站点显示名）</label>
-          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteName"
-                 placeholder="如：一云 / My Drive" />
-          <small class="field-hint">显示在首页品牌区、分享页与各类页眉。环境变量基线：{{ brandingEnvBaseline.siteName }}</small>
-        </div>
-
-        <div class="token-field">
-          <label>网站标题（浏览器标签）</label>
-          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
-                 placeholder="如：K-Vault-NEXT" />
-          <small class="field-hint">显示在浏览器标签页与社交分享卡片标题。环境变量基线：{{ brandingEnvBaseline.siteTitle }}</small>
-        </div>
-
-        <div class="settings-note" v-if="brandingSource === 'kv'">
-          <i class="fas fa-circle-info"></i>
-          <span>当前为<strong>后台自定义值</strong>：所有页面会立即使用上方名称与标题。清空输入框并保存即可恢复默认。</span>
-        </div>
-        <div class="settings-note" v-else>
-          <i class="fas fa-circle-info"></i>
-          <span>当前取环境变量（或默认 {{ brandingEnvBaseline.siteName }}）。在此填写并保存将写入 <code class="kv-code">KV</code> 覆盖它。</span>
-        </div>
-      </div>
-
-      <div class="dialog-actions mt">
-        <button class="btn" @click="resetBrandingSettings" :disabled="brandingSaving || brandingSource !== 'kv'"
-                title="清除 KV 覆盖，回退到环境变量 / 默认值">恢复默认</button>
-        <button class="btn" @click="closeBrandingPanel">取消</button>
-        <button class="btn btn--primary" @click="saveBrandingSettings" :disabled="brandingSaving">
-          <i class="fas" :class="brandingSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'"></i>
-          {{ brandingSaving ? '保存中...' : '保存' }}
-        </button>
-      </div>
-    </div>
-  </div>
-  </transition>
-
-  <!-- ===== API Token 管理 ===== -->
-  <transition name="dialog">
-  <div class="overlay" v-if="tokenPanelVisible" @click.self="closeTokenPanel">
-    <div class="dialog-panel wide">
-      <h2 class="dialog-title">
-        <i class="fas fa-key"></i>
-        <span>API Token 管理</span>
-      </h2>
-      <div class="dialog-message">
-        面向机器客户端（curl / ShareX / 脚本 / Agent）的长期凭据，与网页登录态完全隔离。密钥<strong>仅在创建或轮换时返回一次</strong>，请立即保存。
-      </div>
-
-      <!-- 一次性密钥展示 -->
-      <transition name="pop">
-      <div class="token-secret" v-if="tokenSecret">
-        <div class="token-secret-title">
-          <i class="fas fa-circle-check"></i>
-          <span>{{ tokenSecret.mode === 'rotate' ? '已轮换：新密钥仅显示这一次，旧密钥立即失效' : '创建成功：密钥仅显示这一次' }}</span>
-        </div>
-        <div class="token-secret-value">
-          <code>{{ tokenSecret.token }}</code>
-          <button class="btn" @click="copyTokenText(tokenSecret.token, '密钥已复制')"><i class="fas fa-copy"></i> 复制</button>
-          <button class="mini-icon-btn" @click="tokenSecret = null" title="我已保存，隐藏"><i class="fas fa-xmark"></i></button>
-        </div>
-      </div>
-      </transition>
-
-      <!-- 创建 / 编辑 -->
-      <div class="token-section">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas" :class="tokenEditingId ? 'fa-pen-to-square' : 'fa-plus'"></i>
-            <span>{{ tokenEditingId ? ('编辑 Token：' + tokenEditingId) : '新建 Token' }}</span>
-          </h3>
-          <button class="btn" v-if="tokenEditingId" @click="resetTokenForm">取消编辑</button>
-        </div>
-
-        <div class="token-grid">
-          <div class="token-field" v-if="!tokenEditingId">
-            <label>名称</label>
-            <input class="token-input" v-model="tokenForm.name" placeholder="例如 blog-bot" @keyup.enter="submitTokenForm">
-          </div>
-          <div class="token-field">
-            <label>有效期</label>
-            <select class="token-select" v-model.number="tokenForm.expiresInSeconds">
-              <option :value="0">永久</option>
-              <option :value="604800">7 天</option>
-              <option :value="2592000">30 天</option>
-              <option :value="7776000">90 天</option>
-              <option :value="31536000">365 天</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="token-field">
-          <label>权限（scopes）</label>
-          <div class="token-chips">
-            <button class="token-chip" v-for="s in tokenScopeCatalog" :key="s.value"
-                    :class="{active: tokenForm.scopes.includes(s.value)}"
-                    :title="s.desc" @click="toggleTokenScope(s.value)">
-              <i class="fas fa-check" v-if="tokenForm.scopes.includes(s.value)"></i>{{ s.label }}
-            </button>
-          </div>
-          <div class="token-hint">未勾选任何权限的 Token 无法调用任何 API。</div>
-        </div>
-
-        <div class="token-field">
-          <label>策略：限定存储后端（留空 = 不限制）</label>
-          <div class="token-chips">
-            <button class="token-chip" v-for="name in tokenPolicyStorages" :key="name"
-                    :class="{active: tokenForm.allowedStorages.includes(name)}"
-                    @click="toggleTokenStorage(name)">
-              <i class="fas fa-check" v-if="tokenForm.allowedStorages.includes(name)"></i>{{ name }}
-            </button>
-          </div>
-        </div>
-
-        <div class="token-grid">
-          <div class="token-field">
-            <label>策略：目录前缀</label>
-            <input class="token-input" v-model="tokenForm.folderPrefix" placeholder="例如 blog（留空 = 不限制）">
-          </div>
-          <div class="token-field">
-            <label>策略：单文件上限（MB）</label>
-            <input class="token-input" type="number" min="0" v-model.number="tokenForm.maxFileSizeMb" placeholder="0 = 不限制">
-          </div>
-        </div>
-
-        <div class="token-field">
-          <label class="checkbox-row">
-            <input type="checkbox" v-model="tokenForm.enabled">
-            <span>启用该 Token</span>
-          </label>
-        </div>
-
-        <div class="dialog-actions">
-          <button class="btn btn--primary" :disabled="tokenSubmitting" @click="submitTokenForm">
-            <i class="fas" :class="tokenSubmitting ? 'fa-circle-notch fa-spin' : (tokenEditingId ? 'fa-floppy-disk' : 'fa-key')"></i>
-            {{ tokenSubmitting ? '提交中…' : (tokenEditingId ? '保存修改' : '创建 Token') }}
-          </button>
-        </div>
-      </div>
-
-      <div class="token-divider"></div>
-
-      <!-- 列表 -->
-      <div class="token-section no-margin">
-        <div class="token-section-head">
-          <h3 class="token-section-title"><i class="fas fa-list"></i><span>已有 Token（{{ tokens.length }}）</span></h3>
-          <button class="btn" :disabled="tokenLoading" @click="loadTokens">
-            <i class="fas" :class="tokenLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
-          </button>
-        </div>
-
-        <transition name="fade" mode="out-in">
-          <div v-if="tokenLoading && !tokens.length" class="token-empty" key="loading"><i class="fas fa-circle-notch fa-spin"></i> 加载中…</div>
-          <div v-else-if="!tokens.length" class="token-empty" key="empty">还没有任何 Token。</div>
-          <transition-group v-else name="list" tag="div" class="token-list" key="list">
-            <div class="token-row" v-for="t in tokens" :key="t.id" :class="{disabled: !t.enabled}">
-              <div class="token-row-top">
-                <span class="token-name">{{ t.name || '未命名' }}</span>
-                <span class="token-preview">{{ t.tokenPreview || t.id }}</span>
-                <span class="token-badge" :class="{off: !t.enabled}" :key="t.enabled ? 'on':'off'">{{ t.enabled ? '启用' : '已禁用' }}</span>
-                <span class="token-badge warn" v-if="isTokenExpired(t)">已过期</span>
-                <div class="token-row-actions">
-                  <button class="mini-icon-btn" @click="startEditToken(t)" title="编辑"><i class="fas fa-pen"></i></button>
-                  <button class="mini-icon-btn" @click="toggleTokenEnabled(t)" :title="t.enabled ? '禁用' : '启用'">
-                    <i class="fas" :class="t.enabled ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
-                  </button>
-                  <button class="mini-icon-btn" @click="rotateToken(t)" title="轮换密钥"><i class="fas fa-rotate"></i></button>
-                  <button class="mini-icon-btn danger" @click="deleteToken(t)" title="删除"><i class="fas fa-trash"></i></button>
-                </div>
-              </div>
-              <div class="token-row-meta">
-                <span><i class="fas fa-shield-halved"></i> {{ (t.scopes && t.scopes.length) ? t.scopes.join(' / ') : '无权限' }}</span>
-                <span><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(t.createdAt) }}</span>
-                <span><i class="fas fa-hourglass-half"></i> {{ formatTokenExpiry(t.expiresAt) }}</span>
-                <span><i class="fas fa-bolt"></i> 调用 {{ t.usageCount || 0 }} 次</span>
-                <span v-if="t.lastUsedAt"><i class="fas fa-history"></i> 最近 {{ formatTokenTime(t.lastUsedAt) }}</span>
-                <span v-if="t.lastOperation"><i class="fas fa-tag"></i> {{ t.lastOperation }}</span>
-                <span v-if="tokenPoliciesLabel(t)"><i class="fas fa-filter"></i> {{ tokenPoliciesLabel(t) }}</span>
-              </div>
-            </div>
-          </transition-group>
-        </transition>
-      </div>
-
-      <div class="dialog-actions mt">
-        <button class="btn" @click="closeTokenPanel">关闭</button>
-      </div>
-    </div>
-  </div>
-  </transition>
-
-  <!-- ===== 分享管理 ===== -->
-  <transition name="dialog">
-  <div class="overlay" v-if="sharePanelVisible" @click.self="closeSharePanel">
-    <div class="dialog-panel wide">
+  <!-- ② 分享管理 -->
+  <section class="section" data-section="shares" v-show="activeSection==='shares'">
+    <!-- ===== 分享管理（原模态，已内联为板块内容） ===== -->
+    <section class="liquid-card panel-inline">
       <h2 class="dialog-title">
         <i class="fas fa-share-nodes"></i>
         <span>分享管理</span>
@@ -2633,13 +2484,243 @@ html[data-perf="low"] .ambient-orb{animation:none}
         </div>
       </template>
 
-      <div class="dialog-actions mt">
-        <button class="btn" @click="closeSharePanel">关闭</button>
+    </section>
+  </section>
+
+  <!-- ④ 系统设置 -->
+  <section class="section" data-section="system" v-show="activeSection==='system'">
+  <!-- ===== 系统设置：网站信息 / API Token（原模态，已内联为板块内容） ===== -->
+  <section class="liquid-card panel-inline">
+    <!-- branding -->
+      <h2 class="dialog-title">
+        <i class="fas fa-signature"></i>
+        <span>网站信息</span>
+      </h2>
+      <div class="dialog-message">
+        自定义站点对外的<strong>显示名称</strong>与浏览器<strong>标签标题</strong>。保存在 <code class="kv-code">KV</code> 运行时配置，<strong>保存后立即对所有页面生效</strong>，无需重新部署。留空即恢复默认（{{ brandingEnvBaseline.siteName }}）。
       </div>
+
+      <div class="token-section">
+        <div class="token-section-head">
+          <h3 class="token-section-title">
+            <i class="fas fa-tag"></i>
+            <span>网站名称与标题</span>
+          </h3>
+          <span class="badge-env" v-if="brandingSource === 'kv'">KV 覆盖中</span>
+          <span class="badge-env" v-else>来自环境变量</span>
+        </div>
+
+        <div class="token-field">
+          <label>网站名字（站点显示名）</label>
+          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteName"
+                 placeholder="如：一云 / My Drive" />
+          <small class="field-hint">显示在首页品牌区、分享页与各类页眉。环境变量基线：{{ brandingEnvBaseline.siteName }}</small>
+        </div>
+
+        <div class="token-field">
+          <label>网站标题（浏览器标签）</label>
+          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
+                 placeholder="如：K-Vault-NEXT" />
+          <small class="field-hint">显示在浏览器标签页与社交分享卡片标题。环境变量基线：{{ brandingEnvBaseline.siteTitle }}</small>
+        </div>
+
+        <div class="settings-note" v-if="brandingSource === 'kv'">
+          <i class="fas fa-circle-info"></i>
+          <span>当前为<strong>后台自定义值</strong>：所有页面会立即使用上方名称与标题。清空输入框并保存即可恢复默认。</span>
+        </div>
+        <div class="settings-note" v-else>
+          <i class="fas fa-circle-info"></i>
+          <span>当前取环境变量（或默认 {{ brandingEnvBaseline.siteName }}）。在此填写并保存将写入 <code class="kv-code">KV</code> 覆盖它。</span>
+        </div>
+      </div>
+
+  </section>
+
+  <section class="liquid-card panel-inline">
+    <!-- token -->
+      <h2 class="dialog-title">
+        <i class="fas fa-key"></i>
+        <span>API Token 管理</span>
+      </h2>
+      <div class="dialog-message">
+        面向机器客户端（curl / ShareX / 脚本 / Agent）的长期凭据，与网页登录态完全隔离。密钥<strong>仅在创建或轮换时返回一次</strong>，请立即保存。
+      </div>
+
+      <!-- 一次性密钥展示 -->
+      <transition name="pop">
+      <div class="token-secret" v-if="tokenSecret">
+        <div class="token-secret-title">
+          <i class="fas fa-circle-check"></i>
+          <span>{{ tokenSecret.mode === 'rotate' ? '已轮换：新密钥仅显示这一次，旧密钥立即失效' : '创建成功：密钥仅显示这一次' }}</span>
+        </div>
+        <div class="token-secret-value">
+          <code>{{ tokenSecret.token }}</code>
+          <button class="btn" @click="copyTokenText(tokenSecret.token, '密钥已复制')"><i class="fas fa-copy"></i> 复制</button>
+          <button class="mini-icon-btn" @click="tokenSecret = null" title="我已保存，隐藏"><i class="fas fa-xmark"></i></button>
+        </div>
+      </div>
+      </transition>
+
+      <!-- 创建 / 编辑 -->
+      <div class="token-section">
+        <div class="token-section-head">
+          <h3 class="token-section-title">
+            <i class="fas" :class="tokenEditingId ? 'fa-pen-to-square' : 'fa-plus'"></i>
+            <span>{{ tokenEditingId ? ('编辑 Token：' + tokenEditingId) : '新建 Token' }}</span>
+          </h3>
+          <button class="btn" v-if="tokenEditingId" @click="resetTokenForm">取消编辑</button>
+        </div>
+
+        <div class="token-grid">
+          <div class="token-field" v-if="!tokenEditingId">
+            <label>名称</label>
+            <input class="token-input" v-model="tokenForm.name" placeholder="例如 blog-bot" @keyup.enter="submitTokenForm">
+          </div>
+          <div class="token-field">
+            <label>有效期</label>
+            <select class="token-select" v-model.number="tokenForm.expiresInSeconds">
+              <option :value="0">永久</option>
+              <option :value="604800">7 天</option>
+              <option :value="2592000">30 天</option>
+              <option :value="7776000">90 天</option>
+              <option :value="31536000">365 天</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="token-field">
+          <label>权限（scopes）</label>
+          <div class="token-chips">
+            <button class="token-chip" v-for="s in tokenScopeCatalog" :key="s.value"
+                    :class="{active: tokenForm.scopes.includes(s.value)}"
+                    :title="s.desc" @click="toggleTokenScope(s.value)">
+              <i class="fas fa-check" v-if="tokenForm.scopes.includes(s.value)"></i>{{ s.label }}
+            </button>
+          </div>
+          <div class="token-hint">未勾选任何权限的 Token 无法调用任何 API。</div>
+        </div>
+
+        <div class="token-field">
+          <label>策略：限定存储后端（留空 = 不限制）</label>
+          <div class="token-chips">
+            <button class="token-chip" v-for="name in tokenPolicyStorages" :key="name"
+                    :class="{active: tokenForm.allowedStorages.includes(name)}"
+                    @click="toggleTokenStorage(name)">
+              <i class="fas fa-check" v-if="tokenForm.allowedStorages.includes(name)"></i>{{ name }}
+            </button>
+          </div>
+        </div>
+
+        <div class="token-grid">
+          <div class="token-field">
+            <label>策略：目录前缀</label>
+            <input class="token-input" v-model="tokenForm.folderPrefix" placeholder="例如 blog（留空 = 不限制）">
+          </div>
+          <div class="token-field">
+            <label>策略：单文件上限（MB）</label>
+            <input class="token-input" type="number" min="0" v-model.number="tokenForm.maxFileSizeMb" placeholder="0 = 不限制">
+          </div>
+        </div>
+
+        <div class="token-field">
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="tokenForm.enabled">
+            <span>启用该 Token</span>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="token-divider"></div>
+
+      <!-- 列表 -->
+      <div class="token-section no-margin">
+        <div class="token-section-head">
+          <h3 class="token-section-title"><i class="fas fa-list"></i><span>已有 Token（{{ tokens.length }}）</span></h3>
+          <button class="btn" :disabled="tokenLoading" @click="loadTokens">
+            <i class="fas" :class="tokenLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
+          </button>
+        </div>
+
+        <transition name="fade" mode="out-in">
+          <div v-if="tokenLoading && !tokens.length" class="token-empty" key="loading"><i class="fas fa-circle-notch fa-spin"></i> 加载中…</div>
+          <div v-else-if="!tokens.length" class="token-empty" key="empty">还没有任何 Token。</div>
+          <transition-group v-else name="list" tag="div" class="token-list" key="list">
+            <div class="token-row" v-for="t in tokens" :key="t.id" :class="{disabled: !t.enabled}">
+              <div class="token-row-top">
+                <span class="token-name">{{ t.name || '未命名' }}</span>
+                <span class="token-preview">{{ t.tokenPreview || t.id }}</span>
+                <span class="token-badge" :class="{off: !t.enabled}" :key="t.enabled ? 'on':'off'">{{ t.enabled ? '启用' : '已禁用' }}</span>
+                <span class="token-badge warn" v-if="isTokenExpired(t)">已过期</span>
+                <div class="token-row-actions">
+                  <button class="mini-icon-btn" @click="startEditToken(t)" title="编辑"><i class="fas fa-pen"></i></button>
+                  <button class="mini-icon-btn" @click="toggleTokenEnabled(t)" :title="t.enabled ? '禁用' : '启用'">
+                    <i class="fas" :class="t.enabled ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
+                  </button>
+                  <button class="mini-icon-btn" @click="rotateToken(t)" title="轮换密钥"><i class="fas fa-rotate"></i></button>
+                  <button class="mini-icon-btn danger" @click="deleteToken(t)" title="删除"><i class="fas fa-trash"></i></button>
+                </div>
+              </div>
+              <div class="token-row-meta">
+                <span><i class="fas fa-shield-halved"></i> {{ (t.scopes && t.scopes.length) ? t.scopes.join(' / ') : '无权限' }}</span>
+                <span><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(t.createdAt) }}</span>
+                <span><i class="fas fa-hourglass-half"></i> {{ formatTokenExpiry(t.expiresAt) }}</span>
+                <span><i class="fas fa-bolt"></i> 调用 {{ t.usageCount || 0 }} 次</span>
+                <span v-if="t.lastUsedAt"><i class="fas fa-history"></i> 最近 {{ formatTokenTime(t.lastUsedAt) }}</span>
+                <span v-if="t.lastOperation"><i class="fas fa-tag"></i> {{ t.lastOperation }}</span>
+                <span v-if="tokenPoliciesLabel(t)"><i class="fas fa-filter"></i> {{ tokenPoliciesLabel(t) }}</span>
+              </div>
+            </div>
+          </transition-group>
+        </transition>
+      </div>
+
+  </section>
+  </section>
+
+  <!-- /① 文件浏览 -->
+
+  <!-- ===== 底部批量操作栏（进出场由 <transition name="bar"> 统一负责） ===== -->
+  <transition name="bar">
+  <div class="batch-dock" v-if="selectedFiles.length">
+    <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
+    <div class="batch-dock__actions">
+      <button class="dock-act" @click="batchCopy" title="复制所选文件的直链"><i class="fas fa-link"></i><span>复制链接</span></button>
+      <button class="dock-act" @click="openBundleShare()" title="生成分享链接（单个或多个文件均可）"><i class="fas fa-share-nodes"></i><span>分享</span></button>
+      <button class="dock-act" @click="openMove()" title="把所选文件移动到其它目录"><i class="fas fa-folder-tree"></i><span>移动到</span></button>
+      <button class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
+      <button class="dock-act danger" @click="batchDelete" title="批量删除"><i class="fas fa-trash"></i><span>删除</span></button>
+      <button class="dock-act" @click="clearSelection" title="取消选择"><i class="fas fa-xmark"></i><span>取消</span></button>
     </div>
   </div>
   </transition>
 
+  </main>
+  <!-- /.section-host -->
+
+  <!-- ===== 通用对话框（遮罩淡入 + 面板回弹放大）
+       注意：危险操作点遮罩不关闭（HIG：不可逆操作不得因误触外部而取消）
+       ============================================================ -->
+  <transition name="dialog">
+  <div class="overlay dialog-overlay" v-if="dialog.visible" @click.self="dialog.danger || dialogCancel()">
+    <div class="dialog-panel">
+      <h2 class="dialog-title" :class="{danger: dialog.danger}">
+        <i :class="dialog.danger ? 'fas fa-triangle-exclamation' : 'fas fa-circle-info'"></i>
+        <span>{{ dialog.title }}</span>
+      </h2>
+      <div class="dialog-message" v-if="dialog.message" v-html="dialog.message"></div>
+      <div class="dialog-message" v-if="dialog.html" v-html="dialog.html"></div>
+      <input v-if="dialog.input" ref="dialogInput" class="dialog-input" type="text"
+             v-model="dialog.value" @keyup.enter="dialogOk" :placeholder="dialog.placeholder||''">
+      <div class="dialog-actions">
+        <button class="btn" @click="dialogCancel" v-if="dialog.showCancel!==false">取消</button>
+        <button class="btn" :class="dialog.danger ? 'btn--danger-solid' : 'btn--primary'" @click="dialogOk">
+          {{ dialog.okText || '确定' }}
+        </button>
+      </div>
+    </div>
+  </div>
+  </transition>
   <!-- ===== 移动文件对话框 ===== -->
   <transition name="dialog">
   <div class="overlay" v-if="moveVisible" @click.self="moveVisible=false">
@@ -2894,6 +2975,36 @@ html[data-perf="low"] .ambient-orb{animation:none}
   </div>
   </transition>
 
+  <!-- ===== 底部 Dock：板块分页导航（复用 index 的高透液态玻璃 + 滑动指示器）
+       四格对应四个板块；可为小数，点击落整数格、拖拽连续跟手。 ===== -->
+  <nav class="dock glass glass-refract"
+       ref="dockEl"
+       :class="{ 'is-dragging': dockDragActive }"
+       :style="{ '--dock-pos': dockDragActive ? dockDrag.pos : dockIndicatorIndex }"
+       @pointerdown="onDockPointerDown"
+       @pointermove="onDockPointerMove"
+       @pointerup="onDockPointerUp"
+       @pointercancel="onDockPointerCancel">
+    <span class="dock__indicator" aria-hidden="true"></span>
+
+    <button class="dock__btn" data-dock-slot="0" :class="{active: activeSection==='files'}"
+            @click="onDockClick(0, () => goSection('files'))">
+      <i class="fas fa-folder-open"></i><span>文件</span>
+    </button>
+    <button class="dock__btn" data-dock-slot="1" :class="{active: activeSection==='shares'}"
+            @click="onDockClick(1, () => goSection('shares'))">
+      <i class="fas fa-share-nodes"></i><span>分享</span>
+    </button>
+    <button class="dock__btn" data-dock-slot="2" :class="{active: activeSection==='storage'}"
+            @click="onDockClick(2, () => goSection('storage'))">
+      <i class="fas fa-cloud-arrow-up"></i><span>存储</span>
+    </button>
+    <button class="dock__btn" data-dock-slot="3" :class="{active: activeSection==='system'}"
+            @click="onDockClick(3, () => goSection('system'))">
+      <i class="fas fa-gear"></i><span>设置</span>
+    </button>
+  </nav>
+
   <!-- ===== Toast（顶部堆叠，可带撤销动作） ===== -->
   <div class="toast-stack" v-if="toasts.length">
     <transition-group name="toast">
@@ -3023,6 +3134,12 @@ const folderNodeComponent = {
   `,
 };
 
+/* ===== 板块分页常量 =====
+   四个板块与 dock 四格一一对应。SECTION_ORDER 决定 hash 合法值与前后顺序；
+   DOCK_SLOT_BY_SECTION 是「板块 -> 指示器格位」的映射（恒为 0..3）。 */
+const SECTION_ORDER = ['files', 'shares', 'storage', 'system'];
+const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, storage: 2, system: 3 };
+
 const __kvApp = Vue.createApp({
   components: {
     'folder-node': folderNodeComponent,
@@ -3030,6 +3147,12 @@ const __kvApp = Vue.createApp({
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
+
+    /* ===== 板块分页（dock 导航） =====
+       activeSection 是唯一真源；URL hash 与之双向同步（见 goSection / mounted）。
+       dockDrag 是滑动指示器的跟手拖拽状态，pos 以「格」为单位（可为小数）。 */
+    activeSection: 'files',
+    dockDrag: { active:false, lock:'', x0:0, y0:0, pos0:0, pos:0, from:-1, to:-1, moved:false, pointerId:-1, el:null },
 
     /* ===== 动效状态 ===== */
     booted: false,
@@ -3198,7 +3321,6 @@ const __kvApp = Vue.createApp({
     ],
 
     /* ================= API Token 管理 ================= */
-    tokenPanelVisible: false,
     tokenLoading: false,
     tokenSubmitting: false,
     tokens: [],
@@ -3222,7 +3344,6 @@ const __kvApp = Vue.createApp({
     },
 
     /* ---------- 上传设置（访客上传 + 存储回滚模式） ---------- */
-    settingsPanelVisible: false,
     settingsLoading: false,
     settingsSaving: false,
     /* 配置来源：kv = 已在后台保存过；env = 取自环境变量 */
@@ -3237,7 +3358,6 @@ const __kvApp = Vue.createApp({
     hasD1Binding: false,
 
     /* ---------- 隔空投送（Beta）：访客使用权限 + 使用情况 ---------- */
-    airdropPanelVisible: false,
     airdropLoading: false,
     airdropSaving: false,
     /* 配置来源：kv = 已在后台保存过；env = 取自环境变量 */
@@ -3254,14 +3374,12 @@ const __kvApp = Vue.createApp({
     airdropStatsError: '',
 
     /* ---------- 站点品牌（自定义网站名 / 标题） ---------- */
-    brandingPanelVisible: false,
     brandingSaving: false,
     brandingSource: 'env',
     brandingEnvBaseline: { siteName: 'K-Vault-NEXT', siteTitle: 'K-Vault-NEXT' },
     brandingForm: { siteName: 'K-Vault-NEXT', siteTitle: 'K-Vault-NEXT' },
 
     /* ---------- 分享管理 ---------- */
-    sharePanelVisible: false,
     sharesLoading: false,
     shares: [],
     shareStats: null,
@@ -3285,6 +3403,24 @@ const __kvApp = Vue.createApp({
   } },
 
   computed: {
+    /* ---------- 板块分页 / Dock ---------- */
+    /* 面板可见性由板块派生：这些面板已内联为板块内容，
+       「打开 X 面板」等价于「切到 X 所在板块」。
+       好处：面板内部那些 `if (this.xxxPanelVisible)` 的刷新守卫语义自动正确。 */
+    settingsPanelVisible()  { return this.activeSection === 'storage'; },
+    airdropPanelVisible()   { return this.activeSection === 'storage'; },
+    sharePanelVisible()     { return this.activeSection === 'shares'; },
+    tokenPanelVisible()     { return this.activeSection === 'system'; },
+    brandingPanelVisible()  { return this.activeSection === 'system'; },
+
+    /* Dock 指示器落点（0-3）：拖拽中用手势的浮点 pos，否则按当前板块查表 */
+    dockIndicatorIndex() {
+      if (this.dockDrag.active && this.dockDrag.lock === 'x') return this.dockDrag.pos;
+      const slot = DOCK_SLOT_BY_SECTION[this.activeSection];
+      return typeof slot === 'number' ? slot : 0;
+    },
+    dockDragActive() { return this.dockDrag.active && this.dockDrag.lock === 'x'; },
+
     /* ---------- 隔空投送 ---------- */
     airdropBackendName() {
       return this.airdropBackend && this.airdropBackend.name ? this.airdropBackend.name : '';
@@ -4232,9 +4368,156 @@ const __kvApp = Vue.createApp({
       }
     },
 
+    /* ================= 板块分页导航（dock） ================= */
+    sectionFromHash() {
+      const h = (location.hash || '').replace(/^#/, '');
+      return SECTION_ORDER.indexOf(h) > -1 ? h : 'files';
+    },
+    /* 切板块唯一入口：改状态 + 写 hash + 触发进入钩子。
+       同一板块重复点击直接返回，避免在浏览器历史里堆栈。 */
+    goSection(name) {
+      if (SECTION_ORDER.indexOf(name) < 0) name = 'files';
+      if (this.activeSection === name) return;
+      this.activeSection = name;
+      try { history.pushState(null, '', '#' + name); } catch (e) { location.hash = name; }
+      this.preview = null;          // 切板块收起预览灯箱，避免悬浮在新板块上
+      this.openMenu = null;
+      window.scrollTo(0, 0);
+      this.onSectionEnter(name);
+    },
+    /* 进入板块时的按需加载：每个板块只在进入时拉自己的数据，
+       避免首屏把四板块的接口一次性打满。 */
+    onSectionEnter(name) {
+      if (name === 'shares') {
+        this.shareFilter = 'all';
+        this.shareSearch = '';
+        this.shareBundleSearch = '';
+        this.loadShares();
+        this.loadShareBundles();
+      } else if (name === 'storage') {
+        this.loadKvUsage();
+        this.loadSettings();
+        this.loadAirdropSettings();
+        this.loadAirdropStats();
+      } else if (name === 'system') {
+        this.loadSettings();
+        this.tokenSecret = null;
+        this.resetTokenForm();
+        this.loadTokens();
+      }
+    },
+
+    /* ================= Dock 滑动指示器：点击 / 跟手拖拽 =================
+       用 Pointer Events 单通道覆盖鼠标 + 触摸；setPointerCapture 让指针移出
+       dock 后仍能收到 move/up。touch-action:pan-y 把纵向留给页面滚动，
+       只在横向明显占优时锁定手势。
+
+       位移模型：位置 = 单一浮点 pos（单位：格）× 步长。
+       pos 为整数 -> 落停某格；为小数 -> 停在两格之间。
+       拖拽只改 pos，不叠加任何像素偏移（双变量叠加是「瞬移」的根因）。 */
+    dockSlotRect() {
+      const dock = this.$refs.dockEl;
+      if (!dock) return null;
+      const r = dock.getBoundingClientRect();
+      const cs = getComputedStyle(dock);
+      const pad = parseFloat(cs.paddingLeft) || 6;
+      const gap = parseFloat(cs.columnGap || cs.gap) || 6;
+      const inner = r.width - pad * 2;
+      const slotW = (inner - gap * 3) / 4;
+      return { r, pad, gap, slotW, inner, step: slotW + gap };
+    },
+    /* 由 clientX 反推最近槽位（0-3），带边界夹取 */
+    dockSlotFromX(clientX) {
+      const g = this.dockSlotRect();
+      if (!g || !g.slotW) return -1;
+      const rel = clientX - g.r.left - g.pad;
+      return Math.max(0, Math.min(3, Math.round(rel / g.step)));
+    },
+    /* 把连续格位置直接写到 DOM（不走响应式，避免每帧 setState 掉帧） */
+    setDockPos(v) {
+      const el = this.$refs.dockEl;
+      if (el) el.style.setProperty('--dock-pos', String(v));
+    },
+    /* 移除内联值，回落到模板里的整数落点，让 CSS 弹簧接手吸附 */
+    clearDockPos() {
+      const el = this.$refs.dockEl;
+      if (el) el.style.removeProperty('--dock-pos');
+    },
+    onDockPointerDown(e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      const btn = e.target && e.target.closest ? e.target.closest('[data-dock-slot]') : null;
+      const slot = btn ? Number(btn.dataset.dockSlot) : this.dockSlotFromX(e.clientX);
+      const d = this.dockDrag;
+      d.active = true; d.lock = '';
+      d.x0 = e.clientX; d.y0 = e.clientY;
+      /* 从「当前指示器所在格」起步，而不是手指下的格 —— 轻拖不会先把胶囊弹过去 */
+      d.pos0 = this.dockIndicatorIndex;
+      d.pos = d.pos0;
+      d.from = slot; d.to = slot; d.moved = false;
+      d.pointerId = e.pointerId;
+      d.el = e.currentTarget;
+      /* 此处不 setPointerCapture：一旦捕获，按钮的原生 click 会被重定向到容器而丢失。
+         只在真正锁定为横向拖拽后才捕获（见 onDockPointerMove）。 */
+    },
+    onDockPointerMove(e) {
+      const d = this.dockDrag;
+      if (!d.active) return;
+      const dx = e.clientX - d.x0;
+      const dy = e.clientY - d.y0;
+      if (!d.lock) {
+        /* 6px 死区；横向需明显占优才抢，否则让给页面纵向滚动 */
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        d.lock = Math.abs(dx) >= Math.abs(dy) * 1.2 ? 'x' : 'y';
+        if (d.lock === 'y') { d.active = false; return; }
+        if (d.el && d.el.setPointerCapture) {
+          try { d.el.setPointerCapture(d.pointerId); } catch (err) { /* noop */ }
+        }
+        /* 锁定瞬间锚点归零：死区内已移动的几像素不计入，免得刚锁定就跳一下 */
+        d.x0 = e.clientX;
+        d.y0 = e.clientY;
+      }
+      if (d.lock !== 'x') return;
+      const g = this.dockSlotRect();
+      if (!g || !g.step) return;
+      /* 唯一公式：格位置 = 起始格 + 像素位移 / 步长；不做 round，连续小数才跟手 */
+      const raw = d.pos0 + (e.clientX - d.x0) / g.step;
+      d.pos = Math.max(0, Math.min(3, raw));
+      if (Math.abs(e.clientX - d.x0) > 3) d.moved = true;
+      d.to = Math.max(0, Math.min(3, Math.round(d.pos)));
+      this.setDockPos(d.pos);
+    },
+    onDockPointerUp() {
+      const d = this.dockDrag;
+      if (!d.active) return;
+      const wasDrag = d.lock === 'x' && d.moved;
+      const target = d.to;
+      d.active = false; d.lock = '';
+      if (!wasDrag) { this.clearDockPos(); return; }   // 没拖动 -> 交给按钮自己的 click
+      /* 拖拽已生效：撤掉内联 --dock-pos 与 is-dragging，由整数落点 + CSS 弹簧吸附 */
+      this.clearDockPos();
+      this._dockSuppressClick = true;
+      setTimeout(() => { this._dockSuppressClick = false; }, 350);
+      this.dockActivate(target);
+    },
+    onDockPointerCancel() {
+      const d = this.dockDrag;
+      d.active = false; d.lock = '';
+      this.clearDockPos();
+    },
+    /* 统一入口：拖拽后的合成 click 直接吞掉 */
+    onDockClick(slot, fn) {
+      if (this._dockSuppressClick) return;
+      if (typeof fn === 'function') fn();
+    },
+    /* 执行某个 dock 槽位对应的行为 */
+    dockActivate(slot) {
+      const name = SECTION_ORDER[slot];
+      if (name) this.goSection(name);
+    },
+
     toggleKvUsagePanel() {
-      this.kvUsage.visible = !this.kvUsage.visible;
-      if (this.kvUsage.visible) this.loadKvUsage();
+      /* 用量监控已内联进「存储与上传」板块，此方法保留为兼容垫片 */
+      this.goSection('storage');
     },
 
     opPercent(op) {
@@ -4788,20 +5071,14 @@ const __kvApp = Vue.createApp({
 
     handleTool(c) {
       this.openMenu = null;
-      if (c === 'kvUsage') {
-        this.toggleKvUsagePanel();
+      if (c === 'kvUsage' || c === 'settings' || c === 'airdrop') {
+        this.goSection('storage');
+      } else if (c === 'tokens' || c === 'branding') {
+        this.goSection('system');
+      } else if (c === 'shares') {
+        this.goSection('shares');
       } else if (c === 'status') {
         this.checkStatus();
-      } else if (c === 'tokens') {
-        this.openTokenPanel();
-      } else if (c === 'shares') {
-        this.openSharePanel();
-      } else if (c === 'settings') {
-        this.openSettingsPanel();
-      } else if (c === 'airdrop') {
-        this.openAirdropPanel();
-      } else if (c === 'branding') {
-        this.openBrandingPanel();
       } else if (c === 'paste') {
         window.open('./paste.html', '_blank', 'noopener');
       } else if (c === 'export') {
@@ -4821,24 +5098,15 @@ const __kvApp = Vue.createApp({
       }
     },
 
-    /* ================= 上传设置（访客上传） ================= */
-    openSettingsPanel() {
-      this.settingsPanelVisible = true;
-      this.loadSettings();
-    },
-    closeSettingsPanel() {
-      this.settingsPanelVisible = false;
-    },
+    /* ================= 上传设置（访客上传） =================
+       原模态已内联进「存储与上传」板块，open/close 改为导航垫片，
+       数据加载统一由 onSectionEnter('storage') 负责。 */
+    openSettingsPanel() { this.goSection('storage'); },
+    closeSettingsPanel() { /* no-op：内联后无关闭语义 */ },
 
     /* ================= 隔空投送（Beta） ================= */
-    openAirdropPanel() {
-      this.airdropPanelVisible = true;
-      this.loadAirdropSettings();
-      this.loadAirdropStats();
-    },
-    closeAirdropPanel() {
-      this.airdropPanelVisible = false;
-    },
+    openAirdropPanel() { this.goSection('storage'); },
+    closeAirdropPanel() { /* no-op：内联后无关闭语义 */ },
 
     async loadAirdropSettings() {
       this.airdropLoading = true;
@@ -5103,13 +5371,8 @@ const __kvApp = Vue.createApp({
     },
 
     /* ================= 站点品牌（自定义网站名 / 标题） ================= */
-    openBrandingPanel() {
-      this.brandingPanelVisible = true;
-      this.loadSettings();
-    },
-    closeBrandingPanel() {
-      this.brandingPanelVisible = false;
-    },
+    openBrandingPanel() { this.goSection('system'); },
+    closeBrandingPanel() { /* no-op：内联后无关闭语义 */ },
 
     async saveBrandingSettings() {
       const name = String(this.brandingForm.siteName || '').trim();
@@ -5170,13 +5433,13 @@ const __kvApp = Vue.createApp({
 
     /* ================= API Token 管理 ================= */
     openTokenPanel() {
-      this.tokenPanelVisible = true;
+      this.goSection('system');
       this.tokenSecret = null;
       this.resetTokenForm();
       this.loadTokens();
     },
     closeTokenPanel() {
-      this.tokenPanelVisible = false;
+      /* 内联后无关闭语义，只把一次性密钥与表单状态复位 */
       this.tokenSecret = null;
       this.resetTokenForm();
     },
@@ -5385,19 +5648,11 @@ const __kvApp = Vue.createApp({
       this.showToast(message || '已复制', 'success');
     },
 
-    /* ================= 分享管理 ================= */
-    openSharePanel() {
-      this.sharePanelVisible = true;
-      this.shareFilter = 'all';
-      this.shareSearch = '';
-      this.shareBundleSearch = '';
-      this.loadShares();
-      // 合集 / 目录分享列表一并预加载，进入对应标签页即可见（实时同步数据）。
-      this.loadShareBundles();
-    },
-    closeSharePanel() {
-      this.sharePanelVisible = false;
-    },
+    /* ================= 分享管理 =================
+       原模态已内联进「分享管理」板块，open/close 改为导航垫片；
+       数据加载由 onSectionEnter('shares') 负责。 */
+    openSharePanel() { this.goSection('shares'); },
+    closeSharePanel() { /* no-op：内联后无关闭语义 */ },
     async loadShares() {
       this.sharesLoading = true;
       try {
@@ -6013,18 +6268,36 @@ const __kvApp = Vue.createApp({
     this._closeMenusHandler = () => { this.openMenu = null; };
     document.addEventListener('click', this._closeMenusHandler);
 
-    /* 键盘：Esc 关闭弹层（按层级从前往后） */
+    /* 键盘：Esc 关闭弹层（按层级从前往后）。
+       板块本身不响应 Esc —— 它是页面结构，不是浮层。 */
     this._escHandler = (e) => {
       if (e.key !== 'Escape') return;
       if (this.preview) { this.closePreview(); return; }
+      if (this.qrVisible) { this.qrVisible = false; return; }
+      if (this.bundleVisible) { this.closeBundleShare(); return; }
       if (this.moveVisible) { this.moveVisible = false; return; }
-      if (this.tokenPanelVisible) { this.closeTokenPanel(); return; }
-      if (this.sharePanelVisible) { this.closeSharePanel(); return; }
-      if (this.airdropPanelVisible) { this.closeAirdropPanel(); return; }
       if (this.dialog.visible) { this.dialogCancel(); return; }
       this.openMenu = null;
     };
     document.addEventListener('keydown', this._escHandler);
+
+    /* ===== 板块分页：URL hash 同步 =====
+       hash 是「可刷新 / 可分享 / 可前进后退」的唯一入口。
+       初始以 hash 为准（无 hash 则规范化补 #files）。 */
+    this.activeSection = this.sectionFromHash();
+    try { history.replaceState(null, '', '#' + this.activeSection); } catch (e) { /* noop */ }
+    this.onSectionEnter(this.activeSection);
+    this._hashHandler = () => {
+      const s = this.sectionFromHash();
+      if (s !== this.activeSection) {
+        this.activeSection = s;
+        this.preview = null;
+        this.openMenu = null;
+        window.scrollTo(0, 0);
+        this.onSectionEnter(s);
+      }
+    };
+    window.addEventListener('hashchange', this._hashHandler);
 
     /* 离开页面时把「撤销窗口内未提交的删除」立即落盘，避免删除丢失 */
     this._pageHideHandler = () => this._flushPendingDeletes();
@@ -6072,6 +6345,7 @@ const __kvApp = Vue.createApp({
     document.removeEventListener('click', this._closeMenusHandler);
     document.removeEventListener('keydown', this._escHandler);
     window.removeEventListener('pagehide', this._pageHideHandler);
+    window.removeEventListener('hashchange', this._hashHandler);
     try {
       if (this._schemeHandler) {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);
