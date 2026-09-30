@@ -595,6 +595,37 @@ html[data-theme='dark'] .ad-digit {
   letter-spacing: 0.2em;
 }
 
+/* 接收端「加入房间」阶段的退路：尚未建立会话，直接退回角色选择。
+   之前这里没有任何出口，进入接收端就卡死、无法切换成发端。 */
+.ad-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--sp-1);
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--r-pill);
+  transition: color var(--dur-base) var(--ease-apple), background var(--dur-base) var(--ease-apple);
+}
+
+.ad-back:hover {
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
+.ad-back:active {
+  transform: scale(0.98);
+}
+
+.ad-back i {
+  font-size: 0.85em;
+}
+
 /* ── 动作区 ────────────────────────────────────────────── */
 .ad-actions {
   display: flex;

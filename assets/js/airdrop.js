@@ -476,6 +476,18 @@
         this.phase = 'joining';
       },
 
+      /**
+       * 接收端在「输入连接码 / 扫码」阶段尚未建立会话（无 code / token），
+       * 直接退回角色选择即可，不需要通知后端取消。这是之前唯一没有退路的相位：
+       * 它不在 inFlight 列表内，页脚的「取消投送」不渲染，头部又只有整面板关闭，
+       * 导致进入接收端后无法切换成发端。
+       */
+      backToChoose() {
+        this.stopPolling();
+        this.stopScan();
+        this.reset();
+      },
+
       async joinRoom() {
         const code = String(this.joinCode || '').trim().toUpperCase();
         if (!/^[A-Z0-9]{8}$/.test(code)) {
@@ -1178,6 +1190,9 @@
           </div>
           <video v-show="scanning" ref="scanVideo" muted playsinline
                  style="width:100%;max-width:280px;border-radius:var(--r-md);background:#000"></video>
+          <button class="ad-back" @click="backToChoose">
+            <i class="fas fa-chevron-left"></i><span>返回重新选择</span>
+          </button>
         </div>
 
         <!-- 状态文案 -->
