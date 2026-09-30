@@ -202,6 +202,39 @@ node scripts/verify/share-bundle.mjs
   说明是真实访问尝试；不计数等于给出「反复请求让它 500」的绕过入口。
   真正不计数的是 401/403/404/410（闸门拦下或路径不存在）。
 
+### `airdrop-mobile-fit.mjs` —— 隔空投送面板的小屏可操作性
+
+```bash
+node scripts/verify/airdrop-mobile-fit.mjs
+```
+
+起因是一次真实报障：**小屏手机上发送面板的底部控件点不到、面板也滑不动，等于发不出文件。**
+根因是 `.ad-modal` 和 `.ad-body` 都写了 `overflow: hidden`，而 `.ad-body` 还带
+`justify-content: center` —— 内容一超出就被裁掉，且 flex 居中的溢出是**向上下两头跑**的，
+上方那段永远滚不回来。
+
+脚本在 4 种小屏（375×667 / 360×640 / 390×844 / 320×568）下各验五件事：
+
+1. **无横向溢出**
+2. **`.ad-foot` 完整落在视口内**
+3. **每个按钮都「滚到并命中」** —— 用 `el.scrollIntoView()` 模拟真实用户动作后再
+   `elementFromPoint`。直接对未滚动状态做命中测试会误判：内容超高时下方按钮本来就在
+   视口外，那是正常的（滚一下就到）；真正的 bug 是「滚过去也点不到」
+4. **发送按钮无需滚动即可点到** —— 主操作必须常驻底部
+5. **内容超高时能滚到底，且滚到底后底部按钮仍可命中**
+
+两个实现要点：
+
+- **生产构建的 Vue 拿不到 `el.__vnode`**（那是 `__DEV__` 才 def 的）。根实例要从
+  `document.querySelector('#app')._vnode.component.proxy` 取；面板内的组件实例没有 DOM
+  反查入口，只能顺着 `subTree` 递归找 `component.type.name` 匹配。
+- **注入 `airdropCapability` 绕过后端门禁**。静态服务下 `/api/auth/check` 是 404，
+  `airdropCapability.enabled` 恒为 false，直接点按钮会被拦掉。门禁逻辑不是本脚本的验证
+  对象，验的是面板打开后的布局，所以从 Vue 实例直接注入能力与面板状态。
+
+> 断言**不要开 Playwright `isMobile: true`** —— Chrome 会自动撑宽布局视口去容纳超宽内容，
+> 横向溢出会全部漏检（同 `overflow-x.mjs` 的坑）。
+
 ### `dead-selectors.mjs` —— 删 CSS 之前必须先跑（防误删）
 
 ```bash

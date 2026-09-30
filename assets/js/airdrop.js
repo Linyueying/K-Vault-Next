@@ -1287,11 +1287,15 @@
               </button>
             </div>
           </div>
-          <button class="ad-btn ad-btn--primary ad-btn--send" v-if="phase === 'picking'" @click="sendAll" :disabled="!canSend">
-            <i class="fas fa-paper-plane"></i>
-            <span>{{ oversize ? '有文件超出节点上限' : ('发送 ' + selectedFiles.length + ' 个文件') }}</span>
-          </button>
         </div>
+        <!-- 发送按钮必须是 .ad-body 的**直接**子元素，不能留在 .ad-files 里：
+             sticky 只在自己父元素的盒子范围内生效 —— 嵌在 .ad-files 内时，
+             .ad-files 随内容滚出视口会把按钮一起带走，导致小屏「选完文件却
+             找不到发送按钮」。提到这一层后它才能常驻 .ad-body 可见区底部。 -->
+        <button class="ad-btn ad-btn--primary ad-btn--send" v-if="role === 'send' && phase === 'picking' && selectedFiles.length" @click="sendAll" :disabled="!canSend">
+          <i class="fas fa-paper-plane"></i>
+          <span>{{ oversize ? '有文件超出节点上限' : ('发送 ' + selectedFiles.length + ' 个文件') }}</span>
+        </button>
 
         <!-- 收端：对方已发来的文件清单 -->
         <div class="ad-files" v-if="role === 'recv' && session && session.files && session.files.length && (phase === 'waiting-file' || phase === 'downloading' || phase === 'done')">
