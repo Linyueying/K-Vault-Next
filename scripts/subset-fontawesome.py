@@ -26,7 +26,7 @@ FontAwesome 子集化工具（scripts/subset-fontawesome.py）
     族的原始字体已损坏（glyf 表不完整），无法作为裁剪源。当前 regular 子集只含
     页面实际用到的 fa-clock / fa-bookmark 两个字形，够用；若日后要给页面新增
     far 图标，需先从 FontAwesome 6.4.2 官方包取回完好的 fa-regular-400.woff2，
-    存为 vendor/fontawesome/webfonts/fa-regular-400.woff2.full 再重跑本脚本。
+    存为 assets/vendor/fontawesome/webfonts/fa-regular-400.woff2.full 再重跑本脚本。
 
     （不要用 npm 上更新的 @fortawesome/fontawesome-free 顶替：本项目锁定
     6.4.2，7.x 的码位与 6.4.2 有出入，混用会导致图标错位。）
@@ -41,9 +41,13 @@ import glob
 import shutil
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSS_MIN = os.path.join(ROOT, "vendor", "fontawesome", "css", "all.min.css")
+# 字体与 CSS 实际位于 assets/vendor/ 下（顶层无 vendor/ 目录）。
+# 历史某次提交把资源统一挪进了 assets/，脚本路径却没跟着改，导致 --check
+# 一上来就 FileNotFoundError。这里补上 assets 这一段。
+ASSETS_VENDOR = os.path.join(ROOT, "assets", "vendor", "fontawesome")
+CSS_MIN = os.path.join(ASSETS_VENDOR, "css", "all.min.css")
 CSS_FULL = CSS_MIN + ".full"          # 原始完整版（首次运行时备份）
-WEBFONTS = os.path.join(ROOT, "vendor", "fontawesome", "webfonts")
+WEBFONTS = os.path.join(ASSETS_VENDOR, "webfonts")
 
 # 需要扫描的页面（新增页面时补到这里）
 PAGE_GLOBS = ["*.html", "demo/*.html"]

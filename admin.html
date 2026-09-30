@@ -174,29 +174,6 @@ html[data-theme="dark"] .view-toggle__thumb{
 /* 筛选触发器 + 徽标 */
 .filter-trigger{position:relative}
 .badge-count{min-width:17px;height:17px;padding:0 5px;border-radius:var(--r-pill);background:var(--primary);color:#fff;font-size:.66rem;font-weight:800;display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;animation:pop .28s var(--ease-apple) backwards;}
-/* 常驻工具条 */
-.tool-hub{display:flex;align-items:stretch;gap:var(--sp-2);flex-wrap:wrap;margin-top:2px;padding:var(--sp-3) var(--sp-3) var(--sp-3) 14px;border-radius:var(--r-md);background:rgba(var(--primary-rgb),.04);border:1px solid var(--glass-border-ice);}
-html[data-theme="dark"] .tool-hub{background:rgba(255,255,255,.03)}
-.tool-hub-label{display:flex;align-items:center;gap:7px;flex:none;font-size:.75rem;font-weight:800;letter-spacing:.04em;color:var(--text-sub);padding-right:var(--sp-1);}
-.tool-hub-label i{font-size:.8rem;color:var(--primary)}
-.tool-hub-items{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;flex:1}
-/* =========================================================
-工具卡片
-—— 统一 44px 高 / 128px 宽基准，height 改 min-height 以支持文字缩放
-—— 去掉语义突兀的 .accent 实心蓝（导出链接曾用它，导致整排参差）
-========================================================= */
-.tool-chip{display:inline-flex;align-items:center;justify-content:flex-start;gap:9px;min-height:44px;min-width:128px;padding:6px 14px 6px 11px;box-sizing:border-box;border-radius:var(--r-md);border:1px solid var(--glass-border);background:var(--glass-surface);color:var(--text-sub);font-family:inherit;font-size:var(--fs-sm);font-weight:600;line-height:1.2;cursor:pointer;white-space:nowrap;transition:transform .34s var(--ease-spring),box-shadow .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple),background .3s var(--ease-apple);box-shadow:0 1px 2px rgba(15,23,42,.04);}
-html[data-theme="dark"] .tool-chip{background:rgba(255,255,255,.04)}
-.tool-chip .chip-icon{width:26px;height:26px;border-radius:var(--r-xs);flex:none;display:inline-flex;align-items:center;justify-content:center;background:rgba(var(--primary-rgb),.1);color:var(--primary);font-size:.76rem;transition:background .34s var(--ease-apple),color .34s var(--ease-apple),transform .34s var(--ease-spring);}
-.tool-chip:hover{border-color:rgba(var(--primary-rgb),.42);color:var(--primary);box-shadow:0 4px 14px -3px rgba(var(--primary-rgb),.22);transform:translateY(-2px)}
-.tool-chip:hover .chip-icon{background:var(--primary);color:#fff;transform:scale(1.1)}
-.tool-chip:active{transform:scale(.97);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.tool-chip.on{border-color:rgba(var(--primary-rgb),.5);color:var(--primary);background:rgba(var(--primary-rgb),.07)}
-.tool-chip.on .chip-icon{background:var(--primary);color:#fff}
-/* caret 靠右，避免「批量操作」因多了箭头而挤歪整排节奏 */
-.tool-chip .caret{font-size:.55rem;opacity:.55;margin-left:auto;transition:transform .34s var(--ease-spring)}
-/* 「更多工具」仅在窄屏出现；被折叠的 chip 用 --extra 标记 */
-.tool-more{display:none}
 /* 生效条件 chips */
 .active-filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .active-filters .af-label{font-size:.75rem;font-weight:700;color:var(--text-muted)}
@@ -242,6 +219,11 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
   .dir-actions{gap:2px;flex-wrap:nowrap}
   .dir-actions .tool-btn span{display:none}
   .dir-actions .tool-btn.primary span{display:inline}
+  /* 搜索行里的「粘贴 / 导出」同样收起文字。必须用直系选择器 ——
+     上面 .dir-actions 是后代选择器，作用域到不了 .toolbar-top 内的按钮。
+     收起文字后两个按钮各约 32px，搜索行折行也不会溢出。 */
+  .toolbar-top > .tool-btn{padding:5px 10px;min-height:32px;flex:none}
+  .toolbar-top > .tool-btn span{display:none}
 }
 /* 下拉面板：transform-origin 决定「从触发点长出来」的方向感 */
 .dropdown-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:190px;z-index:999;padding:6px;border-radius:var(--r-md);background:var(--glass-elevated);backdrop-filter:blur(28px) saturate(1.8);-webkit-backdrop-filter:blur(28px) saturate(1.8);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);transform-origin:top left;}
@@ -266,9 +248,26 @@ KV / R2 用量面板
 ========================================================= */
 .kv-usage-panel{margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--glass-border-ice)}
 .kv-usage-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);flex-wrap:wrap;gap:var(--sp-2)}
-.kv-usage-title{font-size:.85rem;font-weight:800;display:flex;align-items:center;gap:var(--sp-2)}
-.kv-usage-title i{color:var(--primary)}
-.kv-usage-date{font-size:.72rem;font-weight:600;color:var(--text-muted);background:var(--glass-subtle);padding:2px var(--sp-2);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);font-family:'JetBrains Mono',monospace;}
+/* 标题行：图标 + 「用量监控」 + 计划徽章 + 日期区间。
+   原先是单行 flex、不换行 —— 徽章与日期都是 min-width:auto 的 flex 子项，
+   不会收缩，于是把中间那段匿名文本节点挤成「用量监 / 控」的断词。
+   改为允许换行：标题本体锁一行，徽章/日期作为整体在窄屏落到第二行。 */
+.kv-usage-title{font-size:.85rem;font-weight:800;display:flex;align-items:center;
+                gap:var(--sp-2) var(--sp-3);flex-wrap:wrap;min-width:0;flex:1 1 auto}
+.kv-usage-title i{color:var(--primary);flex:none}
+/* 标题文本必须是一个整体，不能参与收缩断词。
+   用 flex:none + nowrap 把它从「可压缩的匿名文本节点」变成「刚性项」，
+   换行责任交给上面的 flex-wrap，而不是让它自己断字。 */
+.kv-usage-title__label{flex:none;white-space:nowrap}
+@media (max-width:680px){
+  /* 窄屏：标题占满一行、刷新按钮靠右；徽章与日期整体折到下一行，
+     靠左对齐（与标题同起点），不会出现「免费计/划」这种被压扁的徽章。 */
+  .kv-usage-head{align-items:center}
+  .kv-usage-title{flex:1 1 100%;gap:var(--sp-2) var(--sp-2)}
+  .kv-plan-badge,.kv-usage-date{flex:none;white-space:nowrap}
+  .kv-usage-date{font-size:.68rem}
+}
+.kv-usage-date{font-size:.72rem;font-weight:600;color:var(--text-muted);background:var(--glass-subtle);padding:2px var(--sp-2);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);font-family:'JetBrains Mono',monospace;white-space:nowrap}
 .kv-plan-badge{font-size:var(--fs-xs);font-weight:800;padding:3px 10px;border-radius:var(--r-pill);letter-spacing:.03em;animation:pop .28s var(--ease-apple) backwards}
 .kv-plan-badge.free{background:rgba(100,116,139,.16);color:var(--text-muted);border:1px solid rgba(100,116,139,.35)}
 .kv-plan-badge.paid{background:linear-gradient(135deg,rgba(251,191,36,.2),rgba(245,158,11,.12));color:#92400e;border:1px solid rgba(245,158,11,.4)}
@@ -280,13 +279,15 @@ html[data-theme="dark"] .badge-beta{color:#7dd3fc;border-color:rgba(56,189,248,.
 
 /* 隔空投送 · 使用记录表 */
 .airdrop-recent{margin-top:var(--sp-3);border:1px solid var(--glass-border-ice);border-radius:var(--r-md);overflow:hidden}
-.airdrop-recent__row{display:grid;grid-template-columns:88px 1fr 76px 74px 96px;gap:var(--sp-2);align-items:center;padding:8px var(--sp-3);font-size:var(--fs-sm)}
+/* 第二列用 minmax(0,1fr) 而非 1fr：1fr 的隐式最小值是 auto，
+   长用户名/长编码会把这一列撑宽、顶破卡片；minmax(0,...) 才能收缩。 */
+.airdrop-recent__row{display:grid;grid-template-columns:88px minmax(0,1fr) 76px 74px 96px;gap:var(--sp-2);align-items:center;padding:8px var(--sp-3);font-size:var(--fs-sm)}
 .airdrop-recent__row + .airdrop-recent__row{border-top:1px solid rgba(148,163,184,.16)}
 .airdrop-recent__row--head{background:var(--glass-subtle);font-weight:700;font-size:var(--fs-xs);color:var(--text-muted)}
 .airdrop-recent__row > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .airdrop-recent__row .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
 @media (max-width:680px){
-  .airdrop-recent__row{grid-template-columns:76px 1fr 68px}
+  .airdrop-recent__row{grid-template-columns:64px minmax(0,1fr) 60px}
   .airdrop-recent__row > span:nth-child(4),.airdrop-recent__row > span:nth-child(5){display:none}
 }
 .kv-usage-actions{display:flex;gap:var(--sp-1)}
@@ -499,8 +500,25 @@ html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
 .page-btn:disabled{opacity:.35;cursor:not-allowed}
 /* =========================================================
 底部批量操作栏
+---------------------------------------------------------
+两个锚点，保证【任何环境】下与 dock 的间隙都是 12px：
+
+  无安全区：95px
+  = dock 底距(16) + dock 实测高(67) + 间隙(12)
+
+  有安全区：env() + 79px
+  dock 自身底距会变成 max(16, env()) —— 在安全区生效的环境里就是 env()。
+  要使间隙恒为 12，批量栏底距必须 = dock底距 + 67 + 12 = env() + 79。
+  这样两式相减，env() 项自动抵消，差值恒为 67 + 12 = 79，间隙恒 12px。
+
+dock 高度 67 不是估值：padding 6×2 + 按钮 55 = 67（实测于 390 / 1280
+两个视口，且 680 断点下 padding 与字号同步缩小，高度不变）。
+关键点：必须让两栏共用同一套 env() 语义 —— 若各自用 max() 兜底，
+安全区变化时两项的差值会漂移，12px 间隙就被吃掉了（旧写法的 bug）。
+
+z-index(1000) 高于 dock(100)，堆叠顺序天然正确。
 ========================================================= */
-.batch-dock{position:fixed;left:50%;bottom:max(var(--sp-3),env(safe-area-inset-bottom,12px));transform:translateX(-50%);
+.batch-dock{position:fixed;left:50%;bottom:max(95px,calc(env(safe-area-inset-bottom,0px) + 79px));transform:translateX(-50%);
   width:min(680px,calc(100% - var(--sp-5) - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));
   padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);z-index:1000;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
 .batch-dock::-webkit-scrollbar{display:none}
@@ -614,7 +632,13 @@ html[data-theme="dark"] .settings-note--warn{color:#f87171}
 .token-field{margin-bottom:var(--sp-3)}
 .token-field>label{display:block;font-size:var(--fs-xs);font-weight:700;color:var(--text-sub);margin-bottom:6px}
 .token-input,.token-select{width:100%;padding:9px var(--sp-3);border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-main);font-size:.83rem;font-family:inherit;outline:none;transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);}
-.token-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+/* minmax(min(150px,100%),1fr)：容器宽度不足 150px 时（窄屏），
+   直接用 100% 作下限，避免 min 值本身把网格撑破父容器。 */
+.token-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:10px;min-width:0}
+.token-grid > *{min-width:0}
+@media (max-width:420px){
+  .token-grid{grid-template-columns:1fr}
+}
 .token-chips{display:flex;gap:var(--sp-2);flex-wrap:wrap}
 .token-chip{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-xs);font-weight:700;padding:6px var(--sp-3);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);}
 .token-chip:hover{border-color:var(--primary);color:var(--primary);transform:translateY(-2px)}
@@ -726,15 +750,6 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 #app:not(.is-booted) .top-actions > *:nth-child(4){animation-delay:.18s;}
 #app:not(.is-booted) .folders-panel  {animation:riseIn .56s var(--ease-fluid) .12s backwards;}
 #app:not(.is-booted) .content-area   {animation:riseIn .52s var(--ease-fluid) .16s backwards;}
-#app:not(.is-booted) .tool-hub-items > *{animation:riseInSm .46s var(--ease-fluid) backwards;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(1){animation-delay:.14s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(2){animation-delay:.17s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(3){animation-delay:.2s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(4){animation-delay:.23s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(5){animation-delay:.26s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(6){animation-delay:.29s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(7){animation-delay:.32s;}
-#app:not(.is-booted) .tool-hub-items > *:nth-child(n+8){animation-delay:.35s;}
 #app:not(.is-booted) .folder-tree-row{animation:riseInSm .4s var(--ease-fluid) backwards;}
 #app:not(.is-booted) .empty-state    {animation:riseIn .52s var(--ease-fluid) .2s backwards;}
 #app:not(.is-booted) .pager          {animation:riseInSm .44s var(--ease-fluid) .22s backwards;}
@@ -960,27 +975,18 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .view-toggle{padding:2px;gap:2px}
   .view-toggle button{position:relative;width:38px;height:30px;font-size:.72rem}
   .view-toggle button::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
-  /* 筛选按钮与统计并到一行，统计靠右，少占一整行 */
-  .toolbar-tools{gap:6px;flex-wrap:nowrap;align-items:center}
+  /* 允许换行：原先 nowrap 会把「筛选」挤出卡片右边缘，再被 body 的
+     overflow-x:hidden 裁掉。换行后「筛选」始终跟在目录操作后面，
+     对 360px 这类更窄屏也稳。 */
+  .toolbar-tools{gap:6px;flex-wrap:wrap;align-items:center}
   .tool-btn{padding:5px 10px;font-size:.72rem;min-height:32px}
-  .tool-stat{width:auto;margin-left:auto;flex:1;text-align:right;font-size:.68rem;
+  /* 统计独占一行右对齐。min-width:0 是关键：flex 子项默认 min-width:auto，
+     会以 nowrap 内容的宽度为下限，即使父级允许收缩也把「筛选」顶出去。 */
+  .tool-stat{flex:1 0 100%;min-width:0;margin-left:0;text-align:right;font-size:.68rem;
              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 筛选不参与收缩，避免被压成图标残片 */
+  .filter-trigger{flex:0 0 auto;min-width:0}
   /* 工具箱：标签与首行标题合并成一行，条目降高、收紧间距 */
-  .tool-hub{flex-direction:row;align-items:center;gap:8px;padding:8px 9px;margin-top:0}
-  .tool-hub-label{padding-left:0;padding-right:0;font-size:.7rem;gap:5px;flex:none}
-  .tool-hub-label i{font-size:.72rem}
-  .tool-hub-items{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;flex:1;min-width:0}
-  .tool-hub-items > *{width:100%;min-width:0;animation:none}
-  .tool-hub-items .dropdown-wrap{display:flex;width:100%}
-  .tool-hub-items .dropdown-wrap > .tool-chip{width:100%}
-  /* 工具条目：34px 高、图标 22px，热区仍撑满整格便于点按 */
-  .tool-chip{justify-content:flex-start;min-height:34px;min-width:0;padding:4px 8px;
-             font-size:.72rem;gap:7px;border-radius:var(--r-sm)}
-  .tool-chip .caret{margin-left:auto;font-size:.5rem}
-  .tool-chip .chip-icon{width:22px;height:22px;font-size:.66rem;border-radius:7px}
-  .tool-chip--extra{display:none}
-  .tool-hub.is-open .tool-chip--extra{display:inline-flex}
-  .tool-more{display:inline-flex}
   .vault-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
   .card-thumb{height:118px}
   .card-body{padding:var(--sp-2) var(--sp-3)}
@@ -1011,6 +1017,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .dock-act span{display:none}
   .batch-dock{padding:var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3)}
   .toast__action{padding:5px 10px}
+  /* 360px 下再收紧一档，并让「筛选」退化为纯图标（配 title 提示），
+     确保第一行永远放得下，不会出现裁切。 */
+  .tool-btn{padding:5px 8px}
+  .filter-trigger span:not(.badge-count){display:none}
 }
 
 /* =========================================================
@@ -1049,8 +1059,46 @@ html[data-perf="low"] .ambient-orb{animation:none}
    ========================================================= */
 .section-host{display:block}
 .section{display:flex;flex-direction:column;gap:var(--sp-4)}
-/* 板块内联面板：原模态剥壳后的普通容器，去掉浮层定位与裁切 */
-.panel-inline{display:flex;flex-direction:column}
+
+/* =========================================================
+   统一卡片规范（.card-panel / .panel-inline）
+   ---------------------------------------------------------
+   内联面板是「模态剥壳」的产物：去掉浮层外壳时，连同 .dialog-panel 的
+   padding（22px 24px）一起丢了，于是标题与说明文字直接贴到卡片圆角边缘，
+   看着像溢出到卡片外。这里把卡片级留白补回来，并统一四板块的节奏 ——
+   以后新增内联卡片直接用 .card-panel，不必再各自调间距。
+
+   两档内边距：桌面 20px、窄屏 14px。用变量而非硬编码，
+   改一处即可整体对齐。
+   ========================================================= */
+.card-panel,
+.panel-inline{
+  --card-panel-pad:20px;
+  padding:var(--card-panel-pad);
+  display:flex;flex-direction:column;
+  min-width:0;                 /* 作为 flex/grid 子项时不撑破父容器 */
+  overflow-wrap:break-word;    /* 长英文/路径优先按词断行 */
+  word-break:break-word;       /* 兜底：超长无空格串也能断 */
+}
+@media (max-width:680px){
+  .card-panel,
+  .panel-inline{--card-panel-pad:14px}
+}
+/* 标题行：右边挂着「BETA / 来自环境变量」这类徽章，过长时换行而非溢出 */
+.card-panel > .dialog-title,
+.panel-inline > .dialog-title{min-width:0;flex-wrap:wrap}
+.card-panel > .dialog-title > span,
+.panel-inline > .dialog-title > span{min-width:0;overflow-wrap:anywhere}
+/* 代码片段（KV 键名 / Bucket 名 / 环境变量名）允许在任意字符处断行 */
+.card-panel .kv-code,
+.panel-inline .kv-code{overflow-wrap:anywhere;word-break:break-all}
+/* 说明段落：内含长 URL / 长路径时不得横向溢出 */
+.card-panel .dialog-message,
+.panel-inline .dialog-message{overflow-wrap:anywhere;word-break:break-word}
+/* 用量面板原本靠 border-top 与上一块分隔；作为卡片首层时上面已是卡片
+   内边距，那条线没有意义，去掉。 */
+.card-panel > .kv-usage-panel:first-child,
+.panel-inline > .kv-usage-panel:first-child{margin-top:0;padding-top:0;border-top:0}
 
 /* =========================================================
    底部 Dock（复用 index 的 iOS 27 式高透液态玻璃 + 滑动指示器）
@@ -1089,9 +1137,9 @@ html[data-perf="low"] .ambient-orb{animation:none}
   -webkit-user-select:none;
   user-select:none;
 }
-/* 批量操作栏出现时把 dock 抬到它之上（batch-dock 宽 680 > dock 宽 500），
-   否则批量栏会盖住导航。 */
-body:has(.batch-dock) .dock{bottom:max(78px,calc(env(safe-area-inset-bottom,0px) + 72px))}
+/* 批量栏上浮由 .batch-dock 自身的 bottom 承担（见上方注释），
+   dock 保持原位不动 —— 旧规则抬高的对象反了，会把导航顶到批量栏之上。
+   （不依赖 :has()，旧浏览器忽略该选择器时布局依然正确。） */
 .dock__btn{
   position:relative;z-index:1;   /* 抬到指示器之上，保证命中区不被盖 */
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -1251,6 +1299,16 @@ html[data-theme="dark"] .dock__indicator{
         <button :class="{active: viewMode==='grid'}" @click="setView('grid','back')" title="平铺视图"><i class="fas fa-grip"></i></button>
         <button :class="{active: viewMode==='list'}" @click="setView('list','forward')" title="详细视图"><i class="fas fa-list"></i></button>
       </div>
+      <!-- 原工具箱的「文本粘贴 / 导出链接」迁入此处。
+           放搜索行而非第二层工具栏：那两个是轻量工具，与视图切换同级更合适；
+           且 .toolbar-top 本身 flex-wrap:wrap，窄屏会自动折行 ——
+           第二层 .toolbar-tools 已排满目录操作，再塞两个必然溢出。 -->
+      <button class="tool-btn" @click="handleTool('paste')" title="打开文本粘贴工具">
+        <i class="fas fa-paste"></i><span>粘贴</span>
+      </button>
+      <button class="tool-btn" @click="handleTool('export')" title="导出已加载的全部链接为 links.txt">
+        <i class="fas fa-file-export"></i><span>导出</span>
+      </button>
     </div>
 
     <!-- 第二层：目录操作 + 筛选入口 + 统计 -->
@@ -1403,67 +1461,6 @@ html[data-theme="dark"] .dock__indicator{
       </button>
     </transition-group>
   </section>
-
-    <!-- ===== 工具箱（文件浏览专属：连接状态 / 文本粘贴 / 导出 / 批量） ===== -->
-    <div class="tool-hub" :class="{'is-open': toolHubOpen}">
-      <span class="tool-hub-label"><i class="fas fa-toolbox"></i>工具箱</span>
-      <div class="tool-hub-items">
-        <button class="tool-chip" @click="handleTool('status')" title="检查全部连接状态">
-          <span class="chip-icon"><i class="fas fa-heart-pulse"></i></span>
-          <span>连接状态</span>
-        </button>
-        <button class="tool-chip tool-chip--extra" @click="handleTool('paste')" title="打开文本粘贴工具">
-          <span class="chip-icon"><i class="fas fa-paste"></i></span>
-          <span>文本粘贴</span>
-        </button>
-        <!-- 原为 .tool-chip.accent（实心蓝），是全工具箱唯一的异色块，已统一 -->
-        <button class="tool-chip tool-chip--extra" @click="handleTool('export')" title="导出已加载的全部链接">
-          <span class="chip-icon"><i class="fas fa-file-export"></i></span>
-          <span>导出链接</span>
-        </button>
-
-        <div class="dropdown-wrap">
-          <button class="tool-chip" :class="{on: openMenu==='batch' || selectedFiles.length}"
-                  @click.stop="toggleMenu('batch')" title="批量操作">
-            <span class="chip-icon"><i class="fas fa-tasks"></i></span>
-            <span>{{ selectedFiles.length ? `批量 · ${selectedFiles.length}` : '批量操作' }}</span>
-            <i class="fas fa-chevron-down caret" :style="{transform: openMenu==='batch' ? 'rotate(180deg)' : 'none'}"></i>
-          </button>
-          <transition name="menu">
-          <div :class="['dropdown-panel','right',{'up':menuUp}]" v-if="openMenu==='batch'">
-            <button class="dropdown-item" @click="handleBatch('selectAll')">
-              <i class="fas fa-check-double"></i><span>{{ isAllSelected ? '取消全选当前页' : '全选当前页' }}</span>
-            </button>
-            <button class="dropdown-item" @click="handleBatch('selectAllLoaded')">
-              <i class="fas fa-layer-group"></i><span>全选已加载 ({{ files.length }})</span>
-            </button>
-            <div class="dropdown-divider"></div>
-            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('copy')">
-              <i class="fas fa-link"></i><span>复制所选直链</span>
-            </button>
-            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('bundle')">
-              <i class="fas fa-share-nodes"></i><span>创建分享链接</span>
-            </button>
-            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('move')">
-              <i class="fas fa-folder-tree"></i><span>移动文件到目录</span>
-            </button>
-            <button class="dropdown-item" :disabled="!selectedFiles.length" @click="handleBatch('download')">
-              <i class="fas fa-download"></i><span>批量下载</span>
-            </button>
-            <button class="dropdown-item danger-item" :disabled="!selectedFiles.length" @click="handleBatch('delete')">
-              <i class="fas fa-trash"></i><span>批量删除</span>
-            </button>
-          </div>
-          </transition>
-        </div>
-
-        <!-- 窄屏才出现的「更多工具」 -->
-        <button class="tool-chip tool-more" @click="toolHubOpen = !toolHubOpen">
-          <span class="chip-icon"><i class="fas fa-ellipsis"></i></span>
-          <span>{{ toolHubOpen ? '收起工具' : '更多工具' }}</span>
-        </button>
-      </div>
-    </div>
 
   <!-- ===== 主布局 ===== -->
   <!-- 左侧「目录管理」树已移除：文件夹改为与文件同列的卡片，排在内容区里
@@ -1737,11 +1734,15 @@ html[data-theme="dark"] .dock__indicator{
 
     <!-- ===== KV / R2 / D1 用量监控（进场走 panelIn，内部错峰） =====
          原为可折叠面板，现改为常驻卡片：数据由 onSectionEnter('storage') 加载。 -->
-    <section class="liquid-card">
+    <section class="liquid-card card-panel">
     <div class="kv-usage-panel">
       <div class="kv-usage-head">
         <span class="kv-usage-title">
-          <i class="fas fa-chart-pie" :class="{'is-settling': kvUsage.loading}"></i> 用量监控
+          <i class="fas fa-chart-pie" :class="{'is-settling': kvUsage.loading}"></i>
+          <!-- 「用量监控」包一层 span：裸文本在 flex 里是匿名项，会被徽章/日期
+               挤到断词；包成显式元素 + white-space:nowrap 后成为刚性项，
+               换行改由 .kv-usage-title 的 flex-wrap 承担。 -->
+          <span class="kv-usage-title__label">用量监控</span>
           <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.planType" :key="kvUsage.planType">
             {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
           </span>
@@ -2191,7 +2192,7 @@ html[data-theme="dark"] .dock__indicator{
         <div class="token-section">
           <div class="token-section-head">
             <h3 class="token-section-title">
-              <i class="fas fa-chart-line"></i>
+              <i class="fas fa-magnifying-glass-chart"></i>
               <span>使用情况</span>
             </h3>
             <select class="token-select" v-model="airdropDays" @change="loadAirdropStats"
@@ -2365,7 +2366,7 @@ html[data-theme="dark"] .dock__indicator{
                 <!-- 自定义标题：分享页顶部显示的就是它。没有则是系统名，
                      这里就不必再占一行徽章位置。 -->
                 <span class="token-badge title" v-if="s.shareTitle" :title="s.shareTitle">
-                  <i class="fas fa-heading"></i> {{ s.shareTitle }}
+                  <i class="fas fa-hashtag"></i> {{ s.shareTitle }}
                 </span>
                 <span class="token-preview">{{ formatShareSize(s.fileSize) }}</span>
                 <span class="token-badge" v-if="s.shareSlug">/s/{{ s.shareSlug }}</span>
@@ -2381,7 +2382,7 @@ html[data-theme="dark"] .dock__indicator{
                     <i class="fas fa-link"></i>
                   </button>
                   <button class="mini-icon-btn" @click="showShareQr(shareFullUrl(s), s.shareTitle || s.fileName)" title="二维码">
-                    <i class="fas fa-qrcode"></i>
+                    <i class="fas fa-hashtag"></i>
                   </button>
                   <button class="mini-icon-btn" @click="openSharePage(s)" title="打开分享页">
                     <i class="fas fa-arrow-up-right-from-square"></i>
@@ -2447,7 +2448,7 @@ html[data-theme="dark"] .dock__indicator{
                   <!-- 自定义标题：合集/目录分享的第一眼标识。
                        没有标题时退化为路径或首文件名，这里就不重复占位。 -->
                   <span class="token-badge title" v-if="b.title" :title="b.title">
-                    <i class="fas fa-heading"></i> {{ b.title }}
+                    <i class="fas fa-hashtag"></i> {{ b.title }}
                   </span>
                   <span class="token-badge" v-if="b.folderShare"><i class="fas fa-arrows-rotate"></i> 实时</span>
                   <span class="token-badge" v-if="b.folderShare && b.includeSubfolders">含子目录</span>
@@ -2462,7 +2463,7 @@ html[data-theme="dark"] .dock__indicator{
                       <i class="fas fa-link"></i>
                     </button>
                     <button class="mini-icon-btn" @click="showShareQr(bundleFullUrl(b), b.title || (b.folderShare ? b.folderPath : b.slug))" title="二维码">
-                      <i class="fas fa-qrcode"></i>
+                      <i class="fas fa-hashtag"></i>
                     </button>
                     <button class="mini-icon-btn" @click="openBundlePage(b)" title="打开分享页">
                       <i class="fas fa-arrow-up-right-from-square"></i>
@@ -2489,6 +2490,27 @@ html[data-theme="dark"] .dock__indicator{
 
   <!-- ④ 系统设置 -->
   <section class="section" data-section="system" v-show="activeSection==='system'">
+  <!-- ===== 系统连接状态（原工具箱「连接状态」迁入） =====
+       工具箱已移除，这个只读诊断入口移到设置板块最上方：
+       它是「看一眼整体健康状况」的动作，放在可写配置（网站信息 / Token）之前
+       更符合从「体检」到「调参」的阅读顺序。
+       结果仍由 checkStatus() 走弹层展示，展示逻辑未改动，只换了入口位置。 -->
+  <section class="liquid-card card-panel">
+    <h2 class="dialog-title">
+      <i class="fas fa-heart-pulse"></i>
+      <span>系统连接状态</span>
+    </h2>
+    <div class="dialog-message">
+      检查 <code class="kv-code">Telegram</code> / <code class="kv-code">KV</code> / <code class="kv-code">R2</code> / <code class="kv-code">S3</code> / <code class="kv-code">Discord</code> / <code class="kv-code">HuggingFace</code> / <code class="kv-code">GitHub</code> 各后端是否可用。检查结果以弹层展示，不占用本页布局。
+    </div>
+    <div class="token-section" style="margin-bottom:0">
+      <button class="btn" @click="checkStatus" :disabled="statusChecking">
+        <i class="fas" :class="statusChecking ? 'fa-circle-notch fa-spin' : 'fa-heart-pulse'"></i>
+        <span>{{ statusChecking ? '检查中…' : '立即检查' }}</span>
+      </button>
+    </div>
+  </section>
+
   <!-- ===== 系统设置：网站信息 / API Token（原模态，已内联为板块内容） ===== -->
   <section class="liquid-card panel-inline">
     <!-- branding -->
@@ -2932,7 +2954,7 @@ html[data-theme="dark"] .dock__indicator{
   <div class="overlay" v-if="qrVisible" @click.self="qrVisible = false">
     <div class="dialog-panel qr-panel">
       <h2 class="dialog-title">
-        <i class="fas fa-qrcode"></i>
+        <i class="fas fa-hashtag"></i>
         <span>分享二维码</span>
       </h2>
       <div class="dialog-message" style="word-break:break-all">{{ qrTitle }}</div>
@@ -3001,7 +3023,10 @@ html[data-theme="dark"] .dock__indicator{
     </button>
     <button class="dock__btn" data-dock-slot="3" :class="{active: activeSection==='system'}"
             @click="onDockClick(3, () => goSection('system'))">
-      <i class="fas fa-gear"></i><span>设置</span>
+      <!-- fa-gear 不在 FontAwesome 子集内（见 scripts/subset-fontawesome.py
+           的裁剪白名单），改用子集内已有的 fa-sliders；滑杆是「设置/调节」
+           的通用隐喻，且无需重跑子集脚本、不引入字体产物变更。 -->
+      <i class="fas fa-sliders"></i><span>设置</span>
     </button>
   </nav>
 
@@ -3178,7 +3203,6 @@ const __kvApp = Vue.createApp({
     folderPath: '', folderLoading: false,
     folderPanelCollapsed: false,
     expandedFolders: {},
-    toolHubOpen: false,
 
     logoSrc: '/assets/img/logo-64.png',
 
@@ -5076,17 +5100,14 @@ const __kvApp = Vue.createApp({
       else if (c === 'bundle') this.openBundleShare();
     },
 
+    /* 文件板块工具栏的两个轻量动作。
+       工具箱移除后只保留这两个就地动作 —— 原先的 kvUsage / settings /
+       tokens / branding / shares 等分支只是「跳板块」的旧入口垫片，
+       现在各板块已由 dock 直达；status 改由设置板块的按钮直接调
+       checkStatus()，不再经过这里。 */
     handleTool(c) {
       this.openMenu = null;
-      if (c === 'kvUsage' || c === 'settings' || c === 'airdrop') {
-        this.goSection('storage');
-      } else if (c === 'tokens' || c === 'branding') {
-        this.goSection('system');
-      } else if (c === 'shares') {
-        this.goSection('shares');
-      } else if (c === 'status') {
-        this.checkStatus();
-      } else if (c === 'paste') {
+      if (c === 'paste') {
         window.open('/paste.html', '_blank', 'noopener');
       } else if (c === 'export') {
         if (!this.files.length) { this.showToast('没有可导出的链接', 'info'); return; }
