@@ -671,11 +671,15 @@
    * 做法：检测 UA → 命中则拦下这次下载 → 尽力唤起系统浏览器 → 弹引导层兜底。
    *
    * 「自动跳转」的现实约束（写在这里，免得日后被当成 bug 改坏）：
-   *   - Android：用通用 VIEW+BROWSABLE 的 intent:// 唤起系统默认浏览器
-   *     （不写死 Chrome 包名，并改用隐藏 iframe 派发以绕过 QQ X5 的吞掉）。
+   *   - 微信 Android：通用 VIEW intent 有一定成功率，值得一试。
+   *   - QQ（Android）：X5 内核自 v8.4 起启用 Strict URL Scheme Whitelist，
+   *     只放行腾讯系协议；intent:// 等非白名单 scheme 会被
+   *     shouldOverrideUrlLoading() 静默丢弃，连 onReceivedError 都不回调
+   *     —— 实测无法唤起任何外部浏览器。这里不再做无谓尝试，直接引导。
    *   - iOS：微信/QQ 的 WKWebView 不暴露任何跳转 Safari 的接口，
-   *     window.open 会被就地拦下。所以 iOS 只能靠引导层让用户手动点
-   *     右上角「··· → 在 Safari 中打开」。这是平台限制，不是实现缺陷。
+   *     window.open 会被就地拦下。同理只能引导。
+   * 结论：QQ / iOS 上「自动跳转」是平台限制，不是实现缺陷。这两类环境
+   * 的唯一出路是把手动路径做短 —— 自动复制链接 + 精确指向右上角菜单项。
    * ------------------------------------------------------------------ */
 
   var INAPP_LIST = [
@@ -813,17 +817,33 @@
         el.hidden = true;
         el.classList.remove("is-open");
       } else if (act === "copy") {
-        copy(url);
-        var old = btn.textContent;
-        btn.textContent = "已复制";
-        btn.disabled = true;
-        setTimeout(function () { btn.textContent = old; btn.disabled = false; }, 1600);
+        copy(url).then(function (ok) {
+          if (!ok) return;
+          var old = btn.getAttribute("data-label") || "复制链接";
+          btn.textContent = "已复制 ✓";
+          btn.disabled = true;
+          setTimeout(function () { btn.textContent = old; btn.disabled = false; }, 1600);
+        });
       } else if (act === "open") {
         openInDefaultBrowser(url);
       }
     });
     inappEl = el;
     return el;
+  }
+
+  /* 各容器「怎么手动出去」的文案。菜单项名字不一样，写错用户会翻半天：
+     QQ 叫「用浏览器打开」，微信叫「在浏览器打开」，iOS 则是「在 Safari 中打开」。 */
+  function guideTipHtml(env) {
+    var dots = "<b>&middot;&middot;&middot;</b>";
+    if (isIOSDevice()) {
+      return "请点击右上角 " + dots + " → 选择「在 Safari 中打开」";
+    }
+    if (env && env.key === "qq") {
+      /* QQ 内无法自动跳转（X5 scheme 白名单），把话说清楚，别让用户干等 */
+      return "QQ 不支持自动跳转，请点右上角 " + dots + " →「用浏览器打开」";
+    }
+    return "请点击右上角 " + dots + " → 选择「在浏览器中打开」";
   }
 
   /** 弹出引导层。url 是「应该在系统浏览器里打开的那个地址」 */
@@ -835,14 +855,22 @@
     var tipEl = el.querySelector("[data-role='tip']");
     if (nameEl) nameEl.textContent = (env && env.name) || "当前";
     if (urlEl) urlEl.textContent = url;
-    if (tipEl) {
-      tipEl.innerHTML = isIOSDevice()
-        ? "请点击右上角 <b>&middot;&middot;&middot;</b> → 选择「在 Safari 中打开」"
-        : "请点击右上角 <b>&middot;&middot;&middot;</b> → 选择「在浏览器中打开」";
-    }
+    if (tipEl) tipEl.innerHTML = guideTipHtml(env);
     el.setAttribute("data-open", url);
     el.hidden = false;
     el.classList.add("is-open");
+
+    /* 主动把链接塞进剪贴板：用户切到浏览器后直接粘贴即可，省掉
+       「长按选中 → 复制」这一步（在 QQ/微信里这一步相当折磨人）。
+       必须在点击的同一个手势内调用，否则 iOS 会拒绝写剪贴板。 */
+    var btn = el.querySelector("[data-act='copy']");
+    if (url && btn) {
+      try {
+        copy(url).then(function (ok) {
+          if (ok && !el.hidden) btn.textContent = "已复制，去粘贴";
+        });
+      } catch (e) { /* 复制失败无所谓，手动按钮还在 */ }
+    }
   }
 
   /**
@@ -853,7 +881,11 @@
     var env = detectInAppBrowser();
     if (!env) return false;
     try {
-      openInDefaultBrowser(url);
+      /* QQ（Android）的 X5 白名单策略下唤端必失败且静默无反馈，
+         再去撞一次只会让用户盯着屏幕等一个永远不会来的跳转。 */
+      if (!(env.key === "qq" && isAndroidDevice())) {
+        openInDefaultBrowser(url);
+      }
       showInAppGuide(url, env);
     } catch (e) { /* 引导失败也不能让下载静默消失：至少别把页面搞崩 */ }
     return true;
