@@ -18,6 +18,7 @@ import {
   contentDisposition,
   jsonResponse
 } from '../../utils/airdrop.js';
+import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -26,6 +27,24 @@ export async function onRequestGet(context) {
   const token = String(params.get('token') || '').trim();
   const idxRaw = params.get('idx');
   const idx = Number.isInteger(Number(idxRaw)) ? Number(idxRaw) : -1;
+
+  // 限流：本接口每次请求都要查一次 D1，且失败路径（码不存在/凭证不对）
+  // 也要落库查询 —— 不加限流的话可以拿它当"免费 D1 查询机"刷。
+  // 60 次/分钟对正常收件足够（一次投送十几个文件也就十几次请求）。
+  const rl = await fixedWindowRateLimit({
+    env,
+    key: getClientIp(request),
+    namespace: 'airdrop-download',
+    windowMs: 60 * 1000,
+    max: 60
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { error: '下载请求过于频繁，请稍后再试。', code: 'RATE_LIMITED' },
+      429,
+      { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) }
+    );
+  }
 
   if (!code || !token) {
     return jsonResponse({ error: '缺少 code 或 token。', code: 'BAD_PARAMS' }, 400);

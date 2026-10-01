@@ -40,6 +40,29 @@ function ratelimitDisabled(env) {
 }
 
 /**
+ * isolate 内的本地计数器（同步、无 await）。
+ *
+ * 为什么需要它：固定窗口限流原本是「读 KV → 判定 → 写 KV」，三步之间都有
+ * await。并发请求会同时读到同一个旧值、一起放行 —— 实测 max=5 时并发 20 个
+ * 请求全部通过。KV 没有原子自增，跨 isolate 无法根治；但在**同一 isolate 内**
+ * 可以先用一个同步 Map 记账，把并发窗口收掉。
+ *
+ * 语义是「先占坑、后核算」：本地计数先 +1 并立刻判定，超限直接拒；
+ * 未超限才继续走 KV（KV 负责跨 isolate 的粗粒度约束）。
+ * 本地计数只在 isolate 存活期内有效（会被回收），因此不承担长期准确性，
+ * 只负责挡住"同一瞬间打进来的一批"。
+ */
+const localCounters = new Map();
+
+/** 清理过期的本地窗口（避免 Map 无限增长） */
+function sweepLocalCounters(now) {
+  if (localCounters.size < 512) return;
+  for (const [k, v] of localCounters) {
+    if (v.windowStart + v.windowMs < now) localCounters.delete(k);
+  }
+}
+
+/**
  * 固定窗口限流（按任意 key，如 IP / 账户名 / 路由）。
  *
  * @param {object}   opts
@@ -68,6 +91,22 @@ export async function fixedWindowRateLimit({ env, key, namespace, windowMs, max 
     return { allowed: true, limit: max, remaining: max, retryAfterMs: 0 };
   }
 
+  // ── 第一道：isolate 内同步计数（无 await，并发下准确） ──────────
+  // 必须在任何 await 之前完成"占用"，否则这一拍又变成读-改-写竞态。
+  sweepLocalCounters(now);
+  const localKey = `${ns}|${safeKey}|${windowStart}`;
+  const local = localCounters.get(localKey);
+  const localCount = local ? local.count : 0;
+  if (localCount >= max) {
+    return { allowed: false, limit: max, remaining: 0, retryAfterMs: Math.max(retryAfterMs, 1) };
+  }
+  localCounters.set(localKey, {
+    count: localCount + 1,
+    windowStart,
+    windowMs
+  });
+
+  // ── 第二道：KV 计数（跨 isolate 的粗粒度约束） ────────────────
   let count = 0;
   try {
     const raw = await env.img_url.get(kvKey, { type: 'json' });
@@ -76,6 +115,8 @@ export async function fixedWindowRateLimit({ env, key, namespace, windowMs, max 
     count = 0;
   }
 
+  // 取本地与 KV 的较大者：本地是"本 isolate 已放行数"，
+  // KV 是"所有 isolate 已知的总数"，任一方超限都应拦下。
   if (count >= max) {
     return { allowed: false, limit: max, remaining: 0, retryAfterMs: Math.max(retryAfterMs, 1) };
   }
@@ -89,7 +130,7 @@ export async function fixedWindowRateLimit({ env, key, namespace, windowMs, max 
   return {
     allowed: true,
     limit: max,
-    remaining: Math.max(max - (count + 1), 0),
+    remaining: Math.max(max - Math.max(count, localCount) - 1, 0),
     retryAfterMs: 0,
   };
 }

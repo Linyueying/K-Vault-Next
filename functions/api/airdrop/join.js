@@ -14,11 +14,30 @@ import {
   joinSession,
   jsonResponse
 } from '../../utils/airdrop.js';
+import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
 
 const CODE_PATTERN = /^[A-Z0-9]{8}$/;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+
+  // 枚举防护：连接码只有 8 位（约 39 bit），不加限流的话可以拿脚本批量试。
+  // 正常用户一次投送只会 join 一两次，20 次/分钟足够宽松、不会误伤，
+  // 但足以把"批量猜码"的成本抬到不可行。
+  const rl = await fixedWindowRateLimit({
+    env,
+    key: getClientIp(request),
+    namespace: 'airdrop-join',
+    windowMs: 60 * 1000,
+    max: 20
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { error: '尝试过于频繁，请稍后再试。', code: 'RATE_LIMITED' },
+      429,
+      { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) }
+    );
+  }
 
   let body;
   try {

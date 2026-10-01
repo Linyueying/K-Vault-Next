@@ -29,6 +29,7 @@ import {
   recordStat,
   jsonResponse
 } from '../../utils/airdrop.js';
+import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
 
 const CLOSED_STATUSES = ['cancelled', 'expired', 'failed'];
 
@@ -42,6 +43,24 @@ export async function onRequestPost(context) {
 
   if (!code || !token) {
     return jsonResponse({ error: '缺少 code 或 token。', code: 'BAD_PARAMS' }, 400);
+  }
+
+  // 限流：这是**写中转节点**的路径，一次请求会真实占用 R2 / Telegram 空间。
+  // 单房间虽受 5 分钟 TTL 与单文件上限约束，但并发/高频上传仍可短时间灌满，
+  // 且失败路径也要查 D1。60 次/分钟对正常批量选取足够宽松。
+  const rl = await fixedWindowRateLimit({
+    env,
+    key: getClientIp(request),
+    namespace: 'airdrop-upload',
+    windowMs: 60 * 1000,
+    max: 60
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { error: '上传请求过于频繁，请稍后再试。', code: 'RATE_LIMITED' },
+      429,
+      { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) }
+    );
   }
 
   const session = await getSession(env, code);

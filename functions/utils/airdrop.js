@@ -285,6 +285,21 @@ export async function checkAirdropAccess(request, env) {
     };
   }
 
+  // 本地同步占坑：KV 的"读-判定-写"不是原子的，并发请求会读到同一个旧值
+  // 一起放行（实测限额 3 时并发 12 个全部成功）。这里在任何 await 之后、
+  // 但在**返回放行之前**完成一次同步判定与占用，把同一瞬间的一批收掉。
+  // 注意：仅**发端**（create/upload）消耗额度，收端走
+  // checkAirdropReceiveAccess，不会走到这里。
+  const claim = claimDailySlot(ip, cfg.dailyLimit);
+  if (!claim.allowed) {
+    return {
+      allowed: false,
+      status: 429,
+      code: 'AIRDROP_DAILY_LIMIT',
+      reason: `今日隔空投送次数已达上限（${cfg.dailyLimit} 次）`
+    };
+  }
+
   return { allowed: true, isGuest, ip, config: cfg, nodes };
 }
 
@@ -339,6 +354,59 @@ async function readDailyCount(env, ip) {
   } catch {
     return 0;
   }
+}
+
+/**
+ * isolate 内的当日额度计数（同步、无 await）。
+ *
+ * 为什么需要它：每日额度原本是「读 KV → 判定 → 写 KV」，三步都有 await。
+ * 并发请求会同时读到同一个旧值、一起放行 —— 实测限额 3 时并发 12 个全部
+ * 建成功（见 scripts/test-airdrop-quota-race.mjs）。KV 没有原子自增，
+ * 跨 isolate 无法根治。
+ *
+ * 但**创建房间是低频操作**（正常人一天最多几次），完全不需要精确的分布式
+ * 计数；只需要挡住"同一瞬间打进来的一批"。因此：
+ *   · 建房间前先在本地 Map 里同步 +1（无 await，并发下准确），
+ *     本地已达上限就直接拒，KV 都不必读；
+ *   · 再把结果补写进 KV，供其他 isolate / 后续请求做粗粒度判断。
+ *
+ * 语义与 ratelimit.js 的本地计数器一致：本地负责「同一瞬间的一批」，
+ * KV 负责「跨 isolate 的粗粒度约束」，两者取较大值。
+ * 本地计数只在 isolate 存活期内有效，不承担长期准确性，也不做持久化。
+ */
+const localDailyCounts = new Map();
+
+/** 清理过期的本地当日计数（避免 Map 无限增长） */
+function sweepLocalDailyCounts(today) {
+  if (localDailyCounts.size < 256) return;
+  for (const [k, v] of localDailyCounts) {
+    if (v.day !== today) localDailyCounts.delete(k);
+  }
+}
+
+/**
+ * 同步占用一次当日额度并判定是否超限。
+ *
+ * 必须在任何 await 之前调用（否则又变成读-改-写竞态）。
+ *
+ * @returns {{allowed:boolean, localUsed:number}}
+ *   allowed=false 表示本地已确定超限，调用方应直接拒绝，无需再读 KV。
+ */
+export function claimDailySlot(ip, limit) {
+  const day = todayKey();
+  const key = `${ip}|${day}`;
+  sweepLocalDailyCounts(day);
+  const used = localDailyCounts.get(key)?.count || 0;
+  if (used >= limit) return { allowed: false, localUsed: used };
+  localDailyCounts.set(key, { count: used + 1, day });
+  return { allowed: true, localUsed: used + 1 };
+}
+
+/** 归还一次本地占用（房间创建失败时用，避免"失败也扣次数"） */
+export function releaseDailySlot(ip) {
+  const key = `${ip}|${todayKey()}`;
+  const cur = localDailyCounts.get(key);
+  if (cur && cur.count > 0) localDailyCounts.set(key, { ...cur, count: cur.count - 1 });
 }
 
 /** 计数自增。仅在实际创建房间成功后调用，失败的请求不该消耗额度。 */
