@@ -10,7 +10,7 @@
  * 却已被删除的竞态，而这种错误在界面上表现为"下载到一半断了"，很难归因。
  */
 import {
-  getSession,
+  getSessionForDelivery,
   roleOf,
   allDownloaded,
   markCompleted,
@@ -36,7 +36,10 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: '缺少 code 或 token。', code: 'BAD_PARAMS' }, 400);
   }
 
-  const session = await getSession(env, code);
+  // 与 download 相同的宽限语义：收端把文件都取完了才来调 complete，
+  // 若此刻刚好跨过 expires_at 而用严格 getSession 拒掉，最终文件已经在
+  // 收端本地、发端却永远等不到"已送达"，是最冤的一种失败。
+  const session = await getSessionForDelivery(env, code);
   if (!session) {
     return jsonResponse({ error: '房间不存在或已过期。', code: 'EXPIRED' }, 404);
   }

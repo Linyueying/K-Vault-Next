@@ -167,6 +167,9 @@
         cloudOpen: false,
         cloudFiles: [],
         cloudLoading: false,
+        /* 收端在微信/QQ 内置浏览器里被守卫拦下（已引导去系统浏览器）。
+           置位后停止轮询并显示"去浏览器打开"的说明，不再反复进 beginDownload。 */
+        guardBlocked: false,
         scanning: false,
         scanStream: null,
         scanTimer: null,
@@ -379,6 +382,7 @@
           staged: '已送达存储节点',
           'waiting-file': '等待对方发送文件',
           downloading: '正在接收文件',
+          guard: '请在浏览器中打开',
           done: '投送完成',
           failed: '本次投送已中断'
         };
@@ -396,6 +400,9 @@
           staged: '对方正在接收…',
           'waiting-file': '对方选好文件后会自动开始传送。',
           downloading: '接收完成后两端会同时收到提示。',
+          /* 内置浏览器（微信/QQ）里下载根本落不了盘，已引导去系统浏览器重开。
+             这里给出明确出口，避免用户以为是卡住了。 */
+          guard: '微信 / QQ 内置浏览器无法保存文件，请点右上角「···」选择「在浏览器打开」，或复制本页链接到系统浏览器 —— 对方发来的文件还在等你接收。',
           done: '文件已保存到本地。',
           failed: this.errorMsg || '可以重新开始一次投送。'
         };
@@ -490,6 +497,11 @@
       reset() {
         this.stopPolling();
         this.stopTick();
+        /* 必须停扫码：收端点「扫码」后直接点取消，走的就是 reset() 这条路。
+           此前只在 beforeUnmount / onClose / backToChoose 里停，唯独漏了
+           cancelRoom（它两条分支都收敛到 reset），结果是摄像头指示灯常亮、
+           scanTimer 每 320ms 空转。stopScan 本身幂等，无条件调用安全。 */
+        this.stopScan();
         this.role = null;
         this.phase = 'choose';
         this.code = '';
@@ -509,6 +521,7 @@
         this.doneCount = 0;
         this.cloudOpen = false;
         this.cloudFiles = [];
+        this.guardBlocked = false;
         this.busy = false;
         this.leaving = false;
         this.pausedByIdle = false;
@@ -1123,6 +1136,9 @@
       // ── 接收（多文件，逐文件下载）────────────────────────
       async beginDownload() {
         if (this.phase === 'downloading' || this.phase === 'done') return;
+        // 已被内置浏览器守卫拦下（已弹引导、已尝试唤端到系统浏览器）：
+        // 不要再来一遍，也不要继续轮询 —— 见下方 guardBlocked 的说明。
+        if (this.guardBlocked) return;
         const files = (this.session && this.session.files) || [];
         if (!files.length) return;
         /* 微信 / QQ 内置浏览器：就算 fetch 把字节全拿到了，也基本没法落盘
@@ -1131,6 +1147,15 @@
            —— shareUrl 带 ?airdrop=CODE，打开即自动进入接收端。 */
         const kv = (typeof window !== 'undefined') ? window.KVault : null;
         if (kv && typeof kv.guardDownload === 'function' && kv.guardDownload(this.shareUrl || window.location.href, '')) {
+          /* guardDownload 命中说明：已弹「请用浏览器打开」引导，并已尝试
+             唤端到系统浏览器。此刻**必须停掉轮询**——
+             否则 phase 停在 'waiting-file'，而服务端状态已是 'uploaded'，
+             每一拍都会重新进 beginDownload 又立刻 return，形成每 1.1s
+             一次的空转（一直打到房间过期才由 404 收敛），白烧 D1，
+             而且界面永远停在"等对方发送"，与"对方其实早传完了"不符。 */
+          this.guardBlocked = true;
+          this.stopPolling();
+          this.phase = 'guard';
           return;
         }
         this.phase = 'downloading';
@@ -1376,6 +1401,12 @@
             <span v-else>{{ statusTitle }}</span>
           </div>
           <div class="ad-status__sub">{{ statusSub }}</div>
+          <!-- 内置浏览器守卫拦下后轮询已停，给一个明确出口回到角色选择 -->
+          <div class="ad-actions" v-if="phase === 'guard'">
+            <button class="ad-btn ad-btn--primary" @click="reset">
+              <i class="fas fa-rotate-right"></i><span>重新开始</span>
+            </button>
+          </div>
         </div>
 
         <!-- 发端：选择中转节点 -->

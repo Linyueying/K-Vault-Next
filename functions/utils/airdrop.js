@@ -85,6 +85,27 @@ const R2_PREFIX = 'airdrop/';
 /** 终态：进入这些状态后房间不再接受任何写操作 */
 const TERMINAL_STATUSES = ['done', 'failed', 'cancelled', 'expired'];
 
+/**
+ * 已 upload 房间的「收尾宽限期」（毫秒）。
+ *
+ * 房间的 expires_at 是**建房间那一刻**就钉死的（= created_at + TTL），
+ * 它不给"传输耗时"留任何余量。发端传大文件本身就要吃掉几分钟，等房间
+ * 翻到 uploaded、收端开始下载时，剩余时间可能已经所剩无几。
+ *
+ * 此时若照旧"过期即删"，会出现最坏的一种失败：
+ *   收端正下到第 N 个文件 → 跨过 expires_at → getSession 把**还没取走的
+ *   文件全部删掉** → 收端下载中断，用户看到"文件已失效"，
+ *   而实际上发端已经传完了、文件也还在。
+ *
+ * 所以对 uploaded 状态额外给一个宽限期：过期时先不删文件，只把 expires_at
+ * 往后推，让收端有机会把剩下的取完；宽限期结束仍没取完的，交由
+ * createSession 时的批量清理收尾（不会成为孤儿）。
+ *
+ * 取值与默认 TTL 同量级：足够慢速网络拉完一批文件，又不至于让中转节点
+ * 长期堆积 —— 投送是一次性操作，收端要么马上取，要么就是不要了。
+ */
+const UPLOADED_GRACE_MS = 5 * 60 * 1000;
+
 // ============================================================================
 // 响应
 // ============================================================================
@@ -424,6 +445,51 @@ export async function getSession(env, code) {
   return row;
 }
 
+/**
+ * 读一条房间记录，但**允许已 uploaded 的房间在过期后继续被消费**。
+ *
+ * 只给「取文件」这一条路径用（download.js / complete.js）。
+ *
+ * 为什么需要它：expires_at 是**建房间那一刻**钉死的（= created_at + TTL），
+ * 不给传输本身留任何余量。发端传大文件很容易把窗口吃掉大半，等到房间翻到
+ * uploaded、收端真正开始逐个下载时，可能已经踩线甚至超时。
+ * 此时如果照 walk getSession 的"过期即拒、顺手删文件"，就会出现最坏的失败：
+ *   收端正下到第 N 个文件 → 跨过 expires_at → 剩余文件被清理 → 下载中断，
+ *   用户看到"文件已失效"，可实际上发端已经传完、文件也还在中转节点上。
+ *
+ * 所以对 uploaded 相额外给 UPLOADED_GRACE_MS 的交付窗口：只要房间还是
+ * uploaded（说明发端确实交了货、收端还没取完），就允许继续读。
+ * 窗口一过即恢复正常的过期语义，文件由 cleanupExpired 收尾。
+ *
+ * 注意：这**不延长轮询**。前端拿到的仍是"过期"（status 接口走的是
+ * getSession），两端照常停止轮询、不再产生 D1 读；这里放宽的只是
+ * 「已经开始的下载能不能把剩下的取完」。所以不会变成"过期后还在烧额度"。
+ */
+export async function getSessionForDelivery(env, code) {
+  await ensureSchema(env);
+  if (!code) return null;
+  const row = await env.DB.prepare(
+    'SELECT * FROM airdrop_sessions WHERE code = ?'
+  ).bind(String(code).toUpperCase()).first();
+
+  if (!row) return null;
+  if (TERMINAL_STATUSES.includes(row.status)) return row;
+
+  const now = nowMs();
+  const expired = row.expires_at && row.expires_at < now;
+  if (!expired) return row;
+
+  // 已 uploaded：发端交付完成、收端正在取。只要还在宽限窗口内就给放行，不删文件。
+  // （now - expires_at 即"已经过期多久"）
+  if (row.status === 'uploaded' && now - row.expires_at <= UPLOADED_GRACE_MS) {
+    return row;
+  }
+
+  // 其余情况（还在等配对 / 传一半 / 宽限已过）：照常判过期并清理。
+  await cleanupExpired(env, now, row.code);
+  return null;
+}
+
 /** token 对应的角色；不匹配返回 null */
 export function roleOf(session, token) {
   if (!session || !token) return null;
@@ -524,7 +590,10 @@ export async function addManifestFile(env, code, file, isFinal) {
 
 /** 收端下载完一个文件后，把该条目标记为 downloaded */
 export async function markFileDownloaded(env, code, idx) {
-  const session = await getSession(env, code);
+  // 用宽限读取：下载本身是走 getSessionForDelivery 放行的，
+  // 若这里用严格的 getSession，会出现"文件取到了但没记上"——
+  // 收端会反复重下同一个文件，且 allDownloaded 永远不成立、complete 一直 409。
+  const session = await getSessionForDelivery(env, code);
   if (!session) return;
   const files = parseManifest(session.files_json);
   if (!files[idx]) return;

@@ -10,7 +10,7 @@
  * 完成使命，不留在中转节点上占空间、也不留副本。
  */
 import {
-  getSession,
+  getSessionForDelivery,
   roleOf,
   parseManifest,
   readTempFile,
@@ -31,7 +31,10 @@ export async function onRequestGet(context) {
     return jsonResponse({ error: '缺少 code 或 token。', code: 'BAD_PARAMS' }, 400);
   }
 
-  const session = await getSession(env, code);
+  // 取文件走"交付宽限"读取：已 uploaded 的房间即便刚跨过 expires_at，
+  // 也允许把剩下的文件取完 —— 否则会出现"下到一半，剩余文件被过期清理删掉"。
+  // 只放宽取件，不延长轮询（status 接口仍走严格的 getSession）。
+  const session = await getSessionForDelivery(env, code);
   if (!session) {
     return jsonResponse({ error: '房间不存在或已过期。', code: 'EXPIRED' }, 404);
   }
