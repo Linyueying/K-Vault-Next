@@ -281,18 +281,24 @@ html[data-theme="dark"] .badge-beta{color:#7dd3fc;border-color:rgba(56,189,248,.
 .airdrop-recent{margin-top:var(--sp-3);border:1px solid var(--glass-border-ice);border-radius:var(--r-md);overflow:hidden}
 /* 第二列用 minmax(0,1fr) 而非 1fr：1fr 的隐式最小值是 auto，
    长用户名/长编码会把这一列撑宽、顶破卡片；minmax(0,...) 才能收缩。 */
-.airdrop-recent__row{display:grid;grid-template-columns:88px 72px minmax(0,1.4fr) minmax(132px,1fr) 72px 96px 60px;gap:var(--sp-2);align-items:center;padding:8px var(--sp-3);font-size:var(--fs-sm)}
+.airdrop-recent__row{display:grid;grid-template-columns:76px 68px minmax(190px,1fr) 84px 104px 56px;gap:var(--sp-2);align-items:center;padding:8px var(--sp-3);font-size:var(--fs-sm)}
 .airdrop-recent__row + .airdrop-recent__row{border-top:1px solid rgba(148,163,184,.16)}
 .airdrop-recent__row--head{background:var(--glass-subtle);font-weight:700;font-size:var(--fs-xs);color:var(--text-muted)}
 .airdrop-recent__row > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .airdrop-recent__row .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
-.airdrop-recent__row .ov{display:block;color:var(--text-sub);font-size:var(--fs-xs);margin-top:1px}
-.airdrop-recent__row .airdrop-ip{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-xs);color:var(--text-sub);flex-wrap:wrap}
-.airdrop-recent__row .airdrop-ip i{opacity:.45;font-size:9px}
-@media (max-width:680px){
-  .airdrop-recent__row{grid-template-columns:72px 64px minmax(0,1fr) 84px}
-  /* 窄屏保留：连接码 / 状态 / 文件概览 / 时间；隐藏收发 IP、角色、耗时 */
-  .airdrop-recent__row > span:nth-child(4),.airdrop-recent__row > span:nth-child(5),.airdrop-recent__row > span:nth-child(7){display:none}
+.airdrop-recent__row .airdrop-ip{display:flex;flex-direction:column;gap:1px;font-size:var(--fs-xs);color:var(--text-sub);line-height:1.35;min-width:0}
+.airdrop-recent__row .airdrop-ip b{font-weight:500;color:var(--text-muted);margin-right:3px}
+.airdrop-recent__row .airdrop-ip u{text-decoration:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:760px){
+  /* 条目改为两行卡片：上行 连接码 + 状态 + 时间，下行 收发 IP + 角色。
+     手机也要看得到 IP —— 之前把 IP 列直接隐藏，管理员在移动端永远看不到。 */
+  .airdrop-recent__row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"code code" "status time" "ip ip" "role role";gap:4px var(--sp-3);padding:10px var(--sp-3);align-items:start}
+  .airdrop-recent__row > span:nth-child(1){grid-area:code}
+  .airdrop-recent__row > span:nth-child(2){grid-area:status;justify-self:start}
+  .airdrop-recent__row > span:nth-child(3){grid-area:ip}
+  .airdrop-recent__row > span:nth-child(4){grid-area:role;justify-self:start}
+  .airdrop-recent__row > span:nth-child(5){grid-area:time;justify-self:end}
+  .airdrop-recent__row--head{display:none}
 }
 .kv-usage-actions{display:flex;gap:var(--sp-1)}
 .kv-usage-empty{padding:var(--sp-6);text-align:center;color:var(--text-muted);font-size:var(--fs-sm);display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);line-height:1.6}
@@ -2480,21 +2486,16 @@ html[data-theme="dark"] .dock__indicator{
 
           <div class="airdrop-recent" v-if="airdropStats.recent && airdropStats.recent.length">
             <div class="airdrop-recent__row airdrop-recent__row--head">
-              <span>连接码</span><span>状态</span><span>文件概览</span><span>收发 IP</span><span>角色</span><span>时间</span><span>耗时</span>
+              <span>连接码</span><span>状态</span><span>收发 IP</span><span>角色</span><span>时间</span><span>耗时</span>
             </div>
             <div class="airdrop-recent__row" v-for="r in airdropStats.recent" :key="r.code + r.createdAt">
               <span class="mono">{{ r.code }}</span>
               <span>
                 <span class="token-badge" :class="r.outcome === 'completed' ? '' : 'warn'">{{ airdropOutcomeLabel(r.outcome) }}</span>
               </span>
-              <span :title="r.fileName">
-                {{ r.fileName || '—' }}
-                <span class="ov" v-if="r.fileCount > 1 || r.totalSize">{{ r.fileCount }} 个 · {{ formatSize(r.totalSize) }}</span>
-              </span>
               <span class="airdrop-ip">
-                <span :title="'发送端 IP：' + (r.senderIp || '未知')">{{ r.senderIp || '—' }}</span>
-                <i class="fas fa-arrow-right"></i>
-                <span :title="'接收端 IP：' + (r.receiverIp || '未知')">{{ r.receiverIp || '—' }}</span>
+                <span :title="'发送端 IP：' + (r.senderIp || '未知')"><b>发</b><u>{{ r.senderIp || '—' }}</u></span>
+                <span :title="'接收端 IP：' + (r.receiverIp || '未知')"><b>收</b><u>{{ r.receiverIp || '—' }}</u></span>
               </span>
               <span>
                 <span class="token-badge" :class="r.isGuest ? 'warn' : ''">{{ r.isGuest ? '访客' : '授权用户' }}</span>
