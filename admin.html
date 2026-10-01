@@ -2436,7 +2436,10 @@ html[data-theme="dark"] .dock__indicator{
           </div>
         </div>
 
-        <div class="settings-note settings-note--warn" v-if="!airdropBackendName">
+        <!-- 只在「设置已加载完成」且确无节点时提示：
+             airdropLoading 期间 airdropBackendName 必然是空的，此时弹警告是误报。 -->
+        <div class="settings-note settings-note--warn"
+             v-if="!airdropLoading && airdropBackendLoaded && !airdropBackendName">
           <i class="fas fa-triangle-exclamation"></i>
           <span>当前未检测到 R2_BUCKET 绑定或 Telegram 环境变量（TG_BOT_TOKEN / TG_CHAT_ID），隔空投送缺少中转节点，启用后也无法使用。</span>
         </div>
@@ -3449,6 +3452,9 @@ const __kvApp = Vue.createApp({
     },
     /* 中转节点：由接口回传。它决定了单文件上限"还能不能设这么高" */
     airdropBackend: { name: null, label: '未配置', maxBytes: 0 },
+    /* 是否已成功拿到过后端返回的节点信息。
+       缺节点警告必须等它为 true 才显示，否则加载中途会误报"没有绑定"。 */
+    airdropBackendLoaded: false,
     airdropDays: 7,
     airdropStatsLoading: false,
     airdropStats: null,
@@ -4479,11 +4485,15 @@ const __kvApp = Vue.createApp({
         this.shareBundleSearch = '';
         this.loadShares();
         this.loadShareBundles();
+        // 隔空投送的设置卡片已迁到「分享」分区，数据也必须在这里加载。
+        // 之前挂在 storage 分支下是搬迁时漏改的：进「分享」不加载 → airdropBackend
+        // 保持初始 { name: null } → 误显示"未检测到 R2"；手动切天数走 @change
+        // 才拉到数据，于是出现"一进来报错、点一下就好"的怪象。
+        this.loadAirdropSettings();
+        this.loadAirdropStats();
       } else if (name === 'storage') {
         this.loadKvUsage();
         this.loadSettings();
-        this.loadAirdropSettings();
-        this.loadAirdropStats();
       } else if (name === 'system') {
         this.loadSettings();
         this.tokenSecret = null;
@@ -5291,6 +5301,9 @@ const __kvApp = Vue.createApp({
         // 统计与节点探测彼此独立：统计失败时后端仍会返回 backend / config，
         // 这里照常应用 —— 避免把「统计读不到」误显示成「没有中转节点」。
         if (data.backend) this.airdropBackend = data.backend;
+        // 只要接口成功返回过（哪怕 backend.name 是 null），就说明"探测已完成"，
+        // 此时再显示缺节点警告才是真实结论。
+        this.airdropBackendLoaded = true;
         if (data.config) this.applyAirdropView({ airdrop: data.config });
         if (data.statsError) this.airdropStatsError = data.statsError;
       } catch (e) {

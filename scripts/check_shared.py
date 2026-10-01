@@ -549,6 +549,61 @@ def main():
                      + (' …' if len(idle) > 12 else '')))
         bad += e_bad
 
+    # ---------------------------------------------------------------- F. 分区加载归属
+    # 标题里搜得到、却挂在别的分区分支下 —— 这类"搬迁漏改"不会报错、不会白屏，
+    # 只表现为"一进页面提示未配置，手动点一下才好"，极难在测试里发现。
+    # 这里用「卡片所在的 data-section」与「onSectionEnter 里的分支块」做静态对齐。
+    f_bad = 0
+    admin = read('admin.html')
+    print('  [检查] 分区内卡片的数据加载函数是否挂在对应分区分支')
+
+    # 每个条目：卡片标题文本 → 期望所在 data-section → 必须出现在该分支块里的加载函数
+    SECTION_ENTRY_LOADERS = [
+        ('隔空投送', 'shares', ['loadAirdropSettings', 'loadAirdropStats']),
+    ]
+
+    # 切出 onSectionEnter 的函数体，再按 `name === 'xxx'` 切成各分支块
+    enter = re.search(r'onSectionEnter\s*\([^)]*\)\s*\{(.*?)\n    \},',
+                      admin, flags=re.S)
+    if not enter:
+        print('  [跳过] 未找到 onSectionEnter（结构可能有变，人工确认）')
+    else:
+        body = enter.group(1)
+        # 以 `} else if (name === 'x') {` / `if (name === 'x') {` 为界切块
+        marks = [(m.start(), m.group(1))
+                 for m in re.finditer(r"name\s*===\s*'([a-z-]+)'", body)]
+        blocks = {}
+        for i, (pos, name) in enumerate(marks):
+            end = marks[i + 1][0] if i + 1 < len(marks) else len(body)
+            blocks[name] = body[pos:end]
+
+        for title, section, loaders in SECTION_ENTRY_LOADERS:
+            # 先确认标题确实在某个 data-section 里
+            sec_pos = admin.find('data-section="%s"' % section)
+            has_title = sec_pos != -1 and title in admin[sec_pos:sec_pos + 60000]
+            if not has_title:
+                print('  [跳过] 「%s」不在 data-section="%s" 内（可能又搬走了）'
+                      % (title, section))
+                continue
+            block = blocks.get(section, '')
+            missing = [fn for fn in loaders if fn not in block]
+            # 反向：这些加载函数不应仍留在别的分支里（重复加载 = 无意义请求）
+            strayed = [fn for fn in loaders
+                       for other, blk in blocks.items()
+                       if other != section and fn in blk]
+            if missing:
+                f_bad += 1
+                print('  [检查] 「%s」在 %s 分区，但其加载函数未挂在该分支：%s'
+                      % (title, section, ', '.join(missing)))
+            if strayed:
+                f_bad += 1
+                print('  [检查] 以下加载函数仍留在其他分区分支（搬迁残留）：%s'
+                      % ', '.join(sorted(set(strayed))))
+            if not missing and not strayed:
+                print('  [OK]   「%s」的加载函数正确挂在 %s 分支'
+                      % (title, section))
+        bad += f_bad
+
     print('\n' + '=' * 74)
     if bad:
         print('结果：%d 项检查未通过' % bad)
