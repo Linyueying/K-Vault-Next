@@ -1236,8 +1236,19 @@ html[data-theme="dark"] .dock__indicator{
     0 6px 16px -4px rgba(0,0,0,.5),
     0 0 0 1px rgba(56,189,248,.12);
 }
-/* 首屏入场：与 index 同一条 dockIn（保留 -50% 水平居中偏移，否则会横向跳位） */
-#app:not(.is-booted) .dock{animation:dockIn .72s var(--ease-fluid) .1s backwards}
+/* 首屏入场：淡入 + 轻微上浮。
+   ⚠️ 与 index.css 的差异（有意为之，别照搬那边的参数）：
+     1. index.css 用 0.72s + 0.1s 延迟（合计 820ms），比 mounted() 里的
+        bootDelay（780ms）还长 —— 动画跑到一半 is-booted 就被加上，
+        门控失效、动画被硬切，表现为「dock 抖一下才归位」。
+        这里改成 0.6s 无延迟（合计 600ms），留 180ms 安全余量。
+     2. index.css 的起手态是 translate3d(0,96px) + scale(.88)，
+        在 admin 里很突兀：进页面先看到的是一张空白的「正在加载文件…」，
+        dock 再从屏幕外弹进来，对比之下像布局错位（用户实测反馈）。
+        这里把位移收到 24px、去掉缩放 —— 变成克制的淡入上浮，
+        既保留「入场」的层次感，又不会让人以为 dock 没对齐。
+   keyframes 本体按项目规范放在 design-system.css（adminDockIn）。 */
+#app:not(.is-booted) .dock{animation:adminDockIn .6s var(--ease-fluid) backwards}
 </style>
 </head>
 <body>

@@ -736,6 +736,21 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
   to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
 }
+/* admin 后台专用的 dock 入场 —— 与 dockIn 的两点差异（都踩过坑）：
+   1. **时长**：admin.html 的 mounted() 用 bootDelay=780ms 置 is-booted，
+      而 dockIn 是 0.72s 动画 + 0.1s 延迟（合计 820ms）—— 超过门控，
+      动画跑到一半就被切掉，表现为「dock 抖一下才归位」。
+      调用侧这里改成 0.6s 无延迟（合计 600ms），留 180ms 余量。
+   2. **起手态**：admin 首屏是一张空白的「正在加载文件…」，dock 若按
+      dockIn 从屏幕外 96px 弹进来、还带 0.88 缩放，视觉上像布局错位
+      （用户实测反馈）。这里把位移收到 24px、去掉缩放，
+      变成克制的淡入上浮。
+   两端仍必须显式带上 translateX(-50%)：它是 dock 自身的水平居中偏移，
+   漏了会让整条栏横向跳位。 */
+@keyframes adminDockIn {
+  from { opacity: 0; transform: translateX(-50%) translate3d(0, 24px, 0); }
+  to   { opacity: 1; transform: translateX(-50%) translate3d(0, 0, 0); }
+}
 /* 底部批量操作栏（<transition name="bar">）的进出场。
    这里刻意用 @keyframes 而不是 transition，理由与上方 menuIn/menuOut 相同：
    底栏是「插入 DOM + 同帧切 class」出现的，浏览器来不及为 transition 建立
