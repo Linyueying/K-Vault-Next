@@ -393,10 +393,9 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .vault-card.dragging{opacity:.45;transform:scale(.97)}
 .vault-card.drop-target{border-color:#22c55e;box-shadow:0 0 0 2px rgba(34,197,94,.28)}
 /* 卡片右上角下载按钮（原 .card-fav 是收藏遗留类名，语义已归位） */
-.card-dl{position:absolute;top:8px;right:8px;z-index:4;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.3);background:rgba(15,23,42,.42);backdrop-filter:blur(10px) saturate(1.4);-webkit-backdrop-filter:blur(10px) saturate(1.4);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.72rem;transition:transform .4s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);}
-.card-dl::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
-@media(hover:hover){.card-dl:hover{transform:scale(1.12);background:rgba(15,23,42,.7);border-color:rgba(255,255,255,.6)}}
-.card-dl:active{transform:scale(.88);transition-duration:.09s;transition-timing-function:var(--ease-press)}
+/* 卡片选中角标：替换原先常显的圆形勾选框。
+   只在选中时出现，因此不占位、不影响未选中卡片的排版密度。 */
+.card-picked{position:absolute;top:10px;left:10px;z-index:4;width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:.68rem;box-shadow:0 2px 8px rgba(var(--primary-rgb),.4)}
 .card-thumb{height:132px;display:flex;align-items:center;justify-content:center;background:var(--glass-subtle);cursor:pointer;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-border);border-radius:calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0;}
 .card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s var(--ease-apple)}
 .vault-card:hover .card-thumb img{transform:scale(1.08)}
@@ -453,7 +452,6 @@ html[data-theme="dark"] .row-thumb--folder{
 }
 /* 列表视图：文件夹行没有勾选框，用同宽占位符对齐文件行的缩进
    （宽高与 .check 一致，见下方 .check 定义） */
-.check-checkbox-spacer{width:22px;height:22px;flex:none}
 /* 文件夹行：整行可点进入 */
 .vault-row.is-folder{cursor:pointer}
 .vault-row.is-folder .row-name{color:var(--primary-text)}
@@ -493,7 +491,9 @@ html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
 .act:disabled{opacity:.3;cursor:not-allowed}
 .act:disabled:hover{background:transparent;color:var(--text-muted);transform:none}
 /* 卡片内浮动勾选 */
-.card-check{position:absolute;top:10px;left:10px;z-index:4}
+/* 长按多选进行中：给可选项一点"可点"的提示（光标/轻微内缩） */
+.vault-card.picking,.vault-row.picking{cursor:pointer}
+.vault-card.picking:active,.vault-row.picking:active{transform:scale(.985)}
 .act.liked{color:#b45309}
 /* 卡片/行操作弹出菜单 */
 .act-wrap{position:relative;display:inline-flex;flex:none}
@@ -847,7 +847,7 @@ design-system.css 已经给 .modal-mask 用过同一套「打开即渐入」的�
 :root{--blur-fade:.42s var(--ease-apple)}
 
 /* 下面这些玻璃面自身没有其它 transition，直接在此挂上唯一的模糊过渡。
-   其余玻璃面（.vault-card / .card-dl / .vault-row / .batch-dock）已有配色过渡，
+   其余玻璃面（.vault-card / .card-picked / .vault-row / .batch-dock）已有配色过渡，
    为避免互相覆盖，是在各自的 transition 列表里**追加**的，见各自定义处。 */
 .dropdown-panel,
 .card-badge,
@@ -915,7 +915,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
   /* 44px 热区在 gap:2px 下会互相重叠约 2px，撑开间距消除误触 */
   .row-actions,.card-actions{gap:6px}
   .check{width:28px;height:28px}
-  .check-checkbox-spacer{width:28px;height:28px}
   .move-item{padding:12px 11px}
 }
 
@@ -1001,6 +1000,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* 筛选不参与收缩，避免被压成图标残片 */
   .filter-trigger{flex:0 0 auto;min-width:0}
+  /* 「选择」同理：它是多选模式的唯一入口，被压没了功能就废了 */
+  .select-trigger{flex:0 0 auto;min-width:0}
   /* 工具箱：标签与首行标题合并成一行，条目降高、收紧间距 */
   .vault-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
   .card-thumb{height:118px}
@@ -1035,7 +1036,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
   /* 360px 下再收紧一档，并让「筛选」退化为纯图标（配 title 提示），
      确保第一行永远放得下，不会出现裁切。 */
   .tool-btn{padding:5px 8px}
-  .filter-trigger span:not(.badge-count){display:none}
+  /* 「选择」与「筛选」同为工具栏的次要入口，360px 下一起退化为纯图标（靠 title 提示），
+     保证第一行永远放得下，不会出现裁切。 */
+  .filter-trigger span:not(.badge-count),
+  .select-trigger span{display:none}
 }
 
 /* =========================================================
@@ -1359,6 +1363,15 @@ html[data-theme="dark"] .dock__indicator{
         </button>
       </div>
 
+      <!-- 多选入口：勾选框移除后，长按是触屏的进入方式；
+           桌面端鼠标没有「长按」语义，必须留一个显式按钮，否则多选功能等于消失。
+           进入后按钮变成「完成」，同时左下角批量操作条浮现。 -->
+      <button class="tool-btn select-trigger" :class="{active: longPressActive}"
+              @click="toggleSelectionMode" :title="longPressActive ? '退出多选' : '进入多选（也可长按文件卡片）'">
+        <i :class="longPressActive ? 'fas fa-check' : 'fas fa-check-double'"></i>
+        <span>{{ longPressActive ? '完成' : '选择' }}</span>
+      </button>
+
       <button class="tool-btn filter-trigger" :class="{active: filterSheetOpen}"
               @click.stop="filterSheetOpen = !filterSheetOpen">
         <i class="fas fa-sliders"></i>
@@ -1519,10 +1532,16 @@ html[data-theme="dark"] .dock__indicator{
       <div v-if="viewMode==='grid' && pageEntries.length" class="vault-grid" key="grid">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-card"
-             :class="{selected:item.selected, 'is-folder':item.__isFolder, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
+             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
              :draggable="!item.__isFolder"
              @dragstart="!item.__isFolder && dragStart(item,$event)"
              @dragend="dragEnd"
+             @pointerdown="onCardPressStart(item, $event)"
+             @pointermove="onCardPressMove($event)"
+             @pointerup="onCardPressEnd()"
+             @pointercancel="onCardPressEnd()"
+             @pointerleave="onCardPressEnd()"
+             @contextmenu.prevent="item.__isFolder || (item.selected = true, longPressActive = true)"
              @dragover.prevent="item.__isFolder && (drag.target=item.path)"
              @dragleave="item.__isFolder && (drag.target=null)"
              @drop.prevent="item.__isFolder && dropFolder(item.path,$event)">
@@ -1543,10 +1562,9 @@ html[data-theme="dark"] .dock__indicator{
                 <span><i class="fas fa-folder-open"></i> {{ item.fileCount }} 个文件</span>
               </div>
             </div>
+            <!-- 文件夹操作收敛为单个「…」：整张卡片点一下即进入该目录，
+                 「打开」按钮冗余；重命名 / 删除早已在菜单里有，无需再摆一份。 -->
             <div class="card-actions">
-              <button class="act" @click.stop="selectFolder(item.path)" title="打开"><i class="fas fa-folder-open"></i></button>
-              <button class="act" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})" title="重命名"><i class="fas fa-pen"></i></button>
-              <button class="act danger" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})" title="删除"><i class="fas fa-trash"></i></button>
               <div class="act-wrap">
                 <button class="act" :class="{on:openMenu==='card:'+item.name}" @click.stop="toggleMenu('card:'+item.name)" title="更多操作">
                   <i class="fas fa-ellipsis"></i>
@@ -1563,26 +1581,24 @@ html[data-theme="dark"] .dock__indicator{
             </div>
           </template>
 
-          <!-- ===== 文件分支（原有） ===== -->
+          <!-- ===== 文件分支 =====
+               勾选框已移除：多选改为「长按卡片」进入（见 onCardPressStart）。
+               左上角选中态仍用 .card-picked 角标表示，不再常显控件占位。
+               下载按钮从卡片右上角收进「…」菜单。 -->
           <template v-else>
-          <label class="check card-check" :class="{on:item.selected}" @click.stop.prevent="toggleSelect(item)">
-            <i class="fas fa-check"></i>
-            <input type="checkbox" v-model="item.selected" tabindex="-1">
-          </label>
+          <!-- 选中角标进出场复用设计系统的 pop 过渡（缩放淡入，与其它弹出层一致） -->
+          <transition name="pop">
+            <span v-if="item.selected" class="card-picked" aria-hidden="true"><i class="fas fa-check"></i></span>
+          </transition>
 
-          <!-- 卡片右上角：下载按钮 -->
-          <button class="card-dl" @click.stop="triggerDownload(baseURL + '/file/' + item.name, item.metadata.fileName || item.name)" title="下载">
-            <i class="fas fa-download"></i>
-          </button>
-
-          <div class="card-thumb" @click="openPreview(item)">
+          <div class="card-thumb" @click="onCardTap(item, () => openPreview(item))">
             <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
                  :alt="item.metadata.fileName || item.name">
             <i v-else :class="icon(item.name)"></i>
             <span class="card-badge">{{ typeLabelOf(item.name) }}</span>
           </div>
 
-          <div class="card-body">
+          <div class="card-body" @click="onCardTap(item)">
             <div class="card-name" :title="item.metadata.fileName||item.name">{{ item.metadata.fileName||item.name }}</div>
             <div class="card-meta">
               <span><i class="fas fa-weight-hanging"></i> {{ formatSize(item.metadata.fileSize||0) }}</span>
@@ -1590,15 +1606,18 @@ html[data-theme="dark"] .dock__indicator{
             </div>
           </div>
 
+          <!-- 卡片操作收敛为单个「…」：预览 / 下载 / 删除全部并入菜单，
+               避免卡片右上角堆叠多个图标按钮（窄屏尤其拥挤）。 -->
           <div class="card-actions">
-            <button class="act" @click.stop="openPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
-            <button class="act danger" @click.stop="deleteFile(item)" title="删除"><i class="fas fa-trash"></i></button>
             <div class="act-wrap">
               <button class="act" :class="{on:openMenu==='card:'+item.name}" @click.stop="toggleMenu('card:'+item.name)" title="更多操作">
                 <i class="fas fa-ellipsis"></i>
               </button>
               <transition name="menu">
               <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
+                <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
+                <button class="dropdown-item" @click.stop="menuRun('download',item)"><i class="fas fa-download"></i><span>下载</span></button>
+                <div class="dropdown-divider"></div>
                 <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('like',item)">
@@ -1620,13 +1639,18 @@ html[data-theme="dark"] .dock__indicator{
       <div v-else-if="viewMode==='list' && pageEntries.length" class="vault-list" key="list">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-row"
-             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'menu-open': openMenu==='row:'+item.name}"
+             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, 'menu-open': openMenu==='row:'+item.name}"
+             @pointerdown="onCardPressStart(item, $event)"
+             @pointermove="onCardPressMove($event)"
+             @pointerup="onCardPressEnd()"
+             @pointercancel="onCardPressEnd()"
+             @pointerleave="onCardPressEnd()"
+             @contextmenu.prevent="item.__isFolder || (item.selected = true, longPressActive = true)"
              @dragover.prevent="item.__isFolder && (drag.target=item.path)"
              @dragleave="item.__isFolder && (drag.target=null)"
              @drop.prevent="item.__isFolder && dropFolder(item.path,$event)">
           <!-- 文件夹分支：无下载 / 大小 / 存储，整行可点进入 -->
           <template v-if="item.__isFolder">
-            <span class="check-checkbox-spacer"></span>
             <div class="row-thumb row-thumb--folder" @click="selectFolder(item.path)">
               <i class="fas fa-folder"></i>
             </div>
@@ -1637,10 +1661,8 @@ html[data-theme="dark"] .dock__indicator{
                 <span>{{ item.fileCount }} 个文件</span>
               </div>
             </div>
+            <!-- 文件夹操作收敛为单个「…」，与卡片视图保持一致 -->
             <div class="row-actions">
-              <button class="act" @click.stop="selectFolder(item.path)" title="打开"><i class="fas fa-folder-open"></i></button>
-              <button class="act" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})" title="重命名"><i class="fas fa-pen"></i></button>
-              <button class="act danger" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})" title="删除"><i class="fas fa-trash"></i></button>
               <div class="act-wrap">
                 <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
                   <i class="fas fa-ellipsis"></i>
@@ -1657,18 +1679,15 @@ html[data-theme="dark"] .dock__indicator{
             </div>
           </template>
 
-          <!-- 文件分支（原有） -->
+          <!-- 文件分支：与卡片视图同规则 —— 勾选框移除（长按多选）、
+               下载并入「…」菜单。选中态靠 .vault-row.selected 描边表示。 -->
           <template v-else>
-            <label class="check" :class="{on:item.selected}" @click.stop.prevent="toggleSelect(item)">
-              <i class="fas fa-check"></i>
-              <input type="checkbox" v-model="item.selected" tabindex="-1">
-            </label>
-            <div class="row-thumb" @click="openPreview(item)">
+            <div class="row-thumb" @click="onCardTap(item, () => openPreview(item))">
               <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
                    :alt="item.metadata.fileName || item.name">
               <i v-else :class="icon(item.name)"></i>
             </div>
-            <div class="row-info">
+            <div class="row-info" @click="onCardTap(item)">
               <div class="row-name" :title="item.metadata.fileName||item.name">{{ item.metadata.fileName||item.name }}</div>
               <div class="row-meta">
                 <span class="tag">{{ typeLabelOf(item.name) }}</span>
@@ -1678,18 +1697,17 @@ html[data-theme="dark"] .dock__indicator{
               </div>
             </div>
             <div class="row-actions">
-              <button class="act" @click.stop="triggerDownload(baseURL + '/file/' + item.name, item.metadata.fileName || item.name)" title="下载">
-                <i class="fas fa-download"></i>
-              </button>
               <div class="act-wrap">
                 <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
                   <i class="fas fa-ellipsis"></i>
                 </button>
                 <transition name="menu">
                 <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
+                  <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
+                  <button class="dropdown-item" @click.stop="menuRun('download',item)"><i class="fas fa-download"></i><span>下载</span></button>
+                  <div class="dropdown-divider"></div>
                   <button class="dropdown-item" @click.stop="menuRun('copy',item)"><i class="fas fa-link"></i><span>复制直链</span></button>
                   <button class="dropdown-item" @click.stop="menuRun('rename',item)"><i class="fas fa-pen"></i><span>重命名</span></button>
-                  <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
                   <button class="dropdown-item" @click.stop="menuRun('like',item)">
                     <i :class="item.metadata.liked?'fas fa-bookmark':'far fa-bookmark'"></i>
                     <span>{{ item.metadata.liked?'取消收藏':'收藏' }}</span>
@@ -3218,6 +3236,10 @@ const folderNodeComponent = {
 const SECTION_ORDER = ['files', 'shares', 'storage', 'system'];
 const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, storage: 2, system: 3 };
 
+/* 长按判定阈值（毫秒）。450~500ms 是移动端长按的常见区间：
+   短于 400ms 会与「点按」混淆，长于 600ms 用户会以为没反应。 */
+const LONG_PRESS_MS = 480;
+
 const __kvApp = Vue.createApp({
   components: {
     'folder-node': folderNodeComponent,
@@ -3300,6 +3322,8 @@ const __kvApp = Vue.createApp({
 
     openMenu: null,
     menuUp: false,
+    /* 长按多选：longPressActive 为真时卡片/行处于「点一下就切换选中」模式 */
+    longPressActive: false,
     filterSheetOpen: false,
     toasts: [],
 
@@ -3971,12 +3995,89 @@ const __kvApp = Vue.createApp({
     toggleSelect(item) {
       item.selected = !item.selected;
     },
+
+    /* ================= 长按选择（替代常显的圆形勾选框） =================
+       移动端「长按进入多选」是相册类界面的既定手势：常显勾选框会白占一列宽度、
+       打断「缩略图 + 文件名」的阅读节奏，且桌面端很少用得到多选。
+       这里统一用 Pointer Events：按下起计时，超过阈值判定为长按；
+       期间任意移动 / 抬起 / 取消都会撤销，避免与滚动、拖拽冲突。 */
+    onCardPressStart(item, event) {
+      // 文件夹不参与多选（长按留给未来的拖拽排序等），直接放行
+      if (item && item.__isFolder) return;
+      // 只响应主键 / 触摸 / 笔，右键交给 @contextmenu
+      if (event && event.button != null && event.button !== 0) return;
+      this.cancelCardPress();
+      const point = { x: event?.clientX ?? 0, y: event?.clientY ?? 0 };
+      this._pressStart = point;
+      this._pressTimer = setTimeout(() => {
+        this._pressTimer = null;
+        this._pressFiredAt = Date.now();   // 供 onCardTap 吞掉紧随其后的 click
+        // 长按 = 选中该项并进入多选模式；已是选中状态则保持，便于「长按后继续点其它项」
+        if (item) item.selected = true;
+        this.longPressActive = true;
+        if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+      }, LONG_PRESS_MS);
+    },
+
+    /* 按下后一旦移动超过容差就取消长按 —— 否则「按住滑动列表」会误触发多选 */
+    onCardPressMove(event) {
+      if (!this._pressTimer || !this._pressStart) return;
+      const dx = Math.abs((event?.clientX ?? 0) - this._pressStart.x);
+      const dy = Math.abs((event?.clientY ?? 0) - this._pressStart.y);
+      if (dx > 10 || dy > 10) this.cancelCardPress();
+    },
+
+    /* 抬起：结束本次按压。
+       注意【不要】在这里清掉 _pressFired —— click 事件总在 pointerup 之后送达，
+       若此处复位，紧接着的 onCardTap 就会误判为「普通点击」，
+       把刚长按选中的那张又切回未选中（实测就是这个 bug）。
+       改由时间戳记录长按发生时刻，onCardTap 在 800ms 窗口内直接吞掉这次 click。 */
+    onCardPressEnd() {
+      this.cancelCardPress();
+      /* pointerup 之后浏览器还会补发一次 click；若不清掉计时器，
+         某些浏览器会在 click 之后仍触发 pointerleave，导致状态残留。 */
+      this._pressStart = null;
+    },
+
+    cancelCardPress() {
+      if (this._pressTimer) { clearTimeout(this._pressTimer); this._pressTimer = null; }
+    },
+
+    /* 卡片/行的普通点击：处于多选模式时点一下就是切换选中，否则走原有行为。
+       _pressFiredAt 是长按触发的时刻戳：长按后浏览器补发的那次 click
+       必须被吞掉，否则会把长按选中的项立即反选。 */
+    onCardTap(item, fallback) {
+      if (this._pressFiredAt && Date.now() - this._pressFiredAt < 800) {
+        this._pressFiredAt = 0;
+        return;                               // 长按刚触发，忽略本次 click
+      }
+      if (this.longPressActive) {
+        if (item && !item.__isFolder) item.selected = !item.selected;
+        return;
+      }
+      if (typeof fallback === 'function') fallback();
+    },
+
+    /* 工具栏「选择」按钮：桌面端的多选入口（触屏用长按）。
+       进入时不预选任何项 —— 用户下一步自己点选，比替他猜一个更省事；
+       退出时顺手清空已选，避免残留选中态在下次进入时「诈尸」。 */
+    toggleSelectionMode() {
+      if (this.longPressActive) this.exitLongPress();
+      else { this.longPressActive = true; this.openMenu = null; }
+    },
+
+    /* 退出多选模式 */
+    exitLongPress() {
+      this.longPressActive = false;
+      this.clearSelection();
+    },
     menuRun(action, item) {
       this.openMenu = null;
       if (action === 'copy') this.copy(item);
       else if (action === 'rename') this.editName(item);
       else if (action === 'like') this.toggleLike(item);
       else if (action === 'preview') this.openPreview(item);
+      else if (action === 'download') this.triggerDownload(this.baseURL + '/file/' + item.name, item.metadata.fileName || item.name);
       else if (action === 'move') this.openMove(item);
       else if (action === 'delete') this.deleteFile(item);
     },
@@ -4953,7 +5054,12 @@ const __kvApp = Vue.createApp({
       await this.refresh();
     },
 
-    clearSelection() { this.files.forEach(f => { f.selected = false; }); },
+    /* 清空选择的同时退出长按多选模式 —— 二者是同一状态的两面，
+       只清 selected 而留下 longPressActive 会让界面停在"点一下变选中"的怪状态。 */
+    clearSelection() {
+      this.files.forEach(f => { f.selected = false; });
+      this.longPressActive = false;
+    },
 
     /* ================= 单文件操作 ================= */
     async toggleLike(item) {
