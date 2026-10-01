@@ -52,6 +52,20 @@
  * 中间那个"文件包"的位置由真实的上传/下载进度驱动（XHR progress /
  * 流式读取的字节数），不是固定时长的动画。这一点很重要：进度条走到头
  * 但文件还在传，比进度条慢一点更让人不安。多文件时进度是聚合后的整体进度。
+ *
+ * ============================================================================
+ * 关于「完成」的时序（为什么没有人为延迟）
+ * ============================================================================
+ *
+ * 收端是"先知方"（自己刚下完就知道），发端要等下一拍轮询才看到 done。
+ * 曾经的做法是把收端的完成动画**人为压后 1.5s**，让两端"看起来同时"——
+ * 但那等于让双方都白等：收端明明可以立刻宣告完成，却要陪跑一个动画节拍。
+ *
+ * 现在改为**两边都尽快**：
+ *   · 收端立刻翻牌 / 播脉冲，不再压后；
+ *   · 发端在对方接收阶段用快拍（见 currentPollInterval），把"等下一拍"
+ *     的真实滞后从最长 3s 压到 1.1s。
+ * 人为延迟只是把真实滞后藏起来，加快轮询才是真的把它变小。
  * ============================================================================
  */
 (function () {
@@ -68,11 +82,6 @@
   // 等待相位连续 5 分钟没有任何进展 → 自动暂停轮询（挂机是最大的浪费源）。
   // 暂停 ≠ 取消：房间还在（TTL 内），点「继续等待」立即恢复。
   const IDLE_PAUSE_MS = 5 * 60 * 1000;
-
-  // 两端动画同步：事件总是"先知方"（收端）先感受到，"轮询方"（发端）要等
-  // 0~一个轮询周期才看到。把先知方的庆祝动画压后 1.5s（≈发端空闲轮询 3s
-  // 的均值滞后），两端的"连接成功 / 完成"时刻就会几乎同时出现。
-  const CELEBRATE_DELAY = 1500;
 
   // 状态轮询的单请求超时。移动网络下 fetch 可能挂死不返回，pollBusy 卡死
   // 会断掉整条轮询链 —— 表现就是"对方早完成了，发端永远停在对方正在接收"。
@@ -140,7 +149,6 @@
         pausedByIdle: false, // C：等待相位 5 分钟无进展后自动暂停
         lastActivityAt: 0, // 最近一次「世界变了」的时间戳（状态/文件数/进度）
         activityKey: '', // 上次快照，用于识别真正的变化
-        celebrateTimer: null, // 庆祝动画的同步延迟定时器（先知方压后 CELEBRATE_DELAY）
         busy: false,
         uploadProgress: 0,
         downloadProgress: 0,
@@ -189,6 +197,11 @@
       /** 当前环境可用节点列表 */
       nodeList() {
         return Array.isArray(this.capability && this.capability.nodes) ? this.capability.nodes : [];
+      },
+
+      /** 云端选取窗口底部显示的「已选 N 个」—— 只数来自云端的那些 */
+      cloudPickedCount() {
+        return this.selectedFiles.filter((f) => f.kind === 'cloud').length;
       },
 
       /** 发端选中的节点信息 */
@@ -433,10 +446,6 @@
 
       reset() {
         this.stopPolling();
-        if (this.celebrateTimer) {
-          clearTimeout(this.celebrateTimer);
-          this.celebrateTimer = null;
-        }
         this.role = null;
         this.phase = 'choose';
         this.code = '';
@@ -563,14 +572,10 @@
           this.phase = 'linked';
           this.activityKey = '';
           this.lastActivityAt = Date.now();
-          // 连接脉冲压后 CELEBRATE_DELAY：收端是"先知道连上了"的一方，
-          // 等一等再庆祝，发端的轮询几乎同时到达 linked —— 两端一起"叮"。
-          if (this.celebrateTimer) clearTimeout(this.celebrateTimer);
-          this.celebrateTimer = setTimeout(() => {
-            this.celebrateTimer = null;
-            if (this.leaving || this.phase !== 'linked') return;
-            this.playLinkPulse();
-          }, CELEBRATE_DELAY);
+          // 立即播连接脉冲：收端自己刚建立连接，没理由等。发端靠快拍轮询
+          // 追上来（linked 后发端走 POLL_INTERVAL 的 picking 流程），
+          // 用"让先知道的一方等着"来对齐，是拿真实延迟换观感。
+          this.playLinkPulse();
           this.startPolling();
         } catch (e) {
           this.notice = '网络异常，无法连接对方。';
@@ -659,8 +664,17 @@
 
       /** 当前该用哪一档节奏：传输中快拍，纯等待慢拍 */
       currentPollInterval() {
+        // 收端：等对方发 / 正在下 —— 都处在"对端随时会推进"的状态，快拍
         if (this.role === 'recv' && (this.phase === 'waiting-file' || this.phase === 'downloading')) {
-          return POLL_INTERVAL; // 对端正在传，要尽快接住 uploaded 的跃迁
+          return POLL_INTERVAL;
+        }
+        // 发端 staged = 文件已全部落地、正等对方取走。这是发端**唯一**会
+        // 感知到"已送达"的阶段，此刻用快拍：慢拍下 done 最多要等 3s 才被
+        // 看到，而用户正盯着屏幕等那句"已送达"。投送本身是短命操作，
+        // 这段快拍的额外请求量可忽略；真正的长时间挂机是 waiting（等配对），
+        // 那一档仍走慢拍。
+        if (this.role === 'send' && this.phase === 'staged') {
+          return POLL_INTERVAL;
         }
         return POLL_IDLE_INTERVAL;
       },
@@ -766,9 +780,11 @@
         if (!s) return;
         this.touchActivity(s);
         if (s.status === 'done') {
-          // 收端在庆祝延迟窗口内（complete 刚成功，定时器还没到点）：
-          // 让定时器统一翻牌，这里抢跑会导致 toast 弹两次、动画不同步。
-          if (this.role === 'recv' && this.celebrateTimer) return;
+          // 收端走到这里说明 complete 已被服务端确认，而收端自己的翻牌在
+          // beginDownload 里已经发生过（现在没有任何人为延迟，不会再出现
+          // "定时器还没到点"的窗口）。所以这里只需防重入 —— 已在 done 就跳过，
+          // 否则 onFinished 会被调用两次、toast 弹两遍。
+          if (this.phase === 'done') return;
           this.phase = 'done';
           this.stopPolling();
           this.onFinished();
@@ -817,10 +833,6 @@
 
       failWith(message) {
         this.stopPolling();
-        if (this.celebrateTimer) {
-          clearTimeout(this.celebrateTimer);
-          this.celebrateTimer = null;
-        }
         this.errorMsg = message;
         this.phase = 'failed';
         this.notice = message;
@@ -853,9 +865,16 @@
         }
       },
 
+      /**
+       * 打开云端选取窗口。
+       *
+       * 不再做成主面板里的内联折叠列表 —— 小屏下 .ad-body 的 flex 纵向布局
+       * 会把它压成一条缝。独立窗口有自己的高度与滚动容器，不受主面板分配。
+       * 每次都重新拉一遍列表：云端文件随时可能增删，缓存一份只会让用户
+       * 看到过期结果。
+       */
       async pickCloud() {
-        this.cloudOpen = !this.cloudOpen;
-        if (!this.cloudOpen || this.cloudFiles.length) return;
+        this.cloudOpen = true;
         this.cloudLoading = true;
         try {
           const res = await fetch(this.api('/api/manage/list?limit=200'), {
@@ -883,9 +902,16 @@
         } catch (e) {
           this.notice = '读取云端文件列表失败。';
           this.noticeTone = 'error';
+          this.cloudOpen = false;
         } finally {
           this.cloudLoading = false;
         }
+      },
+
+      /** 关闭云端选取窗口（选择结果已实时落到 selectedFiles，无需额外提交） */
+      closeCloudPicker() {
+        this.cloudOpen = false;
+        this.cloudFiles = [];
       },
 
       /** 云端文件：点击即加入/移出选择（支持多选） */
@@ -1082,17 +1108,14 @@
             if (!completed) await new Promise((r) => setTimeout(r, 800));
           }
 
-          // 完成翻牌同样压后 CELEBRATE_DELAY：收端先收完、先知道，等发端
-          // 轮询追上来，两端的完成动画近乎同时出现。期间进度停在 100%，
-          // 视觉上是自然的"收尾一拍"。
-          const finishedCode = this.code;
-          this.celebrateTimer = setTimeout(() => {
-            this.celebrateTimer = null;
-            if (this.leaving || this.code !== finishedCode || this.phase !== 'downloading') return;
-            this.phase = 'done';
-            this.stopPolling();
-            this.onFinished();
-          }, CELEBRATE_DELAY);
+          // 完成即翻牌，不再压后：文件确已全部落到本地，收端没有理由再等
+          // 一个动画节拍。发端靠 staged 阶段的快拍轮询追上（见
+          // currentPollInterval），两端的完成时刻依然接近，但都不是
+          // 靠"人为延迟对齐"换来的。
+          if (this.leaving || this.phase !== 'downloading') return;
+          this.phase = 'done';
+          this.stopPolling();
+          this.onFinished();
         } catch (e) {
           this.failWith(e && e.message ? e.message : '接收失败。');
         }
@@ -1293,18 +1316,6 @@
           </button>
         </div>
 
-        <!-- 云端文件列表（多选） -->
-        <div class="ad-cloud" v-if="cloudOpen && cloudFiles.length">
-          <button class="ad-cloud__row" v-for="f in cloudFiles" :key="f.key" @click="selectCloudFile(f)">
-            <i class="fas" :class="isCloudSelected(f) ? 'fa-check-circle' : 'fa-file'" :style="isCloudSelected(f) ? 'color:var(--c-success)' : 'color:var(--primary)'"></i>
-            <span class="ad-cloud__name">{{ f.name }}</span>
-            <span class="ad-cloud__size">{{ formatSizeLabel(f.size) }}</span>
-          </button>
-        </div>
-        <div class="ad-cloud" v-else-if="cloudOpen && !cloudLoading && !cloudFiles.length">
-          <div class="ad-cloud__empty">云端暂无可选文件</div>
-        </div>
-
         <!-- 已选文件清单（多文件） -->
         <div class="ad-files" v-if="role === 'send' && selectedFiles.length">
           <div class="ad-files__head">
@@ -1372,6 +1383,47 @@
       </div>
 
       <input type="file" :key="fileInputKey" ref="fileInput" style="display:none" multiple @change="onFilePicked" />
+
+      <!-- 云端选取：独立窗口
+           为什么不内联在主面板里：主面板 .ad-body 是 flex 纵向布局且自身
+           滚动，内联的列表在小屏上会被 flex 压缩成一条缝（高度被挤到接近 0，
+           内部滚动也够不着）。独立成覆盖层后有自己确定的高度与滚动容器，
+           不再受主面板 flex 分配的摆布，小屏也能正常看/点。 -->
+      <div class="ad-cloudwin-mask" v-if="cloudOpen" @click.self="closeCloudPicker">
+        <div class="ad-cloudwin" role="dialog" aria-modal="true" aria-label="从云端选取文件" @click.stop>
+          <div class="ad-cloudwin__head">
+            <div class="ad-cloudwin__title">
+              <i class="fas fa-cloud-arrow-up"></i>
+              <span>从云端选取</span>
+            </div>
+            <button class="btn btn--ghost btn--icon" @click="closeCloudPicker" title="关闭">
+              <i class="fas fa-xmark"></i>
+            </button>
+          </div>
+
+          <div class="ad-cloudwin__body">
+            <div class="ad-cloudwin__hint" v-if="cloudLoading">
+              <i class="fas fa-spinner fa-spin"></i><span>正在读取云端文件…</span>
+            </div>
+            <div class="ad-cloudwin__hint" v-else-if="!cloudFiles.length">
+              <i class="fas fa-inbox"></i><span>云端暂无可选文件</span>
+            </div>
+            <template v-else>
+              <button class="ad-cloudwin__row" v-for="f in cloudFiles" :key="f.key"
+                      :class="{ 'is-picked': isCloudSelected(f) }" @click="selectCloudFile(f)">
+                <i class="fas" :class="isCloudSelected(f) ? 'fa-check-circle' : 'fa-file'"></i>
+                <span class="ad-cloudwin__name">{{ f.name }}</span>
+                <span class="ad-cloudwin__size">{{ formatSizeLabel(f.size) }}</span>
+              </button>
+            </template>
+          </div>
+
+          <div class="ad-cloudwin__foot">
+            <span class="ad-cloudwin__count">已选 {{ cloudPickedCount }} 个</span>
+            <button class="ad-btn ad-btn--primary" @click="closeCloudPicker">完成</button>
+          </div>
+        </div>
+      </div>
 
     </div>
   </div>

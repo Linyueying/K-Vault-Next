@@ -30,6 +30,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
+  /* 定位基准：.ad-cloudwin-mask 用 absolute inset:0 落在面板内部。
+     .modal 本身没有 position，这里必须显式声明，否则遮罩会一路
+     冒泡到更外层的定位祖先，跑到面板以外的位置。 */
+  position: relative;
   /* 禁止整个隔空投送面板滚动 / 出现滚动条：它应该是一张固定的卡片。
      继承自 .modal 的 overflow-y: auto 会在这里产生滚动条，并导致
      PC 上「组件 UI 会动」的观感。 */
@@ -788,39 +792,114 @@ html[data-theme='dark'] .ad-digit {
   margin-top: 2px;
 }
 
-/* ── 云端文件列表 ──────────────────────────────────────── */
-.ad-cloud {
-  width: 100%;
-  max-width: 460px;
-  max-height: 260px;
-  overflow-y: auto;
-  border-radius: var(--r-md);
-  border: 1.5px solid var(--glass-border-ice);
-  background: var(--glass-subtle);
+/* ── 云端选取窗口（独立覆盖层）───────────────────────────
+   早期把列表内联在主面板里，小屏下被 .ad-body 的 flex 纵向布局压成一条缝。
+   独立成覆盖层后高度由自己决定，不再参与主面板的 flex 分配。 */
+.ad-cloudwin-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: inherit;
 }
 
-.ad-cloud__row {
+.ad-cloudwin {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 460px;
+  /* 用 dvh 而非 vh：移动端浏览器地址栏收放时 vh 不会变，会算高导致
+      footer 被挤出可视区。dvh 跟随可视高度，新旧浏览器都优雅降级。 */
+  max-height: min(72vh, 72dvh);
+  min-height: 0;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--glass-border-ice);
+  background: var(--glass-surface);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+}
+
+.ad-cloudwin__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 12px var(--sp-3);
+  border-bottom: 1px solid var(--glass-border-ice);
+  flex: none;
+}
+
+.ad-cloudwin__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+/* 列表区：flex:1 + min-height:0 才能正确滚动 —— 少了 min-height:0，
+   flex 子项的默认 min-height:auto 会让它撑开、把 footer 顶出容器。 */
+.ad-cloudwin__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ad-cloudwin__hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.ad-cloudwin__row {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   width: 100%;
-  padding: 10px var(--sp-3);
+  padding: 11px var(--sp-4);
   border: none;
   background: transparent;
   cursor: pointer;
   text-align: left;
+  color: inherit;
   transition: background var(--dur-fast) var(--ease-apple);
 }
 
-.ad-cloud__row:hover {
+.ad-cloudwin__row:hover {
   background: rgba(var(--primary-rgb), 0.07);
 }
 
-.ad-cloud__row + .ad-cloud__row {
+.ad-cloudwin__row + .ad-cloudwin__row {
   border-top: 1px solid rgba(148, 163, 184, 0.16);
 }
 
-.ad-cloud__name {
+.ad-cloudwin__row .fa-file {
+  color: var(--primary);
+}
+
+.ad-cloudwin__row.is-picked {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.ad-cloudwin__row.is-picked i {
+  color: var(--c-success);
+}
+
+.ad-cloudwin__name {
   flex: 1;
   min-width: 0;
   font-size: var(--fs-sm);
@@ -830,28 +909,37 @@ html[data-theme='dark'] .ad-digit {
   white-space: nowrap;
 }
 
-.ad-cloud__size {
+.ad-cloudwin__size {
   flex: none;
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
 
-.ad-cloud__empty {
-  padding: var(--sp-5);
-  text-align: center;
+.ad-cloudwin__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 12px var(--sp-4);
+  border-top: 1px solid var(--glass-border-ice);
+  flex: none;
+}
+
+.ad-cloudwin__count {
+  flex: 1;
+  min-width: 0;
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
 
 /* 内部滚动容器（云端列表、已选文件列表）仍可在溢出时滚动，
    但隐藏原生日程条：PC 上滚动条会破坏「固定卡片」的观感。 */
-.ad-cloud,
+.ad-cloudwin__body,
 .ad-files__list {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE/Edge legacy */
 }
 
-.ad-cloud::-webkit-scrollbar,
+.ad-cloudwin__body::-webkit-scrollbar,
 .ad-files__list::-webkit-scrollbar {
   display: none; /* Chrome/Safari/Edge */
 }
