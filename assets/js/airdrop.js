@@ -79,9 +79,13 @@
   const POLL_INTERVAL = 1100;
   const POLL_IDLE_INTERVAL = 3000;
 
-  // 等待相位连续 5 分钟没有任何进展 → 自动暂停轮询（挂机是最大的浪费源）。
+  // 等待相位长时间没有任何进展 → 自动暂停轮询（挂机是最大的浪费源）。
   // 暂停 ≠ 取消：房间还在（TTL 内），点「继续等待」立即恢复。
-  const IDLE_PAUSE_MS = 5 * 60 * 1000;
+  //
+  // 阈值取 6 分钟：默认房间只有 5 分钟，正常情况下房间会先过期，这条不会触发；
+  // 它只在管理员把 TTL 调得较长（后台可配 1 ~ 1440 分钟）时兜底，
+  // 防止有人挂着房间过夜。这样两条规则不会在同一刻打架。
+  const IDLE_PAUSE_MS = 6 * 60 * 1000;
 
   // 状态轮询的单请求超时。移动网络下 fetch 可能挂死不返回，pollBusy 卡死
   // 会断掉整条轮询链 —— 表现就是"对方早完成了，发端永远停在对方正在接收"。
@@ -139,6 +143,10 @@
         code: '',
         token: '',
         session: null,
+        /* 房间到期倒计时：expiresAt 由服务端下发（建房间时已钉死），
+           nowTick 每秒推一下驱动重算。两者都为 0 表示还没有房间。 */
+        expiresAt: 0,
+        nowTick: 0,
         joinCode: '',
         errorMsg: '',
         notice: '',
@@ -162,6 +170,7 @@
         scanning: false,
         scanStream: null,
         scanTimer: null,
+        tickTimer: null,
         pendingCode: '',
         fileInputKey: 0,
         doneCount: 0,
@@ -202,6 +211,39 @@
       /** 云端选取窗口底部显示的「已选 N 个」—— 只数来自云端的那些 */
       cloudPickedCount() {
         return this.selectedFiles.filter((f) => f.kind === 'cloud').length;
+      },
+
+      /** 房间剩余秒数；无房间时返回 0 */
+      expiresInSec() {
+        if (!this.expiresAt) return 0;
+        const now = this.nowTick || Date.now();
+        return Math.max(0, Math.ceil((this.expiresAt - now) / 1000));
+      },
+
+      /** 剩余时间文案：>60s 显示「M:SS」，否则显示「Ns」 */
+      expiresLabel() {
+        const s = this.expiresInSec;
+        if (!s) return '';
+        if (s >= 60) {
+          const m = Math.floor(s / 60);
+          const r = s % 60;
+          return m + ':' + String(r).padStart(2, '0');
+        }
+        return s + 's';
+      },
+
+      /** 剩余不足 1 分钟时高亮提醒，让用户知道要抓紧 */
+      expiresUrgent() {
+        return this.expiresAt > 0 && this.expiresInSec <= 60;
+      },
+
+      /** 仅在「房间已建好且尚未结束」时展示倒计时 */
+      showCountdown() {
+        return this.expiresAt > 0
+          && this.phase !== 'choose'
+          && this.phase !== 'joining'
+          && this.phase !== 'done'
+          && this.phase !== 'failed';
       },
 
       /** 发端选中的节点信息 */
@@ -400,6 +442,7 @@
         document.removeEventListener('visibilitychange', this.onVisibilityChange);
       } catch (e) { /* 非浏览器环境忽略 */ }
       this.stopPolling();
+      this.stopTick();
       this.stopScan();
     },
 
@@ -446,11 +489,14 @@
 
       reset() {
         this.stopPolling();
+        this.stopTick();
         this.role = null;
         this.phase = 'choose';
         this.code = '';
         this.token = '';
         this.session = null;
+        this.expiresAt = 0;
+        this.nowTick = 0;
         this.joinCode = '';
         this.errorMsg = '';
         this.notice = '';
@@ -505,6 +551,9 @@
           this.role = 'send';
           this.code = data.code;
           this.token = data.senderToken;
+          // 到期时刻由服务端钉死（建房间时 = created_at + TTL），
+          // 前端只负责倒计时展示，不自行推算，避免两端时钟差造成误判。
+          this.expiresAt = Number(data.expiresAt) || 0;
           // 默认节点：沿用 index 页当前选择；若不在可用列表里则取第一个可用节点
           this.selectedNode = (this.defaultNode && this.nodeList.some((n) => n.key === this.defaultNode))
             ? this.defaultNode
@@ -569,6 +618,7 @@
           }
           this.code = data.code;
           this.token = data.receiverToken;
+          this.expiresAt = Number(data.expiresAt) || 0;
           this.phase = 'linked';
           this.activityKey = '';
           this.lastActivityAt = Date.now();
@@ -652,6 +702,7 @@
       // ── 轮询 ──────────────────────────────────────────
       startPolling() {
         this.stopPolling();
+        this.startTick();
         this.poll();
       },
 
@@ -659,6 +710,29 @@
         if (this.pollTimer) {
           clearTimeout(this.pollTimer);
           this.pollTimer = null;
+        }
+      },
+
+      /**
+       * 房间倒计时的本地节拍器。
+       *
+       * 纯本地 —— 只把 nowTick 推一下让 expiresInSec 重算，不发任何请求，
+       * 因此不产生 D1 读。过期时刻以服务端下发的 expiresAt 为准，
+       * 本地时钟只负责"把它显示出来"。
+       */
+      startTick() {
+        if (this.tickTimer) return;
+        this.nowTick = Date.now();
+        this.tickTimer = setInterval(() => {
+          if (typeof document !== 'undefined' && document.hidden) return;
+          this.nowTick = Date.now();
+        }, 1000);
+      },
+
+      stopTick() {
+        if (this.tickTimer) {
+          clearInterval(this.tickTimer);
+          this.tickTimer = null;
         }
       },
 
@@ -741,7 +815,7 @@
             && Date.now() - this.lastActivityAt > IDLE_PAUSE_MS) {
           this.pausedByIdle = true;
           this.stopPolling();
-          this.notice = '超过 5 分钟没有进展，已暂停等待。对方可能已离开；可点「继续等待」恢复，或取消本次投送。';
+          this.notice = '长时间没有进展，已暂停等待。对方可能已离开；可点「继续等待」恢复，或取消本次投送。';
           this.noticeTone = 'info';
           return;
         }
@@ -762,7 +836,10 @@
           // 否则自己点取消，却看到「对方取消了本次投送」。
           if (this.leaving || !this.code || !this.token) return;
           if (!res.ok) {
-            if (res.status === 404) this.failWith(data.error || '连接码已失效。');
+            if (res.status === 404) {
+              // 房间到期（或码不对）——过期后不再轮询，D1 读到此为止
+              this.failWith(data.error || '连接码已失效或房间已过期。');
+            }
             return;
           }
           this.session = data.session;
@@ -779,6 +856,8 @@
       applyServerStatus(s) {
         if (!s) return;
         this.touchActivity(s);
+        // 以服务端下发的到期时刻为准（每拍校准一次，前端时钟漂移不影响判定）
+        if (s.expiresAt) this.expiresAt = Number(s.expiresAt) || this.expiresAt;
         if (s.status === 'done') {
           // 收端走到这里说明 complete 已被服务端确认，而收端自己的翻牌在
           // beginDownload 里已经发生过（现在没有任何人为延迟，不会再出现
@@ -1186,6 +1265,12 @@
           <span class="ad-beta">BETA</span>
         </div>
         <div class="ad-head__spacer"></div>
+        <!-- 房间倒计时：到点房间即失效、两端停止轮询。剩余不足 1 分钟转警示色。 -->
+        <span class="ad-countdown" v-if="showCountdown"
+              :class="{ 'is-urgent': expiresUrgent }"
+              :title="'房间将在剩余时间用尽后失效，请在此之前完成投送'">
+          <i class="fas fa-hourglass-half"></i><span>{{ expiresLabel }}</span>
+        </span>
         <button class="btn btn--ghost btn--icon" @click="requestClose" title="关闭">
           <i class="fas fa-xmark"></i>
         </button>

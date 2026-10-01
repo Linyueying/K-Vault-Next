@@ -2191,7 +2191,7 @@ html[data-theme="dark"] .dock__indicator{
                 <input class="token-input" type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes">
                 <span class="unit">分钟</span>
               </div>
-              <small class="field-hint">超时的房间会被清理，中转节点上的临时文件一并释放。</small>
+              <small class="field-hint">从发端生成房间那刻起算。超时后房间失效、两端停止轮询（不再产生数据库读），中转节点上的临时文件一并释放。默认 5 分钟。</small>
             </div>
           </div>
 
@@ -3403,13 +3403,13 @@ const __kvApp = Vue.createApp({
     airdropSource: 'env',
     airdropEnvBaseline: {
       enabled: true, guestAllowed: false, guestReceiveAllowed: true,
-      maxFileSize: 100 * 1024 * 1024, dailyLimit: 50, ttlMinutes: 30
+      maxFileSize: 100 * 1024 * 1024, dailyLimit: 50, ttlMinutes: 5
     },
     /* guestReceiveAllowed 缺省 true（与 guestAllowed 相反）：授权用户开好房间，
        访客扫码即可接收；接收不消耗每日次数 */
     airdropForm: {
       enabled: true, guestAllowed: false, guestReceiveAllowed: true,
-      maxFileSizeMb: 100, dailyLimit: 50, ttlMinutes: 30
+      maxFileSizeMb: 100, dailyLimit: 50, ttlMinutes: 5
     },
     /* 中转节点：由接口回传。它决定了单文件上限"还能不能设这么高" */
     airdropBackend: { name: null, label: '未配置', maxBytes: 0 },
@@ -5179,7 +5179,7 @@ const __kvApp = Vue.createApp({
         guestReceiveAllowed: a.guestReceiveAllowed !== false,
         maxFileSizeMb: Math.round((Number(a.maxFileSize) || 100 * 1024 * 1024) / 1024 / 1024),
         dailyLimit: Number(a.dailyLimit) || 50,
-        ttlMinutes: Number(a.ttlMinutes) || 30
+        ttlMinutes: Number(a.ttlMinutes) || 5
       };
       if (data && data.airdropEnvBaseline) this.airdropEnvBaseline = data.airdropEnvBaseline;
     },

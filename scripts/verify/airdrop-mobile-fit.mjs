@@ -77,7 +77,7 @@ try {
       vm.airdropCapability = {
         enabled: true,
         guestAllowed: true,
-        ttlMinutes: 30,
+        ttlMinutes: 5,
         // 三个节点 —— 这是把面板撑高的主要来源，必须造出来才测得到溢出
         nodes: [
           { key: 'r2', label: 'Cloudflare R2', hint: '大文件直传', maxBytes: 10 * 1024 * 1024 * 1024 },

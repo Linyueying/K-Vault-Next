@@ -64,7 +64,13 @@ const DEFAULT_GUEST_DAILY_LIMIT = 10;
 // 是这么大，设再高也不会被接受，反而会在前端给出误导性的承诺。
 export const DEFAULT_AIRDROP_MAX_FILE_SIZE = 100 * 1024 * 1024;
 export const DEFAULT_AIRDROP_DAILY_LIMIT = 50;
-export const DEFAULT_AIRDROP_TTL_MINUTES = 30;
+// 房间存活 5 分钟，从建房间那一刻起算（expires_at = created_at + 5min）。
+// 这是一条硬上限：投送是"两个人同时在线、面对面几秒钟就完成"的操作，
+// 5 分钟足够走完全流程（等配对 → 选文件 → 传输），超时说明对方已经走了。
+// 定得比 30 分钟短，是为了让"挂着不动"的房间尽快失效 —— 房间过期后
+// 两端都会停止轮询，不再产生 D1 读，这对免费额度是实打实的保护。
+// 仍可用 AIRDROP_TTL_MINUTES 覆盖，或后台在线调整。
+export const DEFAULT_AIRDROP_TTL_MINUTES = 5;
 // 访客作为**接收端**默认放行，与 guestAllowed（访客发起，默认关闭）方向相反。
 // 理由：接收端本来就是"拿走文件"的一方，授权用户开好房间、把码给对方，
 // 对方能不能收就是这次投递的全部意义；而接收不消耗中转节点的"发起"额度，

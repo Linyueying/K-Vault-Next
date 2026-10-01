@@ -28,6 +28,7 @@ import {
   getRuntimeConfig,
   invalidateRuntimeConfigCache,
   DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED,
+  DEFAULT_AIRDROP_TTL_MINUTES,
   AIRDROP_CONFIG_KEY,
 } from '../functions/utils/runtime-config.js';
 import {
@@ -292,6 +293,42 @@ console.log('[7] 「访客」概念在未开认证的部署下不存在');
   const gate = await checkAirdropAccess(guestRequest(), env);
   check('[7] 无认证部署下发起不被"访客"规则误拦', gate.allowed === true, JSON.stringify(gate));
   check('[7] 此时 isGuest=false（没有访客概念）', gate.isGuest === false, String(gate.isGuest));
+  invalidateRuntimeConfigCache();
+}
+
+// ============================================================================
+console.log('[8] 房间有效期默认 5 分钟（"5 分钟内必须完成"的硬窗口）');
+{
+  invalidateRuntimeConfigCache();
+  check('[8] ★ 默认值常量 = 5', DEFAULT_AIRDROP_TTL_MINUTES === 5,
+    String(DEFAULT_AIRDROP_TTL_MINUTES));
+
+  // 环境变量缺省时应落到 5
+  const env = makeEnv();
+  invalidateRuntimeConfigCache();
+  const cfg = await getRuntimeConfig(env, 'airdrop');
+  check('[8] 无 env 时 ttlMinutes = 5', cfg.ttlMinutes === 5, String(cfg.ttlMinutes));
+
+  // 显式 env 仍可覆盖（保留可配性）
+  invalidateRuntimeConfigCache();
+  const env2 = makeEnv();
+  env2.AIRDROP_TTL_MINUTES = '30';
+  const cfg2 = await getRuntimeConfig(env2, 'airdrop');
+  check('[8] env 显式覆盖仍生效（可配）', cfg2.ttlMinutes === 30, String(cfg2.ttlMinutes));
+
+  // 非法值（0 / 负数 / 非数字）必须回落到默认 5，不能变成"建完就过期"
+  invalidateRuntimeConfigCache();
+  const env3 = makeEnv();
+  env3.AIRDROP_TTL_MINUTES = '0';
+  const cfg3 = await getRuntimeConfig(env3, 'airdrop');
+  check('[8] ★ 非法 TTL(0) 回落 5，不产生"秒过期"房间',
+    cfg3.ttlMinutes === 5, String(cfg3.ttlMinutes));
+
+  invalidateRuntimeConfigCache();
+  const env4 = makeEnv();
+  env4.AIRDROP_TTL_MINUTES = 'abc';
+  const cfg4 = await getRuntimeConfig(env4, 'airdrop');
+  check('[8] 非数字 TTL 回落 5', cfg4.ttlMinutes === 5, String(cfg4.ttlMinutes));
   invalidateRuntimeConfigCache();
 }
 

@@ -548,7 +548,7 @@
           guestAllowed: false,
           guestReceiveAllowed: true,
           nodes: [],
-          ttlMinutes: 30,
+          ttlMinutes: 5,
         },
         showDrawer: false,
         activeDrawerTab: "storage",

@@ -64,6 +64,42 @@
   flex: 1;
 }
 
+/* 房间倒计时徽标（头部右侧）。
+   房间是"5 分钟内必须走完"的短命资源，把剩余时间摆在标题栏，
+   用户随时能看到还剩多久；进入最后一分钟转警示色。
+   数字用等宽字形，避免每秒变化时宽度抖动导致标题栏跳动。 */
+.ad-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  transition: color var(--dur-fast) var(--ease-apple),
+              background var(--dur-fast) var(--ease-apple),
+              border-color var(--dur-fast) var(--ease-apple);
+}
+
+.ad-countdown.is-urgent {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  animation: adCountdownPulse 1s var(--ease-apple) infinite;
+}
+
+/* 最后一分钟的轻微呼吸，不打断阅读但足以引起注意 */
+@keyframes adCountdownPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+
 /* BETA 徽章：全站此前没有，这里一并建起来 */
 .ad-beta {
   font-size: var(--fs-xs);
