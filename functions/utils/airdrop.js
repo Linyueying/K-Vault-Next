@@ -218,9 +218,14 @@ export async function isGuestRequest(request, env) {
 }
 
 /**
- * 门禁：这个请求能不能发起/参与一次投递。
+ * 发端门禁：这个请求能不能**发起/发送**一次投递（create）。
  *
  * 检查顺序是「便宜的先做」：功能总开关 → 节点可用性 → 访客权限 → 每日次数。
+ *
+ * ⚠️ 本函数是**发端语义**。收端加入（join）请用 checkAirdropReceiveAccess ——
+ * 访客能不能当收端由独立开关 guestReceiveAllowed 决定，与这里的
+ * guestAllowed（访客能否发起）不是一回事。曾经 join 复用了本函数，
+ * 导致授权用户开的房间、访客扫码也收不了文件。
  */
 export async function checkAirdropAccess(request, env) {
   const cfg = await getAirdropConfig(env);
@@ -244,7 +249,7 @@ export async function checkAirdropAccess(request, env) {
       allowed: false,
       status: 401,
       code: 'AIRDROP_GUEST_DENIED',
-      reason: '当前未开放访客使用隔空投送，请先登录'
+      reason: '当前未开放访客发起投送，请先登录'
     };
   }
 
@@ -260,6 +265,49 @@ export async function checkAirdropAccess(request, env) {
   }
 
   return { allowed: true, isGuest, ip, config: cfg, nodes };
+}
+
+/**
+ * 收端门禁：这个请求能不能**加入房间 / 接收**一次投递（join）。
+ *
+ * 与发端门禁的关键区别 —— 这里**只校验功能总开关与节点可用性**：
+ *   · 不看 guestAllowed —— 那是"访客能否发起"的开关。授权用户已经开好房间、
+ *     把连接码/二维码递到对方手里，对方能不能收就是这次投递的全部意义。
+ *     若拿发起开关去卡接收，就会出现「发端能用、收端连不上」的割裂。
+ *   · 不计每日次数 —— 接收不消耗中转节点的发起额度，它只是把已落地的
+ *     临时文件取走，拿发起配额卡它既不合理也会误伤正常接收。
+ *
+ * 访客能否当收端由 guestReceiveAllowed 决定（默认开启）。真正的安全锚点是
+ * join 之后签发的 192bit receiver_token，而不是这道门禁 —— 门禁只负责
+ * 「这个部署此刻要不要开放接收」，不负责「证明你是谁」（那是 token 的事）。
+ */
+export async function checkAirdropReceiveAccess(request, env) {
+  const cfg = await getAirdropConfig(env);
+  if (!cfg.enabled) {
+    return { allowed: false, status: 403, code: 'AIRDROP_DISABLED', reason: '隔空投送已关闭' };
+  }
+
+  const nodes = availableBackends(env);
+  if (!nodes.length) {
+    return {
+      allowed: false,
+      status: 503,
+      code: 'AIRDROP_NO_STORAGE',
+      reason: '未绑定 R2 或 Telegram，隔空投送没有可用的中转节点'
+    };
+  }
+
+  const isGuest = await isGuestRequest(request, env);
+  if (isGuest && !cfg.guestReceiveAllowed) {
+    return {
+      allowed: false,
+      status: 401,
+      code: 'AIRDROP_GUEST_RECEIVE_DENIED',
+      reason: '当前未开放访客接收投送，请先登录'
+    };
+  }
+
+  return { allowed: true, isGuest, ip: getClientIp(request), config: cfg, nodes };
 }
 
 async function readDailyCount(env, ip) {

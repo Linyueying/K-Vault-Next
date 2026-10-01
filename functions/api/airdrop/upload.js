@@ -12,8 +12,12 @@
  * 节点由发端在界面上选（node 参数），后端只校验它是否可用、文件是否超限。
  * 一个房间可以传多个文件：发端逐文件调用本接口，最后一个带 final=1，
  * 房间从 uploading 翻到 uploaded，收端才开始逐文件下载。
+ *
+ * 门禁用 checkAirdropAccess（发端语义）：上传是写路径，访客发起权、每日
+ * 次数必须在这里再校验一次，不能只依赖 create 时的那一次。
  */
 import {
+  checkAirdropAccess,
   getSession,
   roleOf,
   nodeInfo,
@@ -52,6 +56,19 @@ export async function onRequestPost(context) {
   }
   if (CLOSED_STATUSES.includes(session.status)) {
     return jsonResponse({ error: '房间已结束。', code: 'CLOSED' }, 409);
+  }
+
+  // 纵深防御：上传是"写"路径，必须再过一次发端门禁（总开关 / 节点 /
+  // 访客发起权 / 每日次数）。正常情况下持发端凭证的人必然是 create 时
+  // 通过门禁拿到的 token，这一步不会拦到任何人；但"只有 create 拦过一次"
+  // 不足以防住「token 被转发给未获授权者后由其代传」——
+  // 上传方是不是访客、当日额度还剩多少，只有在真正落地的这一刻才算得准。
+  const gate = await checkAirdropAccess(request, env);
+  if (!gate.allowed) {
+    return jsonResponse(
+      { error: gate.reason, code: gate.code, requireLogin: gate.status === 401 },
+      gate.status
+    );
   }
 
   // 节点可用性 + 上限：发端选的节点必须在当前环境真的能用

@@ -65,6 +65,11 @@ const DEFAULT_GUEST_DAILY_LIMIT = 10;
 export const DEFAULT_AIRDROP_MAX_FILE_SIZE = 100 * 1024 * 1024;
 export const DEFAULT_AIRDROP_DAILY_LIMIT = 50;
 export const DEFAULT_AIRDROP_TTL_MINUTES = 30;
+// 访客作为**接收端**默认放行，与 guestAllowed（访客发起，默认关闭）方向相反。
+// 理由：接收端本来就是"拿走文件"的一方，授权用户开好房间、把码给对方，
+// 对方能不能收就是这次投递的全部意义；而接收不消耗中转节点的"发起"额度，
+// 也不扩大攻击面（下载由 192bit 的 receiver_token 鉴权，码只负责找到房间）。
+export const DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED = true;
 
 /**
  * 进程内短 TTL 缓存。
@@ -275,6 +280,9 @@ const GROUPS = {
       // 访客默认不可用：隔空投送是匿名传输，默认的开放面必须收窄，
       // 由管理员在后台显式放开（与 guest.enabled 默认关闭同源）。
       guestAllowed: String(env?.AIRDROP_GUEST_ALLOWED ?? 'false') === 'true',
+      // 访客作为接收端：默认**开启**（与上一条方向相反，勿写反）。
+      // 用显式 'false' 才关，缺省即 true。
+      guestReceiveAllowed: toBool(env?.AIRDROP_GUEST_RECEIVE_ALLOWED, DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED),
       maxFileSize: toPositiveInt(env?.AIRDROP_MAX_FILE_SIZE, DEFAULT_AIRDROP_MAX_FILE_SIZE),
       dailyLimit: toPositiveInt(env?.AIRDROP_DAILY_LIMIT, DEFAULT_AIRDROP_DAILY_LIMIT),
       ttlMinutes: toPositiveInt(env?.AIRDROP_TTL_MINUTES, DEFAULT_AIRDROP_TTL_MINUTES)
@@ -355,11 +363,17 @@ export function readBrandingConfigFromEnv(env) {
  *
  * 布尔字段沿用 toBool 的严格度（只认真布尔与字面量 'true'/'false'），
  * 数值字段由 toPositiveInt 收敛到正整数，避免出现「上限设成 0 等于不限」。
+ *
+ * ⚠️ guestReceiveAllowed 的 fallback **必须取 base 值**（base 已由 fromEnv
+ * 兜成 true）。绝不能写成 `toBool(raw.guestReceiveAllowed, false)` ——
+ * 那样已存在的 config:airdrop KV 记录（其中没有这个新字段）会被静默降级为
+ * false，直接复现「访客收不了文件」的原始缺陷，且方向与设计意图相反。
  */
 export function normalizeAirdropConfig(raw, fallback) {
   const base = fallback || {
     enabled: true,
     guestAllowed: false,
+    guestReceiveAllowed: DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED,
     maxFileSize: DEFAULT_AIRDROP_MAX_FILE_SIZE,
     dailyLimit: DEFAULT_AIRDROP_DAILY_LIMIT,
     ttlMinutes: DEFAULT_AIRDROP_TTL_MINUTES
@@ -368,6 +382,8 @@ export function normalizeAirdropConfig(raw, fallback) {
   return {
     enabled: toBool(raw.enabled, base.enabled),
     guestAllowed: toBool(raw.guestAllowed, base.guestAllowed),
+    // fallback 取 base（缺省 true），不是字面量 false —— 见上方说明
+    guestReceiveAllowed: toBool(raw.guestReceiveAllowed, base.guestReceiveAllowed),
     maxFileSize: toPositiveInt(raw.maxFileSize, base.maxFileSize),
     dailyLimit: toPositiveInt(raw.dailyLimit, base.dailyLimit),
     ttlMinutes: toPositiveInt(raw.ttlMinutes, base.ttlMinutes)

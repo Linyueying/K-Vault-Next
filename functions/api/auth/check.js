@@ -24,14 +24,18 @@ async function buildAirdropInfo(env) {
     const nodes = availableBackends(env);
     return {
       enabled: Boolean(cfg.enabled) && nodes.length > 0,
+      // 访客能否**发起**投送（发端）。缺省 false。
       guestAllowed: Boolean(cfg.guestAllowed),
+      // 访客能否**接收**投送（收端）。缺省 true —— 与 guestAllowed 方向相反。
+      // 前端据此决定访客能否进「我要接收」；进错了会把"扫码收不了文件"重现。
+      guestReceiveAllowed: Boolean(cfg.guestReceiveAllowed),
       nodes,
       ttlMinutes: cfg.ttlMinutes
     };
   } catch (e) {
     // 能力探测失败不该让登录检查整个挂掉：按"不可用"处理，前端隐藏入口
     console.error('Airdrop capability error:', e);
-    return { enabled: false, guestAllowed: false, nodes: [] };
+    return { enabled: false, guestAllowed: false, guestReceiveAllowed: true, nodes: [] };
   }
 }
 

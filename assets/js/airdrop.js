@@ -29,6 +29,23 @@
  * 做主。KV 已移除。
  *
  * ============================================================================
+ * 权限：发送权与接收权是两个独立开关
+ * ============================================================================
+ *
+ * 后端下发的 capability 里有两个互不相关的开关：
+ *   · guestAllowed        —— 访客能否**发起**投送（当发端）。缺省 false。
+ *   · guestReceiveAllowed —— 访客能否**接收**投送（当收端）。缺省 true。
+ *
+ * 所以本组件的权限判定也必须是两个（maySend / mayReceive），不能合成一个
+ * "permitted"：授权用户开好房间、把连接码/二维码递到对方手里，对方哪怕
+ * 是访客也应该能收 —— 这正是隔空投送的意义。早年用单一 permitted 判定，
+ * 结果访客扫码连收端口都进不去。
+ *
+ * ⚠️ 命名注意：canSend 这个名字**已经被占用**（发送按钮的可用态：是否选了
+ * 文件、是否在忙、是否超限），与权限无关。这里刻意用 maySend / mayReceive，
+ * 避免覆盖那个 computed 导致发送按钮静默失效。
+ *
+ * ============================================================================
  * 关于进度动画
  * ============================================================================
  *
@@ -96,7 +113,8 @@
       visible: { type: Boolean, default: false },
       // 当前访问者是否为访客（未登录）
       isGuest: { type: Boolean, default: false },
-      // 后端下发的能力：{ enabled, guestAllowed, nodes:[{key,label,maxBytes}], ttlMinutes }
+      // 后端下发的能力：
+      // { enabled, guestAllowed, guestReceiveAllowed, nodes:[{key,label,maxBytes}], ttlMinutes }
       capability: { type: Object, default: () => ({}) },
       // index 页当前选的存储节点（如 'r2' / 'telegram' / 'auto'），用于默认选中
       defaultNode: { type: String, default: '' },
@@ -149,10 +167,22 @@
         return Boolean(this.capability && this.capability.enabled);
       },
 
-      /** 当前用户是否被允许使用 */
-      permitted() {
+      /** 当前用户能否**发起**投送（当发端）。访客取决于 guestAllowed */
+      maySend() {
         if (!this.available) return false;
         if (this.isGuest && !this.capability.guestAllowed) return false;
+        return true;
+      },
+
+      /**
+       * 当前用户能否**接收**投送（当收端）。访客取决于 guestReceiveAllowed
+       * （缺省 true）—— 授权用户开好房间后，访客就应该能扫码接收。
+       * capability 里没这个字段时按 true 处理（老后端/兜底响应），
+       * 否则会把"能收"误判成"不能收"，正好复现本次要修的缺陷。
+       */
+      mayReceive() {
+        if (!this.available) return false;
+        if (this.isGuest && this.capability.guestReceiveAllowed === false) return false;
         return true;
       },
 
@@ -370,7 +400,7 @@
           this.noticeTone = 'warn';
           return;
         }
-        if (!this.permitted) {
+        if (!this.maySend && !this.mayReceive) {
           this.notice = '当前未开放访客使用隔空投送，请登录后重试。';
           this.noticeTone = 'warn';
           return;
@@ -443,8 +473,8 @@
 
       // ── 发端 ──────────────────────────────────────────
       async chooseSend() {
-        if (!this.permitted) {
-          this.notice = '当前身份不可使用隔空投送。';
+        if (!this.maySend) {
+          this.notice = '当前身份不能发起投送，请登录后重试。';
           this.noticeTone = 'warn';
           return;
         }
@@ -484,8 +514,8 @@
 
       // ── 收端 ──────────────────────────────────────────
       chooseRecv() {
-        if (!this.permitted) {
-          this.notice = '当前身份不可使用隔空投送。';
+        if (!this.mayReceive) {
+          this.notice = '当前未开放访客接收投送，请登录后重试。';
           this.noticeTone = 'warn';
           return;
         }
@@ -1142,12 +1172,19 @@
 
         <!-- 角色选择 -->
         <div class="ad-roles" v-if="phase === 'choose'">
-          <button class="ad-role" :class="{ 'is-active': role === 'send' }" @click="chooseSend" :disabled="busy">
+          <!-- 访客（未登录）若不开放"发起"，发送按钮直接置灰并给出说明；
+               「我要接收」不受此限 —— 收端另有 guestReceiveAllowed 把关。 -->
+          <button class="ad-role" :class="{ 'is-active': role === 'send' }" @click="chooseSend"
+                  :disabled="busy || !maySend"
+                  :title="maySend ? '' : '需要登录后才能发起投送'">
             <span class="ad-role__icon"><i class="fas fa-paper-plane"></i></span>
             <span class="ad-role__label">我要发送</span>
-            <span class="ad-role__hint">生成二维码与连接码，等对方接入后选择文件</span>
+            <span class="ad-role__hint">
+              {{ maySend ? '生成二维码与连接码，等对方接入后选择文件' : '需登录后使用' }}
+            </span>
           </button>
-          <button class="ad-role" :class="{ 'is-active': role === 'recv' }" @click="chooseRecv">
+          <button class="ad-role" :class="{ 'is-active': role === 'recv' }" @click="chooseRecv"
+                  :disabled="busy || !mayReceive">
             <span class="ad-role__icon ad-role__icon--recv">
               <i class="fas fa-download"></i>
             </span>

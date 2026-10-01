@@ -7,7 +7,9 @@
  * 一个负责「证明你是房间里的人」。
  *
  * 本接口不设管理员鉴权 —— 隔空投送面向普通用户（是否对访客开放由
- * 后台的 guestAllowed 决定），门禁全部走 checkAirdropAccess。
+ * 后台的 guestAllowed 决定，即"访客能否发起"），门禁全部走 checkAirdropAccess。
+ * 注意这是**发端**门禁：收端加入走的是 checkAirdropReceiveAccess（join.js），
+ * 两者不应混用。
  */
 import {
   checkAirdropAccess,

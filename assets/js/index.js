@@ -533,14 +533,17 @@
     data() {
       return {
         currentTheme: "light",
-        /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可用 /
-           可用中转节点列表）。能力由 /api/auth/check 下发，见 checkAuth。
-           默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。
+        /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可发送 /
+           访客是否可接收 / 可用中转节点列表）。能力由 /api/auth/check 下发，
+           见 checkAuth。默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。
+           注意 guestReceiveAllowed 与 guestAllowed 方向相反（收端缺省放行），
+           初始化时给 true 而不是 false —— 拿不到答复时宁可让访客能收。
            具体的中转节点由发端在面板里选，默认值沿用本页 storageMode。 */
         airdropVisible: false,
         airdropCapability: {
           enabled: false,
           guestAllowed: false,
+          guestReceiveAllowed: true,
           nodes: [],
           ttlMinutes: 30,
         },
@@ -4178,14 +4181,16 @@
       },
       /* ── 隔空投送（Beta）─────────────────────────────────
          入口门禁放在这里而不是组件里：是否放行取决于整页的登录态
-         （this.isGuest），组件不该自己去猜访问者是谁。 */
+         （this.isGuest），组件不该自己去猜访问者是谁。
+
+         这里**只拦"功能整体不可用"**（后端关闭 / 没有可用中转节点）。
+         访客的收发权限不在这一层判定 —— 访客拿别人的连接码来接收是
+         完全合法的用法，早年在入口就把访客整体挡掉，导致"扫了二维码
+         也进不来"。具体能发还是能收，由面板内的 maySend / mayReceive
+         分别判定（见 assets/js/airdrop.js）。 */
       openAirdrop() {
         if (!this.airdropCapability.enabled) {
           this.showToast("隔空投送未开启，或缺少可用的中转存储节点", "error");
-          return;
-        }
-        if (this.isGuest && !this.airdropCapability.guestAllowed) {
-          this.showToast("当前未开放访客使用隔空投送，请先登录", "error");
           return;
         }
         this.airdropVisible = true;

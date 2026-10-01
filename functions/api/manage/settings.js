@@ -80,6 +80,9 @@ async function buildView(env) {
         airdrop: {
             enabled: airdrop.enabled !== false,
             guestAllowed: airdrop.guestAllowed === true,
+            // 缺省 true（与 guestAllowed 相反），所以判据是 `!== false`
+            // 而不是 `=== true` —— 用后者会在字段缺失时把"能收"显示成"不能收"
+            guestReceiveAllowed: airdrop.guestReceiveAllowed !== false,
             maxFileSize: airdrop.maxFileSize,
             dailyLimit: airdrop.dailyLimit,
             ttlMinutes: airdrop.ttlMinutes,
@@ -128,7 +131,7 @@ function validateGuest(input) {
  */
 function validateAirdrop(input) {
     if (!input || typeof input !== 'object') return { error: 'airdrop 必须是对象。' };
-    for (const field of ['enabled', 'guestAllowed']) {
+    for (const field of ['enabled', 'guestAllowed', 'guestReceiveAllowed']) {
         if (input[field] !== undefined && typeof input[field] !== 'boolean') {
             return { error: `${field} 必须是布尔值。` };
         }

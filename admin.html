@@ -2144,12 +2144,25 @@ html[data-theme="dark"] .dock__indicator{
 
           <div class="settings-switch-row">
             <div class="settings-switch-text">
-              <strong>允许未登录访客使用</strong>
-              <span>隔空投送是匿名传输，开放给访客会持续消耗中转节点的存储与流量。默认关闭。</span>
+              <strong>允许未登录访客发起投送</strong>
+              <span>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</span>
             </div>
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
                      :aria-checked="String(airdropForm.guestAllowed)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
+          </div>
+
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>允许未登录访客接收文件</strong>
+              <span>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
+                     :aria-checked="String(airdropForm.guestReceiveAllowed)" />
               <span class="switch__track"></span>
               <span class="switch__thumb"></span>
             </label>
@@ -3389,9 +3402,15 @@ const __kvApp = Vue.createApp({
     /* 配置来源：kv = 已在后台保存过；env = 取自环境变量 */
     airdropSource: 'env',
     airdropEnvBaseline: {
-      enabled: true, guestAllowed: false, maxFileSize: 100 * 1024 * 1024, dailyLimit: 50, ttlMinutes: 30
+      enabled: true, guestAllowed: false, guestReceiveAllowed: true,
+      maxFileSize: 100 * 1024 * 1024, dailyLimit: 50, ttlMinutes: 30
     },
-    airdropForm: { enabled: true, guestAllowed: false, maxFileSizeMb: 100, dailyLimit: 50, ttlMinutes: 30 },
+    /* guestReceiveAllowed 缺省 true（与 guestAllowed 相反）：授权用户开好房间，
+       访客扫码即可接收；接收不消耗每日次数 */
+    airdropForm: {
+      enabled: true, guestAllowed: false, guestReceiveAllowed: true,
+      maxFileSizeMb: 100, dailyLimit: 50, ttlMinutes: 30
+    },
     /* 中转节点：由接口回传。它决定了单文件上限"还能不能设这么高" */
     airdropBackend: { name: null, label: '未配置', maxBytes: 0 },
     airdropDays: 7,
@@ -5156,6 +5175,8 @@ const __kvApp = Vue.createApp({
       this.airdropForm = {
         enabled: a.enabled !== false,
         guestAllowed: a.guestAllowed === true,
+        /* 缺省 true，判据用 !== false —— 老配置里没有这个字段时也应显示为"开" */
+        guestReceiveAllowed: a.guestReceiveAllowed !== false,
         maxFileSizeMb: Math.round((Number(a.maxFileSize) || 100 * 1024 * 1024) / 1024 / 1024),
         dailyLimit: Number(a.dailyLimit) || 50,
         ttlMinutes: Number(a.ttlMinutes) || 30
@@ -5181,6 +5202,7 @@ const __kvApp = Vue.createApp({
             airdrop: {
               enabled: this.airdropForm.enabled,
               guestAllowed: this.airdropForm.guestAllowed,
+              guestReceiveAllowed: this.airdropForm.guestReceiveAllowed,
               maxFileSize: Math.round(mb * 1024 * 1024),
               dailyLimit: daily,
               ttlMinutes: ttl

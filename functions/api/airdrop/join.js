@@ -4,9 +4,13 @@
  *
  * 加入成功会签发一个收端凭证，之后下载必须带它。连接码本身不参与下载鉴权：
  * 它会出现在二维码里、可能被旁人看到，不足以作为凭据。
+ *
+ * 门禁用 checkAirdropReceiveAccess（收端语义）：只看总开关与节点可用性，
+ * 不被 guestAllowed（"访客能否发起"）拦住 —— 授权用户开好房间、把码给对方，
+ * 对方（哪怕是访客）就应该能收。访客能否当收端由 guestReceiveAllowed 决定。
  */
 import {
-  checkAirdropAccess,
+  checkAirdropReceiveAccess,
   joinSession,
   jsonResponse
 } from '../../utils/airdrop.js';
@@ -29,7 +33,7 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: '连接码为 8 位字母数字组合。', code: 'BAD_CODE' }, 400);
   }
 
-  const gate = await checkAirdropAccess(request, env);
+  const gate = await checkAirdropReceiveAccess(request, env);
   if (!gate.allowed) {
     return jsonResponse({ error: gate.reason, code: gate.code, requireLogin: gate.status === 401 }, gate.status);
   }
