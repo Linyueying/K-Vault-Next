@@ -183,7 +183,10 @@ function todayKey() {
  */
 export function availableBackends(env) {
   const out = [];
-  if (env?.R2_BUCKET && typeof env.R2_BUCKET.put === 'function') {
+  // 与 functions/api/status.js 保持一致：只要 R2_BUCKET 绑定存在即视为可用。
+  // 原先用 typeof put === 'function' 做额外校验，在部分环境（如 wrangler 本地
+  // 的某些 mock 形态）会误判为未绑定，导致已经配好 R2 的生产部署仍提示缺节点。
+  if (env?.R2_BUCKET) {
     out.push({ key: 'r2', label: 'R2', maxBytes: R2_MAX_FILE_SIZE });
   }
   // 必须走 envValue（而不是裸读 env.TG_BOT_TOKEN）：Telegram 的主用名是混合
