@@ -21,7 +21,7 @@
  *
  * 运行：node scripts/test-airdrop-stats-ip.mjs
  */
-import { recordStat, getUsageStats } from '../functions/utils/airdrop.js';
+import { recordStat, getUsageStats, resetAirdropStatsColumns } from '../functions/utils/airdrop.js';
 import { ensureSchema } from '../functions/utils/schema.js';
 
 let pass = 0;
@@ -38,17 +38,36 @@ const MIN = 60 * 1000;
  * 极简 D1 桩：只认本套件用到的 airdrop_stats 读写语句。
  * INSERT 落进内存数组；聚合查询按数组现算；迁移/PRAGMA 噪声一律无害回落。
  */
-function makeDb() {
+function makeDb(opts = {}) {
+  const legacy = Boolean(opts.legacy); // 模拟「未跑 M0012」的旧库结构
+  const rows = () => (legacy
+    ? [{ name: 'code' }, { name: 'role' }, { name: 'is_guest' }, { name: 'file_name' },
+       { name: 'file_size' }, { name: 'outcome' }, { name: 'created_at' }]
+    : [{ name: 'code' }, { name: 'role' }, { name: 'is_guest' }, { name: 'file_name' },
+       { name: 'file_size' }, { name: 'file_count' }, { name: 'total_size' },
+       { name: 'sender_ip' }, { name: 'receiver_ip' }, { name: 'outcome' },
+       { name: 'created_at' }, { name: 'completed_at' }]);
   const stats = [];
-  const pushRow = (args) => {
-    // 顺序：code, role, is_guest, file_name, file_size, file_count,
-    //       total_size, sender_ip, receiver_ip, outcome, created_at
-    stats.push({
-      code: args[0], role: args[1], is_guest: args[2], file_name: args[3],
-      file_size: args[4], file_count: args[5], total_size: args[6],
-      sender_ip: args[7], receiver_ip: args[8], outcome: args[9], created_at: args[10],
-      completed_at: null,
-    });
+  const pushRow = (sql, args) => {
+    // 旧结构 INSERT 无 file_count… 四列；新结构有。用 SQL 里是否含 file_count 判断。
+    const withDetail = /file_count/.test(sql);
+    if (withDetail) {
+      // 顺序：code, role, is_guest, file_name, file_size, file_count,
+      //       total_size, sender_ip, receiver_ip, outcome, created_at
+      stats.push({
+        code: args[0], role: args[1], is_guest: args[2], file_name: args[3],
+        file_size: args[4], file_count: args[5], total_size: args[6],
+        sender_ip: args[7], receiver_ip: args[8], outcome: args[9], created_at: args[10],
+        completed_at: null,
+      });
+    } else {
+      // 旧结构：code, role, is_guest, file_name, file_size, outcome, created_at
+      stats.push({
+        code: args[0], role: args[1], is_guest: args[2], file_name: args[3],
+        file_size: args[4], outcome: args[5], created_at: args[6],
+        file_count: 0, total_size: 0, sender_ip: '', receiver_ip: '', completed_at: null,
+      });
+    }
   };
   return {
     _stats: stats,
@@ -59,6 +78,7 @@ function makeDb() {
         _args: [],
         bind(...a) { this._args = a; return this; },
         async first() {
+          if (/PRAGMA table_info\(airdrop_stats\)/.test(sql)) return rows()[0];
           if (/SELECT version FROM/.test(sql)) return { version: 0 };
           if (/COUNT\(\*\) AS total/.test(sql)) {
             const total = stats.length;
@@ -73,6 +93,7 @@ function makeDb() {
           return null;
         },
         async all() {
+          if (/PRAGMA table_info\(airdrop_stats\)/.test(sql)) return { results: rows() };
           if (/COUNT\(\*\) AS total/.test(sql)) {
             const total = stats.length;
             const completed = stats.filter((r) => r.outcome === 'completed').length;
@@ -84,14 +105,14 @@ function makeDb() {
             return { results: [{ total, completed, failed, guestCount, bytes, lastAt }] };
           }
           if (/FROM airdrop_stats WHERE role = 'sender'/.test(sql)) {
-            const rows = stats.filter((r) => r.role === 'sender')
+            const list = stats.filter((r) => r.role === 'sender')
               .sort((a, b) => b.created_at - a.created_at).slice(0, 20);
-            return { results: rows };
+            return { results: list };
           }
           return { results: [] };
         },
         async run() {
-          if (/INSERT INTO airdrop_stats/.test(sql)) pushRow(this._args);
+          if (/INSERT INTO airdrop_stats/.test(sql)) pushRow(sql, this._args);
           return { success: true };
         },
       };
@@ -103,6 +124,24 @@ function makeDb() {
 
 function makeEnv() {
   return { DB: makeDb() };
+}
+
+/** 旧库（无 M0012 列）环境；PRAGMA 只能通过 all() 拿到（first() 返回首行，不够）。 */
+function makeEnvLegacy() {
+  const db = makeDb({ legacy: true });
+  db._stats.push({ code: 'LEG00001', role: 'sender', is_guest: 0, file_name: 'old.bin',
+    file_size: 7, file_count: 0, total_size: 0, sender_ip: '', receiver_ip: '',
+    outcome: 'uploaded', created_at: NOW - MIN, completed_at: null });
+  // 记录 PRAGMA 被探测的次数（用于验证缓存生效）
+  const origPrepare = db.prepare.bind(db);
+  let probeCount = 0;
+  db.prepare = (sql) => {
+    if (/PRAGMA table_info\(airdrop_stats\)/.test(sql)) probeCount += 1;
+    return origPrepare(sql);
+  };
+  const env = { DB: db };
+  Object.defineProperty(env, '_probeCount', { get: () => probeCount });
+  return env;
 }
 
 // ============================================================================
@@ -181,6 +220,36 @@ console.log('[3] 多条记录：recent 按时间倒序、只取 sender 角色');
     codes.join(','));
   check('[3] ★ 按时间倒序：NEW 在 OLD 之前',
     codes.indexOf('NEW55555') < codes.indexOf('OLD33333'), codes.join(','));
+}
+
+// ============================================================================
+// ★ 核心回归：旧库（尚未执行迁移 M0012）也必须读得出来、写得进去。
+//   曾经的现场故障：库没跑迁移 → 明细 SELECT 引用不存在的列 → 统计接口 500
+//   → 前端拿不到 backend → 误报「当前没有绑定 R2 或 Telegram」。
+console.log('[4] 旧库未迁移：自动回退旧结构，不因缺列而整体失败');
+{
+  resetAirdropStatsColumns(null);
+  const env = makeEnvLegacy();
+
+  // [4a] 读取：新结构 SQL 会先失败，随后自动回退旧结构并返回结果
+  const stats = await getUsageStats(env, 7);
+  check('[4] ★ 旧库也能读出 recent（未抛错）', Array.isArray(stats.recent), typeof stats.recent);
+  check('[4] 旧库 recent 返回已存在记录', stats.recent.length === 1 && stats.recent[0].code === 'LEG00001',
+    stats.recent.map((r) => r.code).join(','));
+  check('[4] 旧库缺列的字段回落为空串（不出现 undefined）',
+    stats.recent[0].senderIp === '' && stats.recent[0].receiverIp === '',
+    `${stats.recent[0].senderIp}/${stats.recent[0].receiverIp}`);
+  check('[4] ★ 探测结果被缓存为 legacy，后续请求不再重试探',
+    env._probeCount >= 1, `probe=${env._probeCount}`);
+
+  // [4b] 写入：recordStat 在旧库上退回旧列 INSERT，仍写成功
+  const before = env.DB._stats.length;
+  await recordStat(env, { code: 'LEG00002', role: 'sender', isGuest: false,
+    fileName: 'legacy.txt', fileSize: 10, fileCount: 2, totalSize: 20,
+    senderIp: '1.2.3.4', outcome: 'uploaded' });
+  const after = env.DB._stats.length;
+  check('[4] ★ 旧库 INSERT 成功（未因缺列失败）', after === before + 1, `${before}->${after}`);
+  check('[4] 旧库写入行角色正确', env.DB._stats[after - 1].role === 'sender');
 }
 
 console.log(`\n===== 结果: ${pass} 通过 / ${fail} 失败 =====`);

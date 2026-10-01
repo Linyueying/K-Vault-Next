@@ -14,10 +14,9 @@
 
 /** 逻辑变量名 → 可接受的写法（按优先级取第一个非空值） */
 const ALIASES = {
-  // Telegram 主用名是混合大小写，大写是历史别名；
-  // 再兼容全拼写法（Telegram_Bot_Token / TELEGRAM_BOT_TOKEN 等），降低配置门槛。
-  TG_BOT_TOKEN: ['TG_Bot_Token', 'TG_BOT_TOKEN', 'Telegram_Bot_Token', 'TELEGRAM_BOT_TOKEN'],
-  TG_CHAT_ID: ['TG_Chat_ID', 'TG_CHAT_ID', 'Telegram_Chat_ID', 'TELEGRAM_CHAT_ID'],
+  // Telegram 主用名是混合大小写，大写是历史别名
+  TG_BOT_TOKEN: ['TG_Bot_Token', 'TG_BOT_TOKEN'],
+  TG_CHAT_ID: ['TG_Chat_ID', 'TG_CHAT_ID'],
 
   TG_UPLOAD_NOTIFY: ['TG_UPLOAD_NOTIFY', 'TELEGRAM_UPLOAD_NOTIFY'],
   TELEGRAM_WEBHOOK_SECRET: ['TELEGRAM_WEBHOOK_SECRET', 'TG_WEBHOOK_SECRET'],

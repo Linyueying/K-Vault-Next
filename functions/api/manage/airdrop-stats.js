@@ -17,27 +17,36 @@ export async function onRequestGet(context) {
   }
 
   const days = Number(new URL(request.url).searchParams.get('days') || 7);
+
+  // 统计查询与「中转节点探测」及「当前配置」彼此独立：
+  // 统计查不出来（例如迁移未跑），不该连累 backend / config 一起 500 ——
+  // 否则后台会把「统计暂时读不到」误显示成「没有绑定 R2 或 Telegram」。
+  let stats = null;
+  let statsError = '';
   try {
-    const stats = await getUsageStats(env, days);
-    const cfg = await getAirdropConfig(env);
-    const backend = resolveBackend(env);
-    return jsonResponse({
-      success: true,
-      stats,
-      config: {
-        enabled: cfg.enabled,
-        guestAllowed: cfg.guestAllowed,
-        maxFileSize: cfg.maxFileSize,
-        dailyLimit: cfg.dailyLimit,
-        ttlMinutes: cfg.ttlMinutes,
-        source: cfg.source
-      },
-      backend: { name: backend.backend, label: backend.label, maxBytes: backend.maxBytes }
-    });
+    stats = await getUsageStats(env, days);
   } catch (error) {
     console.error('Airdrop stats error:', error);
-    return jsonResponse({ error: error?.message || '读取统计失败' }, 500);
+    statsError = error?.message || '读取统计失败';
   }
+
+  const cfg = await getAirdropConfig(env);
+  const backend = resolveBackend(env);
+  return jsonResponse({
+    success: true,
+    stats,
+    statsError,
+    config: {
+      enabled: cfg.enabled,
+      guestAllowed: cfg.guestAllowed,
+      guestReceiveAllowed: cfg.guestReceiveAllowed,
+      maxFileSize: cfg.maxFileSize,
+      dailyLimit: cfg.dailyLimit,
+      ttlMinutes: cfg.ttlMinutes,
+      source: cfg.source
+    },
+    backend: { name: backend.backend, label: backend.label, maxBytes: backend.maxBytes }
+  });
 }
 
 export async function onRequestDelete(context) {

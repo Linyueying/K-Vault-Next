@@ -183,10 +183,7 @@ function todayKey() {
  */
 export function availableBackends(env) {
   const out = [];
-  // 与 functions/api/status.js 保持一致：只要 R2_BUCKET 绑定存在即视为可用。
-  // 原先用 typeof put === 'function' 做额外校验，在部分环境（如 wrangler 本地
-  // 的某些 mock 形态）会误判为未绑定，导致已经配好 R2 的生产部署仍提示缺节点。
-  if (env?.R2_BUCKET) {
+  if (env?.R2_BUCKET && typeof env.R2_BUCKET.put === 'function') {
     out.push({ key: 'r2', label: 'R2', maxBytes: R2_MAX_FILE_SIZE });
   }
   // 必须走 envValue（而不是裸读 env.TG_BOT_TOKEN）：Telegram 的主用名是混合
@@ -897,26 +894,91 @@ export function contentDisposition(fileName) {
 export async function recordStat(env, entry) {
   try {
     await ensureSchema(env);
-    await env.DB.prepare(
-      `INSERT INTO airdrop_stats
-        (code, role, is_guest, file_name, file_size, file_count, total_size, sender_ip, receiver_ip, outcome, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
+    const common = [
       String(entry.code || ''),
       String(entry.role || 'sender'),
       entry.isGuest ? 1 : 0,
       String(entry.fileName || '').slice(0, 255),
-      Number(entry.fileSize) || 0,
+      Number(entry.fileSize) || 0
+    ];
+    const detail = [
       Number(entry.fileCount) || 0,
       Number(entry.totalSize) || 0,
       String(entry.senderIp || ''),
-      String(entry.receiverIp || ''),
-      String(entry.outcome || 'completed'),
-      nowMs()
-    ).run();
+      String(entry.receiverIp || '')
+    ];
+    const tail = [String(entry.outcome || 'completed'), nowMs()];
+
+    const insert = (withDetail) => env.DB.prepare(
+      withDetail
+        ? `INSERT INTO airdrop_stats
+             (code, role, is_guest, file_name, file_size, file_count, total_size, sender_ip, receiver_ip, outcome, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        : `INSERT INTO airdrop_stats
+             (code, role, is_guest, file_name, file_size, outcome, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(...common, ...(withDetail ? detail : []), ...tail);
+
+    try {
+      await insert(await ensureAirdropStatsDetail(env)).run();
+    } catch (e) {
+      // 旧库（未跑 M0012）：退回只写旧列的 INSERT，统计依然可用。
+      if (airdropStatsHasDetail !== false) {
+        resetAirdropStatsColumns(false);
+        await insert(false).run();
+      } else {
+        throw e;
+      }
+    }
   } catch (e) {
     console.error('Airdrop stat error:', e);
   }
+}
+
+// ============================================================================
+// airdrop_stats 明细列：新旧结构自适应
+// ============================================================================
+
+/** 迁移 M0012 给 airdrop_stats 加的新列（旧库执行迁移前没有这几列）。 */
+const AIRDROP_STATS_DETAIL_COLUMNS = ['file_count', 'total_size', 'sender_ip', 'receiver_ip', 'completed_at'];
+
+// 每个 isolate 内缓存一次列探测结果。旧库（未迁移）会在**每一次请求**里
+// 反复走「探测 → 回退」，所以这里必须缓存，不能让 PRAGMA 每次重跑。
+let airdropStatsHasDetail = null;
+
+/** 开启（或复位）明细列缓存。测试可直接调用注入已知状态。 */
+export function resetAirdropStatsColumns(value = null) {
+  airdropStatsHasDetail = value;
+}
+
+/** 探测 airdrop_stats 是否具备 M0012 的明细列（带缓存）。探测失败按「有」处理。 */
+async function ensureAirdropStatsDetail(env) {
+  if (airdropStatsHasDetail != null) return airdropStatsHasDetail;
+  try {
+    const rows = await env.DB.prepare('PRAGMA table_info(airdrop_stats)').all();
+    const names = (rows?.results || []).map((r) => String(r.name));
+    airdropStatsHasDetail = AIRDROP_STATS_DETAIL_COLUMNS.every((c) => names.includes(c));
+  } catch (e) {
+    // 探测不出来就假设新结构：若假设错了，外层 catch 会自然回退到旧结构兜底。
+    airdropStatsHasDetail = true;
+  }
+  return airdropStatsHasDetail;
+}
+
+/**
+ * 最近记录查询：按库的实际结构选列。
+ *
+ * 旧库（未迁移）查询后面那句 WHERE role='sender' 也一并保留 ——
+ * 两个结构都只取发端记录。
+ */
+function selectRecentStatsSql(hasDetail) {
+  const detail = hasDetail
+    ? ', file_count, total_size, sender_ip, receiver_ip, completed_at'
+    : '';
+  return `SELECT code, role, is_guest, file_name, file_size${detail},
+                 outcome, created_at
+          FROM airdrop_stats WHERE role = 'sender'
+          ORDER BY created_at DESC LIMIT 20`;
 }
 
 /**
@@ -928,6 +990,22 @@ export async function getUsageStats(env, days) {
   await ensureSchema(env);
   const since = nowMs() - Math.max(1, Number(days) || 7) * 86400000;
 
+  try {
+    return await runUsageStats(env, days, since, await ensureAirdropStatsDetail(env));
+  } catch (e) {
+    // 明细查询失败的最常见原因：库还没跑 M0012。退回旧结构重试一次，
+    // 把「多查了几列」与「统计接口整体失败」彻底解耦。
+    if (airdropStatsHasDetail !== false) {
+      console.warn('[airdrop] detail stats failed, falling back to legacy columns:', e?.message || e);
+      resetAirdropStatsColumns(false);
+      return await runUsageStats(env, days, since, false);
+    }
+    throw e;
+  }
+}
+
+/** getUsageStats 的实际查询体；hasDetail 决定明细查询用新列还是旧列。 */
+async function runUsageStats(env, days, since, hasDetail) {
   const [totals, byDay, recent] = await Promise.all([
     env.DB.prepare(
       `SELECT
@@ -947,11 +1025,9 @@ export async function getUsageStats(env, days) {
        FROM airdrop_stats WHERE created_at >= ?
        GROUP BY day ORDER BY day DESC LIMIT 14`
     ).bind(since).all(),
-    env.DB.prepare(
-      `SELECT code, role, is_guest, file_name, file_size, file_count, total_size,
-              sender_ip, receiver_ip, outcome, created_at, completed_at
-       FROM airdrop_stats WHERE role = 'sender' ORDER BY created_at DESC LIMIT 20`
-    ).all()
+    // 明细查询带新旧两套列。迁移 M0012 只需成功执行一次，之后恒走新结构；
+    // 未执行（如迁移尚未生效）时自动退回旧结构，绝不因"多了几列"让整个统计接口失败。
+    env.DB.prepare(selectRecentStatsSql(hasDetail)).all()
   ]);
 
   const total = Number(totals?.total) || 0;

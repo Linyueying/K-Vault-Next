@@ -5260,9 +5260,11 @@ const __kvApp = Vue.createApp({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || '读取统计失败');
         this.airdropStats = data.stats || null;
+        // 统计与节点探测彼此独立：统计失败时后端仍会返回 backend / config，
+        // 这里照常应用 —— 避免把「统计读不到」误显示成「没有中转节点」。
         if (data.backend) this.airdropBackend = data.backend;
-        // 配置可能在别处被改过，顺手同步一次表单，避免展示的是旧值
         if (data.config) this.applyAirdropView({ airdrop: data.config });
+        if (data.statsError) this.airdropStatsError = data.statsError;
       } catch (e) {
         this.airdropStats = null;
         this.airdropStatsError = e.message || '读取统计失败';
