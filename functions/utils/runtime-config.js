@@ -76,6 +76,13 @@ export const DEFAULT_AIRDROP_TTL_MINUTES = 5;
 // 对方能不能收就是这次投递的全部意义；而接收不消耗中转节点的"发起"额度，
 // 也不扩大攻击面（下载由 192bit 的 receiver_token 鉴权，码只负责找到房间）。
 export const DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED = true;
+// 使用记录（airdrop_stats）保留条数上限：超过就自动删除最旧的。
+// airdrop_sessions 会在 TTL 后被 clean 掉，但 airdrop_stats 是**持久历史**，
+// 不清理会无限增长、持续占用 D1 免费额度（行数 + 索引体积）。
+// 这一条是"自动清除"的阈值，后台可在线调整；设成 0 表示不自动清理。
+export const DEFAULT_AIRDROP_STATS_RETENTION = 500;
+// 保留条数的上限：再大就没有"自动清理"的意义了，也防止误填一个天文数字。
+export const MAX_AIRDROP_STATS_RETENTION = 100000;
 
 /**
  * 进程内短 TTL 缓存。
@@ -196,6 +203,15 @@ function toPositiveInt(value, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * 解析非负整数。与 toPositiveInt 的唯一区别：**接受 0**。
+ * 用于"保留条数"这类 0 有明确语义（=不自动清理）的字段。
+ */
+function toNonNegativeInt(value, fallback) {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 /** 解析逗号分隔的来源白名单（CORS） */
 export function parseOriginsFromString(raw) {
   const text = String(raw ?? '').trim();
@@ -291,7 +307,9 @@ const GROUPS = {
       guestReceiveAllowed: toBool(env?.AIRDROP_GUEST_RECEIVE_ALLOWED, DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED),
       maxFileSize: toPositiveInt(env?.AIRDROP_MAX_FILE_SIZE, DEFAULT_AIRDROP_MAX_FILE_SIZE),
       dailyLimit: toPositiveInt(env?.AIRDROP_DAILY_LIMIT, DEFAULT_AIRDROP_DAILY_LIMIT),
-      ttlMinutes: toPositiveInt(env?.AIRDROP_TTL_MINUTES, DEFAULT_AIRDROP_TTL_MINUTES)
+      ttlMinutes: toPositiveInt(env?.AIRDROP_TTL_MINUTES, DEFAULT_AIRDROP_TTL_MINUTES),
+      // 允许显式设为 0（=不自动清理），所以这里不能用 toPositiveInt（它会把 0 当无效值）
+      statsRetention: toNonNegativeInt(env?.AIRDROP_STATS_RETENTION, DEFAULT_AIRDROP_STATS_RETENTION)
     }),
     normalize: (raw, base) => normalizeAirdropConfig(raw, base)
   }
@@ -382,7 +400,8 @@ export function normalizeAirdropConfig(raw, fallback) {
     guestReceiveAllowed: DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED,
     maxFileSize: DEFAULT_AIRDROP_MAX_FILE_SIZE,
     dailyLimit: DEFAULT_AIRDROP_DAILY_LIMIT,
-    ttlMinutes: DEFAULT_AIRDROP_TTL_MINUTES
+    ttlMinutes: DEFAULT_AIRDROP_TTL_MINUTES,
+    statsRetention: DEFAULT_AIRDROP_STATS_RETENTION
   };
   if (!raw || typeof raw !== 'object') return { ...base };
   return {
@@ -392,7 +411,9 @@ export function normalizeAirdropConfig(raw, fallback) {
     guestReceiveAllowed: toBool(raw.guestReceiveAllowed, base.guestReceiveAllowed),
     maxFileSize: toPositiveInt(raw.maxFileSize, base.maxFileSize),
     dailyLimit: toPositiveInt(raw.dailyLimit, base.dailyLimit),
-    ttlMinutes: toPositiveInt(raw.ttlMinutes, base.ttlMinutes)
+    ttlMinutes: toPositiveInt(raw.ttlMinutes, base.ttlMinutes),
+    // 0 是合法值（=不自动清理），故用 toNonNegativeInt 而非 toPositiveInt
+    statsRetention: toNonNegativeInt(raw.statsRetention, base.statsRetention)
   };
 }
 

@@ -26,6 +26,7 @@ import {
     readStorageConfigFromEnv,
     readBrandingConfigFromEnv,
     readAirdropConfigFromEnv,
+    MAX_AIRDROP_STATS_RETENTION,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
 
@@ -86,6 +87,7 @@ async function buildView(env) {
             maxFileSize: airdrop.maxFileSize,
             dailyLimit: airdrop.dailyLimit,
             ttlMinutes: airdrop.ttlMinutes,
+            statsRetention: airdrop.statsRetention,
             source: airdrop.source
         },
         // 兼容既有前端：它只认 guest 的环境变量基线
@@ -152,6 +154,13 @@ function validateAirdrop(input) {
         const ttl = Number(input.ttlMinutes);
         if (!Number.isInteger(ttl) || ttl < 1 || ttl > 1440) {
             return { error: '房间有效期需为 1 ~ 1440 分钟之间的整数。' };
+        }
+    }
+    if (input.statsRetention !== undefined) {
+        const retention = Number(input.statsRetention);
+        // 0 是合法值（= 不自动清理），所以下界是 0 而不是 1
+        if (!Number.isInteger(retention) || retention < 0 || retention > MAX_AIRDROP_STATS_RETENTION) {
+            return { error: `使用记录保留条数需为 0 ~ ${MAX_AIRDROP_STATS_RETENTION} 之间的整数（0 表示不自动清理）。` };
         }
     }
     return { ok: true };

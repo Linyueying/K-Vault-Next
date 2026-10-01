@@ -930,6 +930,16 @@ export async function recordStat(env, entry) {
         throw e;
       }
     }
+
+    // 自动清理：抽样触发（见 STATS_PRUNE_SAMPLE），避免每次写入都多两次 D1 查询。
+    // 清理失败绝不能影响投递主流程，所以单独 try 且只打日志。
+    if (Math.random() * STATS_PRUNE_SAMPLE < 1) {
+      try {
+        await pruneStats(env);
+      } catch (e) {
+        console.warn('Airdrop stats prune skipped:', e?.message || e);
+      }
+    }
   } catch (e) {
     console.error('Airdrop stat error:', e);
   }
@@ -1119,3 +1129,54 @@ export async function clearStats(env) {
   await ensureSchema(env);
   await env.DB.prepare('DELETE FROM airdrop_stats').run();
 }
+
+/**
+ * 自动清理：记录数超过保留上限时，删掉最旧的若干条。
+ *
+ * 为什么需要它：airdrop_sessions 会随 TTL 被 clean 掉，但 airdrop_stats 是
+ * **持久历史**，只增不减。D1 免费额度按「行读/行写/存储」计费，无限增长
+ * 迟早会把额度吃掉，且后台列表本身也只需要最近若干条。
+ *
+ * 策略：保留最新的 N 条（N = cfg.statsRetention）：
+ *   DELETE FROM airdrop_stats
+ *    WHERE created_at < (第 N 新的那一行的 created_at)
+ * 用 created_at 作水位线而不是 rowid —— code 可能重复，created_at 有索引
+ * （idx_airdrop_stats_created），取水位线和删除都走索引。
+ *
+ * @param {any} env
+ * @param {number} [retention] 显式指定保留条数；缺省从运行时配置读
+ * @returns {Promise<{deleted: number, retention: number}>}
+ */
+export async function pruneStats(env, retention) {
+  await ensureSchema(env);
+
+  let keep = retention;
+  if (keep == null) {
+    const cfg = await getAirdropConfig(env);
+    keep = Number(cfg?.statsRetention);
+  }
+  // 0 / 非数字 = 关闭自动清理（管理员显式关掉，或配置异常时保守不动数据）
+  if (!Number.isFinite(keep) || keep <= 0) return { deleted: 0, retention: 0 };
+
+  // 找水位线：第 keep 新的那一行的时间戳（OFFSET keep-1 即第 keep 条）
+  const edge = await env.DB.prepare(
+    `SELECT created_at FROM airdrop_stats ORDER BY created_at DESC LIMIT 1 OFFSET ?`
+  ).bind(keep - 1).first();
+
+  // 记录数还没到 keep 条：没什么可删
+  if (!edge || edge.created_at == null) return { deleted: 0, retention: keep };
+
+  // 删掉所有比水位线更旧的。用 `<` 而不是 `<=`：与水位线同刻的记录一并保留，
+  // 避免同一毫秒内写入的一批记录被拦腰截断。
+  const result = await env.DB.prepare(
+    `DELETE FROM airdrop_stats WHERE created_at < ?`
+  ).bind(edge.created_at).run();
+
+  const deleted = Number(result?.meta?.changes ?? result?.changes ?? 0);
+  return { deleted, retention: keep };
+}
+
+// 自动清理的触发概率：每 20 次写入检查一次。
+// 全量检查每个请求都跑一次 COUNT/水位线查询会让 D1 读量翻倍；而从「超出上限」
+// 到「下次写入触发清理」之间最多多出 ~20 条，对保留上限的精度无实质影响。
+const STATS_PRUNE_SAMPLE = 20;
