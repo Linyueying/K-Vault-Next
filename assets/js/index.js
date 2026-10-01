@@ -525,31 +525,10 @@
     components: {
       "folder-node": folderNodeComponent,
       "upload-queue": uploadQueueComponent,
-      /* 隔空投送：实现在 assets/js/airdrop.js，index.html 保证它先于本文件加载。
-         万一脚本没加载成功，退化成一个空组件 —— 宁可这个功能不出现，
-         也不要因为注册失败让整个首页白屏。 */
-      "airdrop-panel": window.AirdropPanel || { template: "<div hidden></div>" },
     },
     data() {
       return {
         currentTheme: "light",
-        /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可发送 /
-           访客是否可接收 / 可用中转节点列表）。能力由 /api/auth/check 下发，
-           见 checkAuth。默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。
-           注意 guestReceiveAllowed 与 guestAllowed 方向相反（收端缺省放行），
-           初始化时给 true 而不是 false —— 拿不到答复时宁可让访客能收。
-           具体的中转节点由发端在面板里选，默认值沿用本页 storageMode。 */
-        airdropVisible: false,
-        /* 用户在后端能力下发完成前就点了隔空投送：记下来，
-           checkAuth 拿到真实能力后自动补开，避免"点了没反应/误报未开启" */
-        pendingAirdropOpen: false,
-        airdropCapability: {
-          enabled: false,
-          guestAllowed: false,
-          guestReceiveAllowed: true,
-          nodes: [],
-          ttlMinutes: 5,
-        },
         showDrawer: false,
         activeDrawerTab: "storage",
         lastMoreTab: "history",
@@ -4157,8 +4136,6 @@
         try {
           const res = await fetch("/api/auth/check", { credentials: "include" });
           const data = await res.json();
-          // 隔空投送能力：无论后面走哪个分支（含访客早退），都要先落到 data 上
-          if (data.airdrop) this.airdropCapability = data.airdrop;
           if (data.authRequired && !data.authenticated) {
             if (data.guestUpload && data.guestUpload.enabled) {
               this.isGuest = true;
@@ -4182,56 +4159,7 @@
         } catch (e) {}
         finally {
           this.authChecking = false;
-          /* 能力已落地：若用户在探测期间就点过隔空投送，此刻按真实能力补判。
-             放在 finally 是因为上面的访客分支有 early return，写在 try 尾部
-             会被它跳过 —— 而访客恰恰是最常见的"打开页面立刻点"的人群。 */
-          if (this.pendingAirdropOpen) {
-            this.pendingAirdropOpen = false;
-            this.$nextTick(() => this.openAirdrop());
-          }
         }
-      },
-      /* ── 隔空投送（Beta）─────────────────────────────────
-         入口门禁放在这里而不是组件里：是否放行取决于整页的登录态
-         （this.isGuest），组件不该自己去猜访问者是谁。
-
-         这里**只拦"功能整体不可用"**（后端关闭 / 没有可用中转节点）。
-         访客的收发权限不在这一层判定 —— 访客拿别人的连接码来接收是
-         完全合法的用法，早年在入口就把访客整体挡掉，导致"扫了二维码
-         也进不来"。具体能发还是能收，由面板内的 maySend / mayReceive
-         分别判定（见 assets/js/airdrop.js）。
-
-         ⚠️ authChecking 这一层不能省：airdropCapability 的初始值就是
-         enabled:false，而 checkAuth() 在 mounted 里是异步 await 的
-         （且排在 markBooted() 之后 —— 首屏在它返回前就已可点）。
-         于是"页面刚加载就点隔空投送"会命中初始值，误报"未开启"。
-         这里把"还在探测"与"确实不可用"区分开：前者提示稍候并自动重试，
-         后者才是真的报错。 */
-      openAirdrop() {
-        if (!this.airdropCapability.enabled) {
-          // 能力尚未下发：不是"不可用"，只是还没问完后端 —— 等它回来再判
-          if (this.authChecking) {
-            this.showToast("正在检查隔空投送可用性，请稍候…", "info");
-            this.pendingAirdropOpen = true;
-            return;
-          }
-          // 已确认不可用：给出准确的两种原因，而不是笼统一句
-          const backendDown = !this.airdropCapability.nodes || this.airdropCapability.nodes.length === 0;
-          this.showToast(
-            backendDown
-              ? "缺少可用的中转存储节点（需绑定 R2 或配置 Telegram）"
-              : "隔空投送未开启，请在管理后台打开",
-            "error"
-          );
-          return;
-        }
-        this.airdropVisible = true;
-      },
-      closeAirdrop() {
-        this.airdropVisible = false;
-      },
-      pushAirdropToast(message, tone) {
-        this.showToast(message, tone || "info");
       },
       /* 访客被禁用时的统一拦截：提示 + 直接跳登录页 */
       blockGuestUpload() {

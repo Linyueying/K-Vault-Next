@@ -13,8 +13,10 @@
 <link rel="stylesheet" href="/assets/vendor/glassfx/glass.css">
 <link rel="stylesheet" href="/assets/css/design-system.css">
 <link rel="stylesheet" href="/assets/css/theme.css">
+<link rel="stylesheet" href="/assets/css/airdrop.css">
 <script src="/assets/js/theme.js?v=20260305"></script>
 <script src="/assets/js/app-core.js"></script>
+<script src="/assets/js/airdrop.js"></script>
 <style>
 /* =========================================================
    admin 局部令牌覆盖
@@ -281,14 +283,20 @@ html[data-theme="dark"] .badge-beta{color:#7dd3fc;border-color:rgba(56,189,248,.
 .airdrop-recent{margin-top:var(--sp-3);border:1px solid var(--glass-border-ice);border-radius:var(--r-md);overflow:hidden}
 /* 第二列用 minmax(0,1fr) 而非 1fr：1fr 的隐式最小值是 auto，
    长用户名/长编码会把这一列撑宽、顶破卡片；minmax(0,...) 才能收缩。 */
-.airdrop-recent__row{display:grid;grid-template-columns:88px minmax(0,1fr) 76px 74px 96px;gap:var(--sp-2);align-items:center;padding:8px var(--sp-3);font-size:var(--fs-sm)}
+.airdrop-recent__row{display:grid;grid-template-columns:88px 72px minmax(0,1.4fr) minmax(132px,1fr) 72px 96px 60px;gap:var(--sp-2);align-items:center;padding:8px var(--sp-3);font-size:var(--fs-sm)}
 .airdrop-recent__row + .airdrop-recent__row{border-top:1px solid rgba(148,163,184,.16)}
 .airdrop-recent__row--head{background:var(--glass-subtle);font-weight:700;font-size:var(--fs-xs);color:var(--text-muted)}
 .airdrop-recent__row > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .airdrop-recent__row .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+.airdrop-open-btn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:9px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-size:var(--fs-sm);font-weight:600;cursor:pointer}
+.airdrop-open-btn:hover{filter:brightness(1.06)}
+.airdrop-recent__row .ov{display:block;color:var(--text-sub);font-size:var(--fs-xs);margin-top:1px}
+.airdrop-recent__row .airdrop-ip{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-xs);color:var(--text-sub);flex-wrap:wrap}
+.airdrop-recent__row .airdrop-ip i{opacity:.45;font-size:9px}
 @media (max-width:680px){
-  .airdrop-recent__row{grid-template-columns:64px minmax(0,1fr) 60px}
-  .airdrop-recent__row > span:nth-child(4),.airdrop-recent__row > span:nth-child(5){display:none}
+  .airdrop-recent__row{grid-template-columns:72px 64px minmax(0,1fr) 84px}
+  /* 窄屏保留：连接码 / 状态 / 文件概览 / 时间；隐藏收发 IP、角色、耗时 */
+  .airdrop-recent__row > span:nth-child(4),.airdrop-recent__row > span:nth-child(5),.airdrop-recent__row > span:nth-child(7){display:none}
 }
 .kv-usage-actions{display:flex;gap:var(--sp-1)}
 .kv-usage-empty{padding:var(--sp-6);text-align:center;color:var(--text-muted);font-size:var(--fs-sm);display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);line-height:1.6}
@@ -2101,187 +2109,6 @@ html[data-theme="dark"] .dock__indicator{
       </template>
     </section>
 
-    <!-- ===== 隔空投送（原模态，已内联为板块内容） ===== -->
-    <section class="liquid-card panel-inline">
-      <h2 class="dialog-title">
-        <i class="fas fa-paper-plane"></i>
-        <span>隔空投送</span>
-        <span class="badge-beta">BETA</span>
-      </h2>
-      <div class="dialog-message">
-        两端在首页打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
-        改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
-      </div>
-
-      <div class="token-section" v-if="airdropLoading">
-        <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取隔空投送设置...</div>
-      </div>
-
-      <template v-else>
-        <!-- 权限 -->
-        <div class="token-section">
-          <div class="token-section-head">
-            <h3 class="token-section-title">
-              <i class="fas fa-user-group"></i>
-              <span>访客使用权限</span>
-            </h3>
-            <span class="badge-env" v-if="airdropSource === 'kv'">KV 覆盖中</span>
-            <span class="badge-env" v-else>来自环境变量</span>
-          </div>
-
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>启用隔空投送</strong>
-              <span>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" v-model="airdropForm.enabled" role="switch"
-                     :aria-checked="String(airdropForm.enabled)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
-            </label>
-          </div>
-
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>允许未登录访客发起投送</strong>
-              <span>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
-                     :aria-checked="String(airdropForm.guestAllowed)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
-            </label>
-          </div>
-
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>允许未登录访客接收文件</strong>
-              <span>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
-                     :aria-checked="String(airdropForm.guestReceiveAllowed)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
-            </label>
-          </div>
-
-          <div class="token-grid">
-            <div class="token-field">
-              <label>单文件上限</label>
-              <div class="input-with-unit">
-                <input class="token-input" type="number" min="1" v-model.number="airdropForm.maxFileSizeMb">
-                <span class="unit">MB</span>
-              </div>
-              <small class="field-hint">
-                实际生效值还会受中转节点能力约束：当前节点 {{ airdropBackendLabel }}，
-                上限 {{ airdropBackendMaxLabel }}。
-              </small>
-            </div>
-            <div class="token-field">
-              <label>每 IP 每日次数</label>
-              <input class="token-input" type="number" min="1" v-model.number="airdropForm.dailyLimit">
-              <small class="field-hint">环境变量基线：{{ airdropEnvBaseline.dailyLimit }}</small>
-            </div>
-            <div class="token-field">
-              <label>房间有效期</label>
-              <div class="input-with-unit">
-                <input class="token-input" type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes">
-                <span class="unit">分钟</span>
-              </div>
-              <small class="field-hint">从发端生成房间那刻起算。超时后房间失效、两端停止轮询（不再产生数据库读），中转节点上的临时文件一并释放。默认 5 分钟。</small>
-            </div>
-          </div>
-
-          <div class="settings-note settings-note--warn" v-if="!airdropBackendName">
-            <i class="fas fa-triangle-exclamation"></i>
-            <span>当前没有绑定 R2 或 Telegram，隔空投送缺少中转节点，启用后也无法使用。</span>
-          </div>
-        </div>
-
-        <!-- 使用情况 -->
-        <div class="token-section">
-          <div class="token-section-head">
-            <h3 class="token-section-title">
-              <i class="fas fa-magnifying-glass-chart"></i>
-              <span>使用情况</span>
-            </h3>
-            <select class="token-select" v-model="airdropDays" @change="loadAirdropStats"
-                    style="width:auto;min-width:110px;height:30px">
-              <option :value="1">近 24 小时</option>
-              <option :value="7">近 7 天</option>
-              <option :value="30">近 30 天</option>
-            </select>
-          </div>
-
-          <div class="settings-loading" v-if="airdropStatsLoading">
-            <i class="fas fa-spinner fa-spin"></i> 正在统计...
-          </div>
-
-          <template v-else-if="airdropStats">
-            <div class="share-stats">
-              <div class="share-stat">
-                <div class="share-stat-value">{{ airdropStats.total }}</div>
-                <div class="share-stat-label">投递次数</div>
-              </div>
-              <div class="share-stat">
-                <div class="share-stat-value ok">{{ airdropStats.completed }}</div>
-                <div class="share-stat-label">成功送达</div>
-              </div>
-              <div class="share-stat">
-                <div class="share-stat-value warn">{{ airdropStats.failed }}</div>
-                <div class="share-stat-label">未完成</div>
-              </div>
-              <div class="share-stat">
-                <div class="share-stat-value">{{ airdropBytesLabel }}</div>
-                <div class="share-stat-label">传输流量</div>
-              </div>
-              <div class="share-stat">
-                <div class="share-stat-value">{{ airdropStats.guestCount }}</div>
-                <div class="share-stat-label">访客发起</div>
-              </div>
-              <div class="share-stat">
-                <div class="share-stat-value">{{ airdropStats.successRate }}%</div>
-                <div class="share-stat-label">成功率</div>
-              </div>
-            </div>
-
-            <div class="settings-note" style="margin-top:var(--sp-3)">
-              <i class="fas fa-circle-info"></i>
-              <span>
-                当前有 <strong>{{ airdropStats.activeSessions }}</strong> 个房间正在进行中。
-                「未完成」指发端已上传但收端未取走、或中途取消的投递。
-              </span>
-            </div>
-
-            <div class="airdrop-recent" v-if="airdropStats.recent && airdropStats.recent.length">
-              <div class="airdrop-recent__row airdrop-recent__row--head">
-                <span>连接码</span><span>文件</span><span>大小</span><span>结果</span><span>时间</span>
-              </div>
-              <div class="airdrop-recent__row" v-for="r in airdropStats.recent" :key="r.code + r.createdAt">
-                <span class="mono">{{ r.code }}</span>
-                <span :title="r.fileName">{{ r.fileName || '—' }}</span>
-                <span>{{ r.fileSize ? formatSize(r.fileSize) : '—' }}</span>
-                <span>
-                  <span class="token-badge" :class="r.outcome === 'completed' ? '' : 'warn'">
-                    {{ airdropOutcomeLabel(r.outcome) }}
-                  </span>
-                </span>
-                <span>{{ formatDateTime(r.createdAt) }}</span>
-              </div>
-            </div>
-            <div class="kv-usage-empty" v-else>该时间段内没有使用记录</div>
-          </template>
-
-          <div class="settings-note settings-note--warn" v-else-if="airdropStatsError">
-            <i class="fas fa-triangle-exclamation"></i><span>{{ airdropStatsError }}</span>
-          </div>
-        </div>
-
-      </template>
-    </section>
   </section>
 
   <!-- ② 分享管理 -->
@@ -2499,6 +2326,204 @@ html[data-theme="dark"] .dock__indicator{
       </template>
 
     </section>
+
+  <!-- ===== 隔空投送（从「储存」迁入「分享」管理） ===== -->
+  <section class="liquid-card panel-inline">
+    <h2 class="dialog-title">
+      <i class="fas fa-paper-plane"></i>
+      <span>隔空投送</span>
+      <span class="badge-beta">BETA</span>
+      <button type="button" class="airdrop-open-btn" @click="openAirdrop">
+        <i class="fas fa-external-link-alt"></i> 打开隔空投送
+      </button>
+    </h2>
+    <div class="dialog-message">
+      在分享管理里打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
+      改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
+    </div>
+
+    <div class="token-section" v-if="airdropLoading">
+      <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取隔空投送设置...</div>
+    </div>
+
+    <template v-else>
+      <!-- 权限 -->
+      <div class="token-section">
+        <div class="token-section-head">
+          <h3 class="token-section-title">
+            <i class="fas fa-user-group"></i>
+            <span>访客使用权限</span>
+          </h3>
+          <span class="badge-env" v-if="airdropSource === 'kv'">KV 覆盖中</span>
+          <span class="badge-env" v-else>来自环境变量</span>
+        </div>
+
+        <div class="settings-switch-row">
+          <div class="settings-switch-text">
+            <strong>启用隔空投送</strong>
+            <span>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" v-model="airdropForm.enabled" role="switch"
+                   :aria-checked="String(airdropForm.enabled)" />
+            <span class="switch__track"></span>
+            <span class="switch__thumb"></span>
+          </label>
+        </div>
+
+        <div class="settings-switch-row">
+          <div class="settings-switch-text">
+            <strong>允许未登录访客发起投送</strong>
+            <span>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
+                   :aria-checked="String(airdropForm.guestAllowed)" />
+            <span class="switch__track"></span>
+            <span class="switch__thumb"></span>
+          </label>
+        </div>
+
+        <div class="settings-switch-row">
+          <div class="settings-switch-text">
+            <strong>允许未登录访客接收文件</strong>
+            <span>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
+                   :aria-checked="String(airdropForm.guestReceiveAllowed)" />
+            <span class="switch__track"></span>
+            <span class="switch__thumb"></span>
+          </label>
+        </div>
+
+        <div class="token-grid">
+          <div class="token-field">
+            <label>单文件上限</label>
+            <div class="input-with-unit">
+              <input class="token-input" type="number" min="1" v-model.number="airdropForm.maxFileSizeMb">
+              <span class="unit">MB</span>
+            </div>
+            <small class="field-hint">
+              实际生效值还会受中转节点能力约束：当前节点 {{ airdropBackendLabel }}，
+              上限 {{ airdropBackendMaxLabel }}。
+            </small>
+          </div>
+          <div class="token-field">
+            <label>每 IP 每日次数</label>
+            <input class="token-input" type="number" min="1" v-model.number="airdropForm.dailyLimit">
+            <small class="field-hint">环境变量基线：{{ airdropEnvBaseline.dailyLimit }}</small>
+          </div>
+          <div class="token-field">
+            <label>房间有效期</label>
+            <div class="input-with-unit">
+              <input class="token-input" type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes">
+              <span class="unit">分钟</span>
+            </div>
+            <small class="field-hint">从发端生成房间那刻起算。超时后房间失效、两端停止轮询（不再产生数据库读），中转节点上的临时文件一并释放。默认 5 分钟。</small>
+          </div>
+        </div>
+
+        <div class="settings-note settings-note--warn" v-if="!airdropBackendName">
+          <i class="fas fa-triangle-exclamation"></i>
+          <span>当前没有绑定 R2 或 Telegram，隔空投送缺少中转节点，启用后也无法使用。</span>
+        </div>
+      </div>
+
+      <!-- 使用情况 -->
+      <div class="token-section">
+        <div class="token-section-head">
+          <h3 class="token-section-title">
+            <i class="fas fa-magnifying-glass-chart"></i>
+            <span>使用情况</span>
+          </h3>
+          <select class="token-select" v-model="airdropDays" @change="loadAirdropStats"
+                  style="width:auto;min-width:110px;height:30px">
+            <option :value="1">近 24 小时</option>
+            <option :value="7">近 7 天</option>
+            <option :value="30">近 30 天</option>
+          </select>
+        </div>
+
+        <div class="settings-loading" v-if="airdropStatsLoading">
+          <i class="fas fa-spinner fa-spin"></i> 正在统计...
+        </div>
+
+        <template v-else-if="airdropStats">
+          <div class="share-stats">
+            <div class="share-stat">
+              <div class="share-stat-value">{{ airdropStats.total }}</div>
+              <div class="share-stat-label">投递次数</div>
+            </div>
+            <div class="share-stat">
+              <div class="share-stat-value ok">{{ airdropStats.completed }}</div>
+              <div class="share-stat-label">成功送达</div>
+            </div>
+            <div class="share-stat">
+              <div class="share-stat-value warn">{{ airdropStats.failed }}</div>
+              <div class="share-stat-label">未完成</div>
+            </div>
+            <div class="share-stat">
+              <div class="share-stat-value">{{ airdropBytesLabel }}</div>
+              <div class="share-stat-label">传输流量</div>
+            </div>
+            <div class="share-stat">
+              <div class="share-stat-value">{{ airdropStats.guestCount }}</div>
+              <div class="share-stat-label">访客发起</div>
+            </div>
+            <div class="share-stat">
+              <div class="share-stat-value">{{ airdropStats.successRate }}%</div>
+              <div class="share-stat-label">成功率</div>
+            </div>
+          </div>
+
+          <div class="settings-note" style="margin-top:var(--sp-3)">
+            <i class="fas fa-circle-info"></i>
+            <span>
+              当前有 <strong>{{ airdropStats.activeSessions }}</strong> 个房间正在进行中。
+              「未完成」指发端已上传但收端未取走、或中途取消的投递。
+            </span>
+          </div>
+
+          <div class="airdrop-recent" v-if="airdropStats.recent && airdropStats.recent.length">
+            <div class="airdrop-recent__row airdrop-recent__row--head">
+              <span>连接码</span><span>状态</span><span>文件概览</span><span>收发 IP</span><span>角色</span><span>时间</span><span>耗时</span>
+            </div>
+            <div class="airdrop-recent__row" v-for="r in airdropStats.recent" :key="r.code + r.createdAt">
+              <span class="mono">{{ r.code }}</span>
+              <span>
+                <span class="token-badge" :class="r.outcome === 'completed' ? '' : 'warn'">{{ airdropOutcomeLabel(r.outcome) }}</span>
+              </span>
+              <span :title="r.fileName">
+                {{ r.fileName || '—' }}
+                <span class="ov" v-if="r.fileCount > 1 || r.totalSize">{{ r.fileCount }} 个 · {{ formatSize(r.totalSize) }}</span>
+              </span>
+              <span class="airdrop-ip">
+                <span :title="'发送端 IP：' + (r.senderIp || '未知')">{{ r.senderIp || '—' }}</span>
+                <i class="fas fa-arrow-right"></i>
+                <span :title="'接收端 IP：' + (r.receiverIp || '未知')">{{ r.receiverIp || '—' }}</span>
+              </span>
+              <span>
+                <span class="token-badge" :class="r.isGuest ? 'warn' : ''">{{ r.isGuest ? '访客' : '授权用户' }}</span>
+              </span>
+              <span>{{ formatDateTime(r.createdAt) }}</span>
+              <span>{{ formatDuration(r.completedAt ? (r.completedAt - r.createdAt) : null) }}</span>
+            </div>
+          </div>
+          <div class="kv-usage-empty" v-else>该时间段内没有使用记录</div>
+        </template>
+
+        <div class="settings-note settings-note--warn" v-else-if="airdropStatsError">
+          <i class="fas fa-triangle-exclamation"></i><span>{{ airdropStatsError }}</span>
+        </div>
+      </div>
+
+    </template>
+  </section>
+
+  <!-- 隔空投送浮层面板：入口在「分享」分区，面板为全局浮层 -->
+  <airdrop-panel :visible="airdropVisible" :capability="airdropCapability" @close="closeAirdrop" @toast="pushAirdropToast" @request-open="openAirdrop"></airdrop-panel>
+
   </section>
 
   <!-- ④ 系统设置 -->
@@ -3182,10 +3207,16 @@ const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, storage: 2, system: 3 };
 const __kvApp = Vue.createApp({
   components: {
     'folder-node': folderNodeComponent,
+    /* 隔空投送：实现在 assets/js/airdrop.js（已在 <head> 同步加载）。
+       脚本没加载成功时退化成空组件 —— 宁可功能不出现，也不让后台白屏。 */
+    'airdrop-panel': window.AirdropPanel || { template: '<div hidden></div>' },
   },
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
+
+    /* 隔空投送面板显隐：入口在「分享」分区，面板为全局浮层 */
+    airdropVisible: false,
 
     /* ===== 板块分页（dock 导航） =====
        activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
@@ -3480,6 +3511,18 @@ const __kvApp = Vue.createApp({
     airdropBytesLabel() {
       const bytes = Number((this.airdropStats && this.airdropStats.bytes) || 0);
       return this.formatSize(bytes);
+    },
+    /* 给隔空投送面板的「能力」对象：从 airdropForm 派生。
+       nodes 给空数组 —— 后台面板落到服务端默认中转节点（与首页一致）。 */
+    airdropCapability() {
+      const f = this.airdropForm || {};
+      return {
+        enabled: !!f.enabled,
+        guestAllowed: !!f.guestAllowed,
+        guestReceiveAllowed: f.guestReceiveAllowed !== false,
+        nodes: [],
+        ttlMinutes: Number(f.ttlMinutes) || 5
+      };
     },
 
     /* ---------- 同步状态点（绑到 .sync-dot 的 class / title） ---------- */
@@ -5257,6 +5300,20 @@ const __kvApp = Vue.createApp({
       }
     },
 
+    openAirdrop() {
+      if (!this.airdropCapability.enabled) {
+        this.showToast('隔空投送未开启，请在管理后台开启', 'error');
+        return;
+      }
+      this.airdropVisible = true;
+    },
+    closeAirdrop() {
+      this.airdropVisible = false;
+    },
+    pushAirdropToast(message, tone) {
+      this.showToast(message, tone || 'info');
+    },
+
     async clearAirdropStats() {
       const ok = await this.askConfirm('清空后不可恢复，确定要清空隔空投送的使用记录吗？', '清空使用记录', true);
       if (!ok) return;
@@ -5286,6 +5343,18 @@ const __kvApp = Vue.createApp({
       const d = new Date(n);
       const p = (x) => String(x).padStart(2, '0');
       return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    },
+
+    /* 耗时：从发端生成房间到收端取走的毫秒差；
+       未取走（completedAt 为空）或异常时显示「—」。 */
+    formatDuration(ms) {
+      const n = Number(ms) || 0;
+      if (!n) return '—';
+      if (n < 1000) return n + 'ms';
+      const s = Math.round(n / 1000);
+      if (s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      return m + 'm' + (s % 60) + 's';
     },
 
     async loadSettings() {

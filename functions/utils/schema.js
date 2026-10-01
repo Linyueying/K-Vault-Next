@@ -400,6 +400,17 @@ const M0011_AIRDROP_FILES = [
   `ALTER TABLE airdrop_sessions ADD COLUMN total_size    INTEGER NOT NULL DEFAULT 0`,
 ];
 
+// 后台「使用记录」扩展字段：双方 IP、文件概览、完成时刻。
+// 落在 airdrop_stats（持久，不会被 cleanupExpired 清理），保证历史可查。
+// 注意 airdrop_sessions 过期后会被删除，IP 等历史不能只放 sessions。
+const M0012_AIRDROP_STATS_DETAIL = [
+  `ALTER TABLE airdrop_stats ADD COLUMN sender_ip     TEXT`,
+  `ALTER TABLE airdrop_stats ADD COLUMN receiver_ip   TEXT`,
+  `ALTER TABLE airdrop_stats ADD COLUMN file_count    INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE airdrop_stats ADD COLUMN total_size    INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE airdrop_stats ADD COLUMN completed_at  INTEGER`,
+];
+
 // ============================================================================
 // 迁移清单（**顺序即执行顺序**）
 // ============================================================================
@@ -453,6 +464,11 @@ export const MIGRATIONS = [
     id: '0011_airdrop_files',
     guard: { type: 'column', table: 'airdrop_sessions', column: 'files_json' },
     statements: M0011_AIRDROP_FILES,
+  },
+  {
+    id: '0012_airdrop_stats_detail',
+    guard: { type: 'column', table: 'airdrop_stats', column: 'sender_ip' },
+    statements: M0012_AIRDROP_STATS_DETAIL,
   },
 ];
 

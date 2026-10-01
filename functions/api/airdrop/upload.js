@@ -131,6 +131,9 @@ export async function onRequestPost(context) {
         isGuest: await isGuestRequest(request, env),
         fileName: files[0]?.name ? `${files.length} 个文件` : '批量文件',
         fileSize: totalSize,
+        fileCount: files.length,
+        totalSize,
+        senderIp: getClientIp(request),
         outcome: 'uploaded'
       });
     }

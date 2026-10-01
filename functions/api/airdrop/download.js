@@ -103,6 +103,11 @@ export async function onRequestGet(context) {
           if (step.done) break;
         }
         await markFileDownloaded(env, code, idx);
+        // 记录接收方 IP 与完成时刻（覆盖写，幂等；统计是尽力而为，失败吞掉）
+        await env.DB.prepare(
+          `UPDATE airdrop_stats SET receiver_ip = ?, completed_at = ?, outcome = 'completed'
+           WHERE code = ? AND role = 'sender'`
+        ).bind(getClientIp(request), Date.now(), code).run().catch(() => {});
       } catch (e) {
         /* 收端中断 / 上游失败：不标记，收端重取即可 */
       }
@@ -113,6 +118,10 @@ export async function onRequestGet(context) {
   // 老路径（环境不支持 tee / waitUntil）：维持"开始即标记"的旧行为保底，
   // 宁可信号偏早，也不能让 complete 的前置条件永远不满足。
   markFileDownloaded(env, code, idx).catch(() => {});
+  env.DB.prepare(
+    `UPDATE airdrop_stats SET receiver_ip = ?, completed_at = ?, outcome = 'completed'
+     WHERE code = ? AND role = 'sender'`
+  ).bind(getClientIp(request), Date.now(), code).run().catch(() => {});
 
   return new Response(stream.body, { headers });
 }

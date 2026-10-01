@@ -21,7 +21,6 @@
     <link rel="stylesheet" href="/assets/css/design-system.css" />
     <link rel="stylesheet" href="/assets/css/theme.css" />
     <link rel="stylesheet" href="/assets/css/index.css" />
-    <link rel="stylesheet" href="/assets/css/airdrop.css" />
     <script src="/assets/js/theme.js?v=20260305"></script>
     <script defer src="/assets/js/app-core.js"></script>
   </head>
@@ -121,9 +120,6 @@
           <a href="./gallery.html" class="btn"><i class="fas fa-images"></i><span>图片浏览</span></a>
           <button class="btn" @click="showUrlInput = !showUrlInput"><i class="fas fa-link"></i><span>URL 转存</span></button>
           <button class="btn" @click="openDrawer('folder')"><i class="fas fa-folder-tree"></i><span>{{ folderPath ? folderPath : '上传目录' }}</span></button>
-          <button class="btn" @click="openAirdrop" :class="{ 'is-airdrop': airdropCapability.enabled }">
-            <i class="fas fa-paper-plane"></i><span>隔空投送</span>
-          </button>
         </div>
 
         <!-- URL 转存 -->
@@ -739,20 +735,6 @@
       </div>
       </transition>
 
-      <!-- 隔空投送（Beta）
-           独立组件，实现在 assets/js/airdrop.js。放在这里与其余弹层并列，
-           遮罩层级、dialog 过渡、点击遮罩关闭等行为全部沿用同一套实现。 -->
-      <airdrop-panel
-        :visible="airdropVisible"
-        :is-guest="isGuest"
-        :capability="airdropCapability"
-        :default-node="storageMode"
-        :base-url="baseURL"
-        @close="closeAirdrop"
-        @toast="pushAirdropToast"
-        @request-open="openAirdrop"
-      ></airdrop-panel>
-
       <!-- 分享弹窗 -->
       <transition name="dialog">
       <div class="modal-mask modal-mask--center" v-if="shareDialogVisible" @click.self="closeShareDialog">
@@ -977,9 +959,6 @@
     <!-- 二维码生成器（零依赖，分享结果面板用）。必须在 index.js 之前加载：
          它在 index.js 的 computed 里被同步调用。 -->
     <script defer src="/assets/vendor/qrcode.js"></script>
-    <!-- 隔空投送组件。必须在 index.js 之前加载：index.js 创建 app 时就要
-         把它注册进 components，晚于它加载会拿到 undefined。 -->
-    <script defer src="/assets/js/airdrop.js"></script>
     <script defer src="/assets/js/index.js"></script>
     <script defer src="/assets/js/branding.js?v=20260927"></script>
   </body>

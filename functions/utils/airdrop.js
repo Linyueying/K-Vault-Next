@@ -895,14 +895,19 @@ export async function recordStat(env, entry) {
   try {
     await ensureSchema(env);
     await env.DB.prepare(
-      `INSERT INTO airdrop_stats (code, role, is_guest, file_name, file_size, outcome, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO airdrop_stats
+        (code, role, is_guest, file_name, file_size, file_count, total_size, sender_ip, receiver_ip, outcome, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       String(entry.code || ''),
       String(entry.role || 'sender'),
       entry.isGuest ? 1 : 0,
       String(entry.fileName || '').slice(0, 255),
       Number(entry.fileSize) || 0,
+      Number(entry.fileCount) || 0,
+      Number(entry.totalSize) || 0,
+      String(entry.senderIp || ''),
+      String(entry.receiverIp || ''),
       String(entry.outcome || 'completed'),
       nowMs()
     ).run();
@@ -940,8 +945,9 @@ export async function getUsageStats(env, days) {
        GROUP BY day ORDER BY day DESC LIMIT 14`
     ).bind(since).all(),
     env.DB.prepare(
-      `SELECT code, role, is_guest, file_name, file_size, outcome, created_at
-       FROM airdrop_stats ORDER BY created_at DESC LIMIT 20`
+      `SELECT code, role, is_guest, file_name, file_size, file_count, total_size,
+              sender_ip, receiver_ip, outcome, created_at, completed_at
+       FROM airdrop_stats WHERE role = 'sender' ORDER BY created_at DESC LIMIT 20`
     ).all()
   ]);
 
@@ -967,8 +973,13 @@ export async function getUsageStats(env, days) {
       isGuest: Boolean(r.is_guest),
       fileName: r.file_name,
       fileSize: Number(r.file_size) || 0,
+      fileCount: Number(r.file_count) || 0,
+      totalSize: Number(r.total_size) || 0,
+      senderIp: r.sender_ip || '',
+      receiverIp: r.receiver_ip || '',
       outcome: r.outcome,
-      createdAt: Number(r.created_at) || 0
+      createdAt: Number(r.created_at) || 0,
+      completedAt: Number(r.completed_at) || 0
     })),
     // 活跃房间数：管理员需要知道"现在有多少人正在传"
     activeSessions: await countActive(env)
