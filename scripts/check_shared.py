@@ -237,19 +237,6 @@ LATE_LOAD_CSS = {
         '（.header-content / .nav-links / .home-btn / .status-panel / .el-* 等），'
         '781 -> 433 行，清理前后用修正过 getPropertyValue 大小写陷阱的真实计算样式值'
         '（520 项，5 视口×8 页×13 元素×23 属性去重后）逐一比对，0 差异 —— 见 visual-snapshot.mjs / visual-diff.mjs。',
-    'airdrop.css':
-        '隔空投送面板专属样式：仅 admin.html 的「分享」分区浮层面板需要。'
-        '已从 index.html（储存/网盘页）移除，因此不再进入 8 页基础加载顺序基准；'
-        '作为功能专属样式表显式登记为后加载（在共享层之后，靠级联生效）。',
-}
-
-# 与 LATE_LOAD_CSS 同理，但作用于 <script> 加载顺序。
-# 隔空投送面板组件（assets/js/airdrop.js）现在只在 admin.html 引入，
-# 不在基础加载顺序基准页 index.html 中出现，故登记为后加载例外。
-LATE_LOAD_JS = {
-    'airdrop.js':
-        '隔空投送面板组件：仅 admin.html 的「分享」分区浮层面板使用 '
-        '（window.AirdropPanel）。已从 index.html 移除，作为功能专属脚本显式登记。',
 }
 
 
@@ -299,13 +286,11 @@ def main():
     ref_page = 'index.html'
     ref_css, ref_js = orders[ref_page]
     # 基准里不含覆盖层；检查时把登记过的覆盖层从各页顺序里摘掉再比
-    late_allowed_css = set(LATE_LOAD_CSS)
-    late_allowed_js = set(LATE_LOAD_JS)
+    late_allowed = set(LATE_LOAD_CSS)
     b_bad = 0
     for p in PAGES:
         css, js = orders[p]
-        css_cmp = [c for c in css if c not in late_allowed_css]
-        js_cmp = [j for j in js if j not in late_allowed_js]
+        css_cmp = [c for c in css if c not in late_allowed]
         probs = []
         # 顺序必须与基准一致（子序列语义：允许各页只加载部分，但相对顺序不能变）
         idx, ok = 0, True
@@ -317,9 +302,9 @@ def main():
             probs.append('CSS 顺序 %s 与基准不一致，基准为 %s' % (css, ref_css))
         idx = 0
         for name in ref_js:
-            if idx < len(js_cmp) and js_cmp[idx] == name:
+            if idx < len(js) and js[idx] == name:
                 idx += 1
-        if idx != len(js_cmp):
+        if idx != len(js):
             ok = False
             probs.append('JS 顺序 %s 与基准不一致，基准为 %s' % (js, ref_js))
         # 未登记的覆盖层 = 新插了一层，必须显式登记（在下方 used_late 统一处理）
@@ -337,7 +322,7 @@ def main():
     used_late = {}
     for p in PAGES:
         for c in orders[p][0]:
-            if c.endswith('refactor.css') or c in late_allowed_css:
+            if c.endswith('refactor.css') or c in late_allowed:
                 used_late.setdefault(c, []).append(p)
     for name, ps in sorted(used_late.items()):
         if name in LATE_LOAD_CSS:

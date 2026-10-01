@@ -13,10 +13,8 @@
 <link rel="stylesheet" href="/assets/vendor/glassfx/glass.css">
 <link rel="stylesheet" href="/assets/css/design-system.css">
 <link rel="stylesheet" href="/assets/css/theme.css">
-<link rel="stylesheet" href="/assets/css/airdrop.css">
 <script src="/assets/js/theme.js?v=20260305"></script>
 <script src="/assets/js/app-core.js"></script>
-<script src="/assets/js/airdrop.js"></script>
 <style>
 /* =========================================================
    admin 局部令牌覆盖
@@ -288,8 +286,6 @@ html[data-theme="dark"] .badge-beta{color:#7dd3fc;border-color:rgba(56,189,248,.
 .airdrop-recent__row--head{background:var(--glass-subtle);font-weight:700;font-size:var(--fs-xs);color:var(--text-muted)}
 .airdrop-recent__row > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .airdrop-recent__row .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
-.airdrop-open-btn{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:9px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-size:var(--fs-sm);font-weight:600;cursor:pointer}
-.airdrop-open-btn:hover{filter:brightness(1.06)}
 .airdrop-recent__row .ov{display:block;color:var(--text-sub);font-size:var(--fs-xs);margin-top:1px}
 .airdrop-recent__row .airdrop-ip{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-xs);color:var(--text-sub);flex-wrap:wrap}
 .airdrop-recent__row .airdrop-ip i{opacity:.45;font-size:9px}
@@ -1737,7 +1733,7 @@ html[data-theme="dark"] .dock__indicator{
   </section>
   <!-- /① 文件浏览（工具栏 + 工具箱 + 文件列表） -->
 
-  <!-- ③ 存储与上传：用量监控 / 上传设置 / 隔空投送 -->
+  <!-- ③ 存储与上传：用量监控 / 上传设置 -->
   <section class="section" data-section="storage" v-show="activeSection==='storage'">
 
     <!-- ===== KV / R2 / D1 用量监控（进场走 panelIn，内部错峰） =====
@@ -2333,12 +2329,9 @@ html[data-theme="dark"] .dock__indicator{
       <i class="fas fa-paper-plane"></i>
       <span>隔空投送</span>
       <span class="badge-beta">BETA</span>
-      <button type="button" class="airdrop-open-btn" @click="openAirdrop">
-        <i class="fas fa-external-link-alt"></i> 打开隔空投送
-      </button>
     </h2>
     <div class="dialog-message">
-      在分享管理里打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
+      两端在首页打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
       改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
     </div>
 
@@ -2520,9 +2513,6 @@ html[data-theme="dark"] .dock__indicator{
 
     </template>
   </section>
-
-  <!-- 隔空投送浮层面板：入口在「分享」分区，面板为全局浮层 -->
-  <airdrop-panel :visible="airdropVisible" :capability="airdropCapability" @close="closeAirdrop" @toast="pushAirdropToast" @request-open="openAirdrop"></airdrop-panel>
 
   </section>
 
@@ -3207,16 +3197,10 @@ const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, storage: 2, system: 3 };
 const __kvApp = Vue.createApp({
   components: {
     'folder-node': folderNodeComponent,
-    /* 隔空投送：实现在 assets/js/airdrop.js（已在 <head> 同步加载）。
-       脚本没加载成功时退化成空组件 —— 宁可功能不出现，也不让后台白屏。 */
-    'airdrop-panel': window.AirdropPanel || { template: '<div hidden></div>' },
   },
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
-
-    /* 隔空投送面板显隐：入口在「分享」分区，面板为全局浮层 */
-    airdropVisible: false,
 
     /* ===== 板块分页（dock 导航） =====
        activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
@@ -3512,19 +3496,6 @@ const __kvApp = Vue.createApp({
       const bytes = Number((this.airdropStats && this.airdropStats.bytes) || 0);
       return this.formatSize(bytes);
     },
-    /* 给隔空投送面板的「能力」对象：从 airdropForm 派生。
-       nodes 给空数组 —— 后台面板落到服务端默认中转节点（与首页一致）。 */
-    airdropCapability() {
-      const f = this.airdropForm || {};
-      return {
-        enabled: !!f.enabled,
-        guestAllowed: !!f.guestAllowed,
-        guestReceiveAllowed: f.guestReceiveAllowed !== false,
-        nodes: [],
-        ttlMinutes: Number(f.ttlMinutes) || 5
-      };
-    },
-
     /* ---------- 同步状态点（绑到 .sync-dot 的 class / title） ---------- */
     syncDotClass() {
       const map = { syncing: 'is-syncing', synced: 'is-synced', failed: 'is-failed' };
@@ -5298,20 +5269,6 @@ const __kvApp = Vue.createApp({
       } finally {
         this.airdropStatsLoading = false;
       }
-    },
-
-    openAirdrop() {
-      if (!this.airdropCapability.enabled) {
-        this.showToast('隔空投送未开启，请在管理后台开启', 'error');
-        return;
-      }
-      this.airdropVisible = true;
-    },
-    closeAirdrop() {
-      this.airdropVisible = false;
-    },
-    pushAirdropToast(message, tone) {
-      this.showToast(message, tone || 'info');
     },
 
     async clearAirdropStats() {
