@@ -736,20 +736,18 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
   to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
 }
-/* admin 后台专用的 dock 入场 —— 与 dockIn 的两点差异（都踩过坑）：
+/* admin 后台专用的 dock 入场 —— 与 dockIn 的差异（两次实测踩坑后收敛）：
    1. **时长**：admin.html 的 mounted() 用 bootDelay=780ms 置 is-booted，
       而 dockIn 是 0.72s 动画 + 0.1s 延迟（合计 820ms）—— 超过门控，
-      动画跑到一半就被切掉，表现为「dock 抖一下才归位」。
-      调用侧这里改成 0.6s 无延迟（合计 600ms），留 180ms 余量。
-   2. **起手态**：admin 首屏是一张空白的「正在加载文件…」，dock 若按
-      dockIn 从屏幕外 96px 弹进来、还带 0.88 缩放，视觉上像布局错位
-      （用户实测反馈）。这里把位移收到 24px、去掉缩放，
-      变成克制的淡入上浮。
-   两端仍必须显式带上 translateX(-50%)：它是 dock 自身的水平居中偏移，
-   漏了会让整条栏横向跳位。 */
+      动画跑到一半就被切掉，表现为「dock 抖一下才归位」。调用侧用 0.5s 无延迟。
+   2. **只做透明度，不碰 transform**：dock 靠 translateX(-50%) 水平居中，
+      任何 transform 动画（哪怕是轻微上浮 + 缩放）叠加在居中偏移上，
+      部分设备/字体加载时序下都会被感知成「位置抖动/没对齐」——
+      用户连报两轮后彻底去掉位移与缩放：纯淡入在几何上不可能抖。
+      keyframes 里完全不写 transform，元素自身的 translateX(-50%) 全程生效。 */
 @keyframes adminDockIn {
-  from { opacity: 0; transform: translateX(-50%) translate3d(0, 24px, 0); }
-  to   { opacity: 1; transform: translateX(-50%) translate3d(0, 0, 0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 /* 底部批量操作栏（<transition name="bar">）的进出场。
    这里刻意用 @keyframes 而不是 transition，理由与上方 menuIn/menuOut 相同：

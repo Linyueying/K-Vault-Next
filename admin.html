@@ -497,14 +497,30 @@ html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
 .act.liked{color:#b45309}
 /* 卡片/行操作弹出菜单 */
 .act-wrap{position:relative;display:inline-flex;flex:none}
-.act-menu{min-width:172px;padding:var(--sp-1)}
+.act-menu{min-width:172px;padding:var(--sp-1);
+  /* 限高 + 滚动：条目多时（文件菜单有 7 项）菜单会比屏幕还高，
+     钻到底部 dock 底下、被裁掉一半（用户实测截图）。
+     限高后超出部分滚动，overscroll-behavior 防止滚到头时带动整页。 */
+  max-height:min(56vh,430px);overflow-y:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;scrollbar-width:thin;
+  /* 兜底钳制：JS 的 .up 翻转依赖一帧测量，慢设备/字体晚到时可能测不准；
+     这里用 dvh 直接把它钉死在可视高度内 —— 方向没翻对也绝不会「突破背景层」。
+     56vh 限高 + 8px 锚点间距 + 24px 余量 → 取 100dvh - 96px 足够宽松。
+     vh 兜底给不支持 dvh 的旧内核（移动端地址栏伸缩时 vh 偏大，故 dvh 优先）。 */
+  max-height:min(56vh,430px,calc(100vh - 96px))}
+@supports (height:100dvh){
+  .act-menu{max-height:min(56vh,430px,calc(100dvh - 96px))}
+}
 .act-menu .dropdown-item{padding:10px var(--sp-3);border-radius:var(--r-sm);font-size:.83rem}
 /* 菜单打开的那一项（卡片/行）浮到同级最上层。
    卡片与行都带 backdrop-filter，各自形成独立堆叠层，
    若不提升 z-index，弹出菜单会被后面的卡片/行盖住。
    .vault-card 是 grid item、.vault-row 是 flex item，z-index 无需 position 即生效，
-   这里显式给出 position:relative 只是保证跨浏览器一致。 */
-.vault-card.menu-open,.vault-row.menu-open{position:relative;z-index:40}
+   这里显式给出 position:relative 只是保证跨浏览器一致。
+   ⚠️ z-index 必须压过底部导航 dock(100) 和批量栏(1000)：
+   该元素是菜单的堆叠上下文，菜单自身的 z-index(999/1200) 出不了这个壳 ——
+   之前用 40，菜单下半截被 dock 盖住、还在 dock 底下露出一条白边（实测截图）。 */
+.vault-card.menu-open,.vault-row.menu-open{position:relative;z-index:1001}
 /* 分页 */
 .pager{display:flex;align-items:center;justify-content:center;gap:var(--sp-3);flex-wrap:wrap;margin-top:6px}
 .pager-pages{display:flex;gap:5px;align-items:center}
@@ -1077,6 +1093,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
    也不会重播首屏动画（与「切目录不抽搐」的既有理念一致）。
    ========================================================= */
 .section-host{display:block}
+/* 批量操作栏是 fixed 悬浮（不占文档流），#app 预留的 156px 底部净空只够
+   导航 dock —— 批量栏出现时（bottom:95px + 自高 ~70px ≈ 顶到 165px+），
+   列表最后一行会被压在栏底下：点它命中的是批量栏，选择毫无反应
+   （用户实测「在下面多选文件时点了没变化」）。栏出现时追加 96px 净空。 */
+.section-host.has-batch-dock{padding-bottom:96px}
 .section{display:flex;flex-direction:column;gap:var(--sp-4)}
 
 /* =========================================================
@@ -1236,19 +1257,15 @@ html[data-theme="dark"] .dock__indicator{
     0 6px 16px -4px rgba(0,0,0,.5),
     0 0 0 1px rgba(56,189,248,.12);
 }
-/* 首屏入场：淡入 + 轻微上浮。
+/* 首屏入场：纯透明度淡入（keyframes 本体在 design-system.css）。
    ⚠️ 与 index.css 的差异（有意为之，别照搬那边的参数）：
      1. index.css 用 0.72s + 0.1s 延迟（合计 820ms），比 mounted() 里的
         bootDelay（780ms）还长 —— 动画跑到一半 is-booted 就被加上，
         门控失效、动画被硬切，表现为「dock 抖一下才归位」。
-        这里改成 0.6s 无延迟（合计 600ms），留 180ms 安全余量。
-     2. index.css 的起手态是 translate3d(0,96px) + scale(.88)，
-        在 admin 里很突兀：进页面先看到的是一张空白的「正在加载文件…」，
-        dock 再从屏幕外弹进来，对比之下像布局错位（用户实测反馈）。
-        这里把位移收到 24px、去掉缩放 —— 变成克制的淡入上浮，
-        既保留「入场」的层次感，又不会让人以为 dock 没对齐。
-   keyframes 本体按项目规范放在 design-system.css（adminDockIn）。 */
-#app:not(.is-booted) .dock{animation:adminDockIn .6s var(--ease-fluid) backwards}
+        这里用 0.5s 无延迟（合计 500ms），留 280ms 安全余量。
+     2. 不碰 transform：dock 靠 translateX(-50%) 居中，任何位移动画
+        叠上去都可能被感知成位置抖动（用户连报两轮）。 */
+#app:not(.is-booted) .dock{animation:adminDockIn .5s var(--ease-fluid) backwards}
 </style>
 </head>
 <body>
@@ -1307,7 +1324,7 @@ html[data-theme="dark"] .dock__indicator{
        文件浏览 / 分享管理 / 存储与上传 / 系统设置。
        用 v-show 而非 v-if —— 切板块不重挂载，保留搜索词、列表与滚动位置，
        也不会重播首屏动画。 -->
-  <main class="section-host">
+  <main class="section-host" :class="{'has-batch-dock': selectedFiles.length}">
 
   <!-- ① 文件浏览：工具栏 + 文件列表（面包屑 / 网格 / 列表 / 分页） -->
   <section class="section" data-section="files" v-show="activeSection==='files'">
@@ -3991,16 +4008,67 @@ const __kvApp = Vue.createApp({
       }
       this.openMenu = name;
       this.menuUp = false;
-      // 贴近视口底部时改为向上展开，避免菜单溢出被裁切
-      this.$nextTick(() => {
-        const panel = this.$el.querySelector('.dropdown-panel');
-        if (!panel) { this.menuUp = false; return; }
-        const wrap = panel.parentElement;
-        const rect = wrap.getBoundingClientRect();
+      // ⚠️ 四个必须同时处理的坑（前三个各踩了一轮实测）：
+      //   1. **不能用 this.$el.querySelector**：本页是 Vue 3 全局构建 + 多根节点，
+      //      this.$el 不是单个 DOM 元素，.querySelector 直接抛 TypeError ——
+      //      measure() 从第一帧就炸，翻转逻辑一行都没跑到，
+      //      这就是「菜单永远往下翻、钻到 dock 底下」的根因。
+      //   2. 菜单包在 <transition name="menu"> 里，插入 DOM 要等 1~2 帧 ——
+      //      $nextTick 时 .dropdown-panel 还不存在（实测面板 121ms 才出现），
+      //      所以要用 rAF 轮询等它真正出现，最多等 20 帧（约 330ms）。
+      //   3. **不能写死预留量**：底部障碍是「导航 dock」与「批量操作栏」两层
+      //      fixed 悬浮物，批量栏只在多选时出现 —— 写死 150px 时批量栏在场就
+      //      不够了（实测批量栏顶 687px，需要让出 157px+）。
+      //      必须**量出**每个可见障碍的顶边取最小，才是真实的下边界。
+      //   4. **两边都放不下时不能「放弃、保持向下」**：那等于原样越界
+      //      （实测底缘 865 > 批量栏顶 687）。此时选更宽敞的一边，
+      //      并把高度**钳到可用空间**，超出部分滚动 —— 保证绝不突破背景层。
+      const GAP = 8;
+      // 量某个 fixed 悬浮物当前的顶边；不可见/不存在则视为无限制
+      const obstacleTop = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return Infinity;
+        const r = el.getBoundingClientRect();
+        if (r.height <= 0 || r.bottom <= 0 || r.top >= window.innerHeight) return Infinity;
+        return r.top;
+      };
+      const measure = (tries = 0) => {
+        // 关旧开新时旧面板可能还在 leave 过渡里没摘掉 —— 优先取「本次该开的
+        // 那一个」（带 .menu-open 的锚点内部），避免量到正在淡出的旧面板。
+        const panel = document.querySelector(
+          '.vault-card.menu-open .dropdown-panel, .vault-row.menu-open .dropdown-panel'
+        ) || document.querySelector('.dropdown-panel');
+        if (!panel || !panel.parentElement) {
+          if (tries < 20) requestAnimationFrame(() => measure(tries + 1));
+          return;
+        }
+        // 若已不是同一个菜单（用户快速连点切换），放弃，别覆盖新状态
+        if (this.openMenu !== name) return;
+
+        const rect = panel.parentElement.getBoundingClientRect();
+        // 清掉上一轮可能留下的钳制，量出「自然高度」（CSS 已限 430px）
+        panel.style.maxHeight = '';
         const ph = panel.offsetHeight || 240;
-        const spaceBelow = window.innerHeight - rect.bottom;
-        this.menuUp = spaceBelow < ph + 12;
-      });
+
+        const bottomLimit = Math.min(
+          window.innerHeight - GAP, obstacleTop('.dock'), obstacleTop('.batch-dock')
+        );
+        const spaceBelow = bottomLimit - rect.bottom - GAP;
+        const spaceAbove = rect.top - GAP - GAP;   // 上边界只留 8px 呼吸
+
+        if (ph <= spaceBelow) {
+          this.menuUp = false;                      // 下面放得下 → 照常向下
+        } else if (ph <= spaceAbove) {
+          this.menuUp = true;                       // 下面不够、上面够 → 上翻
+        } else {
+          // 两边都不够：挑宽敞的一边，钳到可用高度（内部滚动）
+          const up = spaceAbove > spaceBelow;
+          this.menuUp = up;
+          const room = Math.max(120, up ? spaceAbove : spaceBelow);
+          panel.style.maxHeight = Math.round(room) + 'px';
+        }
+      };
+      this.$nextTick(() => measure());
     },
     closeMenus() { this.openMenu = null; },
     toggleSelect(item) {
@@ -4023,6 +4091,7 @@ const __kvApp = Vue.createApp({
       this._pressTimer = setTimeout(() => {
         this._pressTimer = null;
         this._pressFiredAt = Date.now();   // 供 onCardTap 吞掉紧随其后的 click
+        this._pressFiredId = item?.name ?? null;  // 只吞「这一项」的补发 click
         // 长按 = 选中该项并进入多选模式；已是选中状态则保持，便于「长按后继续点其它项」
         if (item) item.selected = true;
         this.longPressActive = true;
@@ -4055,11 +4124,15 @@ const __kvApp = Vue.createApp({
     },
 
     /* 卡片/行的普通点击：处于多选模式时点一下就是切换选中，否则走原有行为。
-       _pressFiredAt 是长按触发的时刻戳：长按后浏览器补发的那次 click
-       必须被吞掉，否则会把长按选中的项立即反选。 */
+       _pressFiredAt/_pressFiredId 是长按触发的时刻与条目：长按后浏览器补发的
+       那次 click（只落在长按的那一项上）必须被吞掉，否则会把刚选中的项
+       立即反选。⚠️ 只按「同一项」吞 —— 之前按时间窗吞全部点击，
+       长按后 800ms 内快速点下一个文件会被误吞，表现为「点了没反应」。 */
     onCardTap(item, fallback) {
-      if (this._pressFiredAt && Date.now() - this._pressFiredAt < 800) {
+      if (this._pressFiredAt && Date.now() - this._pressFiredAt < 800
+          && (this._pressFiredId ?? null) === (item?.name ?? null)) {
         this._pressFiredAt = 0;
+        this._pressFiredId = null;
         return;                               // 长按刚触发，忽略本次 click
       }
       if (this.longPressActive) {
