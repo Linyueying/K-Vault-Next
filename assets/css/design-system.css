@@ -736,19 +736,17 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
   to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
 }
-/* admin 后台专用的 dock 入场 —— 与 dockIn 的差异（两次实测踩坑后收敛）：
-   1. **时长**：admin.html 的 mounted() 用 bootDelay=780ms 置 is-booted，
-      而 dockIn 是 0.72s 动画 + 0.1s 延迟（合计 820ms）—— 超过门控，
-      动画跑到一半就被切掉，表现为「dock 抖一下才归位」。调用侧用 0.5s 无延迟。
-   2. **只做透明度，不碰 transform**：dock 靠 translateX(-50%) 水平居中，
-      任何 transform 动画（哪怕是轻微上浮 + 缩放）叠加在居中偏移上，
-      部分设备/字体加载时序下都会被感知成「位置抖动/没对齐」——
-      用户连报两轮后彻底去掉位移与缩放：纯淡入在几何上不可能抖。
-      keyframes 里完全不写 transform，元素自身的 translateX(-50%) 全程生效。 */
-@keyframes adminDockIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+/* adminDockIn（admin 后台 dock 首屏淡入关键帧）已删除。
+   演进史（三次实测踩坑后收敛，勿回退）：
+   1. 最初用 dockIn（上滑 96px）——与 translateX(-50%) 居中偏移叠加，
+      部分设备感知成位置抖动；
+   2. 改纯透明度淡入 —— 几何上不可能抖，但治不了本问题：
+      手机浏览器首帧以「全屏视口」布局（底部工具栏悬浮在内容上），
+      fixed bottom 的 dock 先被工具栏裁掉一截、视口收缩后再回弹归位
+      （用户实测截图）。入场动画无论怎么设计都发生在错误视口里。
+   3. 最终方案：视口稳定门控 —— dock 先整条隐藏，等布局视口高度连续
+      稳定后再以 opacity 过渡显现。实现移至 admin.html 的 .dock-hold
+      门控（CSS）+ mounted() 的视口监测（JS），此处不再需要任何关键帧。 */
 /* 底部批量操作栏（<transition name="bar">）的进出场。
    这里刻意用 @keyframes 而不是 transition，理由与上方 menuIn/menuOut 相同：
    底栏是「插入 DOM + 同帧切 class」出现的，浏览器来不及为 transition 建立

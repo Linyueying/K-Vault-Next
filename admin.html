@@ -1257,15 +1257,24 @@ html[data-theme="dark"] .dock__indicator{
     0 6px 16px -4px rgba(0,0,0,.5),
     0 0 0 1px rgba(56,189,248,.12);
 }
-/* 首屏入场：纯透明度淡入（keyframes 本体在 design-system.css）。
-   ⚠️ 与 index.css 的差异（有意为之，别照搬那边的参数）：
-     1. index.css 用 0.72s + 0.1s 延迟（合计 820ms），比 mounted() 里的
-        bootDelay（780ms）还长 —— 动画跑到一半 is-booted 就被加上，
-        门控失效、动画被硬切，表现为「dock 抖一下才归位」。
-        这里用 0.5s 无延迟（合计 500ms），留 280ms 安全余量。
-     2. 不碰 transform：dock 靠 translateX(-50%) 居中，任何位移动画
-        叠上去都可能被感知成位置抖动（用户连报两轮）。 */
-#app:not(.is-booted) .dock{animation:adminDockIn .5s var(--ease-fluid) backwards}
+/* dock 首屏显现：视口稳定门控 + 纯透明度过渡（无 keyframes、无位移）。
+   ── 为什么不能再「mount 即播淡入动画」（adminDockIn 已删）──
+   手机浏览器（带底部工具栏的内核）首帧常以「全屏视口」布局：底部工具栏
+   悬浮在页面内容之上，position:fixed + bottom 的 dock 被锚到屏幕物理底边，
+   整条被工具栏裁掉一截（用户实测截图：只剩上半截）；随后浏览器把工具栏
+   收进布局，视口高度收缩约一个工具栏高，dock 整体上弹才「恢复正常」。
+   页内 CSS 拦不住这次视口跳变 —— 唯一对策是错开它：布局视口高度连续
+   STABLE_MS 不变（或超时兜底）后，mounted() 才摘掉 .dock-hold，
+   dock 以 opacity 过渡淡入。沉下去的中间态从未被绘制，自然无从「回弹」。
+   ⚠️ 门控 class 必须同时存在于 :class 绑定（'dock-hold': dockHold）里：
+   is-booted 在 780ms 落地时会触发根节点 class 重写（patchClass 整体赋值），
+   纯外部 classList.add 的 dock-hold 会被冲掉 —— 绑定通道保证重写后仍在。
+   摘门控时依旧双通道（响应式 + 直接 DOM），理由同 is-booted 兜底。 */
+.dock{transition:opacity .5s var(--ease-fluid)}
+#app.dock-hold .dock{opacity:0}
+/* 降级：低性能模式 / 减动效下不要淡入过程，视口一稳定立即出现 */
+html[data-perf="low"] .dock{transition:none}
+@media (prefers-reduced-motion: reduce){.dock{transition:none}}
 </style>
 </head>
 <body>
@@ -1284,7 +1293,7 @@ html[data-theme="dark"] .dock__indicator{
   </div>
 </noscript>
 
-<div id="app" v-cloak :class="{'is-booted': booted}">
+<div id="app" v-cloak :class="{'is-booted': booted, 'dock-hold': dockHold}">
 
   <!-- ===== 顶栏 ===== -->
   <header class="micro-topbar">
@@ -3275,6 +3284,12 @@ const __kvApp = Vue.createApp({
   data() { return {
     currentTheme: 'light',
     baseURL: location.origin,
+
+    /* dock 首屏防下沉门控：true = 视口未稳定，dock 整条隐藏。
+       mounted() 里检测布局视口高度连续稳定后置 false 并同步操作 DOM
+       class 兜底（响应式失效的坑见 is-booted 兜底注释，这里两个通道都留）。
+       完整背景见样式区「dock 首屏显现」处的说明。 */
+    dockHold: true,
 
     /* ===== 板块分页（dock 导航） =====
        activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
@@ -6529,6 +6544,51 @@ const __kvApp = Vue.createApp({
     this._toastSeq = 0;
     this._pendingDeletes = this._pendingDeletes || [];
 
+    /* ==== dock 首屏防下沉（视口稳定门控）====
+       手机浏览器首帧常以「全屏视口」布局（底部工具栏悬浮在内容上），
+       随后视口收缩约一个工具栏高 —— fixed bottom 的 dock 会先被工具栏
+       裁掉一截、再上弹归位（用户实测截图）。对策：首屏先挂 .dock-hold
+       把 dock 整条藏住，轮询布局视口高度（documentElement.clientHeight），
+       连续 STABLE_MS 不变（或到 MAX_WAIT 兜底）后摘门控，dock 以纯
+       opacity 过渡淡入 —— 沉下去的中间态从未被绘制，无从「回弹」。
+       摘门控双通道：dockHold 置 false（响应式）+ 直接 DOM class 兜底
+       （响应式失效的坑见 is-booted 处注释）。完整背景见样式区
+       「dock 首屏显现」处说明。 */
+    try {
+      const appEl = document.getElementById('app');
+      if (appEl) appEl.classList.add('dock-hold');
+      const reduced = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const STABLE_MS = reduced ? 60 : 180;    /* 视口高度需保持不变的时长 */
+      const MAX_WAIT  = reduced ? 300 : 1200;  /* 迟迟不稳时的兜底释放 */
+      const t0 = performance.now();
+      let lastH = document.documentElement.clientHeight;
+      let stableSince = t0;
+      this._dockSettleTimer = setInterval(() => {
+        try {
+          const now = performance.now();
+          const h = document.documentElement.clientHeight;
+          if (h !== lastH) { lastH = h; stableSince = now; }
+          if (now - stableSince >= STABLE_MS || now - t0 >= MAX_WAIT) {
+            clearInterval(this._dockSettleTimer);
+            this._dockSettleTimer = null;
+            this.dockHold = false;
+            if (appEl) appEl.classList.remove('dock-hold');
+          }
+        } catch (e) {
+          clearInterval(this._dockSettleTimer);
+          this._dockSettleTimer = null;
+          this.dockHold = false;
+          if (appEl) appEl.classList.remove('dock-hold');
+        }
+      }, 60);
+    } catch (e) {
+      /* 任何异常都必须保证 dock 最终能出现：直接摘门控 */
+      this.dockHold = false;
+      const appEl = document.getElementById('app');
+      if (appEl) appEl.classList.remove('dock-hold');
+    }
+
     /* 主题：无显式偏好时跟随系统（HIG 要求） */
     try {
       const saved = localStorage.getItem('theme');
@@ -6657,6 +6717,8 @@ const __kvApp = Vue.createApp({
     document.removeEventListener('keydown', this._escHandler);
     window.removeEventListener('pagehide', this._pageHideHandler);
     window.removeEventListener('popstate', this._popHandler);
+    /* dock 视口稳定检测若仍在跑，停掉（正常流程早已自行清除，此处兜底） */
+    if (this._dockSettleTimer) { clearInterval(this._dockSettleTimer); this._dockSettleTimer = null; }
     try {
       if (this._schemeHandler) {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);
