@@ -852,8 +852,13 @@ Apple 风格动效 · 应用层（首屏错峰入场）
    来不及建立起始值，在「选中后立刻取消」时会导致底栏瞬间消失。
    详见 design-system.css 中 barIn 关键帧上方的说明。
 
-   因此这里只保留静态态的配色过渡，不再重复声明 opacity / transform 过渡，
-   否则会与 .bar-enter-active / .bar-leave-active 的 animation 抢同一轨道。 */
+   ⚠️ 这里的静态配色过渡曾经导致一个隐蔽 bug：它是元素上时长最长的
+   transition（.45s > 离场动画 .2s），Vue 嗅探离场完成时会一并等待它的
+   transitionend —— 而离场时这几个颜色属性并不变化，事件永不派发，
+   节点于是永久残留（长按多选后点「完成」，底栏不消失）。
+   现在模板侧的 <transition :duration> 已显式声明时长、不再嗅探，
+   这里保留配色过渡是安全的；但若要再加 transition 到这个元素上，
+   务必确认它不会长于 barIn/barOut —— 或者干脆继续用 :duration 兜住。 */
 .batch-dock{
   transition:background-color .45s var(--ease-apple),
              border-color .45s var(--ease-apple),
@@ -2950,8 +2955,19 @@ html[data-perf="low"] .dock{transition:none}
 
   <!-- /① 文件浏览 -->
 
-  <!-- ===== 底部批量操作栏（进出场由 <transition name="bar"> 统一负责） ===== -->
-  <transition name="bar">
+  <!-- ===== 底部批量操作栏（进出场由 <transition name="bar"> 统一负责） =====
+       ⚠️ :duration 必须显式声明，别让 Vue 自己嗅探。
+       背景（实测 bug：长按进入多选 → 点「完成」→ 底栏不消失）：
+       Vue 判定离场完成的规则是「读取元素上所有 transition/animation 的时长，
+       取最大值，等对应事件」。而 .batch-dock 自身带着一条静态配色过渡
+       （transition: background-color .45s, border-color .45s,
+       box-shadow .45s —— 见样式区），它比 .bar-leave-active 的
+       animation(0.2s) 更长。那条 transition 的底层属性在离场时并不变化，
+       永远不会派发 transitionend，于是 Vue 一直等它 —— 节点就永久残留在
+       DOM 里（数据已清空、v-if 已为假，但节点不销毁，视觉上就是底栏不走）。
+       :duration 直接给出 { enter: 340, leave: 200 }，与两个关键帧严格对齐，
+       Vue 改用定时器收尾，不再嗅探、不再依赖事件是否真的派发 -->
+  <transition name="bar" :duration="{ enter: 340, leave: 200 }">
   <div class="batch-dock" v-if="selectedFiles.length">
     <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
     <div class="batch-dock__actions">
