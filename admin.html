@@ -549,6 +549,14 @@ dock 高度 67 不是估值：padding 6×2 + 按钮 55 = 67（实测于 390 / 12
 
 z-index(1000) 高于 dock(100)，堆叠顺序天然正确。
 ========================================================= */
+/* dock 底边定位改为 top:100dvh + translateY（见 .dock 处注释），
+   但 .batch-dock 的 bottom 基准是「视口底边 + 固定距离」，与 dock 的
+   实际底边位置解耦了 —— 原设计用的是「dock 底距 16 + dock 高 67 + 间隙 12」
+   的绝对量，只要 dock 仍在视口底边上方 16px，二者间距就依然成立。
+   注意：多选态下若页面处于过渡中（innerHeight 抖动），batch-dock 仍可能
+   被顶偏 —— 但它只在用户主动多选后出现，且多选与视图切换极少同时发生，
+   故暂不动它（动它要连带改 barIn/barOut 两个关键帧里的 translateX(-50%)，
+   收益小、风险大）。 */
 .batch-dock{position:fixed;left:50%;bottom:max(95px,calc(env(safe-area-inset-bottom,0px) + 79px));transform:translateX(-50%);
   width:min(680px,calc(100% - var(--sp-5) - env(safe-area-inset-left,0px) - env(safe-area-inset-right,0px)));
   padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);border-radius:var(--r-lg);background:var(--glass-elevated);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);z-index:1000;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
@@ -810,6 +818,20 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 
 /* Vue 过渡族、首屏错峰入场、方向感知转场（.view-*）统一由 design-system.css 提供 */
 .view-stage{position:relative;display:flex;flex-direction:column;gap:var(--sp-3);width:100%;align-items:stretch}
+
+/* 切换视图时锁住舞台高度，吞掉离场瞬间的高度塌陷。
+   ── 背景（2026-10-02 实测）──
+   离场视图 (.view-*-leave-active) 必须是 position:absolute：两个视图在
+   transition 期间共存，都进文档流会把 scrollHeight 翻倍（实测 3388→5049），
+   移动端内核为此临时扩展 window.innerHeight（844→881）—— 那才是 dock
+   下沉 37px 的直接原因。
+   但 absolute 的另一面是离场瞬间舞台高度塌陷（实测 3388→1941），同样会
+   引起滚动条抖动与重排。min-height 锁高正是补上这一面：切换瞬间由 JS
+   写入切换前实测高度（--stage-lock-h），舞台只涨不塌，滚动条全程稳定。
+   两侧合起来 → scrollHeight 与 innerHeight 全程恒定 → dock 零重排。
+   dock 自身也已改造为不依赖视口高度（top:100dvh + translateY，见 .dock），
+   这里是第二道保险。 */
+.view-stage.is-locking{min-height:var(--stage-lock-h,0px)}
 
 
 
@@ -1149,12 +1171,33 @@ html[data-perf="low"] .ambient-orb{animation:none}
    ========================================================= */
 .dock{
   position:fixed;
-  /* --dock-lift：底部动态 UI（悬浮工具栏）遮挡深度补偿，由 mounted 侧的
-     dvh 探针计算（clientHeight - dvh），见「dock 首屏显现」处说明。
-     常态为 0，bottom 即 max(16px, safe-area)。 */
-  bottom:calc(max(16px,env(safe-area-inset-bottom,16px)) + var(--dock-lift,0px));
-  left:50%;transform:translateX(-50%);
-  width:min(500px,calc(100% - 24px));
+  /* 底边定位（v3，2026-10-02 定案）。
+     ── 为什么不再用 bottom ──
+     position:fixed 的包含块始终是「视口」，而移动端内核在过渡期间会临时
+     扩展 window.innerHeight（实测 844 → 881，+37 = 工具栏高；同一时刻
+     documentElement.clientHeight 恒为 844）。bottom:16px 基于视口底边，
+     视口一涨 dock 立刻跟着下沉 37px，等过渡完才弹回 —— 这正是用户报的
+     「每次切换视图都下沉」，也是 v1/v2 的门控与 lift 都无法察觉的第三种
+     形态（既非 resize、也非 dvh 悬浮）。
+     ── 现方案 ──
+     top:100dvh + translateY(-100%)：dvh 是「动态视口」，不随过渡期的
+     innerHeight 膨胀而变，且这正是前述 dvh 探针使用的同一基准，两者天然
+     一致。--dock-drop = 16px + safe-area + lift，由 translateY 负向位移
+     把底边抬到该距离 —— translateY 的 % 只依赖 dock 自身高度（恒定 67），
+     不依赖视口，因此 innerHeight 怎么抖都不会牵连它。
+     不支持 dvh 的内核（旧版）回落 top:100vh，行为与改造前一致。 */
+  top:100vh;
+  top:100dvh;
+  transform:translateY(calc(-100% - 16px - env(safe-area-inset-bottom,0px) - var(--dock-lift,0px)));
+  /* 水平居中：原本是 left:50% + transform:translateX(-50%)。
+     ⚠️ 已改为「双锚点 + 自动边距」—— translateX 现在被 translateY 占用
+     （见上方底边定位），不能再叠加横向位移；且旧写法的 -50% 依赖元素
+     自身宽度、宽度又依赖包含块宽度，切换视图时 innerWidth 抖动
+     （实测 393 ⇄ 410）会连带重排。
+     现在的写法由 left/right 两个锚点共同确定位置，宽度抖动只让两侧各让
+     一半，不产生任何偏移 —— 从机制上根除，而非靠等待。 */
+  left:0;right:0;margin-inline:auto;
+  width:min(500px,calc(100vw - 24px));
   /* 几何令牌：指示器位移公式依赖它们，改这里即可整体调间距 */
   --dock-pad:6px;
   --dock-gap:6px;
@@ -1279,7 +1322,15 @@ html[data-theme="dark"] .dock__indicator{
    对策：dvh 探针测「被遮深度」（clientHeight - dvh）写入 --dock-lift，
    bottom 公式自动抬升；工具栏收起后 dvh 追平、lift 归零、dock 平滑落回。
    正常浏览器（Chrome resize 模式/iOS/桌面）clientHeight==dvh，零影响。 */
-.dock{transition:bottom .35s var(--ease-apple),opacity .5s var(--ease-fluid)}
+/* dock 首屏显现：视口稳定门控 + 纯透明度过渡。
+   ⚠️ 这里只做 opacity —— 绝不给 bottom/top/transform 加过渡。
+   历史上曾给 bottom 加 .35s 过渡，结果把「重排导致的瞬时错位」拉长成
+   350ms 可见动画（实测顶偏 37px 再弹回），放大了用户报的「切换视图下沉」。
+   同理，--dock-lift 现在作用在 transform 上，若给 transform 加过渡，
+   又会把重排错位拉长 —— 故 lift 变化只依赖自身离散更新，不加过渡。
+   （防下沉主体见上方 .dock-hold 门控与 mounted 的视口状态机；
+   切换视图那条路径的机理与修法见 .dock 底边定位注释与 .view-stage 锁高。） */
+.dock{transition:opacity .5s var(--ease-fluid)}
 #app.dock-hold .dock{opacity:0}
 /* 瞬隐变体（显示后自愈用）：dock 已带着错误位置可见，不能再播 0.5s 淡出
    —— 立即消失，等视口稳定后先摘本类再摘 dock-hold，恢复淡入 */
@@ -1612,7 +1663,7 @@ html[data-perf="low"] .dock{transition:none}
       </div>
 
       <!-- ===== 视图转场舞台：网格 ⇄ 列表 的方向感知非线性切换 ===== -->
-      <div class="view-stage">
+      <div class="view-stage" ref="viewStage" :class="{'is-locking': stageLocking}">
 
       <!-- 网格视图 -->
       <!-- 视图分支 key 固定为 'grid' / 'list' / 'empty'，不随 folderPath 变化：
@@ -3351,6 +3402,10 @@ const __kvApp = Vue.createApp({
     dockHold: true,
     dockSnap: false,
 
+    /* 视图切换锁高：true 时 .view-stage 带 min-height（值由 --stage-lock-h
+       提供）。见 lockStageHeight 的说明。 */
+    stageLocking: false,
+
     /* ===== 板块分页（dock 导航） =====
        activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
        （见 goSection / mounted）。
@@ -4291,9 +4346,36 @@ const __kvApp = Vue.createApp({
     setView(mode, dir) {
       if (this.viewMode === mode) return;
       this.viewTransition = dir === 'back' ? 'view-back' : 'view-forward';
+      this.lockStageHeight();          /* 先锁高，再切换，杜绝高度塌陷 */
       this.viewMode = mode;
       this.openMenu = null;
       try { localStorage.setItem('adminViewMode', mode); } catch (e) {}
+    },
+
+    /* 视图切换锁高：把切换前 .view-stage 的实测高度写进 --stage-lock-h，
+       撑住 min-height。离场视图是 absolute（必须如此，否则两视图叠加会把
+       scrollHeight 翻倍、innerHeight 被撑大 37px 顶偏 dock），脱离文档流的
+       那一帧舞台高度会塌陷 —— min-height 正是把这一帧吞掉，保证页面
+       scrollHeight 与 window.innerHeight 全程恒定，fixed dock 零重排。
+       释放时机：等过渡走完（0.52s，覆盖 0.46s 入场），期间若内容已长回
+       原高度则提前释放，不留多余空白。 */
+    lockStageHeight() {
+      const el = this.$refs.viewStage;
+      if (!el) return;
+      const h = el.getBoundingClientRect().height;
+      if (!h) return;
+      this._stageLockH = Math.round(h);
+      this.stageLocking = true;
+      el.style.setProperty('--stage-lock-h', this._stageLockH + 'px');
+      if (this._stageLockTimer) clearTimeout(this._stageLockTimer);
+      this._stageLockTimer = setTimeout(() => this.unlockStageHeight(), 520);
+    },
+    unlockStageHeight() {
+      if (this._stageLockTimer) { clearTimeout(this._stageLockTimer); this._stageLockTimer = null; }
+      const el = this.$refs.viewStage;
+      this.stageLocking = false;
+      this._stageLockH = 0;
+      if (el) el.style.removeProperty('--stage-lock-h');
     },
 
     /* ================= 同步状态点 ================= */
@@ -6908,6 +6990,7 @@ const __kvApp = Vue.createApp({
         window.removeEventListener(ev, this._dockGuardStop));
     }
     try { if (this._dockUnsubVp) this._dockUnsubVp(); } catch (e) {}
+    if (this._stageLockTimer) { clearTimeout(this._stageLockTimer); this._stageLockTimer = null; }
     try {
       if (this._schemeHandler) {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);

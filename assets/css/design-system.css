@@ -1093,6 +1093,15 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-back-leave-active {
   transition: opacity 0.18s var(--ease-press),
               transform 0.24s var(--ease-press);
+  /* ⚠️ absolute 必须保留：两个视图在 transition 期间同处 DOM，
+     若都参与文档流，scrollHeight 会叠加（实测 3388 → 5049，+1661），
+     移动端内核会为此临时扩展 window.innerHeight（844 → 881，+37），
+     而 position:fixed 的包含块正是视口 —— dock 立刻被顶偏 37px。
+     这正是「切换视图 dock 下沉」的直接机理，与宽度/滚动条无关。
+     absolute 让离场视图脱离文档流、不叠加高度；它造成的「高度塌陷」
+     另一侧风险（滚动条抖动）由 .view-stage 的 min-height 锁高兜住
+     （见 admin.html 的 .view-stage.is-locking 与 lockStageHeight）。
+     两侧合起来：既不叠加、也不塌陷 → innerHeight 全程恒定 → dock 零重排。 */
   position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
 }
 /* 离场元素内的逐格错峰动画必须关掉：
