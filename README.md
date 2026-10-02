@@ -310,7 +310,18 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 | `TELEGRAM_METADATA_MODE` | `off` / `none` / `minimal` 关闭 KV 元数据写入，`on` / `full` 开启 | 开启 |
 | `TELEGRAM_SKIP_METADATA` | 未设 `TELEGRAM_METADATA_MODE` 时的替代开关 | 关闭 |
 | `TELEGRAM_LINK_MODE` | 设为 `signed` 强制签名直链 | 关闭 |
-| `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 校验密钥（`TG_WEBHOOK_SECRET` 自动识别） | 无（**未设置时 webhook 不做任何校验**） |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram Webhook 校验密钥（`TG_WEBHOOK_SECRET` 自动识别）。**必须设置**：未设置时 `/api/telegram/webhook` 直接返回 `503` 停用，不再接受任何写入 | 无（**未设置则 webhook 停用**） |
+| `TG_WEBHOOK_CHAT_IDS` | 可选加固：只处理来自这些会话/频道的消息，逗号分隔（如 `-1001234567890`）。留空则不限来源 | 空（不限） |
+
+> **Webhook 现在是 fail-closed 的。** 以前未设 `TELEGRAM_WEBHOOK_SECRET` 时端点不做任何校验，
+> 任何人都能匿名 POST：往你的 KV 写元数据、给任意 `file_id` 生成直链。现在必须先用
+> `secret_token` 注册 webhook：
+>
+> ```bash
+> curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<你的域名>/api/telegram/webhook&secret_token=<同一个 SECRET>"
+> ```
+>
+> 配好后访问 `GET /api/telegram/webhook` 会返回 `secretConfigured: true`。
 
 ### API
 

@@ -333,7 +333,18 @@ Details worth knowing:
 | `TELEGRAM_METADATA_MODE` | `off` / `none` / `minimal` disable KV metadata writes, `on` / `full` enable them | enabled |
 | `TELEGRAM_SKIP_METADATA` | Fallback switch when `TELEGRAM_METADATA_MODE` is unset | disabled |
 | `TELEGRAM_LINK_MODE` | Set to `signed` to force signed direct links | disabled |
-| `TELEGRAM_WEBHOOK_SECRET` | Telegram webhook verification secret (`TG_WEBHOOK_SECRET` is an alias) | none — **when unset the webhook performs no verification** |
+| `TELEGRAM_WEBHOOK_SECRET` | Telegram webhook verification secret (`TG_WEBHOOK_SECRET` is an alias). **Required**: while unset, `/api/telegram/webhook` answers `503` and accepts no writes | none — **webhook disabled when unset** |
+| `TG_WEBHOOK_CHAT_IDS` | Optional hardening: only process updates from these chats/channels, comma-separated (e.g. `-1001234567890`). Empty = no restriction | empty (unrestricted) |
+
+> **The webhook is now fail-closed.** Previously an unset `TELEGRAM_WEBHOOK_SECRET` skipped
+> verification entirely, letting anyone POST anonymously — writing metadata into your KV and
+> minting direct links for arbitrary `file_id`s. Register the webhook with `secret_token`:
+>
+> ```bash
+> curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-domain>/api/telegram/webhook&secret_token=<SAME_SECRET>"
+> ```
+>
+> `GET /api/telegram/webhook` then reports `secretConfigured: true`.
 
 ### API
 

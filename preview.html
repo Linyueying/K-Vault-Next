@@ -1541,8 +1541,15 @@
 
       async function fetchFileInfo(fileId) {
         try {
+          // 文件元数据接口现在要求授权：管理员会话、API Token，或一份有效的
+          // 分享授权。带密码的分享必须把密码一起带上，否则会被判为 401 而
+          // 拿不到原始文件名（页面会退化成显示 ID，功能不受影响但不好看）。
+          const headers = {};
+          if (state.password) headers["X-Share-Password"] = state.password;
+
           const response = await fetch(`/api/file-info/${encodeURIComponent(fileId)}`, {
-            credentials: "include"
+            credentials: "include",
+            headers
           });
           if (!response.ok) return null;
           return await response.json();
