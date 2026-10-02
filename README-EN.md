@@ -351,6 +351,20 @@ Details worth knowing:
 | Variable | Description | Default | Redeploy needed |
 | :--- | :--- | :--- | :---: |
 | `API_CORS_ORIGINS` | CORS allow-list for API v1, comma separated; `*` allows any origin; empty sends no CORS headers | empty | ❌ dashboard |
+| `PUBLIC_STATUS_DIAGNOSTICS` | Only relevant on **open instances** (no admin auth configured): set to `true` to expose full `/api/status` diagnostics (connectivity probes, bot identity, bucket/repo names) to anonymous visitors. Off by default | off | ✅ |
+| `RATE_LIMIT_GLOBAL_MAX` | Cross-isolate global IP rate limit (requests/minute, applies to `/api/**`, `/file/**`, `/upload` only). Costs 1 KV read + 1 KV write per request — **not recommended on the free tier** (1,000 writes/day). Leave at `0`; the zero-cost in-isolate limiter is always active | `0` (off) | ✅ |
+
+### Static paths blocked in production
+
+Cloudflare Pages serves every file in the deploy directory, so `functions/_middleware.js`
+returns 404 (not 403 — 403 would confirm the file exists) for:
+
+`package.json`, `package-lock.json`, `wrangler.toml`, `.env*`, `.git/**`, `.github/**`,
+`functions/**`, `migrations/**`, `scripts/**`, `docs/**`, `demo/**`, `node_modules/**`,
+`README.md`, `README-EN.md`
+
+> The last two are deliberate: the READMEs enumerate all seven storage backends and the
+> deployment topology (~34KB) — ready-made reconnaissance material on a live instance.
 
 Full checklist: [`.env.example`](.env.example). Remember that Cloudflare Pages **does not read** `.env` — it is a reference list only, and the real values go in the dashboard or `wrangler`.
 

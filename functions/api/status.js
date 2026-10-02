@@ -34,23 +34,35 @@ function storageCapability(type, label, layer = 'direct') {
 export async function onRequestGet(context) {
   const { env } = context;
 
-  // The public upload UI needs to know which storage backends are offered
-  // (index.html derives its storage selector from these flags), so the
-  // `enabled`/`configured` pair stays public. The live connectivity probes and
-  // the backend messages/details are diagnostics and are admin-only.
-  const auth = await checkAuthentication(context);
-  // 谁能看管理诊断（连通性探测 / 桶名 / 错误详情）：
+  // 谁能看「管理诊断」（连通性探测 / 桶名 / 仓库名 / bot 身份 / 上游错误详情）：
   //   - 配置了认证（BASIC_USER + BASIC_PASS）的实例：必须是真实登录用户；
-  //   - 完全没配认证的「开放实例」：实例本身就是公开的，此时放行诊断，
-  //     否则连创建者自己都看不到 R2 的真实状态（表现为「R2 绑了却显示未配置/不可用」）。
-  //
-  // 注意 `checkAuthentication()` 在未配置认证时会返回
-  // `{ authenticated: true, reason: 'no-auth-required' }`，但这里的旧写法又 `&&`
-  // 了一次 `isAuthRequired(env)`（此时为 false），两者相与恒为 false —— 于是
-  // 开放实例下 isAdmin 永远为 false，R2 的 `connected` 探测代码永不执行，
-  // 前端 isEnabled(st.r2) 只能拿到 `connected:false` 的兜底值。
-  // 这正是「R2 已经绑好、之前一直正常，某次改动后突然不可用」的根因。
-  const isAdmin = isAuthRequired(env) ? Boolean(auth?.authenticated) : true;
+  //   - 完全没配认证的「开放实例」：**默认也不再对匿名放行**。以前这里写成
+  //     `isAuthRequired(env) ? authenticated : true`，于是开放实例下 isAdmin
+  //     恒为 true —— 匿名访客能拿到 bot 用户名、S3 桶名、HuggingFace 仓库名，
+  //     并且每次匿名请求都会触发一轮对外连通性探测。
+  //     现在默认关闭，仅当显式设置 PUBLIC_STATUS_DIAGNOSTICS=true 才恢复
+  //     （自建/内网排障用）。
+  const auth = await checkAuthentication(context);
+  const authConfigured = isAuthRequired(env);
+  const isAdmin = authConfigured
+    ? Boolean(auth?.authenticated)
+    : envValue(env, 'PUBLIC_STATUS_DIAGNOSTICS') === 'true';
+
+  // 已开启认证的实例：未登录访客本就被 checkAuth 置为 guestBlocked（无权上传），
+  // 因此后端清单与限额表一律不下发 —— 那是纯架构信息。
+  // 唯一例外是开了访客上传的实例：访客只拿到自己的配额与 Telegram 限额。
+  if (authConfigured && !auth?.authenticated) {
+    const guest = await getGuestConfig(env);
+    const body = guest?.enabled
+      ? {
+          auth: { enabled: true },
+          authenticated: false,
+          guestUpload: guest,
+          uploadLimits: { telegram: publicLimit(getUploadLimits().telegram) },
+        }
+      : { auth: { enabled: true }, authenticated: false, requireLogin: true };
+    return jsonResponse(body);
+  }
 
   const configuredMap = {
     telegram: Boolean(envValue(env, 'TG_BOT_TOKEN') && envValue(env, 'TG_CHAT_ID')),
@@ -85,28 +97,36 @@ export async function onRequestGet(context) {
     auth: { enabled: Boolean(env.BASIC_USER && env.BASIC_PASS) },
     guestUpload: await getGuestConfig(env),
     uploadLimits: getUploadLimits(),
-    capabilities: [
-      storageCapability('telegram', 'Telegram', 'direct'),
-      storageCapability('r2', 'R2', 'direct'),
-      storageCapability('s3', 'S3', 'direct'),
-      storageCapability('discord', 'Discord', 'direct'),
-      storageCapability('huggingface', 'HuggingFace', 'direct'),
-      storageCapability('webdav', 'WebDAV', 'mounted'),
-      storageCapability('github', 'GitHub', 'direct'),
-    ],
   };
 
   // Anonymous callers stop here: no outbound connectivity probes are triggered
   // by unauthenticated requests, and no backend messages, upstream error
   // details, bucket/repo identifiers or bot identity are disclosed.
+  //
+  // 匿名响应再砍两刀：
+  //   · `capabilities` —— 无论是否配置都把七种后端列全，是纯粹的架构清单，
+  //     前端并不消费它（index.js 只读每个后端的 enabled/configured/connected
+  //     和 uploadLimits），所以只留给管理员。
+  //   · `uploadLimits[*].message` —— 给运维看的中文说明，跟上传能力无关，
+  //     占掉匿名响应的大半体积。
   if (!isAdmin) {
-    return new Response(JSON.stringify(status, null, 2), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
-      },
-    });
+    const limits = status.uploadLimits || {};
+    status.uploadLimits = {};
+    for (const [key, value] of Object.entries(limits)) {
+      status.uploadLimits[key] = publicLimit(value);
+    }
+    return jsonResponse(status);
   }
+
+  status.capabilities = [
+    storageCapability('telegram', 'Telegram', 'direct'),
+    storageCapability('r2', 'R2', 'direct'),
+    storageCapability('s3', 'S3', 'direct'),
+    storageCapability('discord', 'Discord', 'direct'),
+    storageCapability('huggingface', 'HuggingFace', 'direct'),
+    storageCapability('webdav', 'WebDAV', 'mounted'),
+    storageCapability('github', 'GitHub', 'direct'),
+  ];
 
   const checks = [];
 
@@ -347,10 +367,24 @@ export async function onRequestGet(context) {
 
   await Promise.allSettled(checks);
 
-  return new Response(JSON.stringify(status, null, 2), {
+  return jsonResponse(status);
+}
+
+/** 匿名可见的上传限额字段：只留上传必需的三个，`message` 是运维说明，不下发 */
+function publicLimit(limit = {}) {
+  return {
+    maxBytes: limit.maxBytes,
+    directThreshold: limit.directThreshold,
+    supportsChunkUpload: Boolean(limit.supportsChunkUpload),
+  };
+}
+
+function jsonResponse(body) {
+  return new Response(JSON.stringify(body), {
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
+      // 曾用 null,2 美化输出，白吃掉一半体积；状态本身也不该进任何缓存
+      'Cache-Control': 'no-store',
     },
   });
 }

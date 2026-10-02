@@ -326,8 +326,10 @@ async function runUploadFromUrl(context) {
       body,
     };
   } catch (error) {
+    // 细节只在服务端留痕。开启访客上传时这个分支对匿名调用方也可见，
+    // 回显 error.message 会把内部路径与上游报错一并交出去。
     console.error("URL upload error:", error);
-    return { response: jsonResponse({ error: `服务器错误：${error.message}` }, 500), body: null };
+    return { response: jsonResponse({ error: "服务器错误" }, 500), body: null };
   }
 }
 
@@ -365,7 +367,9 @@ async function fetchRemote(url) {
         if (error.name === "AbortError") {
           return { ok: false, status: 408, error: "远程 URL 请求超时" };
         }
-        return { ok: false, status: 502, error: `无法获取远程 URL：${error.message}` };
+        // 不回显 error.message：SSRF 守卫下的 fetch 失败原因会反映内网拓扑
+        console.error("Remote fetch failed:", error);
+        return { ok: false, status: 502, error: "无法获取远程 URL" };
       }
 
       if ([301, 302, 303, 307, 308].includes(response.status)) {

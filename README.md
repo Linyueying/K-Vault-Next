@@ -328,6 +328,20 @@ node scripts/cloudflare-pages-r2-doctor.js --check   # 校验现有配置
 | 变量 | 说明 | 默认值 | 改完重部署 |
 | :--- | :--- | :--- | :---: |
 | `API_CORS_ORIGINS` | API v1 的 CORS 白名单，逗号分隔；`*` 表示任意来源；留空不发 CORS 头 | 空 | ❌ 后台可改 |
+| `PUBLIC_STATUS_DIAGNOSTICS` | 仅在**未开启管理员认证**的开放实例上生效：设为 `true` 才让匿名访客看到 `/api/status` 的完整诊断（连通性探测、bot 身份、桶名/仓库名）。默认关闭 | 关闭 | ✅ |
+| `RATE_LIMIT_GLOBAL_MAX` | 跨 isolate 的全局 IP 限流（每分钟请求数，**仅作用于 `/api/**`、`/file/**`、`/upload`**）。每请求消耗 1 次 KV 读 + 1 次 KV 写，免费额度（1000 写/天）下**不建议开启**，保持 `0` 即可 —— isolate 内的本地限流始终生效且零开销 | `0`（关闭） | ✅ |
+
+### 生产部署默认会拦掉的静态路径
+
+Cloudflare Pages 会把部署目录里的每个文件当静态资源提供，因此以下路径由
+`functions/_middleware.js` 统一拦成 404（返回 404 而非 403，避免确认文件存在）：
+
+`package.json`、`package-lock.json`、`wrangler.toml`、`.env*`、`.git/**`、
+`.github/**`、`functions/**`、`migrations/**`、`scripts/**`、`docs/**`、
+`demo/**`、`node_modules/**`、`README.md`、`README-EN.md`
+
+> 最后两项是刻意加的：README 逐条列了七种存储后端与部署拓扑（34KB），
+> 在真实实例上是一份现成的侦察材料。开发仓库里它是文档，部署到线上就不是了。
 
 完整清单见 [`.env.example`](.env.example)，已按「必填最小集 → 存储后端 7 选 1 → 可选开关 → 后台可设置」分组，照着填要用的那一段即可。
 

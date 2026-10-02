@@ -35,6 +35,7 @@ import {
   listFolderMembersLive,
   readBundle,
 } from '../../utils/share-bundle.js';
+import { handleApiPreflight } from '../../utils/cors.js';
 
 /** KV list 单页上限（KV 自身上限为 1000）。 */
 const LIST_PAGE_SIZE = 1000;
@@ -45,7 +46,8 @@ const MEMBER_BATCH_SIZE = 10;
 export async function onRequest(context) {
   const { request, env } = context;
 
-  if (request.method === 'OPTIONS') return handleOptions();
+  // 走统一白名单：管理接口不该对任意来源开放跨域预检
+  if (request.method === 'OPTIONS') return handleApiPreflight(request, env);
   if (request.method !== 'GET') {
     return jsonResponse({ success: false, error: 'Method not allowed. Use GET.' }, 405);
   }
@@ -250,18 +252,6 @@ function computeBundleStats(bundles) {
     totalFiles,
     missingFiles,
   };
-}
-
-function handleOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
 }
 
 function jsonResponse(body, status = 200) {

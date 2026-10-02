@@ -6241,7 +6241,14 @@ const __kvApp = Vue.createApp({
     },
 
     async revokeShareBundle(b) {
-      const label = b.folderShare ? ('目录「' + (b.folderPath || '根目录') + '」') : ('合集 ' + b.slug);
+      // 这段文案最终进 v-html 的确认弹窗（dialog.message）。folderPath 来自
+      // 目录名、slug 来自合集标识，两者都可以带尖括号，不转义就是一个
+      // 「把文件夹命名成 <img src=x onerror=...> 即可在后台弹窗里执行脚本」
+      // 的存储型 XSS。这里与其余 askConfirm 调用方（轮换密钥/删除 Token/
+      // 取消单文件分享）保持一致，统一过 escapeHtml。
+      const label = b.folderShare
+        ? ('目录「' + this.escapeHtml(b.folderPath || '根目录') + '」')
+        : ('合集 ' + this.escapeHtml(b.slug || ''));
       const ok = await this.askConfirm(
         `确定取消${label}的分享？<br>
          <span style="color:var(--text-muted);font-size:.8rem">取消后分享链接立即失效。</span>`,

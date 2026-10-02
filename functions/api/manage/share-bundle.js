@@ -49,6 +49,7 @@ import {
   writeBundle,
 } from '../../utils/share-bundle.js';
 import { listAllKeys, shouldIncludeKey, normalizeKey, normalizeFolderPath } from '../../utils/file-list.js';
+import { handleApiPreflight } from '../../utils/cors.js';
 
 const VALID_ACTIONS = new Set(['create', 'update', 'revoke']);
 
@@ -77,7 +78,8 @@ async function pickAvailableBundleSlug(env) {
 export async function onRequest(context) {
   const { request, env } = context;
 
-  if (request.method === 'OPTIONS') return handleOptions();
+  // 走统一白名单：管理接口不该对任意来源开放跨域预检
+  if (request.method === 'OPTIONS') return handleApiPreflight(request, env);
   if (request.method !== 'POST') {
     return jsonResponse({ success: false, error: 'Method not allowed. Use POST.' }, 405);
   }
@@ -428,18 +430,6 @@ async function handleWrite(env, body, action) {
 /* ============================================================
  * 响应辅助
  * ============================================================ */
-
-function handleOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
-}
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {

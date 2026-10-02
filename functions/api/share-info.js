@@ -239,7 +239,10 @@ export async function onRequest(context) {
     });
   } catch (error) {
     console.error('share-info error:', error);
-    return jsonResponse({ error: 'SHARE_INFO_FAILED', message: error?.message || 'Unknown error' }, 500);
+    // 细节只在服务端留痕：这是**无需登录**就能访问的端点，
+    // 回显 error.message 等于把内部报错广播给互联网
+    console.error('share-info error:', error);
+    return jsonResponse({ error: 'SHARE_INFO_FAILED', message: '分享信息获取失败。' }, 500);
   }
 }
 
@@ -415,7 +418,7 @@ async function respondBundle(env, slug, url, request) {
   } catch (error) {
     console.error('share-info bundle error:', error);
     return jsonResponse(
-      { error: 'SHARE_INFO_FAILED', message: error?.message || 'Unknown error' },
+      { error: 'SHARE_INFO_FAILED', message: '分享信息获取失败。' },
       500
     );
   }

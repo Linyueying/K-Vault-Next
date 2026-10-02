@@ -34,3 +34,26 @@
 
 /
   Cache-Control: no-cache
+
+# ============================================================================
+# 安全响应头（全站）
+# ============================================================================
+#
+# 为什么要在这里再写一遍
+# ----------------------------------------------------------------------------
+# `_headers` 只作用于**静态资源**；`functions/_middleware.js` 只作用于
+# `_routes.json` include 到的路径（我们把 /assets/* 排除了，省 Functions 调用）。
+# 两边有交集也有各自的盲区，同名条目取相同值，重复设置是安全的。
+#
+# CSP 里 'unsafe-inline' / 'unsafe-eval' 的说明见 _middleware.js 顶部注释：
+# 内联脚本块 + Vue 运行时编译器，去掉需要先做 nonce 化与模板预编译。
+# 摄像头（camera=(self)）必须留着，隔空投送扫码要用。
+# ============================================================================
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+  Permissions-Policy: camera=(self), geolocation=(), microphone=(), payment=(), usb=(), serial=(), xr-spatial-tracking=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'

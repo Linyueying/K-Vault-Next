@@ -27,6 +27,7 @@
 import { listNormalizedFiles } from '../../utils/file-list.js';
 import { listSharedRecords } from '../../utils/file-record.js';
 import { buildShareRecord, hasActiveShare } from '../../utils/share-options.js';
+import { handleApiPreflight } from '../../utils/cors.js';
 
 /** 计数读取的并发批大小（仅 KV 兜底路径使用）。 */
 const COUNT_BATCH_SIZE = 20;
@@ -34,7 +35,8 @@ const COUNT_BATCH_SIZE = 20;
 export async function onRequest(context) {
   const { request, env } = context;
 
-  if (request.method === 'OPTIONS') return handleOptions();
+  // 走统一白名单：管理接口不该对任意来源开放跨域预检
+  if (request.method === 'OPTIONS') return handleApiPreflight(request, env);
   if (request.method !== 'GET') {
     return jsonResponse({ success: false, error: 'Method not allowed. Use GET.' }, 405);
   }
@@ -154,17 +156,6 @@ function computeShareStats(shares) {
   };
 }
 
-function handleOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
-}
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {

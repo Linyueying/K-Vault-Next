@@ -49,38 +49,49 @@ export async function onRequestGet(context) {
 
     // 如果没有配置认证
     if (!authRequired) {
-      return new Response(JSON.stringify({
+      return jsonResponse({
         authenticated: true,
         authRequired: false,
         message: '无需登录',
         guestUpload: guestConfig,
         airdrop
-      }), {
-        headers: { 'Content-Type': 'application/json' }
       });
     }
 
     const authResult = await checkAuthentication(context);
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       authenticated: authResult.authenticated,
       authRequired: true,
-      reason: authResult.reason,
+      // `authResult.reason` 是内部判定来源（'session' / 'basic-auth' /
+      // 'no-auth-required'），把认证机制告诉匿名访客没有价值，只多了侦察面。
       guestUpload: guestConfig,
       airdrop
-    }), {
-      headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
+    // 细节只在服务端留痕，不回显给客户端
     console.error('Auth check error:', error);
-    return new Response(JSON.stringify({
-      authenticated: false,
-      authRequired: true,
-      error: error.message
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return jsonResponse(
+      { authenticated: false, authRequired: true, error: 'Auth check failed' },
+      500
+    );
   }
+}
+
+/**
+ * 认证态响应一律 `no-store` + `Vary: Cookie`。
+ *
+ * 这个响应随会话 Cookie 变化。缺 `no-store` 时，中间缓存（或浏览器启发式
+ * 缓存）可能把「已登录」的结果拿去应答另一个人 —— 那是最糟糕的一类缓存事故。
+ */
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      Vary: 'Cookie',
+    },
+  });
 }

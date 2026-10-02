@@ -91,8 +91,9 @@ export async function onRequest(context) {
         liked: false,
         source: 'signed-link',
       };
+      // 签名 id 本身就是请求 URL 里的东西，回显它没有价值，一并省掉
       return jsonResponse(
-        pickFields(payload, PUBLIC_FIELDS.concat(['success', 'fileId', 'source'])),
+        pickFields(payload, PUBLIC_FIELDS.concat(['success', 'source'])),
         200,
         cors
       );
@@ -116,16 +117,10 @@ export async function onRequest(context) {
     const { record, kvKey: foundKey } = await findRecordWithKey(env, fileId);
 
     if (!record || !record.metadata) {
-      return jsonResponse(
-        {
-          error: 'File not found',
-          fileId,
-          fileName: fileId,
-          originalName: null,
-        },
-        404,
-        cors
-      );
+      // 刻意**不回显**调用方传进来的 fileId / fileName：
+      // 反射调用方输入既没有用途，又把接口变成一个「原样回显」的探针面。
+      // 前端（preview.html）遇到非 200 直接当 null 处理，不读响应体。
+      return jsonResponse({ error: 'File not found' }, 404, cors);
     }
 
     const metadata = record.metadata;
@@ -150,22 +145,19 @@ export async function onRequest(context) {
     };
     if (foundKey) fullPayload.key = foundKey;
 
-    // 只有所有者（API Token / 管理员）拿得到内部 KV key
+    // 只有所有者（API Token / 管理员）拿得到内部标识（`key` 与 `fileId`）。
+    // 分享访客拿不到 —— 与 share-info.js「绝不外泄裸 fileId / KV key」一致：
+    // 拿到它就能绕过短链直连 /file/...，避开计数。
     const body = hasApiToken || isAdmin
       ? fullPayload
-      : pickFields(fullPayload, PUBLIC_FIELDS.concat(['success', 'fileId']));
+      : pickFields(fullPayload, PUBLIC_FIELDS.concat(['success']));
 
     return jsonResponse(body, 200, cors);
   } catch (error) {
+    // 细节只在服务端留痕。回显 error.message 会把源码路径、KV/D1 内部报错
+    // 甚至上游凭据片段递给匿名调用方。
     console.error('Error fetching file info:', error);
-    return jsonResponse(
-      {
-        error: 'Internal server error',
-        message: error.message,
-      },
-      500,
-      cors
-    );
+    return jsonResponse({ error: 'Internal server error' }, 500, cors);
   }
 }
 

@@ -518,15 +518,55 @@
       }
     })();
 
+    /**
+     * 把 `?redirect=` 收敛成一个**同源相对路径**。
+     *
+     * 修复前这里只做了「包含 login.html 就回退」这一处判断，然后原样交给
+     * `window.location.replace()`。于是 `?redirect=https://evil.com` 是一个
+     * 可直接利用的开放重定向（钓鱼链接长得完全像本站）；`?redirect=javascript:...`
+     * 更进一步，是登录页上的 XSS。
+     *
+     * 现在逐条挡掉：
+     *   · 协议相对写法 `//evil.com`、`/\evil.com`（浏览器会当成跨域绝对地址）
+     *   · 任何带 scheme 的写法（`javascript:`、`data:`、`https://evil.com`…）
+     *   · 解析后 origin 与本站不一致的地址
+     *   · 登录页本身（跳回去会造成死循环）
+     *
+     * 最终返回的是 pathname + 查询串 + hash，天然不含 origin。
+     */
+    function safeRedirectPath(raw) {
+      const value = String(raw || '').trim();
+      if (!value) return '/';
+
+      // 反斜杠在部分浏览器里等价于正斜杠，`/\evil.com` 会被当成协议相对地址
+      if (value.indexOf('\\') !== -1) return '/';
+      if (value.indexOf('//') === 0) return '/';
+      // 任何 scheme 一律拒绝（相对路径不可能以 scheme 开头）
+      if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return '/';
+
+      let url;
+      try {
+        url = new URL(value, window.location.origin);
+      } catch (e) {
+        return '/';
+      }
+
+      // 只接受同源目标
+      if (url.origin !== window.location.origin) return '/';
+
+      // 登录页自身：跳回去会死循环
+      const path = url.pathname || '/';
+      if (path === '/login' || path === '/login.html' || path.slice(-11) === '/login.html') {
+        return '/';
+      }
+
+      return path + (url.search || '') + (url.hash || '');
+    }
+
     function redirectToTarget() {
       const params = new URLSearchParams(window.location.search);
-      let redirect = params.get('redirect') || '/';
-      
-      // 防止重定向到登录页本身，避免无限循环
-      if (redirect.includes('login.html') || redirect === '/login') {
-        redirect = '/';
-      }
-      
+      const redirect = safeRedirectPath(params.get('redirect'));
+
       // 使用 replace 防止用户回退到登录页
       window.location.replace(redirect);
     }

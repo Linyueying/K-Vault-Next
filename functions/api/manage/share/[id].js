@@ -42,6 +42,7 @@ import {
   sanitizeShareText,
 } from '../../../utils/share-options.js';
 import { shouldWriteTelegramMetadata } from '../../../utils/telegram.js';
+import { handleApiPreflight } from '../../../utils/cors.js';
 
 /** 与 `share-options.js` 的上限保持一致，避免两处漂移。 */
 const MAX_EXPIRES_IN_SECONDS = 3650 * 24 * 3600;
@@ -55,7 +56,8 @@ const VALID_ACTIONS = new Set(['create', 'update', 'revoke']);
 export async function onRequest(context) {
   const { request, env, params } = context;
 
-  if (request.method === 'OPTIONS') return handleOptions();
+  // 走统一白名单：管理接口不该对任意来源开放跨域预检
+  if (request.method === 'OPTIONS') return handleApiPreflight(request, env);
   if (request.method !== 'POST') {
     return jsonResponse({ success: false, error: 'Method not allowed. Use POST.' }, 405);
   }
@@ -280,17 +282,6 @@ function resolvePositive(raw, { label, unitHint = '', max, errors }) {
   return parsed;
 }
 
-function handleOptions() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
-}
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
