@@ -1149,7 +1149,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
    ========================================================= */
 .dock{
   position:fixed;
-  bottom:max(16px,env(safe-area-inset-bottom,16px));
+  /* --dock-lift：底部动态 UI（悬浮工具栏）遮挡深度补偿，由 mounted 侧的
+     dvh 探针计算（clientHeight - dvh），见「dock 首屏显现」处说明。
+     常态为 0，bottom 即 max(16px, safe-area)。 */
+  bottom:calc(max(16px,env(safe-area-inset-bottom,16px)) + var(--dock-lift,0px));
   left:50%;transform:translateX(-50%);
   width:min(500px,calc(100% - 24px));
   /* 几何令牌：指示器位移公式依赖它们，改这里即可整体调间距 */
@@ -1269,9 +1272,18 @@ html[data-theme="dark"] .dock__indicator{
    ⚠️ 门控 class 必须同时存在于 :class 绑定（'dock-hold': dockHold）里：
    is-booted 在 780ms 落地时会触发根节点 class 重写（patchClass 整体赋值），
    纯外部 classList.add 的 dock-hold 会被冲掉 —— 绑定通道保证重写后仍在。
-   摘门控时依旧双通道（响应式 + 直接 DOM），理由同 is-booted 兜底。 */
-.dock{transition:opacity .5s var(--ease-fluid)}
+   摘门控时依旧双通道（响应式 + 直接 DOM），理由同 is-booted 兜底。
+   ── 悬浮遮挡补偿（--dock-lift）──
+   有些内核（Quark 系）加载期把底部工具栏「悬浮」在页面上：布局视口始终
+   全屏、全程无 resize —— 门控等不到信号，dock 显示时仍被工具栏盖住下半。
+   对策：dvh 探针测「被遮深度」（clientHeight - dvh）写入 --dock-lift，
+   bottom 公式自动抬升；工具栏收起后 dvh 追平、lift 归零、dock 平滑落回。
+   正常浏览器（Chrome resize 模式/iOS/桌面）clientHeight==dvh，零影响。 */
+.dock{transition:bottom .35s var(--ease-apple),opacity .5s var(--ease-fluid)}
 #app.dock-hold .dock{opacity:0}
+/* 瞬隐变体（显示后自愈用）：dock 已带着错误位置可见，不能再播 0.5s 淡出
+   —— 立即消失，等视口稳定后先摘本类再摘 dock-hold，恢复淡入 */
+#app.dock-hold.dock-hold--snap .dock{transition:none}
 /* 降级：低性能模式 / 减动效下不要淡入过程，视口一稳定立即出现 */
 html[data-perf="low"] .dock{transition:none}
 @media (prefers-reduced-motion: reduce){.dock{transition:none}}
@@ -1293,7 +1305,53 @@ html[data-perf="low"] .dock{transition:none}
   </div>
 </noscript>
 
-<div id="app" v-cloak :class="{'is-booted': booted, 'dock-hold': dockHold}">
+<script>
+/* dock 防下沉 · 早期视口监测 + dvh 探针（mount 前哨）。
+   两件事：
+   1) 盯 documentElement.clientHeight，把「工具栏收进布局」级收缩
+      （16~150px）记入 window.__dockEarly.seen，mounted() 接手后并入
+      corrected —— Vue bundle 加载期间的视口变化不再是无信号盲区。
+   2) 造一个 100dvh 探针。有些国产内核（Quark 系实测）加载期把底部工具栏
+      「悬浮」在页面之上：布局视口始终全屏、全程没有 resize —— dock 钉在
+      被工具栏盖住的屏幕底边，直到工具栏收起才「恢复正常」，事件门控对
+      这种模式天然失聪。而 dvh（动态视口）会随浏览器动态 UI 伸缩：
+      clientHeight - dvh 正是「被遮深度」。mounted 侧据此计算 --dock-lift
+      抬高 dock，工具栏收起后 lift 自动归零、dock 平滑落回。
+   3s 后停表：正常情况 mounted 远早于此；即使 Vue 加载极慢，后续修正由
+   mounted 侧的自愈保护期与永久 lift 监听兜住。50ms 轮询、只比较整数，
+   开销可忽略。 */
+(function () {
+  try {
+    var supportsDvh = window.CSS && CSS.supports && CSS.supports('height', '100dvh');
+    var probe = null;
+    if (supportsDvh) {
+      probe = document.createElement('div');
+      probe.id = 'dvhProbe';
+      probe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100dvh;visibility:hidden;pointer-events:none;z-index:-1';
+      (document.body || document.documentElement).appendChild(probe);
+    }
+    var st = { seen: false, h: document.documentElement.clientHeight,
+               t0: Date.now(), probe: probe,
+               dvh: function () { return probe ? probe.offsetHeight : 0; },
+               stop: function () { clearInterval(iv); } };
+    var iv = setInterval(function () {
+      try {
+        var h = document.documentElement.clientHeight;
+        if (h !== st.h) {
+          var shrink = st.h - h;
+          if (shrink >= 16 && shrink <= 150) st.seen = true;
+          st.h = h;
+        }
+        if (Date.now() - st.t0 > 3000) clearInterval(iv);
+      } catch (e) { clearInterval(iv); }
+    }, 50);
+    st.stop = function () { clearInterval(iv); };
+    window.__dockEarly = st;
+  } catch (e) {}
+})();
+</script>
+
+<div id="app" v-cloak :class="{'is-booted': booted, 'dock-hold': dockHold, 'dock-hold--snap': dockSnap}">
 
   <!-- ===== 顶栏 ===== -->
   <header class="micro-topbar">
@@ -3285,11 +3343,13 @@ const __kvApp = Vue.createApp({
     currentTheme: 'light',
     baseURL: location.origin,
 
-    /* dock 首屏防下沉门控：true = 视口未稳定，dock 整条隐藏。
-       mounted() 里检测布局视口高度连续稳定后置 false 并同步操作 DOM
-       class 兜底（响应式失效的坑见 is-booted 兜底注释，这里两个通道都留）。
-       完整背景见样式区「dock 首屏显现」处的说明。 */
+    /* dock 首屏防下沉门控：dockHold=true 时 dock 整条隐藏；dockSnap=true
+       表示瞬隐（自愈场景，不播 0.5s 淡出）。mounted() 里的状态机负责
+       摘/挂，两个 class 都走「响应式 + 直接 DOM」双通道 —— 响应式失效的
+       坑见 is-booted 兜底注释；is-booted 落地触发 patchClass 整体重写时，
+       绑定通道保证门控 class 不被冲掉。 */
     dockHold: true,
+    dockSnap: false,
 
     /* ===== 板块分页（dock 导航） =====
        activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
@@ -6544,49 +6604,171 @@ const __kvApp = Vue.createApp({
     this._toastSeq = 0;
     this._pendingDeletes = this._pendingDeletes || [];
 
-    /* ==== dock 首屏防下沉（视口稳定门控）====
+    /* ==== dock 首屏防下沉 v2（状态机 + 显示后自愈）====
        手机浏览器首帧常以「全屏视口」布局（底部工具栏悬浮在内容上），
-       随后视口收缩约一个工具栏高 —— fixed bottom 的 dock 会先被工具栏
-       裁掉一截、再上弹归位（用户实测截图）。对策：首屏先挂 .dock-hold
-       把 dock 整条藏住，轮询布局视口高度（documentElement.clientHeight），
-       连续 STABLE_MS 不变（或到 MAX_WAIT 兜底）后摘门控，dock 以纯
-       opacity 过渡淡入 —— 沉下去的中间态从未被绘制，无从「回弹」。
-       摘门控双通道：dockHold 置 false（响应式）+ 直接 DOM class 兜底
-       （响应式失效的坑见 is-booted 处注释）。完整背景见样式区
-       「dock 首屏显现」处说明。 */
+       fixed bottom 的 dock 被锚到屏幕物理底边、被工具栏裁掉一截；浏览器
+       把工具栏收进布局（或收起工具栏）后才「恢复正常」。
+       v1 的教训：加载初期的全屏视口**本身就是稳定的**，「高度连续 180ms
+       不变」毫无区分力 —— 若修正迟于兜底时长才发生（真机实测存在），
+       dock 照样先以下沉态出现。v2 三层防御：
+         1) DOM 解析期（body 开头的内联脚本）就开始监测视口，把「mount 前
+            已发生工具栏级收缩」记入 window.__dockEarly，mount 后无缝接手；
+         2) 释放条件 = 「已观察到收缩且视口稳定」或「总兜底超时」；
+         3) 显示后 4s 自愈保护期：若才发生工具栏级收缩（16~150px，键盘
+            >150px 不算），立即瞬隐 dock、稳定后重新淡入 —— 下沉态最多
+            存在一帧。用户一旦滚动/触摸则立即停用自愈：滚动触发的地址栏/
+            工具栏收起是 dynamic toolbar 的正常伴随行为，绝不能误伤。
+       摘/挂门控双通道：响应式（dockHold/dockSnap）+ 直接 DOM class，
+       理由见 is-booted 兜底注释（is-booted 落地时 patchClass 会整体重写
+       根节点 class，门控 class 必须同时存在于 :class 绑定才不被冲掉）。 */
     try {
       const appEl = document.getElementById('app');
-      if (appEl) appEl.classList.add('dock-hold');
       const reduced = window.matchMedia
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const STABLE_MS = reduced ? 60 : 180;    /* 视口高度需保持不变的时长 */
-      const MAX_WAIT  = reduced ? 300 : 1200;  /* 迟迟不稳时的兜底释放 */
-      const t0 = performance.now();
-      let lastH = document.documentElement.clientHeight;
-      let stableSince = t0;
+      const STABLE_MS   = reduced ? 60 : 220;   /* 高度需保持不变的时长 */
+      /* 兜底释放：桌面指针设备不存在「底部工具栏延迟就位」问题，快速放出
+         与首屏错峰入场节奏对齐；触屏 800ms —— 悬浮遮挡已由 --dock-lift
+         实时补偿（见下），迟到的收缩类修正由自愈兜底，无需再死等 */
+      const finePointer = window.matchMedia
+        && matchMedia('(hover: hover) and (pointer: fine)').matches;
+      const MAX_WAIT    = reduced ? 300 : (finePointer ? 350 : 800);
+      const REHOLD_WAIT = 1200;                 /* 自愈后重新释放的兜底 */
+      const GUARD_MS    = 4000;                 /* 显示后自愈保护期 */
+      const SHRINK_MIN  = 16;                   /* 工具栏级收缩下限（px） */
+      const SHRINK_MAX  = 150;                  /* 上限；键盘 ≥200px 不会误入 */
+      const POLL        = 50;
+      const vh = () => document.documentElement.clientHeight;
+      const now = () => performance.now();
+
+      /* ---- 悬浮遮挡补偿（--dock-lift）----
+         dvh 探针（body 开头脚本创建）读「动态视口」高：clientHeight - dvh
+         > 0 说明浏览器认为动态 UI 展开、却没收缩布局视口 = 悬浮模式，
+         差值即被工具栏盖住的深度。lift 写进 .dock 的 CSS 变量，bottom
+         公式（bottom + var(--dock-lift)）自动把 dock 抬到工具栏之上；
+         工具栏收起后 dvh 追平 clientHeight，lift 归零，dock 经 bottom
+         过渡平滑落回 —— 全程无跳变。
+         Chrome 动态工具栏（resize 模式）/ iOS / 桌面：clientHeight==dvh，
+         lift 恒 0，零影响。上限 150px：键盘（≥200px）不会误入。 */
+      const dockEl = (this.$refs && this.$refs.dockEl)
+        || (appEl && appEl.querySelector('.dock'));
+      let lastLift = -1;
+      const updateLift = () => {
+        try {
+          if (!dockEl || !window.__dockEarly || !window.__dockEarly.probe) return;
+          const d = document.documentElement.clientHeight - window.__dockEarly.dvh();
+          const lift = (d > 0 && d <= 150) ? d : 0;
+          if (lift !== lastLift) {
+            lastLift = lift;
+            if (lift > 0) dockEl.style.setProperty('--dock-lift', lift + 'px');
+            else dockEl.style.removeProperty('--dock-lift');
+          }
+        } catch (e) {}
+      };
+      updateLift();
+
+      let phase = 'hold';            /* hold → released（→ hold 自愈）*/
+      let corrected = !!(window.__dockEarly && window.__dockEarly.seen);
+      let lastH = vh();
+      let stableSince = now();
+      let phaseStart = now();
+      if (window.__dockEarly && window.__dockEarly.stop) window.__dockEarly.stop();
+
+      const setHold = (snap) => {
+        phase = 'hold';
+        this.dockHold = true;
+        this.dockSnap = !!snap;
+        if (appEl) {
+          appEl.classList.add('dock-hold');
+          appEl.classList.toggle('dock-hold--snap', !!snap);
+        }
+      };
+      const release = () => {
+        phase = 'released';
+        phaseStart = now();
+        this.dockHold = false;
+        this.dockSnap = false;
+        if (appEl) appEl.classList.remove('dock-hold', 'dock-hold--snap');
+        armGuard();                          /* 保护期开始：交互即停用自愈 */
+      };
+
+      /* 自愈保护期在用户首次交互后立即结束：此后视口变化都属于
+         dynamic toolbar / 键盘等正常伴随行为，页面不再干预 */
+      const stopGuard = () => { finish(); };
+      this._dockGuardStop = stopGuard;   /* 供 beforeUnmount 兜底解绑 */
+      const guardEvents = ['scroll', 'touchstart', 'keydown', 'mousedown'];
+      const armGuard = () => {
+        guardEvents.forEach(ev =>
+          window.addEventListener(ev, stopGuard, { passive: true, once: true }));
+      };
+      const disarmGuard = () => {
+        guardEvents.forEach(ev => window.removeEventListener(ev, stopGuard));
+      };
+
+      const finish = () => {
+        if (this._dockSettleTimer) { clearInterval(this._dockSettleTimer); this._dockSettleTimer = null; }
+        disarmGuard();
+        /* lift 永久维持：工具栏的收起/展开总伴随 resize 或 scroll 事件，
+           rAF 节流读探针、按需更新一个 CSS 变量，无其它副作用。
+           键盘场景 clientHeight 与 dvh 同步变化（或都不变），差值恒 0，
+           不会误抬。 */
+        if (!this._dockVpHandler) {
+          let raf = 0;
+          this._dockVpHandler = () => {
+            if (raf) return;
+            raf = requestAnimationFrame(() => { raf = 0; updateLift(); });
+          };
+          this._dockUnsubVp = () => {
+            window.removeEventListener('resize', this._dockVpHandler);
+            window.removeEventListener('scroll', this._dockVpHandler, true);
+            if (raf) cancelAnimationFrame(raf);
+          };
+          window.addEventListener('resize', this._dockVpHandler, { passive: true });
+          window.addEventListener('scroll', this._dockVpHandler, { passive: true, capture: true });
+        }
+        if (phase === 'hold') { /* 极端：还没放出就结束（几乎不可能）*/
+          this.dockHold = false; this.dockSnap = false;
+          if (appEl) appEl.classList.remove('dock-hold', 'dock-hold--snap');
+        }
+      };
+
       this._dockSettleTimer = setInterval(() => {
         try {
-          const now = performance.now();
-          const h = document.documentElement.clientHeight;
-          if (h !== lastH) { lastH = h; stableSince = now; }
-          if (now - stableSince >= STABLE_MS || now - t0 >= MAX_WAIT) {
-            clearInterval(this._dockSettleTimer);
-            this._dockSettleTimer = null;
-            this.dockHold = false;
-            if (appEl) appEl.classList.remove('dock-hold');
+          const t = now();
+          const h = vh();
+          updateLift();                        /* 保护期内实时补偿悬浮深度 */
+          const delta = h - lastH;
+          if (delta !== 0) {
+            stableSince = t;
+            const shrink = -delta;               /* 正值 = 视口变矮 */
+            const toolbarShrink = shrink >= SHRINK_MIN && shrink <= SHRINK_MAX;
+            if (toolbarShrink) {
+              corrected = true;
+              if (phase === 'released' && t - phaseStart <= GUARD_MS) {
+                setHold(true);                   /* 自愈：瞬隐，稳定后重新淡入 */
+                phaseStart = t;
+              }
+            }
+            lastH = h;
           }
-        } catch (e) {
-          clearInterval(this._dockSettleTimer);
-          this._dockSettleTimer = null;
-          this.dockHold = false;
-          if (appEl) appEl.classList.remove('dock-hold');
-        }
-      }, 60);
+          if (phase === 'hold') {
+            const stable = t - stableSince >= STABLE_MS;
+            const deadline = phaseStart + (this.dockSnap || corrected ? REHOLD_WAIT : MAX_WAIT);
+            if ((corrected && stable) || t >= deadline) release();
+          } else if (t - phaseStart > GUARD_MS) {
+            finish();                            /* 保护期结束，一切交还浏览器 */
+          }
+        } catch (e) { finish(); }
+      }, POLL);
+
+      if (phase === 'hold' && appEl && !appEl.classList.contains('dock-hold')) {
+        appEl.classList.add('dock-hold');        /* 保险：确保首帧前就藏住 */
+      }
     } catch (e) {
       /* 任何异常都必须保证 dock 最终能出现：直接摘门控 */
       this.dockHold = false;
+      this.dockSnap = false;
       const appEl = document.getElementById('app');
-      if (appEl) appEl.classList.remove('dock-hold');
+      if (appEl) appEl.classList.remove('dock-hold', 'dock-hold--snap');
     }
 
     /* 主题：无显式偏好时跟随系统（HIG 要求） */
@@ -6717,8 +6899,15 @@ const __kvApp = Vue.createApp({
     document.removeEventListener('keydown', this._escHandler);
     window.removeEventListener('pagehide', this._pageHideHandler);
     window.removeEventListener('popstate', this._popHandler);
-    /* dock 视口稳定检测若仍在跑，停掉（正常流程早已自行清除，此处兜底） */
-    if (this._dockSettleTimer) { clearInterval(this._dockSettleTimer); this._dockSettleTimer = null; }
+    /* dock 视口监测（含自愈保护期）若仍在跑，停掉并解除交互监听；
+       lift 的永久视口监听也一并解除（正常流程早已自行 finish，此处兜底） */
+    if (this._dockSettleTimer) {
+      clearInterval(this._dockSettleTimer);
+      this._dockSettleTimer = null;
+      ['scroll', 'touchstart', 'keydown', 'mousedown'].forEach(ev =>
+        window.removeEventListener(ev, this._dockGuardStop));
+    }
+    try { if (this._dockUnsubVp) this._dockUnsubVp(); } catch (e) {}
     try {
       if (this._schemeHandler) {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);
