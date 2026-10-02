@@ -1189,14 +1189,24 @@ html[data-perf="low"] .ambient-orb{animation:none}
   top:100vh;
   top:100dvh;
   transform:translateY(calc(-100% - 16px - env(safe-area-inset-bottom,0px) - var(--dock-lift,0px)));
-  /* 水平居中：原本是 left:50% + transform:translateX(-50%)。
-     ⚠️ 已改为「双锚点 + 自动边距」—— translateX 现在被 translateY 占用
-     （见上方底边定位），不能再叠加横向位移；且旧写法的 -50% 依赖元素
-     自身宽度、宽度又依赖包含块宽度，切换视图时 innerWidth 抖动
-     （实测 393 ⇄ 410）会连带重排。
-     现在的写法由 left/right 两个锚点共同确定位置，宽度抖动只让两侧各让
-     一半，不产生任何偏移 —— 从机制上根除，而非靠等待。 */
-  left:0;right:0;margin-inline:auto;
+  /* 水平定位（v4，2026-10-02）。
+     ── 问题 ──
+     切换视图时 window.innerWidth 会从 393 涨到 410（+17 = 滚动条宽，
+     同一时刻 documentElement.clientWidth 因 scrollbar-gutter:stable
+     恒为 393）。position:fixed 的包含块是「视口」，宽度跟 innerWidth 走，
+     且包含块左边界固定在 0（滚动条在右侧）—— 因此：
+       · left:0; right:0; margin-inline:auto   → 两边等分，右移 8.5px
+       · left:50% + translateX(-50%)           → 中心点右移 7.5px
+     两种居中写法都跟着抖，这就是用户报的「轻微右移再恢复」。
+     ── 解法：单锚点 + 定宽 ──
+     left 固定 12px（包含块左边界不随滚动条变化，故绝对稳定），
+     right 置 auto（不参与定位，避免被拉伸），宽度由 width 单独决定。
+     margin-inline:auto 在 left+right 同时存在时才做居中，这里 right:auto
+     下它会退化为 0，因此居中改由下面那条 @media 在宽屏启用（那时视口
+     远大于 dock 最大宽 500px，包含块抖动 17px 对居中的影响可忽略，
+     且宽屏基本不会出现滚动条抖动）。 */
+  left:12px;
+  right:auto;
   width:min(500px,calc(100vw - 24px));
   /* 几何令牌：指示器位移公式依赖它们，改这里即可整体调间距 */
   --dock-pad:6px;
@@ -1223,6 +1233,28 @@ html[data-perf="low"] .ambient-orb{animation:none}
   -webkit-user-select:none;
   user-select:none;
 }
+/* 宽屏才居中（窄屏 ≤523px 见 .dock 主规则：left:12px 固定）。
+   ── 为什么不用 left:50% ──
+   left 的百分比以「包含块宽度」为基准 —— 对 fixed 元素即视口宽度，
+   但它含滚动条占位；而下面的 translateX(-50%) 以「元素自身宽度」为基准，
+   width 里的 100vw 又**不含**滚动条。三个基准不一致，实测在 768 视口下
+   居中偏差 7.5px（= 滚动条宽的一半）。
+   ── 解法：全程只用「自身宽度」这一个基准 ──
+   left:0 起排 + translateX(calc((100vw - 100%) / 2))：
+     100vw = 可视宽度（不含滚动条），100% = dock 自身宽度，
+     两者之差的一半即左右各留的边距 —— 所有量都与滚动条无关，
+     因此既居中又不受 innerWidth 抖动影响（窄屏那套固定 12px 同理）。
+   该式在窄屏也成立（100vw-100% = 24px → 左右各 12px），
+   之所以仍分两段写，是因为窄屏用 left:12px 更直观、且能避开
+   某些旧内核对 100vw 含滚动条的处理差异。 */
+@media (min-width:524px){
+  .dock{
+    left:0;right:auto;
+    transform:translateX(calc((100vw - 100%) / 2))
+              translateY(calc(-100% - 16px - env(safe-area-inset-bottom,0px) - var(--dock-lift,0px)));
+  }
+}
+
 /* 批量栏上浮由 .batch-dock 自身的 bottom 承担（见上方注释），
    dock 保持原位不动 —— 旧规则抬高的对象反了，会把导航顶到批量栏之上。
    （不依赖 :has()，旧浏览器忽略该选择器时布局依然正确。） */
