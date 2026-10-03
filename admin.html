@@ -653,11 +653,17 @@ API Token 管理面板
 
 /* ===== 上传设置：访客开关 ===== */
 .settings-loading{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--text-muted);padding:8px 0}
-.settings-switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);margin-bottom:var(--sp-3);}
+/* 开关默认与文字首行居中对齐：文字可能折成多行，flex-start 会让开关吊在
+   顶部、与首行文字错位；改为让两侧内容各自居中对齐，视觉重心落在首行。 */
+.settings-switch-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);margin-bottom:var(--sp-3);}
 .settings-switch-text{display:flex;flex-direction:column;gap:3px;min-width:0}
 /* 用直接子元素（>）而非后代选择器：开关标题里的 q-tip 浮层也含 <strong>，
-   后代选择器会把 .84rem/800 的标题样式误继承给浮层里的强调文字。 */
-.settings-switch-text>strong{font-size:.84rem;font-weight:800;color:var(--text-main)}
+   后代选择器会把 .84rem/800 的标题样式误继承给浮层里的强调文字。
+   标题行同样按基线对齐，保证与开关、与问号三者齐平。 */
+/* 用 center 而非 baseline：baseline 下圆点盒子会相对文字行盒下沉约 1.4px，
+   与末尾问号看起来就「不齐」。 */
+.settings-switch-text>strong{display:flex;align-items:center;flex-wrap:wrap;
+  font-size:.84rem;font-weight:800;color:var(--text-main);line-height:1.35}
 .input-with-unit{position:relative;display:flex;align-items:center;gap:8px}
 .input-with-unit .token-input{flex:1;min-width:0}
 .input-with-unit .unit{flex:none;font-size:var(--fs-xs);font-weight:700;color:var(--text-muted);white-space:nowrap}
@@ -667,10 +673,13 @@ html[data-theme="dark"] .settings-note{color:#fbbf24}
 /* 危险提示：与基础琥珀色区分开，用于"双写已关闭/未绑定 D1"这类需要盯一眼的状态 */
 .settings-note--warn{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.32);color:#b91c1c}
 html[data-theme="dark"] .settings-note--warn{color:#f87171}
-.token-section-title{font-size:.86rem;font-weight:800;display:flex;align-items:center;gap:var(--sp-2)}
+.token-section-title{font-size:.86rem;font-weight:800;display:flex;align-items:baseline;gap:var(--sp-2)}
 .token-section-title i{color:var(--primary)}
 .token-field{margin-bottom:var(--sp-3)}
-.token-field>label{display:block;font-size:var(--fs-xs);font-weight:700;color:var(--text-sub);margin-bottom:6px}
+/* label 改 inline-flex + 基线对齐：文字与末尾问号共用同一条基线，
+   不再依赖 vertical-align 的模糊补偿；两列字段的 label 高度也因此一致，
+   下方输入框自然顶对齐。 */
+.token-field>label{display:flex;align-items:baseline;flex-wrap:wrap;font-size:var(--fs-xs);font-weight:700;color:var(--text-sub);margin-bottom:6px}
 .token-input,.token-select{width:100%;padding:9px var(--sp-3);border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-main);font-size:.83rem;font-family:inherit;outline:none;transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);}
 /* minmax(min(150px,100%),1fr)：容器宽度不足 150px 时（窄屏），
    直接用 100% 作下限，避免 min 值本身把网格撑破父容器。 */
@@ -721,31 +730,47 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
    随配置联动的状态与警告（settings-note / tiny-muted）不收进来 —— 那些是
    要让人一眼看到的提示，藏进问号等于制造盲区。 */
 .qtip{
-  /* inline-flex 是关键：.token-field > label 是 display:block，靠它让问号
-     内联在标签文字末尾而不另起一行，也无需改动 label 的布局。 */
+  /* 内联在标签文字末尾，不另起一行。
+     垂直对齐要同时覆盖两种父级：
+      · flex 父级（token-field>label / settings-switch-text>strong /
+        token-section-title 都是 align-items:baseline）—— 靠 align-self:center
+        让圆点与文字行盒垂直居中；若沿用 baseline，14px 的圆点盒子会相对
+        文字行盒下沉约 3.6px，看起来就是「文字与问号没对齐」。
+      · 普通块级父级（share-stat-label 等）—— 靠 vertical-align:middle。
+     两者互不干扰，故同时声明。 */
   display:inline-flex;
   position:relative;
+  align-self:center;
   vertical-align:middle;
-  margin-left:5px;
+  margin-left:4px;
+  flex:none;
+  /* 圆点相对文字行盒中心系统性偏上约 1.3px（flex 行高与元素高度不相等所致），
+     这里用 relative 偏移补偿。用 top 而非 transform：transform 会让本元素
+     成为 fixed 后代的包含块，虽然浮层已 teleport 到 body 不受影响，但没必要
+     引入这个副作用。em 单位跟随各处字号自动缩放。 */
+  top:0.1em;
 }
 .qtip__dot{
-  width:17px;height:17px;
+  /* 弱化为「淡灰字符」而非控件：无边框、无底色、不占额外体积，
+     默认态只比正文再淡一档，hover / 聚焦时才微微加深提示可交互。 */
+  width:14px;height:14px;
   flex:none;
   display:inline-flex;align-items:center;justify-content:center;
   padding:0;
+  border:0;
   border-radius:50%;
-  border:1px solid var(--glass-border-ice);
-  background:var(--glass-subtle);
+  background:none;
   color:var(--text-muted);
+  opacity:.62;
   font-family:inherit;
-  font-size:11px;font-weight:800;line-height:1;
+  font-size:11px;font-weight:600;line-height:1;
   cursor:help;
-  transition:color var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast);
+  transition:color var(--dur-fast),opacity var(--dur-fast),background var(--dur-fast);
 }
 .qtip__dot:hover,
 .qtip__dot:focus-visible{
   color:var(--primary);
-  border-color:var(--primary);
+  opacity:1;
   background:rgba(var(--primary-rgb),.1);
   outline:none;
 }
@@ -814,7 +839,10 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
 .share-stat-value.ok{color:var(--c-success-text)}
 .share-stat-value.warn{color:#92400e}
 html[data-theme="dark"] .share-stat-value.warn{color:#fbbf24}
-.share-stat-label{font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;font-weight:600}
+/* 统计标签：文字与末尾问号垂直居中对齐。原先是块级 + vertical-align:middle，
+   圆点会相对文字下沉约 2.4px；改 flex 后用 justify-content:center 继续保持
+   原本 text-align:center 的居中效果，不至于与上方数值的视觉中轴错开。 */
+.share-stat-label{display:flex;align-items:center;justify-content:center;font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;font-weight:600}
 .share-filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:11px}
 .share-filter-btn{font-family:inherit;font-size:var(--fs-xs);font-weight:700;cursor:pointer;padding:5px 11px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-surface);color:var(--text-sub);transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);display:inline-flex;align-items:center;gap:5px;}
 .share-filter-btn:hover{border-color:var(--primary-light);color:var(--primary);transform:translateY(-2px)}
