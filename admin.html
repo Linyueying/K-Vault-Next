@@ -29,8 +29,33 @@
   --text-muted:#475569;
   --fs-xs:.75rem;--fs-sm:.8125rem;
   --primary-text:#0369a1;--c-success-text:#15803d;
+  /* ---- Apple 语义令牌：设置区重构专用 ----
+     为什么另起一套而不复用 --glass-*：
+     1) --glass-border-ice 是蓝色（light rgba(186,230,253,.75)），拿它画分隔线
+        会把整个设置区染成冰蓝网格；Apple 的 separator 必须是中性灰。
+     2) --glass-subtle 是玻璃质感（半透明 + 蓝调），而 iOS 分组列表的背景
+        secondarySystemBackground 是「比页面底色提亮一档」的近实色。
+     3) --r-md 是 16px，用在密集列表里偏胖；分组需要一档 12px（HIG 10~12pt）。
+     按 HIG 的语义角色命名而非视觉值 —— 换主题只改这一处。 */
+  --hairline: rgba(60,60,67,.18);        /* separator */
+  --group-bg: rgba(255,255,255,.72);     /* secondarySystemBackground */
+  --group-bg-elevated: rgba(255,255,255,.98); /* 分段控件里浮起的滑块 */
+  --label-secondary: rgba(60,60,67,.6);  /* secondaryLabel */
+  --seg-bg: rgba(118,118,128,.12);       /* UISegmentedControl 轨道 */
+  --fill-secondary: rgba(120,120,128,.12);
+  --stat-num: 1.75rem;                   /* 28px：统计大数字 */
+  --group-radius: 12px;
 }
-html[data-theme="dark"]{--text-muted:#a3b1c6;--primary-text:#7dd3fc;--c-success-text:#4ade80}
+html[data-theme="dark"]{
+  --text-muted:#a3b1c6;--primary-text:#7dd3fc;--c-success-text:#4ade80;
+  --hairline: rgba(148,163,184,.28);
+  --group-bg: rgba(45,59,82,.55);        /* 面板底色是蓝调 #0F1B31，取提亮的蓝灰，
+                                            避免中性灰浮在蓝底上发脏 */
+  --group-bg-elevated: rgba(78,95,122,.95);
+  --label-secondary: rgba(235,235,245,.6);
+  --seg-bg: rgba(118,118,128,.20);
+  --fill-secondary: rgba(120,120,128,.24);
+}
 /* =========================================================
 Reset & Base
 ========================================================= */
@@ -614,12 +639,6 @@ z-index(1000) 高于 dock(100)，堆叠顺序天然正确。
 /* =========================================================
 分享：形态切换 / 二维码 / 目录行内按钮
 ========================================================= */
-.share-mode-switch{display:flex;gap:6px;margin-bottom:10px}
-.share-mode-chip{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--glass-border-ice);background:transparent;color:var(--text-sub);font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:all .18s var(--ease-apple)}
-.share-mode-chip:hover:not(:disabled){background:rgba(var(--primary-rgb),.08);color:var(--primary)}
-.share-mode-chip.on{border-color:var(--primary);background:rgba(var(--primary-rgb),.14);color:var(--primary-dark);font-weight:800}
-html[data-theme="dark"] .share-mode-chip.on{color:var(--primary-light)}
-.share-mode-chip:disabled{opacity:.45;cursor:not-allowed}
 /* 「选填」小字：不标出来会让人以为标题/说明是必填项 */
 .field-label__opt{font-weight:600;color:var(--text-muted)}
 .share-textarea{height:auto;min-height:58px;line-height:1.6;resize:vertical}
@@ -653,9 +672,53 @@ API Token 管理面板
 
 /* ===== 上传设置：访客开关 ===== */
 .settings-loading{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--text-muted);padding:8px 0}
+/* =========================================================
+.set-group —— iOS inset-grouped 列表
+---------------------------------------------------------
+设置区原先每个开关各占一张「圆角卡片 + 边框 + 底色」，7 个开关就是 7 张卡片，
+视觉上是 7 个互不相干的块，读不出「这些都属于同一项设置」。
+iOS 的做法反过来：整组共用一个圆角容器，行与行之间只用一条 hairline 分隔。
+容器本身才是「一个设置项」的语义单位。
+
+区分两个概念：
+  · 边框（border）—— 圈定一个独立对象
+  · 分隔线（separator）—— 划分同一对象内部的条目
+把分隔线的活交给边框干，就会得到「一堆小卡片」，这正是要修的问题。
+========================================================= */
+.set-group{
+  background:var(--group-bg);
+  border-radius:var(--group-radius);
+  /* 用 box-shadow 而非 border 描边：border 是布局的一部分，.5px 会被多数浏览器
+     取整成 1px；box-shadow 走绘制管线，能画出真正的半像素细线。
+     另外 border 会把行的可用宽度吃掉 2px，hairline 的左缩进就得跟着算边框补偿。 */
+  box-shadow:0 0 0 .5px var(--hairline);
+  /* 首行顶边与末行底边的 hairline 需要被圆角裁掉，否则圆角外侧会露出直角线头 */
+  overflow:hidden;
+  margin-bottom:var(--sp-4);
+}
 /* 开关默认与文字首行居中对齐：文字可能折成多行，flex-start 会让开关吊在
    顶部、与首行文字错位；改为让两侧内容各自居中对齐，视觉重心落在首行。 */
-.settings-switch-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);margin-bottom:var(--sp-3);}
+.settings-switch-row{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  /* iOS 行内边距 16pt；上下 11pt 让「文字行 + 分隔线」恰好落在 44pt 触控高内 */
+  padding:11px 16px;
+  min-height:44px;
+  /* 撤掉独立卡片外观：圆角、边框、底色、行间距现在都由 .set-group 提供 */
+  border:0;border-radius:0;background:none;margin-bottom:0;
+  position:relative;
+}
+/* hairline 用伪元素而非 border-bottom：border 参与行盒高度计算，会让下一行
+   矮 1px、开关随之偏移 0.5px，破坏已经调到 ±0.01px 的对齐。
+   left:16px 与文字左边缘对齐 —— Apple 的分隔线永远从文字起始处开始，
+   不到头的线读起来才像「同一项里的不同条目」。
+   1px + scaleY(.5)：不用 height:.5px，Safari 15 之前会把它归零成没线。 */
+.settings-switch-row::after{
+  content:'';
+  position:absolute;left:16px;right:0;bottom:0;
+  height:1px;background:var(--hairline);
+  transform:scaleY(.5);transform-origin:0 100%;
+}
+.settings-switch-row:last-child::after{content:none}
 .settings-switch-text{display:flex;flex-direction:column;gap:3px;min-width:0}
 /* 用直接子元素（>）而非后代选择器：开关标题里的 q-tip 浮层也含 <strong>，
    后代选择器会把 .84rem/800 的标题样式误继承给浮层里的强调文字。
@@ -688,13 +751,6 @@ html[data-theme="dark"] .settings-note--warn{color:#f87171}
 @media (max-width:420px){
   .token-grid{grid-template-columns:1fr}
 }
-.token-chips{display:flex;gap:var(--sp-2);flex-wrap:wrap}
-.token-chip{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-xs);font-weight:700;padding:6px var(--sp-3);border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);color:var(--text-sub);cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);}
-.token-chip:hover{border-color:var(--primary);color:var(--primary);transform:translateY(-2px)}
-.token-chip:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.token-chip.active{background:var(--primary-surface);border-color:var(--primary);color:var(--primary-dark)}
-html[data-theme="dark"] .token-chip.active{color:var(--primary-light)}
-.token-chip i{animation:pop .28s var(--ease-apple) backwards}
 .token-list{display:flex;flex-direction:column;gap:9px;max-height:340px;overflow:auto;padding-right:2px;position:relative}
 /* 列表行逐个「长」出来，而不是整块弹现 */
 .token-list>.token-row{animation:riseInSm .44s var(--ease-fluid) backwards}
@@ -765,18 +821,24 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
   border-radius:50%;
   background:none;
   color:var(--text-muted);
-  opacity:.55;
+  opacity:.6;
   cursor:help;
   transition:color var(--dur-fast),opacity var(--dur-fast),background var(--dur-fast);
 }
-/* 环内的 i 用衬线 italic：衬线体的小写 i 自带明确的点画结构，
-   在 8.5px 下仍可辨识；无衬线体的 i 缩到这个尺寸就是一个竖条。 */
+/* 环内的 i：无衬线、非斜体 —— Apple 的 info.circle 就是 SF Pro Text 的常规 i。
+   此前用 Georgia italic，问题不在「衬线」本身，而在 8.5px + 倾斜这个组合：
+   Georgia 的竖画粗细对比强烈，倾斜后在小尺寸下点画糊成墨点、竖画看着像歪的
+   感叹号。改成 9px 常规字重后，靠 font-weight:700 提笔画宽度换取可辨识度。
+   字号从 8.5 → 9 不撑破 14px 的圆环盒（盒高由 .qtip__dot 固定）。 */
 .qtip__glyph{
-  font-family:Georgia,'Times New Roman',serif;
-  font-style:italic;
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',
+              Roboto,'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif;
+  font-style:normal;
   font-weight:700;
-  font-size:8.5px;
+  font-size:9px;
   line-height:1;
+  /* 无衬线 i 的字面重心偏上（升部顶着字身框），下沉半像素落到光学中心 */
+  transform:translateY(.5px);
 }
 .qtip__dot:hover,
 .qtip__dot:focus-visible{
@@ -836,31 +898,131 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
 .token-divider{height:1px;background:var(--glass-border-ice);margin:var(--sp-4) 0}
 .checkbox-row{display:flex;align-items:center;gap:var(--sp-2);cursor:pointer}
 .checkbox-row input{width:var(--sp-4);height:var(--sp-4);accent-color:var(--primary)}
+/* =========================================================
+.seg —— 统一的多选 / 分段控件
+---------------------------------------------------------
+设置区此前有 4 套竞争外观：
+  .token-chip（权限/后端多选）· .share-filter-btn（分享筛选）
+  .share-mode-chip（合集形态切换）· 分享 tab 的内联 :style 三元表达式
+它们做的是同一件事（一组互斥/可多选的短标签），却各有各的圆角、选中态与
+hover 位移，合在同一屏里就是「混乱」。这里统一成一套：
+
+  容器 .seg         药丸组，可换行（多选用）
+  容器 .seg--bar    分段组，等分满宽，带灰轨道（互斥切换用）
+  容器 .seg--inline 分段组但不撑满（分享 tab 用）
+  项   .seg__opt    唯一的按钮类
+  态   .is-on       唯一的选中态（消灭 active / on 两种叫法）
+  徽章 .seg__count  计数
+
+为什么分成「容器修饰符」而不是「两种尺寸变体」：药丸要 flex-wrap + gap，
+分段要 flex:1 + 轨道底，两者容器行为互斥；硬塞进同一个类会让每个使用点都
+写一堆反向覆盖，最后又变成四套。
+
+两种选中态是有意区分的：
+  · .seg 内（多选、过滤性）—— 实心主色胶囊，与未选中态明度差最大，
+    一眼能数出选了几个（Apple 邮件收件人就是这个形态）。
+  · .seg--bar 内（互斥、导航性）—— 浮起的滑块，这是 UISegmentedControl
+    的真实形态。让「分段」与「标签」在视觉上可分，不用读文字就知道该怎么用。
+========================================================= */
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+/* 轨道：UISegmentedControl 的灰底。padding 2px 让滑块四边都露出一圈轨道，
+   这是「浮起」观感的来源 —— 贴边就没有浮起感了。 */
+.seg--bar{
+  flex-wrap:nowrap;
+  gap:0;
+  width:100%;
+  padding:2px;
+  border-radius:var(--r-md);
+  background:var(--seg-bg);
+}
+/* 分享 tab 不是等分导航，是「两个内容长度不同的标签」：容器与项都不撑满，
+   否则「文件分享」会被拉得和「合集 / 目录分享」一样宽，右边空一大块。 */
+.seg--inline{width:auto}
+.seg--inline>.seg__opt{flex:0 0 auto}
+/* 分享 tab 的外边距：原来写在内联 style 里，随 :style 三元表达式一起被消灭 */
+.share-tab-switch{margin:2px 0 14px}
+.seg__opt{
+  /* 继承页面字体：button 不继承 font-family，不写这行会掉回浏览器默认 */
+  font-family:inherit;
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  font-size:var(--fs-xs);font-weight:700;line-height:1.4;
+  cursor:pointer;
+  padding:6px 11px;
+  border-radius:var(--r-pill);
+  border:1px solid var(--glass-border-ice);
+  background:var(--glass-surface);
+  color:var(--text-sub);
+  transition:transform .3s var(--ease-spring),background .2s var(--ease-apple),
+             border-color .2s var(--ease-apple),color .2s var(--ease-apple),
+             box-shadow .2s var(--ease-apple);
+}
+.seg__opt:hover{color:var(--primary);border-color:var(--primary-light);transform:translateY(-2px)}
+.seg__opt:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
+.seg__opt:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+/* 药丸组内的选中：实心主色 */
+.seg>.seg__opt.is-on{
+  background:var(--primary);border-color:var(--primary);color:#fff;
+}
+.seg>.seg__opt.is-on:hover{transform:none;color:#fff}
+/* 分段组内的项：去胶囊圆角、去边框，等分填满轨道 */
+.seg--bar>.seg__opt{
+  flex:1;min-width:0;
+  border:0;background:transparent;
+  border-radius:calc(var(--r-md) - 2px);
+  padding:7px 10px;transform:none;
+}
+.seg--bar>.seg__opt:hover{transform:none}
+.seg--bar>.seg__opt:active{transform:none}
+/* 分段组内的选中：浮起的滑块 */
+.seg--bar>.seg__opt.is-on{
+  background:var(--group-bg-elevated);
+  color:var(--primary-dark);
+  font-weight:800;
+  box-shadow:0 1px 3px rgba(0,0,0,.10),0 0 0 .5px var(--hairline);
+}
+html[data-theme="dark"] .seg--bar>.seg__opt.is-on{color:var(--primary-light)}
+.seg__opt:disabled{opacity:.4;cursor:not-allowed}
+.seg__opt:disabled:hover{transform:none;color:var(--text-sub);border-color:var(--glass-border-ice)}
+.seg__count{
+  flex:none;
+  font-size:.68rem;font-weight:700;
+  padding:0 5px;border-radius:var(--r-pill);
+  background:var(--fill-secondary);color:var(--text-sub);
+  font-variant-numeric:tabular-nums;
+}
+.seg__opt.is-on .seg__count{background:rgba(255,255,255,.26);color:#fff}
+/* 分段组内选中态的主色来自文字而非 --primary（后者在深色下对比度不足），
+   计数徽章跟着走半透明底 + 主文字色，保持与所在项一致 */
+.seg--bar>.seg__opt.is-on .seg__count{background:var(--fill-secondary);color:inherit}
+
 /* 分享管理 */
-.share-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:9px;margin-bottom:var(--sp-4)}
-.share-stat{border:1px solid var(--glass-border-ice);border-radius:var(--r-md);background:var(--glass-subtle);padding:11px var(--sp-2);text-align:center}
-.share-stats>.share-stat{animation:scaleIn .46s var(--ease-spring) backwards}
-.share-stats>.share-stat:nth-child(1){animation-delay:.02s}
-.share-stats>.share-stat:nth-child(2){animation-delay:.05s}
-.share-stats>.share-stat:nth-child(3){animation-delay:.08s}
-.share-stats>.share-stat:nth-child(4){animation-delay:.11s}
-.share-stats>.share-stat:nth-child(5){animation-delay:.14s}
-.share-stats>.share-stat:nth-child(n+6){animation-delay:.17s}
-.share-stat-value{font-size:var(--fs-xl);font-weight:800;line-height:1.2;color:var(--primary-dark)}
+/* 统计区：Apple 的「数字墙」不画卡片 —— 去掉边框与底色，靠三件事维持可扫读：
+   1) 字号反差（28px 数字 vs 12px 标签）
+   2) 明度反差（主数字 --text-main vs 标签 --label-secondary）
+   3) 统一的列间距（下由 gap 控制）
+   原先 6 个带边框的小卡片在窄屏挤成一团，边框反而抢了数字的视觉权重。 */
+.share-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:14px 16px;margin-bottom:var(--sp-4)}
+.share-stat{border:0;background:none;padding:0;text-align:center}
+/* 逐项 scaleIn 已删：Apple 的统计数字从不依次弹入 —— 6 个数字先后弹跳 0.7s
+   会拖慢首次扫读，而这一屏的价值恰恰是「一眼看完」。 */
+.share-stat-value{font-size:var(--stat-num);font-weight:600;line-height:1.15;color:var(--text-main);
+  letter-spacing:-.02em;
+  /* 等宽数字：数值刷新时字宽不变，整排不会左右晃动 */
+  font-variant-numeric:tabular-nums}
 .share-stat-value.ok{color:var(--c-success-text)}
 .share-stat-value.warn{color:#92400e}
 html[data-theme="dark"] .share-stat-value.warn{color:#fbbf24}
 /* 统计标签：文字与末尾问号垂直居中对齐。原先是块级 + vertical-align:middle，
    圆点会相对文字下沉约 2.4px；改 flex 后用 justify-content:center 继续保持
    原本 text-align:center 的居中效果，不至于与上方数值的视觉中轴错开。 */
-.share-stat-label{display:flex;align-items:center;justify-content:center;font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;font-weight:600}
+.share-stat-label{display:flex;align-items:center;justify-content:center;font-size:var(--fs-xs);color:var(--label-secondary);margin-top:4px;font-weight:600}
+/* 窄屏：数字降一档，并锁死 3 列 —— auto-fit 在 390px 下会算出 2 列，
+   6 个数字变成三行，纵向占掉半屏；3 列两行是这里最紧凑的可扫读排布。 */
+@media (max-width:420px){
+  .share-stats{grid-template-columns:repeat(3,1fr);gap:12px 10px}
+  .share-stat-value{font-size:1.5rem}
+}
 .share-filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:11px}
-.share-filter-btn{font-family:inherit;font-size:var(--fs-xs);font-weight:700;cursor:pointer;padding:5px 11px;border-radius:var(--r-pill);border:1px solid var(--glass-border-ice);background:var(--glass-surface);color:var(--text-sub);transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple),color .3s var(--ease-apple);display:inline-flex;align-items:center;gap:5px;}
-.share-filter-btn:hover{border-color:var(--primary-light);color:var(--primary);transform:translateY(-2px)}
-.share-filter-btn:active{transform:scale(.94);transition-duration:.09s;transition-timing-function:var(--ease-press)}
-.share-filter-btn.active{background:var(--primary);border-color:var(--primary);color:#fff}
-.share-filter-count{font-size:.68rem;font-weight:700;padding:0 5px;border-radius:var(--r-pill);background:rgba(var(--primary-rgb),.16);color:var(--primary-dark);font-variant-numeric:tabular-nums}
-.share-filter-btn.active .share-filter-count{background:rgba(255,255,255,.26);color:#fff}
 .share-search{display:flex;align-items:center;gap:7px;margin-left:auto;border:1px solid var(--glass-border-ice);border-radius:var(--r-pill);padding:5px var(--sp-3);background:var(--glass-surface);min-width:180px;}
 .share-search i{color:var(--text-muted);font-size:var(--fs-xs)}
 .share-search input{border:none;background:transparent;outline:none;font-family:inherit;font-size:var(--fs-xs);color:var(--text-main);width:100%;min-width:0}
@@ -1068,7 +1230,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .view-toggle{padding:4px}
   .view-toggle button{width:54px;height:44px}
   .tool-btn{min-height:44px;padding:0 16px}
-  .token-chip,.filter-pill,.share-filter-btn{min-height:44px}
+  .seg__opt,.filter-pill{min-height:44px}
   .filter-select{padding-block:12px}
   .dropdown-item{min-height:44px}
   .dialog-input,.token-input,.token-select{min-height:44px}
@@ -2356,19 +2518,21 @@ html[data-perf="low"] .dock{transition:none}
             <span class="badge-env" v-else>来自环境变量</span>
           </div>
 
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>允许未登录访客上传
-                <q-tip>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</q-tip>
-              </strong>
+          <div class="set-group">
+            <div class="settings-switch-row">
+              <div class="settings-switch-text">
+                <strong>允许未登录访客上传
+                  <q-tip>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</q-tip>
+                </strong>
+              </div>
+              <!-- 统一用 index 的 .switch 结构（label + 隐藏 input + track + thumb） -->
+              <label class="switch">
+                <input type="checkbox" v-model="guestForm.enabled" role="switch"
+                       :aria-checked="String(guestForm.enabled)" />
+                <span class="switch__track"></span>
+                <span class="switch__thumb"></span>
+              </label>
             </div>
-            <!-- 统一用 index 的 .switch 结构（label + 隐藏 input + track + thumb） -->
-            <label class="switch">
-              <input type="checkbox" v-model="guestForm.enabled" role="switch"
-                     :aria-checked="String(guestForm.enabled)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
-            </label>
           </div>
 
           <div class="token-grid" v-if="guestForm.enabled">
@@ -2409,22 +2573,24 @@ html[data-perf="low"] .dock{transition:none}
             <span class="badge-env" v-else>来自环境变量</span>
           </div>
 
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>同时把文件元数据写入 KV
-                <q-tip>
-                  开启时每次上传 / 改名 / 移动都会在 <code class="kv-code">D1</code> 与 <code class="kv-code">KV</code>
-                  各写一份，互为备份；关闭后只写 D1，KV 不再接收文件记录。
-                  <strong>关闭前请确认 D1 工作正常</strong>，因为此时 D1 会成为唯一数据源。
-                </q-tip>
-              </strong>
+          <div class="set-group">
+            <div class="settings-switch-row">
+              <div class="settings-switch-text">
+                <strong>同时把文件元数据写入 KV
+                  <q-tip>
+                    开启时每次上传 / 改名 / 移动都会在 <code class="kv-code">D1</code> 与 <code class="kv-code">KV</code>
+                    各写一份，互为备份；关闭后只写 D1，KV 不再接收文件记录。
+                    <strong>关闭前请确认 D1 工作正常</strong>，因为此时 D1 会成为唯一数据源。
+                  </q-tip>
+                </strong>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="storageForm.writeKvLegacy" role="switch"
+                       :aria-checked="String(storageForm.writeKvLegacy)" />
+                <span class="switch__track"></span>
+                <span class="switch__thumb"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" v-model="storageForm.writeKvLegacy" role="switch"
-                     :aria-checked="String(storageForm.writeKvLegacy)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
-            </label>
           </div>
 
           <div class="settings-note" v-if="storageForm.writeKvLegacy">
@@ -2459,21 +2625,23 @@ html[data-perf="low"] .dock{transition:none}
             <span class="badge-env" v-else>来自环境变量</span>
           </div>
 
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>启用 WebDAV 服务端
-                <q-tip>
-                  开启后可通过 <code class="kv-code">/dav</code> 访问。上传的文件与其他入口完全同构，
-                  可在文件列表 / 分享 / 后台中正常管理。
-                </q-tip>
-              </strong>
+          <div class="set-group">
+            <div class="settings-switch-row">
+              <div class="settings-switch-text">
+                <strong>启用 WebDAV 服务端
+                  <q-tip>
+                    开启后可通过 <code class="kv-code">/dav</code> 访问。上传的文件与其他入口完全同构，
+                    可在文件列表 / 分享 / 后台中正常管理。
+                  </q-tip>
+                </strong>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="webdavForm.enabled" role="switch"
+                       :aria-checked="String(webdavForm.enabled)" />
+                <span class="switch__track"></span>
+                <span class="switch__thumb"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" v-model="webdavForm.enabled" role="switch"
-                     :aria-checked="String(webdavForm.enabled)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
-            </label>
           </div>
 
           <template v-if="webdavForm.enabled">
@@ -2497,18 +2665,20 @@ html[data-perf="low"] .dock{transition:none}
               </div>
             </div>
 
-            <div class="settings-switch-row">
-              <div class="settings-switch-text">
-                <strong>只读模式
-                  <q-tip>开启后客户端只能浏览与下载，任何写入（上传 / 建目录 / 重命名 / 删除）都会被拒绝。</q-tip>
-                </strong>
+            <div class="set-group">
+              <div class="settings-switch-row">
+                <div class="settings-switch-text">
+                  <strong>只读模式
+                    <q-tip>开启后客户端只能浏览与下载，任何写入（上传 / 建目录 / 重命名 / 删除）都会被拒绝。</q-tip>
+                  </strong>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" v-model="webdavForm.readOnly" role="switch"
+                         :aria-checked="String(webdavForm.readOnly)" />
+                  <span class="switch__track"></span>
+                  <span class="switch__thumb"></span>
+                </label>
               </div>
-              <label class="switch">
-                <input type="checkbox" v-model="webdavForm.readOnly" role="switch"
-                       :aria-checked="String(webdavForm.readOnly)" />
-                <span class="switch__track"></span>
-                <span class="switch__thumb"></span>
-              </label>
             </div>
 
             <div class="token-field">
@@ -2575,13 +2745,15 @@ html[data-perf="low"] .dock{transition:none}
         </q-tip>
       </h2>
 
-      <div style="display:flex;gap:8px;margin:2px 0 14px;">
-        <button type="button" @click="switchShareTab('files')"
-                :style="shareTab==='files' ? 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-weight:600;cursor:pointer;' : 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--glass-border-ice);background:transparent;color:var(--text-sub);cursor:pointer;'">
+      <!-- 形态 tab：此前整个外观写在 :style 三元表达式里（两个分支各 12 条声明，
+           只有 3 条不同）。改走 .seg--bar，选中态交给 .is-on。 -->
+      <div class="seg seg--bar seg--inline share-tab-switch">
+        <button type="button" class="seg__opt" :class="{'is-on': shareTab==='files'}"
+                @click="switchShareTab('files')">
           文件分享
         </button>
-        <button type="button" @click="switchShareTab('bundles')"
-                :style="shareTab==='bundles' ? 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--primary);background:var(--primary);color:#fff;font-weight:600;cursor:pointer;' : 'flex:0 0 auto;padding:8px 16px;border-radius:10px;border:1px solid var(--glass-border-ice);background:transparent;color:var(--text-sub);cursor:pointer;'">
+        <button type="button" class="seg__opt" :class="{'is-on': shareTab==='bundles'}"
+                @click="switchShareTab('bundles')">
           合集 / 目录分享
         </button>
       </div>
@@ -2625,12 +2797,14 @@ html[data-perf="low"] .dock{transition:none}
           </button>
         </div>
 
-        <div class="share-filters">
+        <!-- .seg 与 .share-filters 并存：后者承载 margin-left:auto 的搜索框，
+             前者提供多选容器的选中态作用域（.seg>.seg__opt.is-on）。 -->
+        <div class="share-filters seg">
           <button v-for="f in shareFilters" :key="f.value"
-                  class="share-filter-btn"
-                  :class="{active: shareFilter === f.value}"
+                  class="seg__opt"
+                  :class="{'is-on': shareFilter === f.value}"
                   @click="shareFilter = f.value">
-            {{ f.label }}<span class="share-filter-count" v-if="shareFilterCounts[f.value]" :key="shareFilterCounts[f.value]">{{ shareFilterCounts[f.value] }}</span>
+            {{ f.label }}<span class="seg__count" v-if="shareFilterCounts[f.value]" :key="shareFilterCounts[f.value]">{{ shareFilterCounts[f.value] }}</span>
           </button>
           <div class="share-search">
             <i class="fas fa-magnifying-glass"></i>
@@ -2805,46 +2979,50 @@ html[data-perf="low"] .dock{transition:none}
           <span class="badge-env" v-else>来自环境变量</span>
         </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>启用隔空投送
-              <q-tip>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</q-tip>
-            </strong>
+        <!-- 三个开关同属「访客使用权限」，合成一个分组容器：
+             此前是三张各自独立的卡片，读不出它们管的是同一件事。 -->
+        <div class="set-group">
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>启用隔空投送
+                <q-tip>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</q-tip>
+              </strong>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="airdropForm.enabled" role="switch"
+                     :aria-checked="String(airdropForm.enabled)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
           </div>
-          <label class="switch">
-            <input type="checkbox" v-model="airdropForm.enabled" role="switch"
-                   :aria-checked="String(airdropForm.enabled)" />
-            <span class="switch__track"></span>
-            <span class="switch__thumb"></span>
-          </label>
-        </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>允许未登录访客发起投送
-              <q-tip>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</q-tip>
-            </strong>
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>允许未登录访客发起投送
+                <q-tip>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</q-tip>
+              </strong>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
+                     :aria-checked="String(airdropForm.guestAllowed)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
           </div>
-          <label class="switch">
-            <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
-                   :aria-checked="String(airdropForm.guestAllowed)" />
-            <span class="switch__track"></span>
-            <span class="switch__thumb"></span>
-          </label>
-        </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>允许未登录访客接收文件
-              <q-tip>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</q-tip>
-            </strong>
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>允许未登录访客接收文件
+                <q-tip>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</q-tip>
+              </strong>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
+                     :aria-checked="String(airdropForm.guestReceiveAllowed)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
           </div>
-          <label class="switch">
-            <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
-                   :aria-checked="String(airdropForm.guestReceiveAllowed)" />
-            <span class="switch__track"></span>
-            <span class="switch__thumb"></span>
-          </label>
         </div>
 
         <div class="token-grid">
@@ -3123,9 +3301,9 @@ html[data-perf="low"] .dock{transition:none}
               <strong>未勾选任何权限的 Token 无法调用任何 API</strong>，只能用于文件管理类操作。
             </q-tip>
           </label>
-          <div class="token-chips">
-            <button class="token-chip" v-for="s in tokenScopeCatalog" :key="s.value"
-                    :class="{active: tokenForm.scopes.includes(s.value)}"
+          <div class="seg">
+            <button class="seg__opt" v-for="s in tokenScopeCatalog" :key="s.value"
+                    :class="{'is-on': tokenForm.scopes.includes(s.value)}"
                     :title="s.desc" @click="toggleTokenScope(s.value)">
               <i class="fas fa-check" v-if="tokenForm.scopes.includes(s.value)"></i>{{ s.label }}
             </button>
@@ -3134,9 +3312,9 @@ html[data-perf="low"] .dock{transition:none}
 
         <div class="token-field">
           <label>策略：限定存储后端（留空 = 不限制）</label>
-          <div class="token-chips">
-            <button class="token-chip" v-for="name in tokenPolicyStorages" :key="name"
-                    :class="{active: tokenForm.allowedStorages.includes(name)}"
+          <div class="seg">
+            <button class="seg__opt" v-for="name in tokenPolicyStorages" :key="name"
+                    :class="{'is-on': tokenForm.allowedStorages.includes(name)}"
                     @click="toggleTokenStorage(name)">
               <i class="fas fa-check" v-if="tokenForm.allowedStorages.includes(name)"></i>{{ name }}
             </button>
@@ -3326,15 +3504,15 @@ html[data-perf="low"] .dock{transition:none}
 
       <!-- 形态切换：目录分享此前只存在于 index，admin 完全没有入口。
            两个形态共用同一个对话框与同一套后端接口，切换只是改成员来源。 -->
-      <div class="share-mode-switch" v-if="!bundleEditKind">
-        <button type="button" class="share-mode-chip"
-                :class="{on: bundleMode === 'files'}"
+      <div class="seg seg--bar" v-if="!bundleEditKind">
+        <button type="button" class="seg__opt"
+                :class="{'is-on': bundleMode === 'files'}"
                 :disabled="!bundleFiles.length"
                 @click="bundleMode = 'files'">
           <i class="fas fa-layer-group"></i> 选中的文件<template v-if="bundleFiles.length">（{{ bundleFiles.length }}）</template>
         </button>
-        <button type="button" class="share-mode-chip"
-                :class="{on: bundleMode === 'folder'}"
+        <button type="button" class="seg__opt"
+                :class="{'is-on': bundleMode === 'folder'}"
                 @click="bundleMode = 'folder'">
           <i class="fas fa-folder-tree"></i> 整个目录
         </button>
