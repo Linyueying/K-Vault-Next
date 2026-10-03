@@ -53,8 +53,21 @@ export const BRANDING_CONFIG_KEY = 'config:branding';
 /** 隔空投送配置在 KV 中的 key */
 export const AIRDROP_CONFIG_KEY = 'config:airdrop';
 
+/**
+ * WebDAV **服务端**配置在 KV 中的 key。
+ *
+ * ⚠️ 与 utils/webdav.js 的 **客户端** 配置（WEBDAV_BASE_URL / WEBDAV_USERNAME
+ * / WEBDAV_PASSWORD / WEBDAV_BEARER_TOKEN / WEBDAV_ROOT_PATH）**完全无关**：
+ *
+ *   · 客户端配置 —— 本项目把文件「上传到别人的 WebDAV」时用
+ *   · 服务端配置（本组）—— 让别人把「本项目当 WebDAV 网盘挂载」时用
+ *
+ * 两者名字相近但正交，故环境变量一律加 `WEBDAV_SERVER_` 前缀以避免误配。
+ */
+export const WEBDAV_CONFIG_KEY = 'config:webdav';
+
 /** 所有配置组的名字，供后台设置接口遍历 */
-export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop'];
+export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav'];
 
 const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
@@ -83,6 +96,18 @@ export const DEFAULT_AIRDROP_GUEST_RECEIVE_ALLOWED = true;
 export const DEFAULT_AIRDROP_STATS_RETENTION = 500;
 // 保留条数的上限：再大就没有"自动清理"的意义了，也防止误填一个天文数字。
 export const MAX_AIRDROP_STATS_RETENTION = 100000;
+
+// ── WebDAV 服务端默认值 ──────────────────────────────────────
+// 默认**关闭**：对外暴露一个可写入的网盘挂载点，默认必须收窄开放面，
+// 由管理员在后台显式开启（与 guest.enabled / airdrop.guestAllowed 同源）。
+export const DEFAULT_WEBDAV_ENABLED = false;
+// 默认后端 = telegram：它是本项目中唯一「无需额外凭据即可写入、且下载走
+// /file/ 代理」的后端，作为零配置默认最稳。管理员可在后台切换。
+export const DEFAULT_WEBDAV_BACKEND = 'telegram';
+// 只读默认关闭：完整读写才有"当网盘挂载"的意义，由管理员按需收紧。
+export const DEFAULT_WEBDAV_READONLY = false;
+/** WebDAV 服务端允许的存储后端（与 storageOptions 保持一致）。 */
+export const WEBDAV_BACKENDS = ['telegram', 'r2', 's3', 'discord', 'huggingface', 'github'];
 
 /**
  * 进程内短 TTL 缓存。
@@ -312,6 +337,18 @@ const GROUPS = {
       statsRetention: toNonNegativeInt(env?.AIRDROP_STATS_RETENTION, DEFAULT_AIRDROP_STATS_RETENTION)
     }),
     normalize: (raw, base) => normalizeAirdropConfig(raw, base)
+  },
+  webdav: {
+    key: WEBDAV_CONFIG_KEY,
+    // 环境变量基线。enabled 缺省 false（显式 'true' 才开），与 guest 组同源。
+    fromEnv: (env) => ({
+      enabled: String(env?.WEBDAV_SERVER_ENABLED ?? 'false') === 'true',
+      username: String(env?.WEBDAV_SERVER_USERNAME ?? '').trim(),
+      password: String(env?.WEBDAV_SERVER_PASSWORD ?? ''),
+      readOnly: toBool(env?.WEBDAV_SERVER_READONLY, DEFAULT_WEBDAV_READONLY),
+      backend: normalizeWebdavBackend(env?.WEBDAV_SERVER_BACKEND)
+    }),
+    normalize: (raw, base) => normalizeWebdavServerConfig(raw, base)
   }
 };
 
@@ -420,6 +457,72 @@ export function normalizeAirdropConfig(raw, fallback) {
 /** 从环境变量读取隔空投送配置（部署期设定的基线） */
 export function readAirdropConfigFromEnv(env) {
   return GROUPS.airdrop.fromEnv(env);
+}
+
+/**
+ * 归一化 WebDAV 服务端后台选择。
+ * 未知 / 空值一律回落 telegram（默认后端）。
+ */
+export function normalizeWebdavBackend(raw) {
+  const mode = String(raw ?? '').trim().toLowerCase();
+  return WEBDAV_BACKENDS.includes(mode) ? mode : DEFAULT_WEBDAV_BACKEND;
+}
+
+/**
+ * 归一化 WebDAV 服务端配置。
+ *
+ * 规则：
+ *   · enabled / readOnly —— 严格布尔（只认真布尔与 'true'/'false'）。
+ *   · username —— trim 后截断到 64 字符。
+ *   · password —— 原样保留（**不做 trim**：密码首尾空格是合法字符），
+ *     截断到 128 字符。
+ *   · backend  —— 白名单收敛（见 normalizeWebdavBackend）。
+ *
+ * ⚠️ password 的 fallback 必须取 base 值，而不是空串：
+ *    后台保存时若只改开关、密码框留空，前端会传空串表示"不修改"。
+ *    归一化层若把空串当成新密码写入，就会**静默清空密码**，导致所有
+ *    已挂载的客户端立刻 401。因此这里把「空串」解释为"保持原值"。
+ *    （真正要清空密码的正确做法是关闭 WebDAV 服务端。）
+ */
+export function normalizeWebdavServerConfig(raw, fallback) {
+  const base = fallback || {
+    enabled: DEFAULT_WEBDAV_ENABLED,
+    username: '',
+    password: '',
+    readOnly: DEFAULT_WEBDAV_READONLY,
+    backend: DEFAULT_WEBDAV_BACKEND
+  };
+  if (!raw || typeof raw !== 'object') return { ...base };
+  return {
+    enabled: toBool(raw.enabled, base.enabled),
+    username: String(raw.username ?? base.username ?? '').trim().slice(0, 64),
+    // 空串 = 保持原值（见上方说明），非空才覆盖
+    password: (() => {
+      const raw_password = raw.password;
+      if (typeof raw_password === 'string' && raw_password.length > 0) {
+        return raw_password.slice(0, 128);
+      }
+      return String(base.password ?? '');
+    })(),
+    readOnly: toBool(raw.readOnly, base.readOnly),
+    backend: normalizeWebdavBackend(raw.backend ?? base.backend)
+  };
+}
+
+/** 从环境变量读取 WebDAV 服务端配置（部署期设定的基线） */
+export function readWebdavServerConfigFromEnv(env) {
+  return GROUPS.webdav.fromEnv(env);
+}
+
+/**
+ * 读取 WebDAV 服务端配置（KV 覆盖 > 环境变量基线）。
+ *
+ * 与 airdrop 组同理：**不读镜像缓存** —— WebDAV 的每个请求都要拿最新的
+ * 开关与凭据（管理员刚关掉 / 改了密码就该立刻生效），多一次 KV 读的代价
+ * 远小于放行一个本应被拒绝的挂载请求。
+ */
+export async function getWebdavServerConfig(env) {
+  return getRuntimeConfig(env, 'webdav');
 }
 
 /**

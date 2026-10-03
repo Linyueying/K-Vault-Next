@@ -16,7 +16,7 @@
 import fs from 'fs';
 import vm from 'vm';
 
-const PAGES = ['index.html', 'admin.html', 'share.html', 'gallery.html', 'paste.html', 'preview.html'];
+const PAGES = ['index.html', 'admin.html', 'share.html', 'gallery.html', 'paste.html', 'preview.html', 'webdav.html'];
 
 /** 以 `<div id="app">` 为根，按 div 深度配平取出它的 innerHTML。 */
 function appTemplate(src) {

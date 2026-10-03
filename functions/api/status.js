@@ -3,6 +3,7 @@ import { createS3Client } from '../utils/s3client.js';
 import { checkDiscordConnection } from '../utils/discord.js';
 import { checkHuggingFaceConnection, hasHuggingFaceConfig } from '../utils/huggingface.js';
 import { checkWebDAVConnection, hasWebDAVConfig } from '../utils/webdav.js';
+import { getWebdavServerConfig } from '../utils/runtime-config.js';
 import { checkGitHubConnection, hasGitHubConfig } from '../utils/github.js';
 import { getGuestConfig } from '../utils/guest.js';
 import { checkAuthentication, isAuthRequired } from '../utils/auth.js';
@@ -98,6 +99,18 @@ export async function onRequestGet(context) {
     guestUpload: await getGuestConfig(env),
     uploadLimits: getUploadLimits(),
   };
+
+  // WebDAV **服务端**状态（与本项目作为 WebDAV「客户端」的 webdav 字段无关）。
+  // 供 webdav.html 展示连接信息。**只下发启用状态与后端，绝不含用户名/密码**。
+  {
+    const webdavServer = await getWebdavServerConfig(env);
+    status.webdavServer = {
+      enabled: webdavServer.enabled === true,
+      readOnly: webdavServer.readOnly === true,
+      backend: webdavServer.backend || 'telegram',
+      mountPath: '/dav',
+    };
+  }
 
   // Anonymous callers stop here: no outbound connectivity probes are triggered
   // by unauthenticated requests, and no backend messages, upstream error

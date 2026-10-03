@@ -26,6 +26,8 @@ import {
     readStorageConfigFromEnv,
     readBrandingConfigFromEnv,
     readAirdropConfigFromEnv,
+    readWebdavServerConfigFromEnv,
+    WEBDAV_BACKENDS,
     MAX_AIRDROP_STATS_RETENTION,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
@@ -45,13 +47,14 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload, storage, branding, airdrop] = await Promise.all([
+    const [guest, cors, upload, storage, branding, airdrop, webdav] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
         getRuntimeConfig(env, 'upload'),
         getRuntimeConfig(env, 'storage'),
         getRuntimeConfig(env, 'branding'),
-        getRuntimeConfig(env, 'airdrop')
+        getRuntimeConfig(env, 'airdrop'),
+        getRuntimeConfig(env, 'webdav')
     ]);
 
     return {
@@ -90,6 +93,16 @@ async function buildView(env) {
             statsRetention: airdrop.statsRetention,
             source: airdrop.source
         },
+        // WebDAV 服务端：**绝不回传密码明文**，只给出「是否已设置」的布尔，
+        // 让前端能够显示"已配置 / 未配置"而不把凭据暴露在响应体里。
+        webdav: {
+            enabled: webdav.enabled === true,
+            username: webdav.username || '',
+            hasPassword: Boolean(webdav.password),
+            readOnly: webdav.readOnly === true,
+            backend: webdav.backend || 'telegram',
+            source: webdav.source
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
         // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
@@ -98,6 +111,17 @@ async function buildView(env) {
         brandingEnvBaseline: readBrandingConfigFromEnv(env),
         // 隔空投送的环境变量基线
         airdropEnvBaseline: readAirdropConfigFromEnv(env),
+        // WebDAV 服务端的环境变量基线（不返回密码明文）
+        webdavEnvBaseline: (() => {
+            const base = readWebdavServerConfigFromEnv(env);
+            return {
+                enabled: base.enabled,
+                username: base.username,
+                hasPassword: Boolean(base.password),
+                readOnly: base.readOnly,
+                backend: base.backend
+            };
+        })(),
         hasKvBinding: Boolean(env?.img_url),
         // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
         hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
@@ -240,6 +264,75 @@ function validateBranding(input) {
     return { ok: true, value: {} };
 }
 
+/**
+ * 校验 WebDAV 服务端配置。
+ *
+ * 关键规则：
+ *   · enabled / readOnly 必须是真布尔值。
+ *   · username 必须能作为 Basic 用户名使用（限缩到安全字符集），
+ *     且仅在「启用」时强制非空 —— 关闭状态下允许留空。
+ *   · password 仅在「启用且本次确实要改」时校验长度；**空串 = 保持不变**
+ *     （前端拿不到明文，留空即"不修改"），由归一化层解释。
+ *   · backend 必须在白名单内。
+ */
+function validateWebdavServer(input) {
+    if (!input || typeof input !== 'object') return { error: 'webdav 必须是对象。' };
+
+    for (const field of ['enabled', 'readOnly']) {
+        if (input[field] !== undefined && typeof input[field] !== 'boolean') {
+            return { error: `webdav.${field} 必须是布尔值。` };
+        }
+    }
+
+    const username = input.username === undefined ? undefined : String(input.username).trim();
+    if (username !== undefined && username.length > 64) {
+        return { error: 'webdav.username 不能超过 64 个字符。' };
+    }
+    if (username && !/^[A-Za-z0-9._@-]+$/.test(username)) {
+        return { error: 'webdav.username 只能包含字母、数字与 . _ @ - 。' };
+    }
+
+    // password 允许 undefined 或空串（都表示"不修改"）；
+    // 非空时要求达到最低长度，避免设出"1"这种形同虚设的凭据。
+    if (input.password !== undefined && input.password !== null) {
+        if (typeof input.password !== 'string') {
+            return { error: 'webdav.password 必须是字符串。' };
+        }
+        if (input.password.length > 128) {
+            return { error: 'webdav.password 不能超过 128 个字符。' };
+        }
+        if (input.password.length > 0 && input.password.length < 6) {
+            return { error: 'webdav.password 至少需要 6 个字符。' };
+        }
+    }
+
+    if (input.backend !== undefined) {
+        const backend = String(input.backend).trim().toLowerCase();
+        if (!WEBDAV_BACKENDS.includes(backend)) {
+            return { error: `webdav.backend 必须是 ${WEBDAV_BACKENDS.join(' / ')} 之一。` };
+        }
+    }
+
+    // 归一化后的落库值。
+    //
+    // ⚠️ 必须显式回填 —— 不能像 validateAirdrop 那样省略 `value`（那种写法只有
+    // 在「原样保存 input」时才对）。这里有三处需要变换：
+    //   · username 去空白
+    //   · backend 转小写
+    //   · password 只在非空时下发：空串代表「保持已保存的密码不变」，
+    //     若把空串原样写进 KV，会把已有密码静默清空。
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.readOnly !== undefined) value.readOnly = input.readOnly === true;
+    if (input.username !== undefined) value.username = String(input.username).trim();
+    if (input.backend !== undefined) value.backend = String(input.backend).trim().toLowerCase();
+    if (typeof input.password === 'string' && input.password.length > 0) {
+        value.password = input.password;
+    }
+
+    return { ok: true, value };
+}
+
 export async function onRequestGet(context) {
     const { env } = context;
     try {
@@ -266,9 +359,10 @@ export async function onRequestPost(context) {
     const storageInput = body?.storage;
     const brandingInput = body?.branding;
     const airdropInput = body?.airdrop;
+    const webdavInput = body?.webdav;
 
-    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -279,6 +373,7 @@ export async function onRequestPost(context) {
     if (storageInput) checks.push(['storage', validateStorage(storageInput), storageInput]);
     if (brandingInput) checks.push(['branding', validateBranding(brandingInput), brandingInput]);
     if (airdropInput) checks.push(['airdrop', validateAirdrop(airdropInput), airdropInput]);
+    if (webdavInput) checks.push(['webdav', validateWebdavServer(webdavInput), webdavInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);

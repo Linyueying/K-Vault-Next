@@ -280,3 +280,72 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 - 需要目录化管理和频繁覆盖时可使用 `contents` 模式。
 
 ---
+
+## 把本站当作 WebDAV 主机（服务端）
+
+上面各节讲的都是「本站作为**客户端**，把文件推到别的存储」。本节讲反过来的用法：
+让本站自己**当 WebDAV 服务端**，供 Windows 资源管理器、macOS Finder、手机 App
+（Documents / Solid Explorer / Material Files）、rclone 等直接挂载成网络硬盘，
+像操作本地磁盘一样上传、下载、建目录、改名、移动、复制、删除。
+
+> 两套功能**互不干扰**，可同时启用：
+> - 客户端（出站）：`WEBDAV_BASE_URL` / `WEBDAV_USERNAME` / … → 推文件到别处
+> - 服务端（入站）：`WEBDAV_SERVER_*` → 让别人挂载本站
+
+### 挂载地址
+
+服务端挂在 `/dav`，目录结构直接映射 `files` 表的 `folder_path`：
+
+| 平台 | 地址填法 |
+| :--- | :--- |
+| macOS Finder（⌘K） | `https://你的域名/dav` |
+| Windows 映射网络驱动器 | `\\你的域名@SSL\dav`（`@SSL` 表示走 HTTPS） |
+| 手机 App / RaiDrive / rclone | `https://你的域名/dav` |
+
+### 环境变量
+
+| 变量名 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `WEBDAV_SERVER_ENABLED` | 是否开启 WebDAV 服务端 | `false` |
+| `WEBDAV_SERVER_USERNAME` | WebDAV 独立用户名（与站点 `BASIC_USER` 无关） | 空 |
+| `WEBDAV_SERVER_PASSWORD` | WebDAV 独立密码；**留空 = 保持已保存的密码不变** | 空 |
+| `WEBDAV_SERVER_READONLY` | 只读模式：仅允许浏览 / 下载，写操作返回 `403` | `false` |
+| `WEBDAV_SERVER_BACKEND` | 文件落库的后端，见下表 | `telegram` |
+
+**支持的落库后端**（与上传接口共用同一套存储链路）：
+
+`telegram`（默认）、`r2`、`s3`、`discord`、`huggingface`、`github`
+
+选中的后端必须已经配好对应变量（例如选 `r2` 就必须绑定 `R2_BUCKET`）。
+
+### 部署步骤
+
+1. 确保站点已配好「管理员账密」（第 1 部分）与「至少一个存储后端」（第 2 部分）。
+2. 打开 **管理后台 → 存储 → WebDAV 服务端**，打开开关。
+3. 设置**独立的**用户名与密码，并选择落库后端。
+4. 到 `/webdav.html` 复制挂载地址，按页面上给出的分平台指引挂载。
+5. 页面内还有「连接自检」，可直接在浏览器里发一次 `PROPFIND` 验证账号密码是否正确。
+
+以上全部可在后台在线修改、**即时生效，无需重新部署**；环境变量只是「从未在后台
+保存过」时的基线值。
+
+### 协议能力
+
+`OPTIONS`（`DAV: 1, 2`）、`PROPFIND`（`Depth: 0/1`，207 Multi-Status XML）、
+`GET` / `HEAD`（支持 `Range` 断点续传）、`PUT`、`DELETE`、`MKCOL`（建目录）、
+`MOVE`、`COPY`。
+
+**单文件上限 40MB**，与 WebDAV 后端上传限制一致。
+
+### 常见问题
+
+- **`404`**：服务端未开启。去后台「存储 → WebDAV 服务端」打开开关。
+- **`401`**：账号或密码不正确。注意用的是 WebDAV 独立账密，不是站点 `BASIC_USER`。
+- **`403`**：开了「只读模式」还尝试写操作（PUT / DELETE / MKCOL / MOVE / COPY）。
+- **Windows 连不上 / 反复弹密码框**：必须用 HTTPS + `\\域名@SSL\dav`，
+  且 Windows 默认只认受信任证书；自签证书需先导入信任。
+- **大文件传失败**：超过 40MB 上限，请改用网页端分片上传（选 R2 后端可到 10GB）。
+- **安全提醒**：WebDAV 客户端只发 HTTP Basic，密码在请求头明文传输，
+  **务必在 HTTPS 下使用**，并为本服务单独设一个密码。
+
+---

@@ -59,8 +59,9 @@
 | 前端统一 | 抽出 `design-system.css`：设计令牌、通用组件、37 个动效关键帧、Vue 过渡族全站唯一来源，页面只写本页增量 |
 | 动效与无障碍 | Apple HIG 缓动/时长令牌，首屏错峰入场编排；`prefers-reduced-motion`、`prefers-reduced-transparency`、`html[data-perf="low"]` 分级降级 |
 | 环境变量体验 | `functions/utils/env-config.js` 统一读取层，`TG_Bot_Token` / `TG_BOT_TOKEN` 之类任意写法都识别 |
-| 运行时配置 | `config:guest` / `config:cors` / `config:upload` 三组可在后台改，写入 KV 即时生效，无需重新部署 |
+| 运行时配置 | `config:guest` / `config:cors` / `config:upload` / `config:webdav` 四组可在后台改，写入 KV 即时生效，无需重新部署 |
 | 分片上传 | R2 原生 multipart，单文件上限从 100MB 提到 **10GB**；暂存位置 `auto` / `r2` / `kv` 可后台切换 |
+| WebDAV 服务端 | 新增 `/dav`：PROPFIND / PUT / GET(Range) / DELETE / MKCOL / MOVE / COPY，独立账密、只读开关、后端可选，把本站挂载成网络硬盘 |
 | 多层路径路由 | `functions/file/[[path]].js` 支持任意层级文件路径 |
 | 分享体系 | `/s/:slug` → `/share.html?s=:slug` 落地页；有效期 / 密码 / 下载次数上限 / 自定义 slug 四项前后端均可设置；后台「分享管理」汇总面板 |
 | 文本粘贴 | 新增 `/paste.html` 与 `paste` scope，带语言标记、有效期、访问密码 |
@@ -96,7 +97,7 @@
 | 文本粘贴 | `/paste.html` | 创建 / 列表 / 查看 / 删除 Paste，支持有效期与访问密码 |
 | 图片画廊 | `/gallery.html` | 图片浏览、搜索、批量复制直链 / 下载 / 删除 |
 | 文件预览 | `/preview.html` | 多格式预览，密码保护的文件会弹出密码输入 |
-| WebDAV | `/webdav.html` | WebDAV 上传与 URL 转存 |
+| WebDAV | `/webdav.html` | **WebDAV 服务端**：展示挂载地址、连接自检、分平台挂载指引（Windows / macOS / 手机 / 命令行） |
 | 登录 | `/login.html` | 后台登录（用户名 + 密码） |
 
 ---
@@ -343,7 +344,54 @@ Cloudflare Pages 会把部署目录里的每个文件当静态资源提供，因
 > 最后两项是刻意加的：README 逐条列了七种存储后端与部署拓扑（34KB），
 > 在真实实例上是一份现成的侦察材料。开发仓库里它是文档，部署到线上就不是了。
 
-完整清单见 [`.env.example`](.env.example)，已按「必填最小集 → 存储后端 7 选 1 → 可选开关 → 后台可设置」分组，照着填要用的那一段即可。
+完整清单见 [`.env.example`](.env.example)，已按「必填最小集 → 存储后端 7 选 1 → 可选开关 → 后台可设置」分组，照着填要用的那段即可。
+
+---
+
+## 把本站当作 WebDAV 主机
+
+除了作为 **WebDAV 客户端**把文件推到别的网盘（见上文【F】`WEBDAV_*`），本项目还能反过来当 **WebDAV 服务端** —— 让你自己的电脑 / 手机把本站挂载成一块网络硬盘，直接拖拽上传、下载、建目录、改名。
+
+两者**完全独立**，变量前缀也不同（服务端一律用 `WEBDAV_SERVER_*`），可以同时开启。
+
+### 启用步骤
+
+1. 打开 **管理后台 → 存储 → WebDAV 服务端**。
+2. 打开开关，设置**独立的**用户名与密码（与站点 `BASIC_USER` / `BASIC_PASS` 分开，互不影响）。
+3. 选择文件落库的**存储后端**（默认 `telegram`，也可选 `r2` / `s3` / `discord` / `huggingface` / `github`）。
+4. 按需打开「只读模式」——只允许浏览与下载，所有写操作返回 `403`。
+5. 到 `/webdav.html` 复制挂载地址，按页面上的分平台指引挂载。
+
+> ⚠️ **务必在 HTTPS 下使用**。WebDAV 客户端只发 HTTP Basic，密码在请求头里明文传输。
+
+### 挂载地址
+
+服务端挂在 `/dav`，所有文件与目录都映射到 `files` 表的 `folder_path`：
+
+| 平台 | 地址填法 |
+| :--- | :--- |
+| macOS Finder（⌘K） | `https://你的域名/dav` |
+| Windows 映射网络驱动器 | `\\你的域名@SSL\dav`（`@SSL` 表示走 HTTPS） |
+| 手机 App / RaiDrive / rclone | `https://你的域名/dav` |
+
+### 支持的协议能力
+
+`OPTIONS`（`DAV: 1, 2`）、`PROPFIND`（`Depth: 0/1`，207 Multi-Status）、`GET` / `HEAD`（支持 `Range` 断点续传）、`PUT`、`DELETE`、`MKCOL`（建目录）、`MOVE`、`COPY`。
+
+单文件上限 **40MB**，与 WebDAV 后端上传限制一致。
+
+### 相关环境变量
+
+| 变量 | 说明 | 默认值 | 改完重部署 |
+| :--- | :--- | :--- | :---: |
+| `WEBDAV_SERVER_ENABLED` | 是否开启 WebDAV 服务端 | `false` | ❌ 后台可改 |
+| `WEBDAV_SERVER_USERNAME` | WebDAV 独立用户名 | 空 | ❌ 后台可改 |
+| `WEBDAV_SERVER_PASSWORD` | WebDAV 独立密码；留空 = 保持已保存值不变 | 空 | ❌ 后台可改 |
+| `WEBDAV_SERVER_READONLY` | 只读模式 | `false` | ❌ 后台可改 |
+| `WEBDAV_SERVER_BACKEND` | 文件落库后端（`telegram`/`r2`/`s3`/`discord`/`huggingface`/`github`） | `telegram` | ❌ 后台可改 |
+
+以上全部可在后台在线修改、即时生效，环境变量只是「从未在后台保存过」时的基线值。
+密码不会回传到前端（接口只返回 `hasPassword` 布尔），修改时留空即代表不动原密码。
 
 ---
 
@@ -465,11 +513,13 @@ Cloudflare Pages **没有构建步骤**，仓库根目录即站点根目录 —�
 │   │   └── status.js upload-from-url.js share-info.js telegram/webhook.js
 │   ├── file/[[path]].js                 # 文件直链（多层路径、密码）
 │   ├── file-info/[[path]].js            # 文件元信息
+│   ├── dav/[[path]].js                  # WebDAV 服务端（PROPFIND/PUT/GET/MOVE/COPY…）
 │   ├── s/[slug].js                      # 短分享链 → 302 到 /share.html
 │   └── utils/                           # 存储适配器与公共工具
 │       ├── schema.js                    # D1 迁移的唯一真源（以 JS 常量形式存在）
 │       ├── env-config.js                # 环境变量统一读取层（大小写/别名兼容）
 │       ├── runtime-config.js            # KV 覆盖 > 环境变量 的运行时配置
+│       ├── webdav-server.js             # WebDAV 服务端核心逻辑
 │       └── metadata-d1.js ratelimit.js redact.js ssrf-guard.js …
 ├── migrations/                          # 由 scripts/gen-migrations.py 从 schema.js 生成，勿手改
 ├── scripts/                             # 校验 / 测试 / D1 工具
@@ -526,7 +576,7 @@ python3 scripts/check_functions.py   # functions/ 语法 + 未定义符号（漏
 | :--- | :--- |
 | [`docs/README.md`](docs/README.md) | **文档总入口**（按「我要做什么」分类导航） |
 | [`docs/guides/d1-migration-checklist.md`](docs/guides/d1-migration-checklist.md) | **D1 迁移部署与灰度验证清单**（建库、绑定、验证 `source` 字段、回滚、故障排查） |
-| [`docs/guides/storage-backends.md`](docs/guides/storage-backends.md) | Telegram / R2 / S3 / Discord / HuggingFace / WebDAV / GitHub 各后端逐步配置 |
+| [`docs/guides/storage-backends.md`](docs/guides/storage-backends.md) | Telegram / R2 / S3 / Discord / HuggingFace / WebDAV / GitHub 各后端逐步配置，以及**把本站当作 WebDAV 主机** |
 | [`docs/guides/cloudflare-pages-r2.md`](docs/guides/cloudflare-pages-r2.md) | Cloudflare Pages R2 绑定排查 |
 | [`docs/reference/architecture.md`](docs/reference/architecture.md) | 项目定位、技术架构（前端/后端/数据层/存储）、安全设计 |
 | [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md) | Agent / 脚本接入指南（Token、scopes、幂等键、MCP 工具映射） |

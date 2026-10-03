@@ -1090,14 +1090,13 @@ html[data-perf="low"] .ambient-orb{animation:none}
 —— 但加载指示器属于「状态信息」，冻结会让页面看起来像卡死，
    因此显式豁免（原始版本把它一起冻住了）
 ========================================================= */
+/* =========================================================
+无障碍：尊重系统「减弱动态效果」
+—— 全站冻结规则由 design-system.css 提供；这里只写两处例外：
+   1) 加载指示器属于「状态信息」，冻结会让页面看起来像卡死，显式解冻；
+   2) Dock 的 layout 增量（间距 / 字号 / blur 降级）。
+========================================================= */
 @media (prefers-reduced-motion: reduce){
-  *,*::before,*::after{
-    animation-duration:.01ms !important;
-    animation-iteration-count:1 !important;
-    transition-duration:.01ms !important;
-    scroll-behavior:auto !important;
-    will-change:auto !important;
-  }
   .spinner-ring,
   .fa-spin,
   .token-empty i{
@@ -1110,6 +1109,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .dock__btn{padding:var(--sp-1);gap:2px}
   .dock__btn i{font-size:.98rem}
   .dock__btn span{font-size:.68rem}
+  /* Dock 显隐不做淡入：瞬隐变体已带着错误位置可见，立即出现等视口稳定后再恢复淡入 */
+  .dock{transition:none}
 }
 
 /* =========================================================
@@ -1372,9 +1373,10 @@ html[data-theme="dark"] .dock__indicator{
 /* 瞬隐变体（显示后自愈用）：dock 已带着错误位置可见，不能再播 0.5s 淡出
    —— 立即消失，等视口稳定后先摘本类再摘 dock-hold，恢复淡入 */
 #app.dock-hold.dock-hold--snap .dock{transition:none}
-/* 降级：低性能模式 / 减动效下不要淡入过程，视口一稳定立即出现 */
+/* 降级：低性能模式 / 减动效下不要淡入过程，视口一稳定立即出现。
+   归入上方「减动效例外」的同一媒体查询（.dock：无 spinner 关键词的块会被
+   check_style.py 判为重复定义全站冻结规则）。 */
 html[data-perf="low"] .dock{transition:none}
-@media (prefers-reduced-motion: reduce){.dock{transition:none}}
 </style>
 </head>
 <body>
@@ -2311,6 +2313,118 @@ html[data-perf="low"] .dock{transition:none}
           <div class="settings-note settings-note--warn" v-else>
             <i class="fas fa-triangle-exclamation"></i>
             <span>当前部署<strong>未绑定 D1</strong>（缺少 <code class="kv-code">DB</code> 绑定）。此时 KV 是唯一数据源，关闭本开关不会生效，文件记录仍会写入 KV。</span>
+          </div>
+        </div>
+
+        <!-- WebDAV 服务端：让外部客户端把本站当网盘挂载 -->
+        <div class="token-section">
+          <div class="token-section-head">
+            <h3 class="token-section-title">
+              <i class="fas fa-network-wired"></i>
+              <span>WebDAV 服务端</span>
+            </h3>
+            <span class="badge-env" v-if="webdavSource === 'kv'">KV 覆盖中</span>
+            <span class="badge-env" v-else>来自环境变量</span>
+          </div>
+
+          <div class="settings-note" style="margin-bottom:12px">
+            <i class="fas fa-circle-info"></i>
+            <span>
+              开启后，Windows 资源管理器 / macOS Finder / 手机 App 可把本站挂载为
+              <strong>网络驱动器</strong>，直接拖拽上传下载。
+              注意：这里与上方「存储节点」筛选器中的 WebDAV 不是同一概念 ——
+              那个是「文件存到哪个后端」，这里是「对外提供 WebDAV 服务」。
+            </span>
+          </div>
+
+          <div class="settings-switch-row">
+            <div class="settings-switch-text">
+              <strong>启用 WebDAV 服务端</strong>
+              <span>
+                开启后可通过 <code class="kv-code">/dav</code> 访问。上传的文件与其他入口完全同构，
+                可在文件列表 / 分享 / 后台中正常管理。
+              </span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" v-model="webdavForm.enabled" role="switch"
+                     :aria-checked="String(webdavForm.enabled)" />
+              <span class="switch__track"></span>
+              <span class="switch__thumb"></span>
+            </label>
+          </div>
+
+          <template v-if="webdavForm.enabled">
+            <div class="token-grid">
+              <div class="token-field">
+                <label>用户名</label>
+                <input class="token-input" type="text" v-model="webdavForm.username"
+                       placeholder="例如 kvault" autocomplete="off">
+                <small class="field-hint">仅支持字母、数字与 . _ @ - 。环境变量基线：{{ webdavEnvBaseline.username || '—' }}</small>
+              </div>
+              <div class="token-field">
+                <label>密码</label>
+                <input class="token-input" type="password" v-model="webdavForm.password"
+                       :placeholder="webdavHasPassword ? '留空则不修改' : '至少 6 个字符'" autocomplete="new-password">
+                <small class="field-hint">
+                  <template v-if="webdavHasPassword">已设置密码，留空表示保持不变。</template>
+                  <template v-else>尚未设置密码，请填写至少 6 个字符。</template>
+                </small>
+              </div>
+            </div>
+
+            <div class="settings-switch-row">
+              <div class="settings-switch-text">
+                <strong>只读模式</strong>
+                <span>开启后客户端只能浏览与下载，任何写入（上传 / 建目录 / 重命名 / 删除）都会被拒绝。</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="webdavForm.readOnly" role="switch"
+                       :aria-checked="String(webdavForm.readOnly)" />
+                <span class="switch__track"></span>
+                <span class="switch__thumb"></span>
+              </label>
+            </div>
+
+            <div class="token-field">
+              <label>存储后端</label>
+              <select class="token-input" v-model="webdavForm.backend">
+                <option v-for="opt in webdavBackendOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <small class="field-hint">WebDAV 上传的文件将写入该后端。Telegram 无需额外配置；R2 容量与速度更好（需已绑定 R2）。</small>
+            </div>
+
+            <div class="token-field">
+              <label>服务地址</label>
+              <div class="input-with-unit">
+                <input class="token-input" type="text" :value="webdavServiceUrl" readonly
+                       @focus="$event.target.select()">
+                <button type="button" class="btn" @click="copyWebdavUrl" style="flex:0 0 auto">
+                  <i class="fas" :class="webdavAddrCopied ? 'fa-check' : 'fa-copy'"></i>
+                  <span>{{ webdavAddrCopied ? '已复制' : '复制' }}</span>
+                </button>
+              </div>
+              <small class="field-hint">在客户端中填入此地址与上方账号密码即可挂载。</small>
+            </div>
+          </template>
+
+          <div class="settings-note settings-note--warn" v-else>
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>WebDAV 服务端已关闭：<code class="kv-code">/dav</code> 对外返回 404，客户端无法挂载。</span>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn btn--primary" :disabled="webdavSaving" @click="saveWebdavSettings">
+              <i class="fas" :class="webdavSaving ? 'fa-circle-notch fa-spin' : 'fa-save'"></i>
+              <span>保存 WebDAV 设置</span>
+            </button>
+            <button class="btn" :disabled="webdavSaving" @click="resetWebdavSettings">
+              <i class="fas fa-rotate-left"></i>
+              <span>恢复默认</span>
+            </button>
+            <a class="btn" href="/webdav.html" target="_blank" rel="noopener">
+              <i class="fas fa-up-right-from-square"></i>
+              <span>打开管理页</span>
+            </a>
           </div>
         </div>
 
@@ -3664,6 +3778,23 @@ const __kvApp = Vue.createApp({
     storageSource: 'env',
     storageEnvBaseline: { writeKvLegacy: true },
     hasD1Binding: false,
+
+    /* ---------- WebDAV 服务端（让别人把本站当网盘挂载） ---------- */
+    /* 注意：这里的「WebDAV 服务端」与上方 storageOptions 里的 webdav 是两回事：
+       后者是"文件存到哪个后端"（本项目作为 WebDAV 客户端），
+       这里是"对外提供 WebDAV 服务"（本项目作为 WebDAV 服务端）。 */
+    webdavSaving: false,
+    webdavSource: 'env',
+    /* 环境变量基线（不含密码明文，只有 hasPassword） */
+    webdavEnvBaseline: { enabled: false, username: '', hasPassword: false, readOnly: false, backend: 'telegram' },
+    webdavHasPassword: false,
+    /* password 字段始终留空：留空 = 不修改（与后端归一化层约定一致） */
+    webdavForm: { enabled: false, username: '', password: '', readOnly: false, backend: 'telegram' },
+    webdavBackendOptions: [
+      { value:'telegram', label:'Telegram（默认，零额外配置）' },
+      { value:'r2',       label:'Cloudflare R2（容量大、速度快）' }
+    ],
+    webdavAddrCopied: false,
 
     /* ---------- 隔空投送（Beta）：访客使用权限 + 使用情况 ---------- */
     airdropLoading: false,
@@ -5792,6 +5923,27 @@ const __kvApp = Vue.createApp({
       this.storageForm = { writeKvLegacy: storage.writeKvLegacy !== false };
       this.hasD1Binding = Boolean(data.hasD1Binding);
 
+      // WebDAV 服务端：密码永不下发明文，前端只知"是否已设置"
+      const webdav = data.webdav || {};
+      const webdavBaseline = data.webdavEnvBaseline || {};
+      this.webdavSource = webdav.source === 'kv' ? 'kv' : 'env';
+      this.webdavEnvBaseline = {
+        enabled: Boolean(webdavBaseline.enabled),
+        username: webdavBaseline.username || '',
+        hasPassword: Boolean(webdavBaseline.hasPassword),
+        readOnly: Boolean(webdavBaseline.readOnly),
+        backend: webdavBaseline.backend || 'telegram'
+      };
+      this.webdavHasPassword = Boolean(webdav.hasPassword);
+      // password 始终留空（留空 = 不修改），避免把占位符当成真实值回传
+      this.webdavForm = {
+        enabled: webdav.enabled === true,
+        username: webdav.username || '',
+        password: '',
+        readOnly: webdav.readOnly === true,
+        backend: webdav.backend || 'telegram'
+      };
+
       // 站点品牌：站点显示名与浏览器标题，缺省回落 K-Vault-NEXT
       const branding = data.branding || {};
       this.brandingSource = branding.source === 'kv' ? 'kv' : 'env';
@@ -5884,9 +6036,102 @@ const __kvApp = Vue.createApp({
       }
     },
 
+    /* ================= WebDAV 服务端 ================= */
+
+    /* 完整的 WebDAV 挂载地址（供复制）。用当前 origin + /dav，确保与部署域名一致 */
+    get webdavServiceUrl() {
+      try {
+        return window.location.origin + '/dav';
+      } catch (e) {
+        return '/dav';
+      }
+    },
+
+    async copyWebdavUrl() {
+      const url = this.webdavServiceUrl;
+      try {
+        await navigator.clipboard.writeText(url);
+        this.webdavAddrCopied = true;
+        this.showToast('服务地址已复制', 'success');
+        setTimeout(() => { this.webdavAddrCopied = false; }, 2000);
+      } catch (e) {
+        /* 剪贴板不可用（非 HTTPS / 权限被拒）时退化为提示，不静默失败 */
+        this.showToast('复制失败，请手动选择地址复制', 'error');
+      }
+    },
+
+    async saveWebdavSettings() {
+      const username = String(this.webdavForm.username || '').trim();
+      const password = String(this.webdavForm.password || '');
+
+      // 前端预校验：把明显的错误在请求前拦下，给出更直接的中文提示
+      if (this.webdavForm.enabled) {
+        if (!username) { this.showToast('启用 WebDAV 服务端时必须填写用户名', 'error'); return; }
+        // 密码留空 = 不修改；仅在"从未设置过密码"且留空时报错
+        if (!password && !this.webdavHasPassword) {
+          this.showToast('请设置 WebDAV 密码（至少 6 位）', 'error');
+          return;
+        }
+        if (password && password.length < 6) {
+          this.showToast('WebDAV 密码至少需要 6 个字符', 'error');
+          return;
+        }
+      }
+
+      this.webdavSaving = true;
+      try {
+        const res = await fetch('/api/manage/settings', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webdav: {
+              enabled: this.webdavForm.enabled,
+              username,
+              // 空串交给后端解释为"不修改"
+              password,
+              readOnly: this.webdavForm.readOnly,
+              backend: this.webdavForm.backend
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '保存失败');
+        this.applySettingsView(data);
+        this.showToast(
+          this.webdavForm.enabled ? 'WebDAV 服务端已开启，立即生效' : 'WebDAV 服务端已关闭',
+          'success'
+        );
+      } catch (e) {
+        this.showToast(e.message || '保存失败', 'error');
+      } finally {
+        this.webdavSaving = false;
+      }
+    },
+
+    async resetWebdavSettings() {
+      const ok = await this.askConfirm(
+        '将清除后台保存的 WebDAV 服务端设置，改为使用 Cloudflare Pages 上配置的环境变量。已挂载的客户端可能因此断开。确定继续吗？',
+        '恢复 WebDAV 默认设置'
+      );
+      if (!ok) return;
+
+      this.webdavSaving = true;
+      try {
+        const res = await fetch('/api/manage/settings?group=webdav', { method: 'DELETE', credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '重置失败');
+        this.applySettingsView(data);
+        this.showToast('已恢复为环境变量配置', 'success');
+      } catch (e) {
+        this.showToast(e.message || '重置失败', 'error');
+      } finally {
+        this.webdavSaving = false;
+      }
+    },
+
     /* ================= 站点品牌（自定义网站名 / 标题） ================= */
-    openBrandingPanel() { this.goSection('system'); },
-    closeBrandingPanel() { /* no-op：内联后无关闭语义 */ },
+    openBrandingPanel() { this.goSection('system'); },    closeBrandingPanel() { /* no-op：内联后无关闭语义 */ },
 
     async saveBrandingSettings() {
       const name = String(this.brandingForm.siteName || '').trim();
