@@ -695,7 +695,19 @@ async function handleTelegramFile(context, fileId, record = null) {
   const fileName = metadata.fileName || fileId;
   const mimeType = getMimeType(fileName);
 
-  const telegramFileId = String(fileId).split('.')[0];
+  // 优先用 metadata 里记录的 file_id，其次才回退到「kvKey 第一段即 file_id」
+  // 的历史约定。
+  //
+  // 为什么需要这个回退顺序：`split('.')[0]` 只在「kvKey 恰好是 `<fileId>.<ext>`
+  // 且文件名不含 `/`」时成立 —— 那是网页上传的形态。WebDAV 服务端的 kvKey 是
+  // DAV 路径（如 `rikkahub_backups/a.json`），沿用旧写法会推导出
+  // `rikkahub_backups/a`，拿去调 getFile 必然失败并返回 500。
+  //
+  // 既有记录不受影响：网页上传的 metadata.telegramFileId 与旧推导结果一致，
+  // 两条路径得到同一个值（upload.js / upload-from-url.js / webhook.js /
+  // chunked-upload / v1/import.js 均会写入该字段）。
+  const telegramFileId =
+    metadata.telegramFileId || String(fileId).split('.')[0];
   const filePath = await getTelegramFilePath(env, telegramFileId);
   if (!filePath) {
     return errorResponse('Failed to get file path from Telegram', 500);
