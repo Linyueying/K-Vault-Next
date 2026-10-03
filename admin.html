@@ -725,10 +725,10 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
 .token-empty{text-align:center;color:var(--text-muted);font-size:var(--fs-sm);padding:22px}
 .token-empty i{animation:spin .8s linear infinite;display:inline-block;margin-right:6px}
 
-/* ===== q-tip：标题旁的灰色小问号 + 说明浮层 =====
+/* ===== q-tip：标题旁的淡灰圆环 i + 说明浮层 =====
    把设置区大量常驻的「功能解释」收进浮层，需要时悬停 / 点击查看。
    随配置联动的状态与警告（settings-note / tiny-muted）不收进来 —— 那些是
-   要让人一眼看到的提示，藏进问号等于制造盲区。 */
+   要让人一眼看到的提示，藏进标记里等于制造盲区。 */
 .qtip{
   /* 内联在标签文字末尾，不另起一行。
      垂直对齐要同时覆盖两种父级：
@@ -744,28 +744,39 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
   vertical-align:middle;
   margin-left:4px;
   flex:none;
-  /* 圆点相对文字行盒中心系统性偏上约 1.3px（flex 行高与元素高度不相等所致），
-     这里用 relative 偏移补偿。用 top 而非 transform：transform 会让本元素
-     成为 fixed 后代的包含块，虽然浮层已 teleport 到 body 不受影响，但没必要
-     引入这个副作用。em 单位跟随各处字号自动缩放。 */
-  top:0.1em;
+  /* 原先这里有个 top:0.1em 的补偿，用于修正裸 ? 字符（无边框、14px 高）相对
+     文字行盒偏上约 1.3px 的问题。改成圆环后 1px 描边把高度撑到 16px，
+     与文字行盒高度接近，居中误差自然消失 —— 补偿反而造成 +1.2px 的下偏，
+     故去掉。若日后改回无边框形态，此处的补偿需要一并恢复。 */
 }
+/* 细圆环 i，而非裸的 ? 字符。两点考虑：
+   1) 语义 —— 设置项要表达的是「这里有说明」，不是「这里有疑问」，
+      圆环 i 是业界通用约定（iOS / Google / 各类后台都是这个）。
+   2) 形态稳定 —— ? 是纯字符，字形随系统字体与平台漂移，同一份代码在
+      Windows 与 macOS 上观感不一致；圆环由 CSS 绘制，形态可控。
+   只用 1px 细环、无底色，默认再压一档透明度，避免退回「按钮」的观感。 */
 .qtip__dot{
-  /* 弱化为「淡灰字符」而非控件：无边框、无底色、不占额外体积，
-     默认态只比正文再淡一档，hover / 聚焦时才微微加深提示可交互。 */
   width:14px;height:14px;
   flex:none;
   display:inline-flex;align-items:center;justify-content:center;
   padding:0;
-  border:0;
+  /* border 用 currentColor：环色随文字色联动，hover 改一处即可整体变主色 */
+  border:1px solid currentColor;
   border-radius:50%;
   background:none;
   color:var(--text-muted);
-  opacity:.62;
-  font-family:inherit;
-  font-size:11px;font-weight:600;line-height:1;
+  opacity:.55;
   cursor:help;
   transition:color var(--dur-fast),opacity var(--dur-fast),background var(--dur-fast);
+}
+/* 环内的 i 用衬线 italic：衬线体的小写 i 自带明确的点画结构，
+   在 8.5px 下仍可辨识；无衬线体的 i 缩到这个尺寸就是一个竖条。 */
+.qtip__glyph{
+  font-family:Georgia,'Times New Roman',serif;
+  font-style:italic;
+  font-weight:700;
+  font-size:8.5px;
+  line-height:1;
 }
 .qtip__dot:hover,
 .qtip__dot:focus-visible{
@@ -3763,7 +3774,7 @@ const qTipComponent = {
       <button type="button" class="qtip__dot" ref="dot"
               aria-label="查看说明"
               :aria-expanded="String(open)"
-              @click.stop="toggle">?</button>
+              @click.stop="toggle"><i class="qtip__glyph">i</i></button>
       <teleport to="body">
         <span class="qtip__pop" v-show="open" ref="pop" role="tooltip"
               :style="pos"
