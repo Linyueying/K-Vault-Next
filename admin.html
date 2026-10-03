@@ -655,8 +655,9 @@ API Token 管理面板
 .settings-loading{display:flex;align-items:center;gap:8px;font-size:.82rem;color:var(--text-muted);padding:8px 0}
 .settings-switch-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--glass-border-ice);background:var(--glass-subtle);margin-bottom:var(--sp-3);}
 .settings-switch-text{display:flex;flex-direction:column;gap:3px;min-width:0}
-.settings-switch-text strong{font-size:.84rem;font-weight:800;color:var(--text-main)}
-.settings-switch-text span{font-size:var(--fs-xs);color:var(--text-muted);line-height:1.55}
+/* 用直接子元素（>）而非后代选择器：开关标题里的 q-tip 浮层也含 <strong>，
+   后代选择器会把 .84rem/800 的标题样式误继承给浮层里的强调文字。 */
+.settings-switch-text>strong{font-size:.84rem;font-weight:800;color:var(--text-main)}
 .input-with-unit{position:relative;display:flex;align-items:center;gap:8px}
 .input-with-unit .token-input{flex:1;min-width:0}
 .input-with-unit .unit{flex:none;font-size:var(--fs-xs);font-weight:700;color:var(--text-muted);white-space:nowrap}
@@ -714,7 +715,88 @@ html[data-theme="dark"] .token-badge.warn{color:#fbbf24}
 .token-secret-value code{flex:1;min-width:180px;font-family:'JetBrains Mono',monospace;font-size:var(--fs-xs);word-break:break-all;background:var(--glass-elevated);border:1px solid var(--glass-border-ice);border-radius:var(--r-xs);padding:var(--sp-2) 10px;}
 .token-empty{text-align:center;color:var(--text-muted);font-size:var(--fs-sm);padding:22px}
 .token-empty i{animation:spin .8s linear infinite;display:inline-block;margin-right:6px}
-.token-hint{font-size:var(--fs-xs);color:var(--text-muted);margin-top:5px;line-height:1.55}
+
+/* ===== q-tip：标题旁的灰色小问号 + 说明浮层 =====
+   把设置区大量常驻的「功能解释」收进浮层，需要时悬停 / 点击查看。
+   随配置联动的状态与警告（settings-note / tiny-muted）不收进来 —— 那些是
+   要让人一眼看到的提示，藏进问号等于制造盲区。 */
+.qtip{
+  /* inline-flex 是关键：.token-field > label 是 display:block，靠它让问号
+     内联在标签文字末尾而不另起一行，也无需改动 label 的布局。 */
+  display:inline-flex;
+  position:relative;
+  vertical-align:middle;
+  margin-left:5px;
+}
+.qtip__dot{
+  width:17px;height:17px;
+  flex:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:0;
+  border-radius:50%;
+  border:1px solid var(--glass-border-ice);
+  background:var(--glass-subtle);
+  color:var(--text-muted);
+  font-family:inherit;
+  font-size:11px;font-weight:800;line-height:1;
+  cursor:help;
+  transition:color var(--dur-fast),border-color var(--dur-fast),background var(--dur-fast);
+}
+.qtip__dot:hover,
+.qtip__dot:focus-visible{
+  color:var(--primary);
+  border-color:var(--primary);
+  background:rgba(var(--primary-rgb),.1);
+  outline:none;
+}
+/* 浮层用 position:fixed + JS 算坐标，并由组件 teleport 到 body 末尾。
+   为什么不用 absolute 挂在 .qtip 上：设置区全都住在 .dialog-panel 里，
+   而 .dialog-panel 带 overflow-y:auto —— 靠近面板底部的问号其浮层会被裁掉
+   （实测溢出 349px 完全不可见）。teleport 到 body 后不受任何祖先裁剪，
+   层级取2600，压过 .overlay.dialog-overlay 的 2300。 */
+.qtip__pop{
+  position:fixed;
+  z-index:2600;
+  width:max-content;
+  min-width:200px;
+  max-width:min(320px,74vw);
+  /* 超长说明不允许高过视口，否则无论怎么摆放都会溢出屏幕；改为内部滚动 */
+  max-height:calc(100dvh - 24px);
+  overflow-y:auto;
+  padding:9px 11px;
+  border-radius:var(--r-sm);
+  background:var(--glass-elevated);
+  border:1px solid var(--glass-border-ice);
+  box-shadow:var(--shadow-elevated);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  color:var(--text-main);
+  font-size:var(--fs-xs);
+  font-weight:500;
+  line-height:1.65;
+  text-align:left;
+  white-space:normal;
+  cursor:default;
+  /* 复用共享层入场动画，避免在页面内联重复定义关键帧 */
+  animation:riseInSm .16s var(--ease-apple);
+}
+/* dot 与浮层之间的透明桥接：避免指针从问号移到浮层的空隙里触发 mouseleave */
+.qtip__pop::before{
+  content:"";
+  position:absolute;
+  left:0;right:0;
+  top:-6px;
+  height:6px;
+}
+.qtip__pop code{
+  font-family:'JetBrains Mono',monospace;
+  font-size:.94em;
+  padding:1px 4px;
+  border-radius:var(--r-xs);
+  background:rgba(var(--primary-rgb),.1);
+}
+.qtip__pop strong{color:var(--primary-text);font-weight:700}
+.qtip__pop .dialog-hint{display:block;margin-top:4px}
 .token-divider{height:1px;background:var(--glass-border-ice);margin:var(--sp-4) 0}
 .checkbox-row{display:flex;align-items:center;gap:var(--sp-2);cursor:pointer}
 .checkbox-row input{width:var(--sp-4);height:var(--sp-4);accent-color:var(--primary)}
@@ -2213,11 +2295,11 @@ html[data-perf="low"] .dock{transition:none}
       <h2 class="dialog-title">
         <i class="fas fa-user-lock"></i>
         <span>上传设置</span>
+        <q-tip>
+          这里的改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
+          未在此保存过时，以下取值来自 Cloudflare Pages 的环境变量。
+        </q-tip>
       </h2>
-      <div class="dialog-message">
-        这里的改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
-        未在此保存过时，以下取值来自 Cloudflare Pages 的环境变量。
-      </div>
 
       <div class="token-section" v-if="settingsLoading">
         <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取设置...</div>
@@ -2237,8 +2319,9 @@ html[data-perf="low"] .dock{transition:none}
 
           <div class="settings-switch-row">
             <div class="settings-switch-text">
-              <strong>允许未登录访客上传</strong>
-              <span>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</span>
+              <strong>允许未登录访客上传
+                <q-tip>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</q-tip>
+              </strong>
             </div>
             <!-- 统一用 index 的 .switch 结构（label + 隐藏 input + track + thumb） -->
             <label class="switch">
@@ -2251,20 +2334,22 @@ html[data-perf="low"] .dock{transition:none}
 
           <div class="token-grid" v-if="guestForm.enabled">
             <div class="token-field">
-              <label>单文件上限</label>
+              <label>单文件上限
+                <q-tip>访客可上传的单文件最大体积。环境变量基线：{{ formatSize(settingsEnvBaseline.maxFileSize) }}</q-tip>
+              </label>
               <div class="input-with-unit">
                 <input class="token-input" type="number" min="1" v-model.number="guestForm.maxFileSizeMb">
                 <span class="unit">MB</span>
               </div>
-              <small class="field-hint">访客可上传的单文件最大体积。环境变量基线：{{ formatSize(settingsEnvBaseline.maxFileSize) }}</small>
             </div>
             <div class="token-field">
-              <label>每日上传次数</label>
+              <label>每日上传次数
+                <q-tip>按访客 IP + 日期统计，每日自动重置。环境变量基线：{{ settingsEnvBaseline.dailyLimit || '—' }}</q-tip>
+              </label>
               <div class="input-with-unit">
                 <input class="token-input" type="number" min="1" step="1" v-model.number="guestForm.dailyLimit">
                 <span class="unit">次 / 天</span>
               </div>
-              <small class="field-hint">按访客 IP + 日期统计，每日自动重置。环境变量基线：{{ settingsEnvBaseline.dailyLimit || '—' }}</small>
             </div>
           </div>
 
@@ -2287,12 +2372,13 @@ html[data-perf="low"] .dock{transition:none}
 
           <div class="settings-switch-row">
             <div class="settings-switch-text">
-              <strong>同时把文件元数据写入 KV</strong>
-              <span>
-                开启时每次上传 / 改名 / 移动都会在 <code class="kv-code">D1</code> 与 <code class="kv-code">KV</code>
-                各写一份，互为备份；关闭后只写 D1，KV 不再接收文件记录。
-                <strong>关闭前请确认 D1 工作正常</strong>，因为此时 D1 会成为唯一数据源。
-              </span>
+              <strong>同时把文件元数据写入 KV
+                <q-tip>
+                  开启时每次上传 / 改名 / 移动都会在 <code class="kv-code">D1</code> 与 <code class="kv-code">KV</code>
+                  各写一份，互为备份；关闭后只写 D1，KV 不再接收文件记录。
+                  <strong>关闭前请确认 D1 工作正常</strong>，因为此时 D1 会成为唯一数据源。
+                </q-tip>
+              </strong>
             </div>
             <label class="switch">
               <input type="checkbox" v-model="storageForm.writeKvLegacy" role="switch"
@@ -2322,28 +2408,26 @@ html[data-perf="low"] .dock{transition:none}
             <h3 class="token-section-title">
               <i class="fas fa-network-wired"></i>
               <span>WebDAV 服务端</span>
+              <q-tip>
+                开启后，Windows 资源管理器 / macOS Finder / 手机 App 可把本站挂载为
+                <strong>网络驱动器</strong>，直接拖拽上传下载。
+                <br>
+                注意：这里与上方「存储节点」筛选器中的 WebDAV 不是同一概念 ——
+                那个是「文件存到哪个后端」，这里是「对外提供 WebDAV 服务」。
+              </q-tip>
             </h3>
             <span class="badge-env" v-if="webdavSource === 'kv'">KV 覆盖中</span>
             <span class="badge-env" v-else>来自环境变量</span>
           </div>
 
-          <div class="settings-note" style="margin-bottom:12px">
-            <i class="fas fa-circle-info"></i>
-            <span>
-              开启后，Windows 资源管理器 / macOS Finder / 手机 App 可把本站挂载为
-              <strong>网络驱动器</strong>，直接拖拽上传下载。
-              注意：这里与上方「存储节点」筛选器中的 WebDAV 不是同一概念 ——
-              那个是「文件存到哪个后端」，这里是「对外提供 WebDAV 服务」。
-            </span>
-          </div>
-
           <div class="settings-switch-row">
             <div class="settings-switch-text">
-              <strong>启用 WebDAV 服务端</strong>
-              <span>
-                开启后可通过 <code class="kv-code">/dav</code> 访问。上传的文件与其他入口完全同构，
-                可在文件列表 / 分享 / 后台中正常管理。
-              </span>
+              <strong>启用 WebDAV 服务端
+                <q-tip>
+                  开启后可通过 <code class="kv-code">/dav</code> 访问。上传的文件与其他入口完全同构，
+                  可在文件列表 / 分享 / 后台中正常管理。
+                </q-tip>
+              </strong>
             </div>
             <label class="switch">
               <input type="checkbox" v-model="webdavForm.enabled" role="switch"
@@ -2356,26 +2440,29 @@ html[data-perf="low"] .dock{transition:none}
           <template v-if="webdavForm.enabled">
             <div class="token-grid">
               <div class="token-field">
-                <label>用户名</label>
+                <label>用户名
+                  <q-tip>仅支持字母、数字与 . _ @ - 。环境变量基线：{{ webdavEnvBaseline.username || '—' }}</q-tip>
+                </label>
                 <input class="token-input" type="text" v-model="webdavForm.username"
                        placeholder="例如 kvault" autocomplete="off">
-                <small class="field-hint">仅支持字母、数字与 . _ @ - 。环境变量基线：{{ webdavEnvBaseline.username || '—' }}</small>
               </div>
               <div class="token-field">
-                <label>密码</label>
+                <label>密码
+                  <q-tip>
+                    <template v-if="webdavHasPassword">已设置密码，留空表示保持不变。</template>
+                    <template v-else>尚未设置密码，请填写至少 6 个字符。</template>
+                  </q-tip>
+                </label>
                 <input class="token-input" type="password" v-model="webdavForm.password"
                        :placeholder="webdavHasPassword ? '留空则不修改' : '至少 6 个字符'" autocomplete="new-password">
-                <small class="field-hint">
-                  <template v-if="webdavHasPassword">已设置密码，留空表示保持不变。</template>
-                  <template v-else>尚未设置密码，请填写至少 6 个字符。</template>
-                </small>
               </div>
             </div>
 
             <div class="settings-switch-row">
               <div class="settings-switch-text">
-                <strong>只读模式</strong>
-                <span>开启后客户端只能浏览与下载，任何写入（上传 / 建目录 / 重命名 / 删除）都会被拒绝。</span>
+                <strong>只读模式
+                  <q-tip>开启后客户端只能浏览与下载，任何写入（上传 / 建目录 / 重命名 / 删除）都会被拒绝。</q-tip>
+                </strong>
               </div>
               <label class="switch">
                 <input type="checkbox" v-model="webdavForm.readOnly" role="switch"
@@ -2386,15 +2473,18 @@ html[data-perf="low"] .dock{transition:none}
             </div>
 
             <div class="token-field">
-              <label>存储后端</label>
+              <label>存储后端
+                <q-tip>WebDAV 上传的文件将写入该后端。Telegram 无需额外配置；R2 容量与速度更好（需已绑定 R2）。</q-tip>
+              </label>
               <select class="token-input" v-model="webdavForm.backend">
                 <option v-for="opt in webdavBackendOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
-              <small class="field-hint">WebDAV 上传的文件将写入该后端。Telegram 无需额外配置；R2 容量与速度更好（需已绑定 R2）。</small>
             </div>
 
             <div class="token-field">
-              <label>服务地址</label>
+              <label>服务地址
+                <q-tip>在客户端中填入此地址与上方账号密码即可挂载。</q-tip>
+              </label>
               <div class="input-with-unit">
                 <input class="token-input" type="text" :value="webdavServiceUrl" readonly
                        @focus="$event.target.select()">
@@ -2403,7 +2493,6 @@ html[data-perf="low"] .dock{transition:none}
                   <span>{{ webdavAddrCopied ? '已复制' : '复制' }}</span>
                 </button>
               </div>
-              <small class="field-hint">在客户端中填入此地址与上方账号密码即可挂载。</small>
             </div>
           </template>
 
@@ -2440,12 +2529,12 @@ html[data-perf="low"] .dock{transition:none}
       <h2 class="dialog-title">
         <i class="fas fa-share-nodes"></i>
         <span>分享管理</span>
+        <q-tip>
+          所有已开启分享的文件。可在此查看<strong>有效期</strong>、<strong>下载次数</strong>与<strong>密码状态</strong>，或取消分享。
+          <br>
+          <span class="dialog-hint">下载次数仅在访问者点击「下载」时增长 —— 预览不计入。</span>
+        </q-tip>
       </h2>
-      <div class="dialog-message">
-        所有已开启分享的文件。可在此查看<strong>有效期</strong>、<strong>下载次数</strong>与<strong>密码状态</strong>，或取消分享。
-        <br>
-        <span class="dialog-hint">下载次数仅在访问者点击「下载」时增长 —— 预览不计入。</span>
-      </div>
 
       <div style="display:flex;gap:8px;margin:2px 0 14px;">
         <button type="button" @click="switchShareTab('files')"
@@ -2655,11 +2744,11 @@ html[data-perf="low"] .dock{transition:none}
       <i class="fas fa-paper-plane"></i>
       <span>隔空投送</span>
       <span class="badge-beta">BETA</span>
+      <q-tip>
+        两端在首页打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
+        改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
+      </q-tip>
     </h2>
-    <div class="dialog-message">
-      两端在首页打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
-      改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
-    </div>
 
     <div class="token-section" v-if="airdropLoading">
       <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取隔空投送设置...</div>
@@ -2679,8 +2768,9 @@ html[data-perf="low"] .dock{transition:none}
 
         <div class="settings-switch-row">
           <div class="settings-switch-text">
-            <strong>启用隔空投送</strong>
-            <span>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</span>
+            <strong>启用隔空投送
+              <q-tip>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</q-tip>
+            </strong>
           </div>
           <label class="switch">
             <input type="checkbox" v-model="airdropForm.enabled" role="switch"
@@ -2692,8 +2782,9 @@ html[data-perf="low"] .dock{transition:none}
 
         <div class="settings-switch-row">
           <div class="settings-switch-text">
-            <strong>允许未登录访客发起投送</strong>
-            <span>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</span>
+            <strong>允许未登录访客发起投送
+              <q-tip>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</q-tip>
+            </strong>
           </div>
           <label class="switch">
             <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
@@ -2705,8 +2796,9 @@ html[data-perf="low"] .dock{transition:none}
 
         <div class="settings-switch-row">
           <div class="settings-switch-text">
-            <strong>允许未登录访客接收文件</strong>
-            <span>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</span>
+            <strong>允许未登录访客接收文件
+              <q-tip>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</q-tip>
+            </strong>
           </div>
           <label class="switch">
             <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
@@ -2718,36 +2810,40 @@ html[data-perf="low"] .dock{transition:none}
 
         <div class="token-grid">
           <div class="token-field">
-            <label>单文件上限</label>
+            <label>单文件上限
+              <q-tip>
+                实际生效值还会受中转节点能力约束：当前节点 {{ airdropBackendLabel }}，
+                上限 {{ airdropBackendMaxLabel }}。
+              </q-tip>
+            </label>
             <div class="input-with-unit">
               <input class="token-input" type="number" min="1" v-model.number="airdropForm.maxFileSizeMb">
               <span class="unit">MB</span>
             </div>
-            <small class="field-hint">
-              实际生效值还会受中转节点能力约束：当前节点 {{ airdropBackendLabel }}，
-              上限 {{ airdropBackendMaxLabel }}。
-            </small>
           </div>
           <div class="token-field">
-            <label>每 IP 每日次数</label>
+            <label>每 IP 每日次数
+              <q-tip>环境变量基线：{{ airdropEnvBaseline.dailyLimit }}</q-tip>
+            </label>
             <input class="token-input" type="number" min="1" v-model.number="airdropForm.dailyLimit">
-            <small class="field-hint">环境变量基线：{{ airdropEnvBaseline.dailyLimit }}</small>
           </div>
           <div class="token-field">
-            <label>房间有效期</label>
+            <label>房间有效期
+              <q-tip>从发端生成房间那刻起算。超时后房间失效、两端停止轮询（不再产生数据库读），中转节点上的临时文件一并释放。默认 5 分钟。</q-tip>
+            </label>
             <div class="input-with-unit">
               <input class="token-input" type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes">
               <span class="unit">分钟</span>
             </div>
-            <small class="field-hint">从发端生成房间那刻起算。超时后房间失效、两端停止轮询（不再产生数据库读），中转节点上的临时文件一并释放。默认 5 分钟。</small>
           </div>
           <div class="token-field">
-            <label>使用记录保留条数</label>
+            <label>使用记录保留条数
+              <q-tip>
+                超出后自动删除最旧的记录。<strong>0 表示不自动清理</strong>（记录会一直累积，
+                占用 D1 存储与免费额度，不建议）。默认 500。
+              </q-tip>
+            </label>
             <input class="token-input" type="number" min="0" max="100000" v-model.number="airdropForm.statsRetention">
-            <small class="field-hint">
-              超出后自动删除最旧的记录。<strong>0 表示不自动清理</strong>（记录会一直累积，
-              占用 D1 存储与免费额度，不建议）。默认 500。
-            </small>
           </div>
         </div>
 
@@ -2798,7 +2894,9 @@ html[data-perf="low"] .dock{transition:none}
             </div>
             <div class="share-stat">
               <div class="share-stat-value warn">{{ airdropStats.failed }}</div>
-              <div class="share-stat-label">未完成</div>
+              <div class="share-stat-label">未完成
+                <q-tip>指发端已上传但收端未取走、或中途取消的投递。</q-tip>
+              </div>
             </div>
             <div class="share-stat">
               <div class="share-stat-value">{{ airdropBytesLabel }}</div>
@@ -2818,7 +2916,6 @@ html[data-perf="low"] .dock{transition:none}
             <i class="fas fa-circle-info"></i>
             <span>
               当前有 <strong>{{ airdropStats.activeSessions }}</strong> 个房间正在进行中。
-              「未完成」指发端已上传但收端未取走、或中途取消的投递。
             </span>
           </div>
 
@@ -2866,10 +2963,10 @@ html[data-perf="low"] .dock{transition:none}
     <h2 class="dialog-title">
       <i class="fas fa-heart-pulse"></i>
       <span>系统连接状态</span>
+      <q-tip>
+        检查 <code class="kv-code">Telegram</code> / <code class="kv-code">KV</code> / <code class="kv-code">R2</code> / <code class="kv-code">S3</code> / <code class="kv-code">Discord</code> / <code class="kv-code">HuggingFace</code> / <code class="kv-code">GitHub</code> 各后端是否可用。检查结果以弹层展示，不占用本页布局。
+      </q-tip>
     </h2>
-    <div class="dialog-message">
-      检查 <code class="kv-code">Telegram</code> / <code class="kv-code">KV</code> / <code class="kv-code">R2</code> / <code class="kv-code">S3</code> / <code class="kv-code">Discord</code> / <code class="kv-code">HuggingFace</code> / <code class="kv-code">GitHub</code> 各后端是否可用。检查结果以弹层展示，不占用本页布局。
-    </div>
     <div class="token-section" style="margin-bottom:0">
       <button class="btn" @click="checkStatus" :disabled="statusChecking">
         <i class="fas" :class="statusChecking ? 'fa-circle-notch fa-spin' : 'fa-heart-pulse'"></i>
@@ -2884,10 +2981,10 @@ html[data-perf="low"] .dock{transition:none}
       <h2 class="dialog-title">
         <i class="fas fa-signature"></i>
         <span>网站信息</span>
+        <q-tip>
+          自定义站点对外的<strong>显示名称</strong>与浏览器<strong>标签标题</strong>。保存在 <code class="kv-code">KV</code> 运行时配置，<strong>保存后立即对所有页面生效</strong>，无需重新部署。留空即恢复默认（{{ brandingEnvBaseline.siteName }}）。
+        </q-tip>
       </h2>
-      <div class="dialog-message">
-        自定义站点对外的<strong>显示名称</strong>与浏览器<strong>标签标题</strong>。保存在 <code class="kv-code">KV</code> 运行时配置，<strong>保存后立即对所有页面生效</strong>，无需重新部署。留空即恢复默认（{{ brandingEnvBaseline.siteName }}）。
-      </div>
 
       <div class="token-section">
         <div class="token-section-head">
@@ -2900,17 +2997,19 @@ html[data-perf="low"] .dock{transition:none}
         </div>
 
         <div class="token-field">
-          <label>网站名字（站点显示名）</label>
+          <label>网站名字（站点显示名）
+            <q-tip>显示在首页品牌区、分享页与各类页眉。环境变量基线：{{ brandingEnvBaseline.siteName }}</q-tip>
+          </label>
           <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteName"
                  placeholder="如：一云 / My Drive" />
-          <small class="field-hint">显示在首页品牌区、分享页与各类页眉。环境变量基线：{{ brandingEnvBaseline.siteName }}</small>
         </div>
 
         <div class="token-field">
-          <label>网站标题（浏览器标签）</label>
+          <label>网站标题（浏览器标签）
+            <q-tip>显示在浏览器标签页与社交分享卡片标题。环境变量基线：{{ brandingEnvBaseline.siteTitle }}</q-tip>
+          </label>
           <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
                  placeholder="如：K-Vault-NEXT" />
-          <small class="field-hint">显示在浏览器标签页与社交分享卡片标题。环境变量基线：{{ brandingEnvBaseline.siteTitle }}</small>
         </div>
 
         <div class="settings-note" v-if="brandingSource === 'kv'">
@@ -2930,10 +3029,10 @@ html[data-perf="low"] .dock{transition:none}
       <h2 class="dialog-title">
         <i class="fas fa-key"></i>
         <span>API Token 管理</span>
+        <q-tip>
+          面向机器客户端（curl / ShareX / 脚本 / Agent）的长期凭据，与网页登录态完全隔离。密钥<strong>仅在创建或轮换时返回一次</strong>，请立即保存。
+        </q-tip>
       </h2>
-      <div class="dialog-message">
-        面向机器客户端（curl / ShareX / 脚本 / Agent）的长期凭据，与网页登录态完全隔离。密钥<strong>仅在创建或轮换时返回一次</strong>，请立即保存。
-      </div>
 
       <!-- 一次性密钥展示 -->
       <transition name="pop">
@@ -2978,7 +3077,13 @@ html[data-perf="low"] .dock{transition:none}
         </div>
 
         <div class="token-field">
-          <label>权限（scopes）</label>
+          <label>权限（scopes）
+            <q-tip>
+              每个权限的作用见对应权限名上的悬停提示。
+              <br>
+              <strong>未勾选任何权限的 Token 无法调用任何 API</strong>，只能用于文件管理类操作。
+            </q-tip>
+          </label>
           <div class="token-chips">
             <button class="token-chip" v-for="s in tokenScopeCatalog" :key="s.value"
                     :class="{active: tokenForm.scopes.includes(s.value)}"
@@ -2986,7 +3091,6 @@ html[data-perf="low"] .dock{transition:none}
               <i class="fas fa-check" v-if="tokenForm.scopes.includes(s.value)"></i>{{ s.label }}
             </button>
           </div>
-          <div class="token-hint">未勾选任何权限的 Token 无法调用任何 API。</div>
         </div>
 
         <div class="token-field">
@@ -3548,9 +3652,104 @@ const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, storage: 2, system: 3 };
    短于 400ms 会与「点按」混淆，长于 600ms 用户会以为没反应。 */
 const LONG_PRESS_MS = 480;
 
+/* ============ q-tip：标题旁的灰色小问号 + 说明浮层 ============
+   把设置区大量常驻的「功能解释」收进浮层，悬停显示、点击固定。
+
+   内容走默认插槽而非字符串 prop —— 槽内的 {{ 插值 }}、<code>、<strong>、
+   <template v-if> 都由 Vue 正常渲染，插值保持响应式，不会退化成静态文本。
+
+   浮层 teleport 到 body：设置区都在带 overflow-y:auto 的 .dialog-panel 里，
+   挂在原地会被裁掉。代价是失去 CSS 定位上下文，改由 place() 按视口坐标
+   写 left/top，并把「外部点击」的判定同时看 dot 与浮层两处。 */
+const QTIP_GAP = 8;   // 浮层与问号的间距
+const QTIP_PAD = 10;  // 浮层与视口边缘的最小留白
+
+const qTipComponent = {
+  name: 'q-tip',
+  data() { return { open: false, pinned: false, pos: { left: '0px', top: '0px' } }; },
+  mounted() {
+    this._onDocDown = (e) => {
+      if (!this.open) return;
+      const pop = this.$refs.pop;
+      const inDot = this.$el.contains(e.target);
+      const inPop = pop && pop.contains(e.target);
+      if (!inDot && !inPop) { this.open = false; this.pinned = false; }
+    };
+    this._onKey = (e) => {
+      if (e.key === 'Escape' && this.open) { this.open = false; this.pinned = false; }
+    };
+    /* 页面滚动 / 窗口缩放后 fixed 坐标会失真，直接收起而不是重算 */
+    this._onReflow = () => { if (this.open && !this.pinned) this.open = false; };
+    document.addEventListener('pointerdown', this._onDocDown, true);
+    document.addEventListener('keydown', this._onKey);
+    window.addEventListener('scroll', this._onReflow, true);
+    window.addEventListener('resize', this._onReflow);
+  },
+  beforeUnmount() {
+    document.removeEventListener('pointerdown', this._onDocDown, true);
+    document.removeEventListener('keydown', this._onKey);
+    window.removeEventListener('scroll', this._onReflow, true);
+    window.removeEventListener('resize', this._onReflow);
+  },
+  methods: {
+    show() { if (!this.open) this.open = true; this.$nextTick(this.place); },
+    /* 点击时如果处于固定态就关闭；否则打开并固定（触屏只能靠点击） */
+    toggle() {
+      if (this.open && this.pinned) { this.open = false; this.pinned = false; }
+      else { this.open = true; this.pinned = true; this.$nextTick(this.place); }
+    },
+    hide() { if (!this.pinned) this.open = false; },
+    /* 按问号的视口坐标摆放浮层：默认在下方，靠视口下缘时翻到上方，
+       再分别做左右 / 上下钳制，保证任何位置都不会被裁掉。 */
+    place() {
+      const pop = this.$refs.pop;
+      const dot = this.$refs.dot;
+      if (!pop || !dot) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const d = dot.getBoundingClientRect();
+      const pw = pop.offsetWidth;
+      const ph = pop.offsetHeight;
+
+      let left = d.left;
+      if (left + pw > vw - QTIP_PAD) left = vw - QTIP_PAD - pw;
+      if (left < QTIP_PAD) left = QTIP_PAD;
+
+      let top = d.bottom + QTIP_GAP;
+      if (top + ph > vh - QTIP_PAD) {
+        const above = d.top - QTIP_GAP - ph;   // 下方放不下就翻到问号上方
+        /* 上方也放不下（浮层比视口还高）时退化为「贴视口顶部」——
+           Math.max 里的第二项可能为负，必须再兜一层 PAD，否则浮层会溢出到屏幕外。 */
+        top = above >= QTIP_PAD ? above : QTIP_PAD;
+      }
+
+      this.pos = { left: Math.round(left) + 'px', top: Math.round(top) + 'px' };
+    },
+  },
+  template: `
+    <span class="qtip"
+          @mouseenter="show"
+          @mouseleave="hide"
+          @focusin="show"
+          @focusout="hide">
+      <button type="button" class="qtip__dot" ref="dot"
+              aria-label="查看说明"
+              :aria-expanded="String(open)"
+              @click.stop="toggle">?</button>
+      <teleport to="body">
+        <span class="qtip__pop" v-show="open" ref="pop" role="tooltip"
+              :style="pos"
+              @mouseenter="pinned ? null : (open = true)"
+              @mouseleave="hide"><slot></slot></span>
+      </teleport>
+    </span>
+`,
+};
+
 const __kvApp = Vue.createApp({
   components: {
     'folder-node': folderNodeComponent,
+    'q-tip': qTipComponent,
   },
   data() { return {
     currentTheme: 'light',
