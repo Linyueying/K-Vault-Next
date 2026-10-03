@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>WebDAV 服务 | K-Vault</title>
     <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico" />
     <link rel="apple-touch-icon" href="/assets/img/logo-180.png" />
@@ -14,174 +14,93 @@
     <script src="/assets/js/theme.js?v=20260305"></script>
     <script src="/assets/js/app-core.js"></script>
     <style>
-      /* 设计令牌统一取自 /design-system.css；这里只保留本页的 --wf-* 快捷别名 */
-      :root {
-        --wf-surface: var(--glass-surface);
-        --wf-border: var(--glass-border);
-        --wf-shadow: var(--shadow-elevated);
-        --wf-shadow-soft: var(--shadow-soft);
-        --wf-primary: var(--primary);
-        --wf-primary-soft: rgba(var(--primary-rgb), 0.13);
-      }
-      html[data-theme="dark"] {
-        --wf-surface: var(--glass-surface);
-        --wf-border: var(--glass-border);
-        --wf-primary: var(--primary);
-        --wf-primary-soft: rgba(var(--primary-rgb), 0.2);
-      }
+      /* 设计令牌统一取自 design-system.css；本页只写全站共享层没有的局部增量
+         （topbar / brand / 本页骨架类）。卡片、按钮、输入框、状态胶囊均直接复用
+         design-system.css 的 .card / .btn / .input / .status-pill，避免两处定义漂移。 */
 
-      * { box-sizing: border-box; }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: var(--bg-gradient) !important;
-        background-attachment: fixed;
-        color: var(--text-main);
-        -webkit-font-smoothing: antialiased;
-        font-family: 'Plus Jakarta Sans', "Manrope", "Noto Sans SC", "PingFang SC", "Segoe UI", sans-serif;
-      }
-
-      html[data-theme="dark"] body {
-        color: var(--text-main);
-        background: var(--bg-gradient) !important;
-      }
-
-      .page {
-        max-width: 1160px;
-        margin: 0 auto;
-        padding: 20px;
-      }
-
-      .header {
-        position: sticky;
-        top: 20px;
-        z-index: 50;
+      /* ===== 顶部栏：与 index / share 同源（index.css 不在共享层，
+         故在此内联复刻，确保三页外观一致） ===== */
+      .topbar {
+        position: relative;
+        z-index: 2;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 16px 24px;
-        border-radius: var(--radius-lg);
-        background: var(--wf-surface);
-        border: 1px solid var(--wf-border);
-        box-shadow: var(--wf-shadow-soft);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        margin-bottom: 16px;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 16px var(--sp-5) 6px;
+      }
+      .brand { display: flex; align-items: center; gap: var(--sp-3); user-select: none; min-width: 0; }
+      .brand__logo {
+        width: 38px; height: 38px;
+        border-radius: var(--r-sm);
+        display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(135deg, #fff, #e0f2fe);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.14);
+        transition: transform 0.45s var(--ease-spring), box-shadow 0.3s var(--ease-apple);
+      }
+      .brand:hover .brand__logo { transform: rotate(-6deg) scale(1.06); box-shadow: 0 8px 20px rgba(2, 132, 199, 0.24); }
+      .brand__logo img { width: 24px; height: 24px; object-fit: contain; }
+      .brand__text { min-width: 0; }
+      .brand__text h1 {
+        font-size: var(--fs-xl); font-weight: 800; letter-spacing: -0.02em; margin: 0;
+        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+      }
+      .brand__text span { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-top: -2px; }
+      .top-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
+
+      /* ===== 内容容器 ===== */
+      .page {
+        position: relative;
+        z-index: 1;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 8px var(--sp-5) 40px;
       }
 
-      .header-title {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-family: 'Plus Jakarta Sans', "Sora", "Noto Sans SC", sans-serif;
-        font-size: 1.38rem;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        margin: 0;
-      }
-
-      .header-title i { color: var(--wf-primary); }
-
-      .header-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-      }
-
-      .header-logo {
-        width: 30px;
-        height: 30px;
-        border-radius: var(--radius-sm);
-        object-fit: cover;
-        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.2);
-        background: rgba(255, 255, 255, 0.92);
-      }
-
+      /* ===== 卡片网格 ===== */
       .layout {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
+        gap: var(--sp-4);
       }
+      .span-2 { grid-column: 1 / -1; }
 
+      /* 工具栏行：直接吃共享 .liquid-card 的玻璃外观，这里只加内边距与两端对齐 */
       .toolbar-row {
         grid-column: 1 / -1;
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 10px;
-        padding: 12px 14px;
-        border-radius: 14px;
-        border: 1px solid var(--wf-border);
-        background: var(--wf-surface);
-        box-shadow: var(--wf-shadow-soft);
+        padding: var(--sp-3) var(--sp-4);
         flex-wrap: wrap;
       }
 
-      .status-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: var(--radius-pill);
-        border: 1px solid var(--wf-border);
-        background: rgba(255, 255, 255, 0.72);
-        color: #586173;
-        font-size: 0.88rem;
-        font-weight: 600;
-      }
+      /* ===== 卡片内局部排版（基础外观由 design-system.css 的 .card 提供） ===== */
+      /* .card-pad：卡片正文内边距（design-system 的 .card__body 只有 padding 一项声明，
+         被 check_styles 的「仅 margin/padding 不计为有效样式」规则排除，故用本页局部类） */
+      .card-pad { padding: 0 var(--sp-4) var(--sp-4); }
+      .card-sub { margin-top: 4px; color: var(--text-muted); font-size: 0.86rem; line-height: 1.45; }
 
-      .status-pill .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #909399;
-      }
+      .kv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-      .status-pill.ok { border-color: rgba(103, 194, 58, 0.45); background: rgba(103, 194, 58, 0.14); color: #1f7a46; }
-      .status-pill.ok .status-dot { background: #67c23a; }
-      .status-pill.bad { border-color: rgba(245, 108, 108, 0.45); background: rgba(245, 108, 108, 0.14); color: #af3939; }
-      .status-pill.bad .status-dot { background: #f56c6c; }
-
-      .card { padding: 16px; }
-      .card:hover { box-shadow: var(--wf-shadow); }
-
-      .card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 10px;
-        margin-bottom: 12px;
-      }
-
-      .card h2 { margin: 0; font-size: 1.06rem; display: inline-flex; align-items: center; gap: 8px; }
-      .card h2 i { color: var(--wf-primary); }
-
-      .card-sub { margin-top: 4px; color: #77819a; font-size: 0.86rem; line-height: 1.45; }
-
-      .kv-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      /* 连接信息行：左标签 + 右值 */
       .info-line {
         display: flex;
         align-items: center;
         gap: 10px;
         padding: 10px 0;
-        border-bottom: 1px dashed var(--wf-border);
+        border-bottom: 1px dashed var(--glass-border-ice);
       }
       .info-line:last-child { border-bottom: none; }
       .info-line .info-label {
         flex: 0 0 auto;
         min-width: 76px;
-        color: #6b7690;
+        color: var(--text-sub);
         font-size: 0.86rem;
         font-weight: 600;
       }
@@ -192,15 +111,7 @@
         word-break: break-all;
       }
 
-      /* font-family 由 design-system.css 的 .mono 提供，这里只追加本页的盒模型 */
-      .mono {
-        font-size: 0.86rem;
-        background: rgba(2, 132, 199, 0.08);
-        border: 1px solid rgba(2, 132, 199, 0.18);
-        border-radius: 8px;
-        padding: 2px 8px;
-      }
-
+      /* 连接信息输入框/地址：复用共享 .input，仅追加本页需要的 flex 行为 */
       .copy-box {
         display: flex;
         align-items: center;
@@ -212,23 +123,62 @@
         min-width: 0;
         overflow-x: auto;
         white-space: nowrap;
-        padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid var(--wf-border);
-        background: rgba(255, 255, 255, 0.72);
-        font-family: 'JetBrains Mono', ui-monospace, monospace;
-        font-size: 0.86rem;
+        padding: 0 var(--sp-3);
+        height: var(--h-ctrl);
+        display: flex;
+        align-items: center;
+        border-radius: var(--r-sm);
+        border: 1px solid var(--glass-border-ice);
+        background: var(--glass-subtle);
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+        color: var(--text-main);
         scrollbar-width: none;
       }
       .copy-box .url-text::-webkit-scrollbar { display: none; }
 
-      /* 平台说明块 */
+      /* ===== 状态胶囊：复刻 index.css 外观（.status-pill 基础不在共享层） =====
+         三态：默认灰（检测中，不呼吸）/ is-ok 绿（脉冲）/ is-bad 红（常亮） */
+      .status-pill {
+        display: inline-flex; align-items: center; justify-content: center;
+        gap: var(--sp-2);
+        padding: 7px var(--sp-4);
+        min-width: 136px;
+        max-width: min(320px, 70vw);
+        border-radius: var(--r-pill);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        color: var(--primary-dark);
+        font-size: var(--fs-sm); font-weight: 600;
+        box-shadow: var(--shadow-soft);
+        transition: var(--transition);
+        cursor: default;
+      }
+      html[data-theme="dark"] .status-pill { color: var(--primary-light); }
+      .status-pill__pulse {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--text-muted);
+        flex: none;
+      }
+      .status-pill.is-ok {
+        color: var(--c-success-text);
+        border-color: rgba(16, 185, 129, 0.4);
+      }
+      html[data-theme="dark"] .status-pill.is-ok { color: var(--c-success); }
+      .status-pill.is-ok .status-pill__pulse { background: var(--c-success); animation: pulseRing 2.4s var(--ease-apple) infinite; }
+      .status-pill.is-bad {
+        color: var(--c-danger);
+        border-color: rgba(225, 29, 72, 0.4);
+      }
+      .status-pill.is-bad .status-pill__pulse { background: var(--c-danger); }
+
+      /* ===== 平台挂载指引折叠块（页面局部组件） ===== */
       .guide-block {
-        border: 1px solid var(--wf-border);
-        border-radius: 12px;
-        padding: 10px 12px;
+        border: 1px solid var(--glass-border-ice);
+        border-radius: var(--r-md);
+        padding: 10px var(--sp-3);
         margin-bottom: 8px;
-        background: rgba(255, 255, 255, 0.6);
+        background: var(--glass-subtle);
       }
       .guide-block:last-child { margin-bottom: 0; }
       .guide-title {
@@ -240,20 +190,21 @@
         cursor: pointer;
         user-select: none;
       }
-      .guide-title i.caret { margin-left: auto; transition: transform 0.2s ease; color: #8a93a8; }
+      .guide-title i.caret { margin-left: auto; transition: transform var(--dur-base) var(--ease-apple); color: var(--text-muted); }
       .guide-block.open .guide-title i.caret { transform: rotate(180deg); }
       .guide-body {
         margin-top: 8px;
         font-size: 0.86rem;
         line-height: 1.7;
-        color: #5a6478;
+        color: var(--text-sub);
         display: none;
+        overflow: hidden;
       }
       .guide-block.open .guide-body { display: block; }
       .guide-body ol { margin: 6px 0; padding-left: 20px; }
       .guide-body code {
-        font-family: 'JetBrains Mono', monospace;
-        background: rgba(2, 132, 199, 0.1);
+        font-family: var(--font-mono);
+        background: rgba(var(--primary-rgb), 0.1);
         padding: 1px 5px;
         border-radius: 4px;
         word-break: break-all;
@@ -261,203 +212,208 @@
 
       .result-line {
         font-size: 0.88rem;
-        color: #64748b;
+        color: var(--text-muted);
         margin-top: 10px;
         line-height: 1.6;
         word-break: break-word;
       }
-      .result-line.ok { color: #16a34a; }
-      .result-line.bad { color: #ef4444; }
+      .result-line.ok { color: var(--c-success); }
+      .result-line.bad { color: var(--c-danger); }
 
-      .span-2 { grid-column: 1 / -1; }
-
+      /* ===== 响应式 ===== */
       @media (max-width: 860px) {
         .layout { grid-template-columns: 1fr; }
         .span-2 { grid-column: auto; }
       }
-
       @media (max-width: 640px) {
-        .page { padding: 10px; }
-        .header { top: 8px; padding: 10px 12px; flex-wrap: wrap; }
-        .header-title { width: 100%; font-size: 1rem; }
-        .header-actions { width: 100%; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
-        .header-actions::-webkit-scrollbar { display: none; }
+        .page { padding: 8px var(--sp-3) 32px; }
+        .topbar { padding: 12px var(--sp-3) 4px; flex-wrap: wrap; }
+        .top-actions { width: 100%; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+        .top-actions::-webkit-scrollbar { display: none; }
         .info-line { flex-direction: column; align-items: flex-start; gap: 4px; }
         .copy-box { flex-direction: column; align-items: stretch; }
       }
 
-      /* ===== 入场编排：与站点其余页面保持同一观感 ===== */
-      .page > .header { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .page .card { animation: riseIn 0.52s var(--ease-fluid) backwards; }
-      .page .card:nth-child(1) { animation-delay: 0.02s; }
-      .page .card:nth-child(2) { animation-delay: 0.06s; }
-      .page .card:nth-child(3) { animation-delay: 0.10s; }
-      .page .card:nth-child(n + 4) { animation-delay: 0.14s; }
+      /* ===== 首屏入场编排：与 index / share / admin 同一套 riseIn ===== */
+      .topbar { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+      .card, .liquid-card { animation: riseIn 0.52s var(--ease-fluid) backwards; }
     </style>
     <link rel="stylesheet" href="/assets/css/mobile-refactor.css" />
   </head>
   <body>
-    <main class="page">
-      <header class="header">
-        <h1 class="header-title">
+    <!-- 环境光背景：与 index / share 同源 -->
+    <div class="ambient-glow">
+      <div class="ambient-orb orb-1"></div>
+      <div class="ambient-orb orb-2"></div>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand__logo">
           <img
             src="/assets/img/logo-64.png"
-            alt="K-Vault Logo"
-            class="header-logo"
-            loading="eager"
+            alt="Logo"
             onerror="this.onerror=null;this.src='/assets/img/favicon.ico';"
           />
-          <span>WebDAV 服务</span>
-        </h1>
-        <div class="header-actions">
-          <a class="btn" href="./"><i class="fas fa-home"></i><span>首页</span></a>
-          <a class="btn" href="./gallery.html"><i class="fas fa-images"></i><span>图片浏览</span></a>
-          <a class="btn" href="/admin/files"><i class="fas fa-folder-tree"></i><span>管理后台</span></a>
-          <a class="btn" href="./paste.html"><i class="fas fa-paste"></i><span>文本粘贴</span></a>
-          <a class="btn btn--primary" href="./webdav.html"><i class="fas fa-network-wired"></i><span>WebDAV</span></a>
-          <button type="button" class="btn" data-theme-toggle aria-label="切换主题">
-            <i class="fas fa-moon" data-theme-icon></i>
-            <span data-theme-label>夜间</span>
-          </button>
         </div>
-      </header>
+        <div class="brand__text">
+          <h1>WebDAV 服务</h1>
+          <span>K-Vault · 网盘挂载</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="btn btn--sm" href="./"><i class="fas fa-home"></i><span>首页</span></a>
+        <a class="btn btn--sm" href="./gallery.html"><i class="fas fa-images"></i><span>图片浏览</span></a>
+        <a class="btn btn--sm" href="/admin/files"><i class="fas fa-folder-tree"></i><span>管理后台</span></a>
+        <a class="btn btn--sm" href="./paste.html"><i class="fas fa-paste"></i><span>文本粘贴</span></a>
+        <a class="btn btn--sm btn--primary" href="./webdav.html"><i class="fas fa-network-wired"></i><span>WebDAV</span></a>
+        <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle aria-label="切换主题">
+          <i class="fas fa-moon" data-theme-icon></i>
+        </button>
+      </div>
+    </header>
 
+    <main class="page">
       <section class="layout">
-        <article class="toolbar-row">
+        <article class="toolbar-row liquid-card">
           <div class="status-pill" id="statusPill">
-            <span class="status-dot"></span>
+            <span class="status-pill__pulse"></span>
             <span id="statusText">正在检测 WebDAV 服务状态...</span>
           </div>
           <div class="kv-row">
-            <button class="btn" id="refreshBtn"><i class="fas fa-rotate"></i> 刷新状态</button>
-            <a class="btn btn--primary" href="/admin/storage"><i class="fas fa-sliders"></i> 去后台设置</a>
+            <button class="btn btn--sm" id="refreshBtn"><i class="fas fa-rotate"></i> 刷新状态</button>
+            <a class="btn btn--sm btn--primary" href="/admin/storage"><i class="fas fa-sliders"></i> 去后台设置</a>
           </div>
         </article>
 
         <article class="card span-2">
-          <div class="card-header">
+          <div class="card__header">
             <div>
               <h2><i class="fas fa-circle-info"></i> 服务状态</h2>
               <p class="card-sub">把本站当作 WebDAV 网盘挂载。开启后可用资源管理器 / Finder / 手机 App 直接拖拽文件。</p>
             </div>
           </div>
-          <div class="info-line">
-            <span class="info-label">运行状态</span>
-            <span class="info-value" id="svcEnabled">—</span>
+          <div class="card-pad">
+            <div class="info-line">
+              <span class="info-label">运行状态</span>
+              <span class="info-value" id="svcEnabled">—</span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">存储后端</span>
+              <span class="info-value" id="svcBackend">—</span>
+            </div>
+            <div class="info-line">
+              <span class="info-label">读写权限</span>
+              <span class="info-value" id="svcMode">—</span>
+            </div>
+            <p class="result-line" id="statusDetail"></p>
           </div>
-          <div class="info-line">
-            <span class="info-label">存储后端</span>
-            <span class="info-value" id="svcBackend">—</span>
-          </div>
-          <div class="info-line">
-            <span class="info-label">读写权限</span>
-            <span class="info-value" id="svcMode">—</span>
-          </div>
-          <p class="result-line" id="statusDetail"></p>
         </article>
 
         <article class="card">
-          <div class="card-header">
+          <div class="card__header">
             <div>
               <h2><i class="fas fa-link"></i> 连接地址</h2>
               <p class="card-sub">在 WebDAV 客户端中填入以下地址与账号密码。</p>
             </div>
           </div>
-
-          <div class="info-line">
-            <span class="info-label">服务地址</span>
-            <div class="info-value">
-              <div class="copy-box">
-                <span class="url-text" id="serviceUrl">/dav</span>
-                <button class="btn" id="copyUrlBtn"><i class="fas fa-copy"></i> 复制</button>
+          <div class="card-pad">
+            <div class="info-line">
+              <span class="info-label">服务地址</span>
+              <div class="info-value">
+                <div class="copy-box">
+                  <span class="url-text mono" id="serviceUrl">/dav</span>
+                  <button class="btn btn--sm" id="copyUrlBtn"><i class="fas fa-copy"></i> 复制</button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="info-line">
-            <span class="info-label">用户名</span>
-            <span class="info-value" id="svcUser">在后台存储设置中查看</span>
-          </div>
+            <div class="info-line">
+              <span class="info-label">用户名</span>
+              <span class="info-value" id="svcUser">在后台存储设置中查看</span>
+            </div>
 
-          <div class="info-line">
-            <span class="info-label">密码</span>
-            <span class="info-value">在后台「存储 → WebDAV 服务端」中查看 / 修改</span>
-          </div>
+            <div class="info-line">
+              <span class="info-label">密码</span>
+              <span class="info-value">在后台「存储 → WebDAV 服务端」中查看 / 修改</span>
+            </div>
 
-          <p class="card-sub" style="margin-top:12px">
-            提示：WebDAV 客户端通常需要<strong>明文保存密码</strong>，建议为本服务单独设置一个密码，
-            并优先在 HTTPS 下使用。
-          </p>
+            <p class="card-sub" style="margin-top:12px">
+              提示：WebDAV 客户端通常需要<strong>明文保存密码</strong>，建议为本服务单独设置一个密码，
+              并优先在 HTTPS 下使用。
+            </p>
+          </div>
         </article>
 
         <article class="card">
-          <div class="card-header">
+          <div class="card__header">
             <div>
               <h2><i class="fas fa-plug-circle-check"></i> 连接自检</h2>
               <p class="card-sub">在浏览器内直接探测服务端是否可达（需要先输入账号密码）。</p>
             </div>
           </div>
-          <div class="kv-row">
-            <input class="mono" id="probeUser" type="text" placeholder="用户名" autocomplete="off"
-                   style="flex:1;min-width:120px;padding:9px 12px;border-radius:10px;border:1px solid var(--wf-border);background:var(--wf-surface);color:inherit" />
-            <input class="mono" id="probePass" type="password" placeholder="密码" autocomplete="new-password"
-                   style="flex:1;min-width:120px;padding:9px 12px;border-radius:10px;border:1px solid var(--wf-border);background:var(--wf-surface);color:inherit" />
-            <button class="btn btn--primary" id="probeBtn"><i class="fas fa-satellite-dish"></i> 测试连接</button>
+          <div class="card-pad">
+            <div class="kv-row">
+              <input class="input" id="probeUser" type="text" placeholder="用户名" autocomplete="off" />
+              <input class="input" id="probePass" type="password" placeholder="密码" autocomplete="new-password" />
+              <button class="btn btn--primary" id="probeBtn"><i class="fas fa-satellite-dish"></i> 测试连接</button>
+            </div>
+            <p class="result-line" id="probeResult">尚未测试。</p>
           </div>
-          <p class="result-line" id="probeResult">尚未测试。</p>
         </article>
 
         <article class="card span-2">
-          <div class="card-header">
+          <div class="card__header">
             <div>
               <h2><i class="fas fa-list-check"></i> 挂载指引</h2>
               <p class="card-sub">按平台选择对应步骤。点击标题展开。</p>
             </div>
           </div>
-
-          <div class="guide-block" data-guide>
-            <div class="guide-title"><i class="fab fa-windows"></i><span>Windows 资源管理器</span><i class="fas fa-chevron-down caret"></i></div>
-            <div class="guide-body">
-              <ol>
-                <li>打开「此电脑」，点击顶部「映射网络驱动器」。</li>
-                <li>文件夹填入：<code id="winUrl">\\host@SSL\dav</code>（注意用 <code>@SSL</code> 走 HTTPS）。</li>
-                <li>勾选「使用其他凭据连接」，输入本站用户名密码。</li>
-                <li>若提示证书问题，选择继续即可（自签证书场景）。</li>
-              </ol>
-              <p>命令行方式：<code id="winCmd">net use Z: \\host@SSL\dav /user:用户名 密码</code></p>
+          <div class="card-pad">
+            <div class="guide-block" data-guide>
+              <div class="guide-title"><i class="fab fa-windows"></i><span>Windows 资源管理器</span><i class="fas fa-chevron-down caret"></i></div>
+              <div class="guide-body">
+                <ol>
+                  <li>打开「此电脑」，点击顶部「映射网络驱动器」。</li>
+                  <li>文件夹填入：<code id="winUrl">\\host@SSL\dav</code>（注意用 <code>@SSL</code> 走 HTTPS）。</li>
+                  <li>勾选「使用其他凭据连接」，输入本站用户名密码。</li>
+                  <li>若提示证书问题，选择继续即可（自签证书场景）。</li>
+                </ol>
+                <p>命令行方式：<code id="winCmd">net use Z: \\host@SSL\dav /user:用户名 密码</code></p>
+              </div>
             </div>
-          </div>
 
-          <div class="guide-block" data-guide>
-            <div class="guide-title"><i class="fab fa-apple"></i><span>macOS Finder</span><i class="fas fa-chevron-down caret"></i></div>
-            <div class="guide-body">
-              <ol>
-                <li>Finder 菜单：<strong>前往 → 连接服务器</strong>（⌘K）。</li>
-                <li>服务器地址填入：<code id="macUrl">https://host/dav</code>。</li>
-                <li>选择「注册用户」，输入用户名密码，即可在 Finder 中看到为共享磁盘。</li>
-              </ol>
+            <div class="guide-block" data-guide>
+              <div class="guide-title"><i class="fab fa-apple"></i><span>macOS Finder</span><i class="fas fa-chevron-down caret"></i></div>
+              <div class="guide-body">
+                <ol>
+                  <li>Finder 菜单：<strong>前往 → 连接服务器</strong>（⌘K）。</li>
+                  <li>服务器地址填入：<code id="macUrl">https://host/dav</code>。</li>
+                  <li>选择「注册用户」，输入用户名密码，即可在 Finder 中看到为共享磁盘。</li>
+                </ol>
+              </div>
             </div>
-          </div>
 
-          <div class="guide-block" data-guide>
-            <div class="guide-title"><i class="fas fa-mobile-screen"></i><span>手机 App（iOS / Android）</span><i class="fas fa-chevron-down caret"></i></div>
-            <div class="guide-body">
-              <ol>
-                <li>安装任一支持 WebDAV 的文件管理器：Documents（iOS）、Solid Explorer / Material Files（Android）、RaiDrive（全平台）。</li>
-                <li>新增连接 → 选择 <strong>WebDAV</strong> → 填入上面的服务地址。</li>
-                <li>输入用户名密码即可浏览、上传、下载。</li>
-              </ol>
+            <div class="guide-block" data-guide>
+              <div class="guide-title"><i class="fas fa-mobile-screen"></i><span>手机 App（iOS / Android）</span><i class="fas fa-chevron-down caret"></i></div>
+              <div class="guide-body">
+                <ol>
+                  <li>安装任一支持 WebDAV 的文件管理器：Documents（iOS）、Solid Explorer / Material Files（Android）、RaiDrive（全平台）。</li>
+                  <li>新增连接 → 选择 <strong>WebDAV</strong> → 填入上面的服务地址。</li>
+                  <li>输入用户名密码即可浏览、上传、下载。</li>
+                </ol>
+              </div>
             </div>
-          </div>
 
-          <div class="guide-block" data-guide>
-            <div class="guide-title"><i class="fas fa-terminal"></i><span>命令行（curl / rclone）</span><i class="fas fa-chevron-down caret"></i></div>
-            <div class="guide-body">
-              <p>列目录：</p>
-              <p><code id="curlCmd">curl -u 用户名:密码 -X PROPFIND https://host/dav/ -H "Depth: 1"</code></p>
-              <p>上传：</p>
-              <p><code>curl -u 用户名:密码 -T ./local.txt https://host/dav/local.txt</code></p>
-              <p>rclone：<code>rclone config</code> → 选 <code>webdav</code> → URL 填服务地址。</p>
+            <div class="guide-block" data-guide>
+              <div class="guide-title"><i class="fas fa-terminal"></i><span>命令行（curl / rclone）</span><i class="fas fa-chevron-down caret"></i></div>
+              <div class="guide-body">
+                <p>列目录：</p>
+                <p><code id="curlCmd">curl -u 用户名:密码 -X PROPFIND https://host/dav/ -H "Depth: 1"</code></p>
+                <p>上传：</p>
+                <p><code>curl -u 用户名:密码 -T ./local.txt https://host/dav/local.txt</code></p>
+                <p>rclone：<code>rclone config</code> → 选 <code>webdav</code> → URL 填服务地址。</p>
+              </div>
             </div>
           </div>
         </article>
@@ -486,9 +442,9 @@
         var serviceUrl = window.location.origin + "/dav";
 
         function setStatus(message, ok) {
-          statusPill.classList.remove("ok", "bad");
-          if (ok === true) statusPill.classList.add("ok");
-          if (ok === false) statusPill.classList.add("bad");
+          statusPill.classList.remove("is-ok", "is-bad");
+          if (ok === true) statusPill.classList.add("is-ok");
+          if (ok === false) statusPill.classList.add("is-bad");
           statusText.textContent = message;
         }
 
@@ -548,8 +504,6 @@
 
         /* 浏览器内直接发 PROPFIND 探测：能同时验证 401 / 207 / 404 三种结果 */
         async function probe() {
-          var user = encodeURIComponent(probeUser.value || "");
-          var pass = encodeURIComponent(probePass.value || "");
           probeResult.textContent = "正在测试...";
           probeResult.className = "result-line";
 
@@ -575,7 +529,6 @@
               probeResult.textContent = "收到响应状态 " + res.status + "，请检查配置。";
               probeResult.className = "result-line";
             }
-            void user; void pass;
           } catch (e) {
             probeResult.textContent = "请求失败：" + (e.message || "未知错误");
             probeResult.className = "result-line bad";
