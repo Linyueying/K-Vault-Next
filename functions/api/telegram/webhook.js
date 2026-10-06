@@ -1,5 +1,9 @@
 import { envValue } from '../../utils/env-config.js';
-import { safeStringEqual } from '../../utils/auth.js';
+import {
+  checkAuthentication,
+  isAuthRequired,
+  safeStringEqual,
+} from '../../utils/auth.js';
 import {
   buildTelegramDirectLink,
   createSignedTelegramFileId,
@@ -12,9 +16,22 @@ import { putRecordIndex } from '../../utils/file-record.js';
 
 export async function onRequestGet(context) {
   const { request, env } = context;
+
+  // ---- GET 探针：只对管理员可见 ----
+  //
+  // 修复前这个探针对所有人都返回 200，`secretConfigured` 还会把「门锁到底锁没锁」
+  // 直接写在门外墙上——匿名调用方只要读一个布尔值就知道这个端点值不值得打
+  // （线上扫出来的就是 `secretConfigured:false`）。
+  //
+  // 现在匿名一律 **404 而不是 401/403**：既不回显任何配置状态，也不确认这个
+  // 端点真实存在。真正的排障信息只有登录后的管理员拿得到。
+  if (!(await isAdminViewer(context))) {
+    return jsonResponse({ error: 'Not found' }, 404);
+  }
+
   const url = new URL(request.url);
-  // 只回布尔值，绝不回显 secret 本身。这个探针是为了让部署者能确认
-  // 「secret 到底配上了没有」——配不上时 webhook 是整体禁用的。
+  // 只回布尔值，绝不回显 secret 本身。让管理员能确认「secret 到底配上了没有」
+  // ——配不上时下面的 POST 是整体停用的。
   return jsonResponse({
     ok: true,
     message: 'Telegram webhook endpoint is ready.',
@@ -26,11 +43,7 @@ export async function onRequestGet(context) {
 export async function onRequestPost(context) {
   const { request, env } = context;
 
-  if (!envValue(env, 'TG_BOT_TOKEN')) {
-    return jsonResponse({ ok: false, error: 'TG_Bot_Token is not configured.' }, 500);
-  }
-
-  // ---- 鉴权：fail-closed ----
+  // ---- 鉴权：fail-closed，且必须排在所有业务检查之前 ----
   //
   // 修复前这里写成 `if (expectedSecret) { ...校验... }`——secret 没配就整段跳过，
   // 等于任何人都能匿名 POST 到本端点：往 KV 里写任意元数据、给任意 file_id
@@ -38,6 +51,10 @@ export async function onRequestPost(context) {
   //
   // 现在反过来：没配 secret 就直接停用端点（503），配了才逐请求校验，
   // 且用恒定时间比较，避免通过响应耗时逐字节爆破 secret。
+  //
+  // 顺序同样是修复的一部分：`TG_Bot_Token` 的检查曾经排在 secret 校验前面，
+  // 于是匿名请求能靠 500 vs 401 的差别，探到「bot token 有没有配」这种纯
+  // 部署状态。现在鉴权先验完，配置缺失只在通过校验后才说的出来。
   const expectedSecret = envValue(env, 'TELEGRAM_WEBHOOK_SECRET');
   if (!expectedSecret) {
     return jsonResponse(
@@ -55,6 +72,10 @@ export async function onRequestPost(context) {
   const headerSecret = request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
   if (!safeStringEqual(headerSecret, expectedSecret)) {
     return jsonResponse({ ok: false, error: 'Invalid webhook secret.' }, 401);
+  }
+
+  if (!envValue(env, 'TG_BOT_TOKEN')) {
+    return jsonResponse({ ok: false, error: 'TG_Bot_Token is not configured.' }, 500);
   }
 
   let update;
@@ -168,6 +189,24 @@ export async function onRequestPost(context) {
     },
     reply,
   });
+}
+
+/**
+ * 判断调用方是否是已登录的管理员。
+ *
+ * `checkAuthentication` 在「压根没配管理员账密」时会返回 `authenticated:true`
+ * ——那是给登录页用的放行语义（没设密码 = 人人可进），直接拿来当鉴权结果会
+ * 重新把口子开回去。所以必须先用 `isAuthRequired` 守一道：**开放实例里没有
+ * 人能证明自己是谁，一律按匿名处理。**
+ */
+async function isAdminViewer(context) {
+  const { env } = context;
+  if (!isAuthRequired(env)) return false;
+  try {
+    return (await checkAuthentication(context)).authenticated === true;
+  } catch {
+    return false;
+  }
 }
 
 function jsonResponse(body, status = 200) {

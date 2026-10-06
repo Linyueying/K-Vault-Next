@@ -51,7 +51,14 @@ export async function onRequestGet(context) {
 
   // 已开启认证的实例：未登录访客本就被 checkAuth 置为 guestBlocked（无权上传），
   // 因此后端清单与限额表一律不下发 —— 那是纯架构信息。
-  // 唯一例外是开了访客上传的实例：访客只拿到自己的配额与 Telegram 限额。
+  //
+  // 状态码同样收紧：修复前这里无论发生什么都返回 **200 + 67B**
+  // （`{"auth":{"enabled":true},"authenticated":false,"requireLogin":true}`），
+  // 于是「这是个私有实例、要登录」这件内部事实，成了匿名也能读到的公开情报。
+  // 现在未登录一律 **401**，让这次访问在语义上就是一次失败的鉴权。
+  //
+  // 唯一例外是开了访客上传的实例：访客确实要用本接口读自己的配额，此时只
+  // 下发它自己的那一小份，其余一概不给。
   if (authConfigured && !auth?.authenticated) {
     const guest = await getGuestConfig(env);
     const body = guest?.enabled
@@ -61,8 +68,13 @@ export async function onRequestGet(context) {
           guestUpload: guest,
           uploadLimits: { telegram: publicLimit(getUploadLimits().telegram) },
         }
-      : { auth: { enabled: true }, authenticated: false, requireLogin: true };
-    return jsonResponse(body);
+      : {
+          error: 'LOGIN_REQUIRED',
+          auth: { enabled: true },
+          authenticated: false,
+          requireLogin: true,
+        };
+    return jsonResponse(body, guest?.enabled ? 200 : 401);
   }
 
   const configuredMap = {
@@ -392,8 +404,9 @@ function publicLimit(limit = {}) {
   };
 }
 
-function jsonResponse(body) {
+function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
+    status,
     headers: {
       'Content-Type': 'application/json',
       // 曾用 null,2 美化输出，白吃掉一半体积；状态本身也不该进任何缓存

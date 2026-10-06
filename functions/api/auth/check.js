@@ -60,11 +60,25 @@ export async function onRequestGet(context) {
 
     const authResult = await checkAuthentication(context);
 
+    // 未登录响应只留「能不能进」的判定依据。
+    //
+    // `guestUpload`（访客配额）与 `airdrop`（中转节点、单文件上限、房间 TTL）
+    // 都是站点级的运营参数。它们挂在**登录检查**这个必然对匿名开放、也无法
+    // 关闭的入口上，等于给任意路过的人递一张你家 dashboard 的复印件——单个
+    // 字段不致命，合起来正好是「这个站开了什么、上限多少」的完整侧写。
+    // 前端只消费 `authenticated` / `authRequired`，移除不影响任何页面。
+    if (!authResult.authenticated) {
+      return jsonResponse({
+        authenticated: false,
+        authRequired: true,
+      });
+    }
+
+    // `authResult.reason` 是内部判定来源（'session' / 'basic-auth' /
+    // 'no-auth-required'），把认证机制告诉调用方没有价值，只多了侦察面。
     return jsonResponse({
-      authenticated: authResult.authenticated,
+      authenticated: true,
       authRequired: true,
-      // `authResult.reason` 是内部判定来源（'session' / 'basic-auth' /
-      // 'no-auth-required'），把认证机制告诉匿名访客没有价值，只多了侦察面。
       guestUpload: guestConfig,
       airdrop
     });
