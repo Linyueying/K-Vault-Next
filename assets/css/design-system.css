@@ -592,6 +592,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   width: 22px; height: 22px;
   border-radius: 50%;
   border: 1.5px solid rgba(100, 116, 139, 0.45);
+  /* L2：原先由 <transition name="check"> 在这里补间 width + margin-right +
+     border-width —— 三个都是布局属性，每帧都要 layout，而它挂在 v-for 里，
+     100 行就是 100 个 Transition 实例。
+     现在模板侧改成纯 v-if，挂载时由这条 animation 直接播 pop（只有 opacity
+     与 transform，纯合成）。代价是失去「宽度撑开」的补间，选择圈改为直接出现。 */
+  animation: pop 0.28s var(--ease-apple) both;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -848,7 +854,6 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    不可点，免得同类问题在别的过渡上重演。新增过渡请比照此表登记。 */
 .collapse-leave-active,
 .ctrl-leave-active,
-.check-leave-active,
 .taskAct-leave-active,
 .menu-leave-active,
 .bar-leave-active,
@@ -971,14 +976,9 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .menu-enter-from,
 .menu-leave-to { opacity: 1; }
 
-/* 行内操作按钮：离场必须绝对定位，否则离场按钮仍占流宽 → 文件名被挤（移动端「抽搐」） */
-.rowAct-enter-active { animation: actionIn 0.32s var(--ease-spring) both; }
-.rowAct-leave-active {
-  position: absolute; top: 0; bottom: 0; right: var(--sp-4);
-  display: flex; align-items: center;
-  animation: actionOut 0.18s var(--ease-press) both;
-  pointer-events: none;
-}
+/* 行内操作按钮组：L2 已把 v-for 里的 <transition name="rowAct"> 换成 :class 切换
+   + .row__actions.is-hidden 的 CSS 过渡（见 index.css），这条旧规则连同
+   rowAct-enter/leave 一并删除。保留 .taskAct —— 它用在上传队列外的场景。 */
 .taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
 .taskAct-leave-active {
   position: absolute; top: 0; right: 0; margin: 0;
@@ -986,29 +986,9 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 }
 .taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
 
-/* 选择圈：宽 + 负 margin + 边框宽 一起补间，避免行内内容被硬挤 */
-.check-enter-from {
-  width: 0; margin-right: calc(-1 * var(--row-gap, var(--sp-3)));
-  border-width: 0; opacity: 0; transform: scale(0.4);
-}
-.check-enter-active {
-  transition: width var(--dur-base) var(--ease-fluid),
-              margin-right var(--dur-base) var(--ease-fluid),
-              border-width var(--dur-base) var(--ease-fluid),
-              opacity 0.2s ease,
-              transform 0.3s var(--ease-spring);
-}
-.check-leave-active {
-  transition: width 0.2s var(--ease-press),
-              margin-right 0.2s var(--ease-press),
-              border-width 0.2s var(--ease-press),
-              opacity 0.16s var(--ease-press),
-              transform 0.2s var(--ease-press);
-}
-.check-leave-to {
-  width: 0; margin-right: calc(-1 * var(--row-gap, var(--sp-3)));
-  border-width: 0; opacity: 0; transform: scale(0.5);
-}
+/* 选择圈：L2 已删除。原先这里补间 width + margin-right + border-width —— 三个都是
+   布局属性，每帧 layout；现在由 .check 自身的 `animation: pop` 承担进场（见上文
+   .check 处的注释），这几个 -enter/-leave 类随之作废。 */
 
 /* 高度展开（grid-template-rows 真插值 + transition-duration 作为 Vue 的时长信号） */
 .tree-children { display: grid; grid-template-rows: 1fr; min-height: 0; }

@@ -111,7 +111,20 @@
         font-size: var(--fs-xs); color: var(--text-muted);
         margin-top: 2px; flex-wrap: wrap;
       }
-      .row__actions { display: flex; align-items: center; gap: 2px; flex: none; position: relative; }
+      /* L2：原本 resultSelectMode 切换时由 <transition name="rowAct"> 提供进出场，
+             它在 v-for 内 —— 100 行就是 100 个组件实例。改为模板侧 :class 切换 +
+             这里的一段过渡。
+             · pointer-events: none 不能少：它等价于共享层那条「离场节点停止响应
+               指针」的修复，缺了会回归「第二次点击命中尚未移除的旧节点」的老 bug；
+             · 隐藏时转 absolute 让出流宽（同原先 rowAct-leave-active 的处理），
+               否则选中模式下文件名会被看不见的按钮挤住。 */
+      .row__actions { display: flex; align-items: center; gap: 2px; flex: none; position: relative;
+        transition: opacity 0.2s var(--ease-apple), transform 0.28s var(--ease-spring); }
+      .row__actions.is-hidden {
+        position: absolute; top: 0; bottom: 0; right: var(--sp-4);
+        opacity: 0; transform: translateX(6px) scale(0.92);
+        pointer-events: none;
+      }
 
       /* 小徽标 */
       .badge {
@@ -786,6 +799,11 @@ html[data-theme="dark"] .menu { background: rgba(30, 41, 59, 0.95); border-color
 .menu-enter-from,
 .menu-leave-to { opacity: 1; }
 
+/* L2：行菜单已去掉 <transition name="menu"> 包裹（它在 v-for 内，每行一个实例），
+   由这个专用类在挂载时播同一条 menuIn。不用 .menu 本身 —— admin 的菜单仍走 Vue
+   的 <transition name="menu">，两套同时在会打架。 */
+.menu--anim { animation: menuIn 0.3s var(--ease-spring) both; transform-origin: inherit; }
+
 /* =========================================================
    目录管理
    ========================================================= */
@@ -879,7 +897,9 @@ html[data-theme="dark"] .tree-row.active { background: linear-gradient(135deg, r
 .tree-row__icon { font-size: 0.85rem; color: var(--c-warn); flex-shrink: 0; transition: transform 0.35s var(--ease-spring); }
 .tree-row:hover .tree-row__icon { transform: scale(1.12); }
 .tree-row__name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tree-row__count { font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.18); color: var(--text-muted); flex-shrink: 0; font-weight: 600; }
+/* L2：`<transition name="count">` 已从 folder-node 模板移除 —— 它是递归组件，
+   每个目录节点一个实例。挂载时用 countIn 播同一段进场（纯合成属性）。 */
+.tree-row__count { font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.18); color: var(--text-muted); flex-shrink: 0; font-weight: 600; animation: countIn 0.32s var(--ease-apple) both; }
 
 /* 子树展开 / 收起：外层用 grid-template-rows 做真实高度过渡，
    内层必须 overflow: hidden 且 min-height: 0，否则 grid 项不会真正被压缩。

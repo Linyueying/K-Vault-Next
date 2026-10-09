@@ -244,9 +244,12 @@
           </span>
           <i class="fas tree-row__icon" :class="hasChildren && isExpanded ? 'fa-folder-open' : 'fa-folder'"></i>
           <span class="tree-row__name">{{ node.name }}</span>
-          <transition name="count">
-            <span class="tree-row__count" v-if="node.fileCount > 0">{{ node.fileCount }} 文件</span>
-          </transition>
+          <!-- L2：这里原本包一层 <transition name="count">。folder-node 是递归组件，
+               每个目录节点一个 —— 目录一深就是上百个 Transition 实例。
+               改由 .tree-row__count 自身的 animation: countIn 承担进场。
+               （注意 index.html 里 selection-bar__count 仍在用 name="count"，
+                共享层的 .count-* 类因此保留不动。） -->
+          <span class="tree-row__count" v-if="node.fileCount > 0">{{ node.fileCount }} 文件</span>
           <div class="tree-row__actions">
             <button class="btn btn--ghost btn--icon btn--sm" @click="onShare" title="分享此目录"><i class="fas fa-share-nodes"></i></button>
             <button class="btn btn--ghost btn--icon btn--sm" @click="onRename" title="重命名"><i class="fas fa-pen"></i></button>

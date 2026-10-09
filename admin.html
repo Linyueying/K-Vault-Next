@@ -258,6 +258,11 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 /* 贴近视口底部时向上展开，避免菜单被裁切（menuUp 由 toggleMenu 动态设置） */
 .dropdown-panel.up{top:auto;bottom:calc(100% + 8px);transform-origin:bottom left}
 .dropdown-panel.right.up{transform-origin:bottom right}
+/* L2：行/卡菜单已脱离 <transition name="menu">（它在 v-for 内，N 个条目就是 N 个
+   Transition 实例）。这个类负责挂载时播同一个 menuIn —— 与 Vue 版观感一致，
+   只是少了离场动画。不能挂在 .dropdown-panel 上：筛选抽屉那三个菜单仍走 Vue
+   <transition name="menu">，两套同时在会打架。 */
+.act-menu--anim{animation:menuIn .3s var(--ease-spring) both;transform-origin:inherit}
 .dropdown-item{width:100%;display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:9px;border:none;background:transparent;color:var(--text-sub);font-size:.83rem;font-weight:600;font-family:inherit;cursor:pointer;transition:background var(--dur-fast) var(--ease-apple),color var(--dur-fast) var(--ease-apple),transform .1s var(--ease-press);text-align:left;}
 .dropdown-item i:first-child{width:15px;font-size:.8rem;color:var(--text-muted);text-align:center;transition:color var(--dur-fast) var(--ease-apple)}
 .dropdown-item:hover{background:rgba(var(--primary-rgb),.09);color:var(--primary)}
@@ -427,7 +432,10 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 /* 卡片右上角下载按钮（原 .card-fav 是收藏遗留类名，语义已归位） */
 /* 卡片选中角标：替换原先常显的圆形勾选框。
    只在选中时出现，因此不占位、不影响未选中卡片的排版密度。 */
-.card-picked{position:absolute;top:10px;left:10px;z-index:4;width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:.68rem;box-shadow:0 2px 8px rgba(var(--primary-rgb),.4)}
+/* L2：`<transition name="pop">` 已从 admin.html 的行模板里移除 —— 它在 v-for 内，
+   N 个 item 就是 N 个 Transition 实例 + N 份 .transition 标记。挂载时由这条
+   animation 直接播同一个 pop，代价是失去离场（取消选中时角标直接消失）。 */
+.card-picked{position:absolute;top:10px;left:10px;z-index:4;width:24px;height:24px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:.68rem;box-shadow:0 2px 8px rgba(var(--primary-rgb),.4);animation:pop .26s var(--ease-spring) both}
 .card-thumb{height:132px;display:flex;align-items:center;justify-content:center;background:var(--glass-subtle);cursor:pointer;overflow:hidden;position:relative;border-bottom:1px solid var(--glass-border);border-radius:calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0;}
 .card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .5s var(--ease-apple)}
 .vault-card:hover .card-thumb img{transform:scale(1.08)}
@@ -2057,14 +2065,15 @@ html[data-perf="low"] .dock{transition:none}
                 <button class="act" :class="{on:openMenu==='card:'+item.name}" @click.stop="toggleMenu('card:'+item.name)" title="更多操作">
                   <i class="fas fa-ellipsis"></i>
                 </button>
-                <transition name="menu">
-                <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
+                <!-- L2：原本包一层 <transition name="menu"> —— 它在 v-for 内，
+                     N 个条目就是 N 个 Transition 实例。改由 .act-menu--anim
+                     在挂载时播同一个 menuIn。 -->
+                <div :class="['dropdown-panel','right','act-menu','act-menu--anim',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
                   <button class="dropdown-item" @click.stop="openFolderShare(item.path, item.folderName)"><i class="fas fa-share-nodes"></i><span>分享文件夹</span></button>
                   <button class="dropdown-item" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-pen"></i><span>重命名</span></button>
                   <div class="dropdown-divider"></div>
                   <button class="dropdown-item danger-item" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-trash"></i><span>删除文件夹</span></button>
                 </div>
-                </transition>
               </div>
             </div>
           </template>
@@ -2074,10 +2083,10 @@ html[data-perf="low"] .dock{transition:none}
                左上角选中态仍用 .card-picked 角标表示，不再常显控件占位。
                下载按钮从卡片右上角收进「…」菜单。 -->
           <template v-else>
-          <!-- 选中角标进出场复用设计系统的 pop 过渡（缩放淡入，与其它弹出层一致） -->
-          <transition name="pop">
-            <span v-if="item.selected" class="card-picked" aria-hidden="true"><i class="fas fa-check"></i></span>
-          </transition>
+          <!-- L2：选中角标原本包在 <transition name="pop"> 里，它在 v-for 内 ——
+               N 个条目就是 N 个 Transition 实例。改由 .card-picked 自身的
+               animation: pop 承担进场（见 .card-picked 定义处的注释）。 -->
+          <span v-if="item.selected" class="card-picked" aria-hidden="true"><i class="fas fa-check"></i></span>
 
           <div class="card-thumb" @click="onCardTap(item, () => openPreview(item))">
             <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
@@ -2101,8 +2110,8 @@ html[data-perf="low"] .dock{transition:none}
               <button class="act" :class="{on:openMenu==='card:'+item.name}" @click.stop="toggleMenu('card:'+item.name)" title="更多操作">
                 <i class="fas fa-ellipsis"></i>
               </button>
-              <transition name="menu">
-              <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
+              <!-- L2：同上，去掉 v-for 内每行一个的 <transition name="menu"> -->
+              <div :class="['dropdown-panel','right','act-menu','act-menu--anim',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
                 <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
                 <button class="dropdown-item" @click.stop="menuRun('download',item)"><i class="fas fa-download"></i><span>下载</span></button>
                 <div class="dropdown-divider"></div>
@@ -2116,7 +2125,6 @@ html[data-perf="low"] .dock{transition:none}
                 <div class="dropdown-divider"></div>
                 <button class="dropdown-item danger-item" @click.stop="menuRun('delete',item)"><i class="fas fa-trash"></i><span>删除</span></button>
               </div>
-              </transition>
             </div>
           </div>
           </template>
@@ -2155,14 +2163,13 @@ html[data-perf="low"] .dock{transition:none}
                 <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
                   <i class="fas fa-ellipsis"></i>
                 </button>
-                <transition name="menu">
-                <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
+                <!-- L2：同上，去掉 v-for 内每行一个的 <transition name="menu"> -->
+                <div :class="['dropdown-panel','right','act-menu','act-menu--anim',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
                   <button class="dropdown-item" @click.stop="openFolderShare(item.path, item.folderName)"><i class="fas fa-share-nodes"></i><span>分享文件夹</span></button>
                   <button class="dropdown-item" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-pen"></i><span>重命名</span></button>
                   <div class="dropdown-divider"></div>
                   <button class="dropdown-item danger-item" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-trash"></i><span>删除文件夹</span></button>
                 </div>
-                </transition>
               </div>
             </div>
           </template>
@@ -2189,8 +2196,8 @@ html[data-perf="low"] .dock{transition:none}
                 <button class="act" :class="{on:openMenu==='row:'+item.name}" @click.stop="toggleMenu('row:'+item.name)" title="更多操作">
                   <i class="fas fa-ellipsis"></i>
                 </button>
-                <transition name="menu">
-                <div :class="['dropdown-panel','right','act-menu',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
+                <!-- L2：同上，去掉 v-for 内每行一个的 <transition name="menu"> -->
+                <div :class="['dropdown-panel','right','act-menu','act-menu--anim',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
                   <button class="dropdown-item" @click.stop="menuRun('preview',item)"><i class="fas fa-eye"></i><span>预览</span></button>
                   <button class="dropdown-item" @click.stop="menuRun('download',item)"><i class="fas fa-download"></i><span>下载</span></button>
                   <div class="dropdown-divider"></div>
@@ -2204,7 +2211,6 @@ html[data-perf="low"] .dock{transition:none}
                   <div class="dropdown-divider"></div>
                   <button class="dropdown-item danger-item" @click.stop="menuRun('delete',item)"><i class="fas fa-trash"></i><span>删除</span></button>
                 </div>
-                </transition>
               </div>
             </div>
           </template>
@@ -4791,9 +4797,11 @@ const __kvApp = Vue.createApp({
       //      this.$el 不是单个 DOM 元素，.querySelector 直接抛 TypeError ——
       //      measure() 从第一帧就炸，翻转逻辑一行都没跑到，
       //      这就是「菜单永远往下翻、钻到 dock 底下」的根因。
-      //   2. 菜单包在 <transition name="menu"> 里，插入 DOM 要等 1~2 帧 ——
+      //   2. 菜单**曾经**包在 <transition name="menu"> 里，插入 DOM 要等 1~2 帧 ——
       //      $nextTick 时 .dropdown-panel 还不存在（实测面板 121ms 才出现），
       //      所以要用 rAF 轮询等它真正出现，最多等 20 帧（约 330ms）。
+      //      （L2 已把行/卡菜单的 <transition> 去掉，现在首帧就能查到；轮询本身
+      //       保留 —— 它对两种情况都成立，筛选抽屉那三个菜单仍在 transition 内。）
       //   3. **不能写死预留量**：底部障碍是「导航 dock」与「批量操作栏」两层
       //      fixed 悬浮物，批量栏只在多选时出现 —— 写死 150px 时批量栏在场就
       //      不够了（实测批量栏顶 687px，需要让出 157px+）。

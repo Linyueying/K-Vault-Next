@@ -183,9 +183,12 @@
           <component :is="resultListWrap" class="list list--card" :class="{ 'list--lean': resultLean }" :name="resultLean ? undefined : 'list'" :tag="resultLean ? undefined : 'div'">
             <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected, 'menu-open': resultMenuFor === index }"
               v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
-              <transition name="check">
-                <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
-              </transition>
+              <!-- L2：这里原本包一层 <transition name="check">。它在 v-for 内部 ——
+                   100 行就是 100 个 Transition 组件实例，外加每个子 vnode 都挂上
+                   .transition 标记（Vue 的 shouldUpdateComponent 见到它直接 return
+                   true，props 引用相等之类的跳过机制全部失效）。
+                   改为纯 v-if + CSS animation：挂载即播，不需要 Vue 钩子。 -->
+              <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
               <span class="row__thumb">
                 <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getCleanFileUrl(file)" alt="" loading="lazy" decoding="async" @error="file._imgError = true" />
                 <i v-else :class="getFileIcon(getDisplayName(file))"></i>
@@ -197,20 +200,26 @@
                   <span v-if="hasShare(file)" class="share-badge"><i class="fas fa-link"></i> 已分享</span>
                 </div>
               </div>
-              <transition name="rowAct">
-                <div class="row__actions" v-if="!resultSelectMode">
+              <!-- L2：原本是 <transition name="rowAct">，同样是 v-for 内每行一个实例。
+                   改成 :class 切换 + CSS 过渡：
+                   · pointer-events: none 必须保留 —— 它等价于 design-system.css 那条
+                     「离场节点停止响应指针」的修复，缺了会回归「第二次点击命中正在
+                     离场的旧节点」这个已修 bug；
+                   · 隐藏时转 absolute 是为了让出流宽（原 rowAct-leave-active 同处理由），
+                     否则文件名在选中模式下会被按钮挤住。 -->
+              <div class="row__actions" :class="{ 'is-hidden': resultSelectMode }">
                   <button class="btn btn--ghost btn--icon" @click.stop="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
                   <button class="btn btn--ghost btn--icon" :class="{ open: resultMenuFor === index }" @click.stop="toggleFileMenu(index)" title="更多操作"><i class="fas fa-ellipsis"></i></button>
-                  <transition name="menu">
-                    <div v-if="resultMenuFor === index" class="menu glass" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
+                  <!-- L2：同上，去掉 <transition name="menu"> 包裹。菜单同时只会显示
+                       一个，但包裹它的 transition 却是每行一个实例 —— 削的正是这份
+                       O(N) 实例成本，动画本身交给 .menu 的 CSS animation。 -->
+                  <div v-if="resultMenuFor === index" class="menu glass menu--anim" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
                       <button class="menu__item" @click="menuAct(openPreview(file))"><i class="fas fa-eye"></i><span>预览</span></button>
                       <button class="menu__item" @click="menuAct(downloadFile(file))"><i class="fas fa-download"></i><span>下载</span></button>
                       <button class="menu__item" @click="menuAct(openShareDialog(file))"><i class="fas fa-share-nodes"></i><span>{{ hasShare(file) ? '管理分享' : '创建分享' }}</span></button>
                       <button v-if="hasShare(file)" class="menu__item" @click="menuAct(copyShareLink(file))"><i class="fas fa-link"></i><span>复制分享短链</span></button>
                     </div>
-                  </transition>
-                </div>
-              </transition>
+              </div>
             </div>
 
           </component>
