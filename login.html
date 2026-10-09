@@ -25,7 +25,7 @@
     body {
       /* theme.css 对 body 有 background !important，此处需同等级声明覆盖 */
       background: var(--bg-gradient) !important;
-      background-attachment: fixed;
+      background-attachment: scroll; /* L7: fixed -> scroll, 见 design-system.css body */
       color: var(--text-main);
       -webkit-font-smoothing: antialiased;
       min-height: 100vh;

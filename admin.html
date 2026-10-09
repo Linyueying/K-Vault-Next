@@ -60,7 +60,7 @@ html[data-theme="dark"]{
 Reset & Base
 ========================================================= */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg-gradient);background-attachment:fixed;color:var(--text-main);font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;transition:background-color .55s var(--ease-apple),color .55s var(--ease-apple);}
+body{background:var(--bg-gradient);background-attachment:scroll;/*L7 fixed->scroll*/color:var(--text-main);font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased;transition:background-color .55s var(--ease-apple),color .55s var(--ease-apple);}
 a{color:inherit}
 /* 预留滚动条槽位：切目录时内容高度变化不再导致滚动条「出现 / 消失」。
    滚动条一闪，可用宽度就变 —— .admin-layout 的 1fr 内容列跟着变宽变窄，
@@ -3929,12 +3929,15 @@ const qTipComponent = {
     this._onKey = (e) => {
       if (e.key === 'Escape' && this.open) { this.open = false; this.pinned = false; }
     };
-    /* 页面滚动 / 窗口缩放后 fixed 坐标会失真，直接收起而不是重算 */
+    /* 页面滚动 / 窗口缩放后 fixed 坐标会失真，直接收起而不是重算。
+       L7：scroll 监听必须标 passive —— 不标的话浏览器每帧都要先等这个监听
+       跑完、确认它不 preventDefault，才敢继续滚动。回调体本身只是两次布尔
+       读取加一次可能的一行赋值，rAF 合帧纯属多余，passive 就够了。 */
     this._onReflow = () => { if (this.open && !this.pinned) this.open = false; };
     document.addEventListener('pointerdown', this._onDocDown, true);
     document.addEventListener('keydown', this._onKey);
-    window.addEventListener('scroll', this._onReflow, true);
-    window.addEventListener('resize', this._onReflow);
+    window.addEventListener('scroll', this._onReflow, { capture: true, passive: true });
+    window.addEventListener('resize', this._onReflow, { passive: true });
   },
   beforeUnmount() {
     document.removeEventListener('pointerdown', this._onDocDown, true);

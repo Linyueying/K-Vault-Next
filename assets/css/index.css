@@ -8,7 +8,8 @@
 
       body {
         background: var(--bg-gradient);
-        background-attachment: fixed;
+        /* L7：fixed → scroll（同 design-system.css body 的说明） */
+        background-attachment: scroll;
         color: var(--text-main);
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         min-height: 100vh;

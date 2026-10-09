@@ -209,7 +209,11 @@ html[data-theme="dark"]  { color-scheme: dark; }
 
 body {
   background: var(--bg-gradient);
-  background-attachment: fixed;
+  /* L7：fixed → scroll。fixed 让背景钉在视口上，滚动时无法走「背景整体平移」
+     的快路径，每帧都要重绘背景层；这里只是两层 radial 渐变 + 纯色，视觉上
+     的差别仅是光晕随页面拉伸一点点（body 高度 ≈ 1~2 个视口），几乎不可察。
+     移动端早在 mobile-refactor.css 里就强制 scroll 了，桌面端此处跟进对齐。 */
+  background-attachment: scroll;
   color: var(--text-main);
   font-family: var(--font-sans);
   min-height: 100vh;

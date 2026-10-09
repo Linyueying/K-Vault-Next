@@ -1597,6 +1597,11 @@
          pos 为整数 -> 落停某格；为小数 -> 停在两格之间。
          拖拽只改 pos，**不再叠加任何像素偏移** —— 双变量叠加是「瞬移」根因。 */
       dockSlotRect() {
+        /* L7：拖拽进行中（_dockGeo 非空）直接复用 pointerdown 时缓存的几何，
+           不再每帧 getBoundingClientRect + getComputedStyle —— 那是 dock 拖拽
+           路径上唯一的强制布局点。缓存生命周期：pointerdown 建立，
+           pointerup / pointercancel / window resize 时销毁。 */
+        if (this._dockGeo) return this._dockGeo;
         const dock = this.$refs.dockEl;
         if (!dock) return null;
         const r = dock.getBoundingClientRect();
@@ -1605,7 +1610,7 @@
         const gap = parseFloat(cs.columnGap || cs.gap) || 6;
         const inner = r.width - pad * 2;
         const slotW = (inner - gap * 3) / 4;
-        return { r, pad, gap, slotW, inner, step: slotW + gap };
+        return (this._dockGeo = { r, pad, gap, slotW, inner, step: slotW + gap });
       },
       /* 由 clientX 反推最近槽位（0-3），带边界夹取 */
       dockSlotFromX(clientX) {
@@ -1638,6 +1643,8 @@
         d.from = slot; d.to = slot; d.moved = false;
         d.pointerId = e.pointerId;
         d.el = e.currentTarget;
+        /* L7：按下时就地建立几何缓存（见 dockSlotRect），拖拽全程复用 */
+        this._dockGeo = this.dockSlotRect();
         /* 注意：此处**不** setPointerCapture —— 一旦捕获，后续 click 会被
            重定向到本容器，按钮的原生 click 就再也收不到（点击被吃掉）。
            只在真正锁定为横向拖拽后才捕获（见 onDockPointerMove）。 */
@@ -1678,6 +1685,7 @@
         const wasDrag = d.lock === "x" && d.moved;
         const target = d.to;
         d.active = false; d.lock = "";
+        this._dockGeo = null;  /* L7：拖拽结束，几何缓存失效 */
         if (!wasDrag) { this.clearDockPos(); return; }  /* 没拖动 → 交给按钮自己的 click */
         /* 拖拽已生效：撤掉内联 --dock-pos 与 is-dragging，
            由模板整数落点 + CSS 弹簧平滑吸附回弹。 */
@@ -1690,6 +1698,7 @@
       onDockPointerCancel() {
         const d = this.dockDrag;
         d.active = false; d.lock = "";
+        this._dockGeo = null;  /* L7：同 pointerup，缓存失效 */
         this.clearDockPos();
       },
       /* 统一入口：拖拽后的合成 click 直接吞掉 */
@@ -4393,6 +4402,10 @@
          否则「最后 800ms 内完成的上传」会从历史里凭空消失。 */
       this._pageHideHandler = () => this.persistHistory({ immediate: true });
       window.addEventListener("pagehide", this._pageHideHandler);
+      /* L7：窗口尺寸变化时让 dock 拖拽的几何缓存失效（正常拖拽中途不会 resize，
+         这条只是兜底，防止极端时序下拿到过期槽位宽度） */
+      this._dockGeoHandler = () => { this._dockGeo = null; };
+      window.addEventListener("resize", this._dockGeoHandler, { passive: true });
       /* 不再按硬件自动降级（原 hardwareConcurrency / deviceMemory / saveData
          判据误判率高，会让中端设备被动失去全部动效）。
          现在 data-perf 只由 applyPerfMode() 写入 —— 即用户主动关掉「灵动引擎」时。 */
@@ -4459,6 +4472,7 @@
       /* 卸载即结算：防抖窗口里挂着的历史变更要在这里真正写下去 */
       this.persistHistory({ immediate: true });
       if (this._pageHideHandler) { window.removeEventListener("pagehide", this._pageHideHandler); this._pageHideHandler = null; }
+      if (this._dockGeoHandler) { window.removeEventListener("resize", this._dockGeoHandler); this._dockGeoHandler = null; this._dockGeo = null; }
       if (this.uploadDrainTimer) { clearTimeout(this.uploadDrainTimer); this.uploadDrainTimer = null; }
       if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
       for (const f of this.uploadingFiles) {
