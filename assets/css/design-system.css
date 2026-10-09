@@ -964,6 +964,9 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
 .toast-enter-from   { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9) translateZ(0); }
 .toast-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0) scale(0.94) translateZ(0); }
+/* 多条堆叠（admin 用 transition-group）：移除中间某条时其余条目平滑补位。
+   index 是单条 mode="out-in"，永远只有一条、用不到 move，无副作用。 */
+.toast-move         { transition: transform 0.28s var(--ease-apple); }
 
 /* 列表项（transition-group）：离场必须脱离文档流，否则剩余项要等它淡完才「跳」上来 */
 .list { position: relative; }
@@ -1165,6 +1168,32 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-fade-enter-active .vault-row,
 .view-fade-leave-active .vault-row {
   animation: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   文件删除离场 / 撤销恢复（admin 文件列表）
+   --------------------------------------------------------------------------
+   admin 的文件列表刻意不用 transition-group（切目录必须零位移，见 admin.html
+   「目录切换改回原地换内容」注释），删除动画改由「类标记 + animation」实现：
+   删除时目标加 .is-deleting 播收缩淡出（forwards 定格在透明），数据移除由
+   JS 在动画结束后执行（入口 deleteFile / batchDelete，标记 deletingNames）；
+   撤销时清掉离场标记、加 .is-restoring 播淡入（标记 restoringNames）。
+   prefers-reduced-motion 由本文件全局 0.01ms 规则兜底。
+   注意：切目录转场激活期间上面的 animation:none !important 会临时压过
+   这两个动画 —— 极端时序下删除无动画但移除逻辑仍正确，可接受。
+   -------------------------------------------------------------------------- */
+@keyframes vaultCardOut{
+  to{opacity:0;transform:scale(.92)}
+}
+@keyframes vaultCardIn{
+  from{opacity:0;transform:scale(.94)}
+}
+.vault-card.is-deleting,.vault-row.is-deleting{
+  animation:vaultCardOut .22s var(--ease-fluid) forwards;
+  pointer-events:none;
+}
+.vault-card.is-restoring,.vault-row.is-restoring{
+  animation:vaultCardIn .26s var(--ease-fluid) backwards;
 }
 
 /* 入场已纯 transform + opacity，无 filter：低性能档无需再单独撤 blur */

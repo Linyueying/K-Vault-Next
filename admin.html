@@ -1088,6 +1088,11 @@ Apple 风格动效 · 应用层（首屏错峰入场）
    门控的 riseIn 负责，且 is-booted 现已在挂载即触发、稳定关闭，不会重播。
    删除 / 增改单个文件时，Vue 按 key 复用节点原地更新，无需 transition-group。 */
 
+/* 删除离场 / 撤销恢复动画（vaultCardOut / vaultCardIn 及 .is-deleting /
+   .is-restoring 选择器）放到了 design-system.css 的 admin 转场区 ——
+   样式守卫要求动画关键帧只在共享层定义。标记状态与入口见
+   data 的 deletingNames / restoringNames 与 deleteFile / batchDelete。 */
+
 /* 用量监控内部：区块与操作项错峰 */
 .kv-usage-panel .kv-usage-block{animation:riseInSm .46s var(--ease-fluid) backwards;}
 .kv-usage-panel > .kv-usage-body > *:nth-child(1){animation-delay:.04s}
@@ -2000,7 +2005,7 @@ html[data-perf="low"] .dock{transition:none}
       <div v-if="viewMode==='grid' && pageEntries.length" class="vault-grid" key="grid">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-card"
-             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name}"
+             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name, 'is-deleting': deletingNames.indexOf(item.name)>-1, 'is-restoring': restoringNames.indexOf(item.name)>-1}"
              :draggable="!item.__isFolder"
              @dragstart="!item.__isFolder && dragStart(item,$event)"
              @dragend="dragEnd"
@@ -2107,7 +2112,7 @@ html[data-perf="low"] .dock{transition:none}
       <div v-else-if="viewMode==='list' && pageEntries.length" class="vault-list" key="list">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-row"
-             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, 'menu-open': openMenu==='row:'+item.name}"
+             :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, 'menu-open': openMenu==='row:'+item.name, 'is-deleting': deletingNames.indexOf(item.name)>-1, 'is-restoring': restoringNames.indexOf(item.name)>-1}"
              @pointerdown="onCardPressStart(item, $event)"
              @pointermove="onCardPressMove($event)"
              @pointerup="onCardPressEnd()"
@@ -3729,8 +3734,12 @@ html[data-perf="low"] .dock{transition:none}
     </button>
   </nav>
 
-  <!-- ===== Toast（顶部堆叠，可带撤销动作） ===== -->
-  <div class="toast-stack" v-if="toasts.length">
+  <!-- ===== Toast（顶部堆叠，可带撤销动作） =====
+       容器不做 v-if：条件销毁会在最后一条离场时把整个堆叠（连同 leave 动画）
+       硬切掉；而第一条 enter 又因与容器同帧首次挂载不播放（transition-group
+       初渲染无 appear）—— 表现为进出全无动画。容器 fixed + pointer-events:none，
+       空渲染无害，与 index.html 的写法保持一致。 -->
+  <div class="toast-stack">
     <transition-group name="toast">
       <div class="toast" v-for="t in toasts" :key="t.id" :class="t.type">
         <i :class="toastIcon(t.type)"></i>
@@ -3773,6 +3782,10 @@ const TIME_FMT = new Intl.DateTimeFormat('zh-CN', {
 });
 /* 删除的撤销窗口（同时用作撤销 Toast 的停留时长） */
 const UNDO_MS = 8000;
+/* 删除离场 / 撤销恢复动画时长（毫秒）。与 <style> 里 .vault-card.is-deleting /
+   .is-restoring 的 animation-duration 保持一致（+80ms 余量留给标记清理定时器）。 */
+const DELETE_ANIM_MS = 220;
+const RESTORE_ANIM_MS = 260;
 
 /* ===== 目录树递归组件 =====
    与 index 的 folder-node 同构，但沿用 admin 的 .folder-tree-* 类名以复用现有样式；
@@ -4005,6 +4018,11 @@ const __kvApp = Vue.createApp({
     syncTracker: null,
 
     files: [], folders: [], nextCursor: null, total: 0, loadingMore: false,
+    /* 删除离场 / 撤销恢复的动画标记（存文件 name）。列表刻意不用
+       transition-group（见 <style> 里「目录切换改回原地换内容」注释），
+       动画由类标记驱动：删除先播 is-deleting 收缩淡出、动画结束后才真正
+       从数据移除；撤销时清标记改播 is-restoring 淡入。 */
+    deletingNames: [], restoringNames: [],
     loadError: '',
 
     search: '', currentPage: 1, pageSize: 24,
@@ -5924,6 +5942,24 @@ const __kvApp = Vue.createApp({
         this.files = arr;
       });
       this.total += entries.length;
+      // 插回的条目播一个轻量恢复入场（撤销 / 服务端失败回滚共用此路径）
+      if (entries.length) this._markRestoring(entries.map(e => e.item.name));
+    },
+
+    /* ===== 删除 / 恢复的动画标记（驱动模板的 is-deleting / is-restoring 类） =====
+       标记定时自动清理，异常路径下不会残留；时长与 <style> 里对应
+       animation-duration 及 DELETE_ANIM_MS / RESTORE_ANIM_MS 常量保持一致。 */
+    _markDeleting(names) {
+      this.deletingNames = this.deletingNames.concat(names);
+      setTimeout(() => {
+        this.deletingNames = this.deletingNames.filter(n => names.indexOf(n) === -1);
+      }, DELETE_ANIM_MS + 80);
+    },
+    _markRestoring(names) {
+      this.restoringNames = this.restoringNames.concat(names);
+      setTimeout(() => {
+        this.restoringNames = this.restoringNames.filter(n => names.indexOf(n) === -1);
+      }, RESTORE_ANIM_MS + 80);
     },
 
     _flushPendingDeletes() {
@@ -5958,15 +5994,16 @@ const __kvApp = Vue.createApp({
       const idx = this.files.indexOf(item);
       const name = snapshot.metadata.fileName || snapshot.name;
 
-      this.files = this.files.filter(f => f.name !== snapshot.name);
-      this.total = Math.max(0, this.total - 1);
-
+      /* 撤销窗口先行（8 秒从点击即起算，落盘保障不受动画影响），
+         UI 上则等离场动画播完才从列表移除数据。 */
       const rec = { name: snapshot.name, item: snapshot, index: idx, timer: null };
       this._pendingDeletes.push(rec);
 
       this.showUndoToast(`已删除「${name}」`, () => {
         clearTimeout(rec.timer);
         this._pendingDeletes = this._pendingDeletes.filter(r => r !== rec);
+        /* 撤销可能发生在离场动画中途：清掉离场标记，卡片原地播恢复入场 */
+        this.deletingNames = this.deletingNames.filter(n => n !== snapshot.name);
         this._restoreDeleted([{ item: snapshot, index: idx }]);
         this.showToast('已撤销删除', 'info');
       });
@@ -5975,6 +6012,15 @@ const __kvApp = Vue.createApp({
         this._pendingDeletes = this._pendingDeletes.filter(r => r !== rec);
         this._commitDelete(rec);
       }, UNDO_MS);
+
+      /* 离场动画：播完才真正从列表移除（期间已撤销则跳过 —— rec 已不在
+         撤销窗口里，卡片从未离开过列表，不能重复移除） */
+      this._markDeleting([snapshot.name]);
+      setTimeout(() => {
+        if (this._pendingDeletes.indexOf(rec) === -1) return;
+        this.files = this.files.filter(f => f.name !== snapshot.name);
+        this.total = Math.max(0, this.total - 1);
+      }, DELETE_ANIM_MS);
     },
 
     async batchDelete() {
@@ -5989,8 +6035,7 @@ const __kvApp = Vue.createApp({
 
       const entries = list.map(item => ({ item, index: this.files.indexOf(item) }));
       const names = new Set(list.map(f => f.name));
-      this.files = this.files.filter(f => !names.has(f.name));
-      this.total = Math.max(0, this.total - list.length);
+      const nameList = list.map(f => f.name);
 
       const rec = { names: list, entries, timer: null };
       this._pendingDeletes.push({ name: null, timer: rec.timer, batch: rec });
@@ -5998,9 +6043,19 @@ const __kvApp = Vue.createApp({
       this.showUndoToast(`已删除 ${list.length} 个文件`, () => {
         clearTimeout(rec.timer);
         this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
+        /* 撤销可能发生在离场动画中途：先清离场标记再插回 */
+        this.deletingNames = this.deletingNames.filter(n => nameList.indexOf(n) === -1);
         this._restoreDeleted(entries);
         this.showToast('已撤销删除', 'info');
       });
+
+      /* 离场动画：播完才真正从列表移除（期间已撤销则跳过） */
+      this._markDeleting(nameList);
+      setTimeout(() => {
+        if (!this._pendingDeletes.some(r => r.batch === rec)) return;
+        this.files = this.files.filter(f => !names.has(f.name));
+        this.total = Math.max(0, this.total - list.length);
+      }, DELETE_ANIM_MS);
 
       rec.timer = setTimeout(async () => {
         this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
