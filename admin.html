@@ -411,7 +411,10 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .vault-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:var(--sp-3)}
 /* 注意：卡片不能设 overflow:hidden —— 它会把「更多操作」弹出菜单整块裁掉。
    圆角裁剪改由 .card-thumb 自己负责。 */
-.vault-card{position:relative;background:var(--glass-surface);backdrop-filter:blur(var(--sp-4));-webkit-backdrop-filter:blur(var(--sp-4));border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);display:flex;flex-direction:column;}
+/* 默认不带 backdrop-filter：卡片数量 = 列表长度，每张都模糊等于每帧重算 N 层，
+   hover 的 transform 又会为每张卡再建一次合成层 —— admin 列表是本项目最大单项开销。
+   底色改用 --glass-surface-flat（不透明度高一档，补偿没有 blur 时的对比度损失）。 */
+.vault-card{position:relative;background:var(--glass-surface-flat);border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple);display:flex;flex-direction:column;}
 @media(hover:hover){.vault-card:hover{border-color:var(--primary-light);transform:translateY(-3px) scale(1.006);box-shadow:0 10px 26px -6px rgba(var(--primary-rgb),.22)}}
 .vault-card:active{transform:translateY(-1px) scale(.985);transition-duration:.1s}
 .vault-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(var(--primary-rgb),.2)}
@@ -493,7 +496,8 @@ html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
 }
 /* 列表视图（错峰入场，见动画应用层） */
 .vault-list{display:flex;flex-direction:column;gap:7px;width:100%;flex:1}
-.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple),backdrop-filter var(--blur-fade),-webkit-backdrop-filter var(--blur-fade);width:100%;box-sizing:border-box;}
+/* 同 .vault-card：列表行数量随数据量增长，逐行模糊扛不住。 */
+.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface-flat);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple);width:100%;box-sizing:border-box;}
 @media(hover:hover){.vault-row:hover{border-color:var(--primary-light);transform:translateX(3px)}}
 .vault-row:active{transform:scale(.99);transition-duration:.1s}
 .vault-row.selected{border-color:var(--primary);background:var(--primary-surface)}
@@ -538,8 +542,10 @@ html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
 }
 .act-menu .dropdown-item{padding:10px var(--sp-3);border-radius:var(--r-sm);font-size:.83rem}
 /* 菜单打开的那一项（卡片/行）浮到同级最上层。
-   卡片与行都带 backdrop-filter，各自形成独立堆叠层，
-   若不提升 z-index，弹出菜单会被后面的卡片/行盖住。
+   若不做提升，后面那些卡/行（同为定位元素、按 DOM 序绘制）会把菜单盖住。
+   这条 z-index 提升是菜单可见性的唯一保障：原先卡片自身带 backdrop-filter 会
+   顺带形成堆叠上下文，但真正挡住的是「兄弟元素的绘制顺序」，两者都不解决问题，
+   所以 L3 移除列表项毛玻璃后这条规则照旧生效，不依赖 backdrop-filter。
    .vault-card 是 grid item、.vault-row 是 flex item，z-index 无需 position 即生效，
    这里显式给出 position:relative 只是保证跨浏览器一致。
    ⚠️ z-index 必须压过底部导航 dock(100) 和批量栏(1000)：
@@ -1178,8 +1184,10 @@ design-system.css 已经给 .modal-mask 用过同一套「打开即渐入」的�
 :root{--blur-fade:.42s var(--ease-apple)}
 
 /* 下面这些玻璃面自身没有其它 transition，直接在此挂上唯一的模糊过渡。
-   其余玻璃面（.vault-card / .card-picked / .vault-row / .batch-dock）已有配色过渡，
-   为避免互相覆盖，是在各自的 transition 列表里**追加**的，见各自定义处。 */
+   其余玻璃面（.card-picked / .batch-dock）已有配色过渡，为避免互相覆盖，
+   是在各自的 transition 列表里**追加**的，见各自定义处。
+   注：.vault-card / .vault-row 原先也在这个名单里，现已连 backdrop-filter
+   一起移除 —— 列表项数量随数据线性增长，不该参与 per-frame 的模糊重算。 */
 .dropdown-panel,
 .card-badge,
 .lightbox-bar,

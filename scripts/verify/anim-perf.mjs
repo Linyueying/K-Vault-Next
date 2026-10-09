@@ -290,7 +290,15 @@ scenario('S3', '本地历史 500 条（切视图 + 滚动）', async (page, ctxC
 scenario('S4', '后台文件列表滚动（毛玻璃卡片）', async (page, ctxClient) => {
   // 后台有 780ms bootDelay，还要等列表接口返回（本地数据多时更慢）。
   // 用轮询而不是 waitForSelector —— 后者默认等 visible，容器可能始终判定不可见。
-  const cardCount = await pollUntil(page, 'document.querySelectorAll(".vault-card, .vault-row").length', 30000);
+  // 超时给到 90s：本场景排在全量跑的最后一位，此前 S1 已往本地塞了几百条记录，
+  // 会拖慢列表首屏；实测这种情况下 30s 不够，90s 稳过。
+  let cardCount = await pollUntil(page, 'document.querySelectorAll(".vault-card, .vault-row").length', 90000);
+  if (!cardCount) {
+    // 再给一次机会：首屏那次可能正好撞上 index.js 的 bootDelay 与接口并发
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2000);
+    cardCount = await pollUntil(page, 'document.querySelectorAll(".vault-card, .vault-row").length', 60000);
+  }
   if (!cardCount) return null; // 无数据：跳过，不算失败
 
   const c0 = await readCounters(page);

@@ -160,10 +160,10 @@
         /* 入场动画只由 <transition name="sheet"> 驱动（见下方 .sheet-enter-*）。
            这里原本还挂了 animation: maskIn —— 与过渡争同一个 opacity 轨道，
            低端设备掉帧时两者相位错开会让遮罩明暗抖动。起点已并入 .sheet-enter-from。
-           新增 transition：滑入结束（Vue 移除 -enter-active）后由它让背景虚化从 0
-           平滑渐入到 blur(4px)；出入场过渡期间遮罩模糊被 .sheet-*-active.modal-mask
-           固定为常量，避免逐帧重算全屏模糊（见设计系统 §B 修复）。 */
-        transition: backdrop-filter 0.3s var(--ease-apple);
+           这里原本还有一条 transition: backdrop-filter .3s，让遮罩滑入后从清晰
+           渐变到 blur(4px)。已删除：全屏模糊的插值意味着这 .3s 内每帧都要重算
+           整屏背景，而遮罩此时正与内容同步做位移/透明渐入，本来就在最忙的帧里。
+           去掉后遮罩一出现就是 blur(4px)，因它同时在淡入，观感几乎无差别。 */
       }
       .modal-mask--bottom { align-items: flex-end; }
       .modal-mask--center { align-items: center; }

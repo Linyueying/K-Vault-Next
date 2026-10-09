@@ -41,6 +41,12 @@
                  radial-gradient(at 92% 92%, #bae6fd 0px, transparent 48%),
                  #f0f7ff;
   --glass-surface: rgba(255, 255, 255, 0.84);
+  /* 无毛玻璃版的卡片底色：列表卡片/行要频繁进出场、整体随列表滚动，
+     每张都挂 backdrop-filter 等于每帧重算 N 层模糊（admin 列表实测是最大单项
+     开销）。这类大面积列表一律改用这个变量 —— 不透明度比 --glass-surface
+     高一档，用来补偿失去 blur 后背景光晕直接透上来造成的对比度损失。
+     玻璃感只保留给弹层/菜单/dock 这类一次性、数量 O(1) 的面。 */
+  --glass-surface-flat: rgba(255, 255, 255, 0.92);
   --glass-elevated: rgba(255, 255, 255, 0.95);
   --glass-subtle: rgba(255, 255, 255, 0.65);
   --glass-border: rgba(255, 255, 255, 0.95);
@@ -161,6 +167,7 @@ html[data-theme="dark"] {
                  radial-gradient(at 90% 90%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
                  #070d19;
   --glass-surface: rgba(15, 27, 49, 0.85);
+  --glass-surface-flat: rgba(15, 27, 49, 0.92);
   --glass-elevated: rgba(20, 36, 66, 0.95);
   --glass-subtle: rgba(15, 27, 49, 0.6);
   --glass-border: rgba(255, 255, 255, 0.14);
@@ -1679,12 +1686,14 @@ html[data-perf="low"] .toast-leave-active { transition-duration: 0.14s, 0.16s; }
 /* 模糊停用后，玻璃层必须改为不透明，否则背景光晕会透上来压低文字对比度 */
 html[data-perf="low"] {
   --glass-surface: #ffffff;
+  --glass-surface-flat: #ffffff;
   --glass-elevated: #ffffff;
   --glass-subtle: #f8fafc;
   --glass-border: rgba(15, 23, 42, 0.1);
 }
 html[data-theme="dark"][data-perf="low"] {
   --glass-surface: #0f1b31;
+  --glass-surface-flat: #0f1b31;
   --glass-elevated: #142442;
   --glass-subtle: #0d1626;
 }

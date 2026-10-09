@@ -452,8 +452,9 @@
       border-radius: 10px;
       background: rgba(255, 255, 255, 0.94);
       border: 1px solid var(--glass-border-ice);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      /* 此处原本带 blur(10px)。底色是 94% 不透明，透上来的只有 6%，
+         模糊与否几乎看不出差别，但每张照片卡都要付一次全价 —— 相册一页上百张时
+         这是本页最贵的一笔合成。与 design-system.css §207 同一取舍，直接撤掉。 */
       display: flex;
       align-items: center;
       justify-content: center;
@@ -532,8 +533,7 @@
       cursor: pointer;
       transition: var(--transition);
       font-size: 0.74rem;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
+      /* 同 .photo-check：底色 94% 不透明，blur(10px) 观感为零、成本为 N×帧数 */
       font-family: inherit;
     }
     .photo-act:hover {
