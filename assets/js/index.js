@@ -533,6 +533,10 @@
     data() {
       return {
         currentTheme: "light",
+        /* 顶栏品牌区版本标签：默认只显示版本号（拿不到提交号时的一致回退值），
+           mounted 后由 /api/version 补全为「版本号 · 提交号」。
+           发版时同步更新 functions/api/version.js 的 DEFAULT_VERSION。 */
+        versionLabel: "v0.1.0",
         /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可发送 /
            访客是否可接收 / 可用中转节点列表）。能力由 /api/auth/check 下发，
            见 checkAuth。默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。
@@ -4340,6 +4344,18 @@
       }
     },
     async mounted() {
+      /* 顶栏版本标签：/api/version 公开端点，Git 集成部署时后端能拿到
+         CF_PAGES_COMMIT_SHA，补全为「版本号 · 提交号」；direct upload 未配置
+         APP_COMMIT_SHA 时 commit 为空，保持只显示版本号。
+         静默失败（不阻塞、不弹错）：这只是个展示性标签。 */
+      fetch("/api/version", { headers: { Accept: "application/json" } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((v) => {
+          if (v && v.version) {
+            this.versionLabel = v.commit ? `${v.version} · ${v.commit}` : v.version;
+          }
+        })
+        .catch(() => {});
       /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
       this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
       window.addEventListener("keydown", this._dlgKeyHandler, true);
