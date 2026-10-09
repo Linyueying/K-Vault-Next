@@ -269,7 +269,10 @@ body {
   text-decoration: none;
   transition: var(--transition);
   -webkit-tap-highlight-color: transparent;
-  will-change: transform;
+  /* L6：原本这里有 will-change: transform，已删。按钮是全站数量最多、且几乎每张
+     版面都有一堆的元素 —— 给 .btn 常驻提层等于「每个按钮都占一个合成层」，
+     是本仓库最大的单点浪费。按下时的 scale 由过渡驱动，浏览器会在**动画进行中**
+     自动提升并在结束后回收，效果不变，只是不再提前预热那一帧。 */
 }
 .btn i { font-size: 0.76rem; }
 .btn:hover:not(:disabled) {
@@ -502,7 +505,12 @@ html[data-theme="dark"] .switch__track { background: rgba(148, 163, 184, 0.28); 
   max-width: 100%;
   /* 独立合成层：toast 是 position:fixed 容器里的浮层，且带 box-shadow，
      低端设备上若不提前提层，每帧都要重新 raster，掉帧时肉眼可见抖动。
-     这里主动 translateZ(0) + will-change，把绘制成本前移，属于「提质量」而非降质量。
+     这里主动 translateZ(0) + will-change，把绘制成本前移。
+
+     L6 例外项：本站其余常驻 will-change（.btn / .progress__val / .photo-card）都是
+     「数量 = 列表长度」的元素，已按 anchored 层成本全部删除；而 toast 同时存在
+     的实例通常 ≤3 个、且生命周期只有几秒，层数是 O(1) 而非 O(N)，保留它用来
+     压住上面那个历史抖动是划算的。 */
      注意：入场动画只由下面的 Vue 过渡族负责，此处**不再**挂 animation —— 两套
      动画争同一个 transform/opacity 会让元素在掉帧时来回跳（历史 bug，见文件末注释）。 */
   transform: translateZ(0);
@@ -623,7 +631,8 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   border-radius: var(--r-pill);
   background: linear-gradient(90deg, var(--primary-light), var(--primary));
   transition: transform 0.4s var(--ease-fluid), background 0.3s var(--ease-apple);
-  will-change: transform;
+  /* L6：原本常驻 will-change: transform。进度条在上传队列里是「每条一个」，
+     一下上百个任务就是上百个合成层。scaleX 过渡进行中浏览器照样会临时提层。 */
 }
 .progress--lg { height: 8px; margin-top: var(--sp-2); }
 

@@ -649,11 +649,12 @@
    实测这块收益 <2%（屏幕外的卡片已经被 content-visibility 跳过了，根本没在跑
    动画），但代价也近乎为零 —— 队列长到这个规模时没人会盯着单卡的展开看，
    卸掉没有任何观感损失。will-change 一并撤：它会给每张卡片提一个合成层，
-   批量上传时是上百个层白占内存。 */
+   批量上传时是上百个层白占内存（L6 已把 .progress__val 的常驻 will-change
+   从共享层删掉，这里只剩关过渡）。 */
 .list--lean .task__subline,
 .list--lean .task__subline-inner,
-.list--lean .task__name { transition: none; }
-.list--lean .progress__val { transition: none; will-change: auto; }
+.list--lean .task__name,
+.list--lean .progress__val { transition: none; }
 .task__subline-inner { display: inline-block; transform: translateY(-4px);
   transition: transform 0.34s var(--ease-apple); }
 .task__subline.is-on .task__subline-inner { transform: translateY(0); }

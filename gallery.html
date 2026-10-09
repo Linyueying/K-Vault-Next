@@ -394,7 +394,9 @@
       box-shadow: var(--shadow-soft);
       cursor: pointer;
       transition: transform 0.28s var(--ease-fluid), box-shadow 0.28s var(--ease-fluid), border-color 0.24s ease;
-      will-change: transform;
+      /* L6：原本这里常驻 will-change: transform，已删 —— 相册一屏几十张卡，
+         那就是几十个合成层常驻。hover 的缩放交给过渡本身，浏览器会在过渡期间
+         自动提层、结束后回收，观感不变。contain 保留，它不占合成层却更省钱。 */
       contain: layout style paint;
     }
     .photo-card::after {
