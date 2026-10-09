@@ -165,7 +165,8 @@
         border-color: rgba(16, 185, 129, 0.4);
       }
       html[data-theme="dark"] .status-pill.is-ok { color: var(--c-success); }
-      .status-pill.is-ok .status-pill__pulse { background: var(--c-success); animation: pulseRing 2.4s var(--ease-apple) infinite; }
+      /* L5：pulseRing 已删（box-shadow 扩散逐帧重绘且常驻），改为静态点 */
+      .status-pill.is-ok .status-pill__pulse { background: var(--c-success); }
       .status-pill.is-bad {
         color: var(--c-danger);
         border-color: rgba(225, 29, 72, 0.4);

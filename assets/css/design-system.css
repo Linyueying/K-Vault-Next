@@ -557,10 +557,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   justify-content: center;
   gap: var(--sp-3);
 }
+/* L5：原本这里的 floatSoft 无限浮动已删除 —— 常驻循环动画每帧都要走一遍样式与合成，
+   即使元素只有几十像素、即使屏幕上同时只存在一个。
+   .empty-state i { font-size: 2.4rem; opacity: 0.35; animation: floatSoft ... } */
 .empty-state i {
   font-size: 2.4rem;
   opacity: 0.35;
-  animation: floatSoft 3.4s var(--ease-apple) infinite alternate;
 }
 .empty-state .btn { margin-top: 2px; }
 .empty-state--sm { padding: var(--sp-6) var(--sp-4); }
@@ -652,17 +654,16 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   transition: background var(--dur-base) var(--ease-apple),
               box-shadow var(--dur-base) var(--ease-apple);
 }
+/* L5：三态的呼吸/告警 animation 已删除 —— box-shadow 的扩散动画不是合成器属性，
+   每帧都要重绘，而同步状态点常驻屏幕上。背景色是状态本体，务必保留。 */
 .sync-dot.is-syncing {
   background: var(--c-warn);
-  animation: syncPulseWarn 1.5s var(--ease-apple) infinite;
 }
 .sync-dot.is-synced {
   background: var(--c-success);
-  animation: syncPulseOk 2.2s var(--ease-apple) infinite;
 }
 .sync-dot.is-failed {
   background: var(--c-danger);
-  animation: syncAlarmBreath 1.6s var(--ease-apple) infinite;
 }
 
 /* 可点击态：把圆点扩成一个有热区的按钮，避免 9px 难以点中。
@@ -787,28 +788,14 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
   80%  { transform: translateX(2px); }
   100% { opacity: 1; transform: translateX(0); }
 }
-@keyframes pulseRing {
-  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-  70%  { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-@keyframes orbFloat {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to   { transform: translate3d(28px, -34px, 0) scale(1.08); }
-}
-@keyframes floatSoft {
-  from { transform: translate3d(0, 0, 0); }
-  to   { transform: translate3d(0, -8px, 0); }
-}
-@keyframes bounceDown {
-  0%, 100% { transform: translate3d(0, 0, 0); }
-  50%      { transform: translate3d(0, 5px, 0); }
-}
-@keyframes settleBreathe {
-  0%   { transform: scale(1);    opacity: 1; }
-  45%  { transform: scale(0.94); opacity: 0.72; }
-  100% { transform: scale(1);    opacity: 1; }
-}
+/* ── L5：以下五个 keyframes 已连同全部引用一起删除 ────────────────────────
+   pulseRing(box-shadow 扩散) / orbFloat / floatSoft / bounceDown / settleBreathe
+   它们都是 infinite 常驻循环：无论屏幕上有几个实例，浏览器每帧都要为它们走一次
+   样式计算 + 绘制（pulseRing 的 box-shadow 甚至要逐帧重绘），属于「永不停歇的开销」。
+   删除后对应元素保留静态外观：背景光晕停在初始位置、状态点保持静态绿点、
+   空状态图标不再浮动 —— 都是纯装饰，无信息损失。
+   加载指示器（spin / .spinner / .fa-spin）与 airdrop 的倒计时脉冲不在其列。
+   ──────────────────────────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* 高度类展开/收起（grid-template-rows 真插值，配合 .tree-children / .row-expand） */
@@ -897,24 +884,8 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    riseIn / riseInSm 后已无任何引用，故删除（check_tokens.py 会拦这类死定义）。 */
 @keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
 
-/* 同步状态点（.sync-dot）——三态各自的呼吸/告警节奏
-   与 pulseRing 的区别：pulseRing 是「已连接」的固定绿环（存储连接状态），
-   这里的三条是「数据同步」的过程状态，颜色随态变化，故不能复用。 */
-@keyframes syncPulseWarn {
-  0%   { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55); }
-  70%  { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-}
-@keyframes syncPulseOk {
-  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-  70%  { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-/* 失败：不扩散，只做轻微明暗呼吸 —— 与「进行中」的扩散状形成明确的语义区分 */
-@keyframes syncAlarmBreath {
-  0%, 100% { opacity: 1;    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.45); }
-  50%      { opacity: 0.72; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0); }
-}
+/* 同步状态点（.sync-dot）——三态各自的呼吸/告警节奏，连同它们 keyframes 里的
+   box-shadow 扩散已在 L5 删除；三态改由纯背景色区分（.sync-dot.is-* 见 §10）。 */
 
 /* ==========================================================================
    12. 入场编排 —— 首屏元素错峰浮现（替代各页面手写的 boot 规则）
@@ -1621,15 +1592,9 @@ html:has(.modal-mask) .dock.glass::before {
   animation: none !important;
 }
 
-/* 同理：右上角 .status-pill 的脉冲点（.status-pill__pulse 的 pulseRing / settleBreathe
-   无限动画）也藏在遮罩背后。遮罩模糊在收尾提交时会对背后的「运动内容」重新采样，
-   导致这个脉冲点（连同整个 pill）在抽屉完全出现的那一瞬抽搐闪一下。dock 此前已同样
-   冻结所以不闪，这里把 pill 的脉冲动画一并冻住：抽屉打开期间脉冲点静止，闪动消除；
-   抽屉关闭后 :has() 条件消失，脉冲自动恢复。脉冲点本就被遮罩的模糊 + 暗化几乎看不清，
-   冻住无任何观感损失。 */
-html:has(.modal-mask) .status-pill__pulse {
-  animation: none !important;
-}
+/* 同理，右上角 .status-pill 的脉冲点原本也有一条无限动画，同样会在遮罩收尾抽样时
+   让整个 pill 抽搐闪一下。L5 已把这个动画删除（pulseRing 连同引用），脉冲点变成静态
+   绿点，抽屉打开自然不再闪，这条冻结规则随之作废 —— 这里不再需要额外规则。 */
 
 /* 低端设备：去掉模糊 */
 html[data-perf="low"] .card,
