@@ -123,8 +123,14 @@ html[data-theme="dark"] textarea::placeholder {
   font-size: 0.88em;
   font-weight: 600;
   line-height: 1;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  /* 去 all：hover 只动 transform / box-shadow，切主题只动 color / border-color，
+     background 是 linear-gradient（不可插值，本来也不参与过渡）。
+     写死清单后，字重、间距之类的偶发变化不会再意外触发布局补间。 */
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .theme-floating-toggle i {

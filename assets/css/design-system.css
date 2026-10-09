@@ -106,7 +106,20 @@
   --dur-base: 0.24s;
   --dur-slow: 0.34s;
   --dur-enter: 0.5s;
-  --transition: all var(--dur-base) var(--ease-fluid);
+  /* L4：原本是 `all var(--dur-base) var(--ease-fluid)`。`all` 会让浏览器监听该元素
+     上**所有**属性的变化，其中 width / height / padding / margin 这类布局属性一旦
+     卷进过渡就是每帧 layout —— 而这套 open layer 里根本没有任何一处需要过渡布局
+     属性。改为显式清单后，视觉层面的过渡观感完全不变，布局属性不再被卷进来。
+     清单覆盖实测会用到的全部：hover/active/disabled 改的是 color / background-color
+     / border-color / box-shadow / opacity / transform，表单聚焦改的是 outline-color
+     与 border-color（background 简写里的 color 部分同样命中 background-color）。 */
+  --transition: color var(--dur-base) var(--ease-fluid),
+                background-color var(--dur-base) var(--ease-fluid),
+                border-color var(--dur-base) var(--ease-fluid),
+                outline-color var(--dur-base) var(--ease-fluid),
+                box-shadow var(--dur-base) var(--ease-fluid),
+                opacity var(--dur-base) var(--ease-fluid),
+                transform var(--dur-base) var(--ease-fluid);
 
   /* —— Apple 风统一玻璃 / 缓动令牌（重构基线）——
      saturate(1.8) == 180%；blur 统一 20px；移动端再降级到 14px。 */
@@ -441,9 +454,14 @@ html[data-theme="dark"] .switch__track { background: rgba(148, 163, 184, 0.28); 
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
-  transition: transform 0.38s var(--ease-spring), width 0.2s var(--ease-press);
+  /* L4：原本这里还过渡 `width 0.2s` —— width 是布局属性，按下时逐帧 layout。
+        开关的「按压反馈」用 transform 表达即可，删掉 width 的那条。 */
+  transition: transform 0.38s var(--ease-spring);
 }
-.switch:active .switch__thumb { width: 24px; }
+/* L4：按下反馈原本是 `width: 24px` —— 布局属性，按下期间逐帧 layout。
+       改用 transform 表达（原位轻微缩小）。必须用 :not(:checked) 限定，
+       否则会和下面 checked 态那条 translateX 抢同一个 transform。 */
+.switch input:not(:checked):active + .switch__track + .switch__thumb { transform: scale(0.94); }
 .switch input:checked + .switch__track { background: var(--primary); }
 .switch input:checked + .switch__track + .switch__thumb { transform: translateX(18px); }
 .switch input:checked:active + .switch__track + .switch__thumb { transform: translateX(14px); }
@@ -813,11 +831,17 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    ──────────────────────────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* 高度类展开/收起（grid-template-rows 真插值，配合 .tree-children / .row-expand） */
-@keyframes treeGrowIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
-@keyframes treeGrowOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
-@keyframes rowExpandIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
-@keyframes rowExpandOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
+/* 展开/收起：L4 改为纯合成属性。
+   原本这套 keyframes 插值 `grid-template-rows: 0fr → 1fr` —— 高度虽然平滑，但它是
+   布局属性，每一帧都要重新 layout 整棵子树（目录树多层展开时尤其贵）。
+   现在内容改为淡入淡出 + 轻微上移：**容器高度改为瞬变**，不再逐步增高。
+   观感上比原来略快一点，省掉的是每帧 layout。
+   保留 animation 而不是换成 transition —— Vue 的 getTransitionInfo 会读 computed
+   style 的时长来决定等多久，两种写法都能被嗅探，沿用原有结构改动最小。 */
+@keyframes treeGrowIn  { from { opacity: 0; transform: translate3d(0, -6px, 0); } to { opacity: 1; transform: none; } }
+@keyframes treeGrowOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(0, -4px, 0); } }
+@keyframes rowExpandIn  { from { opacity: 0; transform: translate3d(0, -6px, 0); } to { opacity: 1; transform: none; } }
+@keyframes rowExpandOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(0, -4px, 0); } }
 
 /* 通用容器展开/收起（grid-template-rows 真插值，进出场都补齐，配 <transition name="collapse">）。
    用于「出现/消失会带动容器高度变化」的面板（如 index 的交付结果），让「缩小」也走非线性缓动，
@@ -995,11 +1019,14 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .tree-children > * { min-height: 0; overflow: hidden; }
 .tree-children-enter-active {
   animation: treeGrowIn 0.42s var(--ease-fluid) both;
-  transition: opacity 0.42s var(--ease-fluid), grid-template-rows 0.42s var(--ease-fluid);
+  /* L4：transition 只保留 opacity。原先那条还挂着 grid-template-rows ——
+     插值它是每帧 layout，而随着 keyframes 改成纯合成属性，这里也已无用。
+     留着 opacity 的 transition 还有个作用：Vue 嗅探离场时长要看 computed style。 */
+  transition: opacity 0.42s var(--ease-fluid);
 }
 .tree-children-leave-active {
   animation: treeGrowOut 0.26s var(--ease-press) both;
-  transition: opacity 0.26s var(--ease-press), grid-template-rows 0.26s var(--ease-press);
+  transition: opacity 0.26s var(--ease-press);
 }
 .tree-children-enter-from,
 .tree-children-leave-to { opacity: 1; }
@@ -1008,11 +1035,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .row-expand > * { min-height: 0; overflow: hidden; }
 .rowExpand-enter-active {
   animation: rowExpandIn 0.42s var(--ease-fluid) both;
-  transition: opacity 0.42s var(--ease-fluid), grid-template-rows 0.42s var(--ease-fluid);
+  /* L4：同上，去掉 grid-template-rows 的插值 */
+  transition: opacity 0.42s var(--ease-fluid);
 }
 .rowExpand-leave-active {
   animation: rowExpandOut 0.24s var(--ease-press) both;
-  transition: opacity 0.24s var(--ease-press), grid-template-rows 0.24s var(--ease-press);
+  transition: opacity 0.24s var(--ease-press);
 }
 .rowExpand-enter-from,
 .rowExpand-leave-to { opacity: 1; }
@@ -1023,10 +1051,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 /* 抽屉页签 · 方向感知转场 */
 .pane-forward-enter-active,
 .pane-back-enter-active {
+  /* L4：原本这里还过渡 `filter .3s`。filter 不是合成器属性，转场期间逐帧重新
+     栅格化整块面板。同行把 will-change 里的 filter 也去掉 —— 它会让浏览器为
+     filter 单独准备一层，而这一层已经不再需要。 */
   transition: opacity 0.3s var(--ease-apple),
-              transform 0.46s var(--ease-fluid),
-              filter 0.3s var(--ease-apple);
-  will-change: transform, opacity, filter;
+              transform 0.46s var(--ease-fluid);
+  will-change: transform, opacity;
 }
 .pane-forward-leave-active,
 .pane-back-leave-active {
@@ -1054,10 +1084,10 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
    统一在这里定义（离场元素绝对定位，避免两页同时占位把容器撑高）。 */
 .view-forward-enter-active,
 .view-back-enter-active {
+  /* L4：同 .pane-* 的处理，去掉 filter 过渡与其 will-change */
   transition: opacity 0.3s var(--ease-apple),
-              transform 0.46s var(--ease-fluid),
-              filter 0.3s var(--ease-apple);
-  will-change: transform, opacity, filter;
+              transform 0.46s var(--ease-fluid);
+  will-change: transform, opacity;
 }
 .view-forward-leave-active,
 .view-back-leave-active {

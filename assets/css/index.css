@@ -901,18 +901,17 @@ html[data-theme="dark"] .tree-row.active { background: linear-gradient(135deg, r
    每个目录节点一个实例。挂载时用 countIn 播同一段进场（纯合成属性）。 */
 .tree-row__count { font-size: var(--fs-xs); padding: 1px 6px; border-radius: var(--r-pill); background: rgba(148, 163, 184, 0.18); color: var(--text-muted); flex-shrink: 0; font-weight: 600; animation: countIn 0.32s var(--ease-apple) both; }
 
-/* 子树展开 / 收起：外层用 grid-template-rows 做真实高度过渡，
-   内层必须 overflow: hidden 且 min-height: 0，否则 grid 项不会真正被压缩。
+/* 子树展开 / 收起。
 
-   ⚠️ Vue 的 <transition> 会自己去读 CSS 上的动画/过渡时长来决定
-   「什么时候算播完、可以移除元素」。它读的是标准属性（transition-duration /
-   animation-duration），而 grid-template-rows 不在它认识的插值属性里。
-   只有在 enter-active / leave-active 上**同时挂一个可读的 transition-duration**，
-   Vue 才能得到正确时长；否则它判定为 0，元素会在两三帧内被直接删掉，
-   动画看起来「闪一下就没了」。
+   ⚠️ L4 之后这里**不再**插值 grid-template-rows 了：那段 grid-template-rows
+   0fr↔1fr 的高度补间是每帧 layout，目录树多层展开时很贵。现在真正的动效是
+   keyframes 里的「淡入淡出 + 轻微上移」（纯合成属性），容器高度为瞬变。
+   如果你把它们改回 grid 高度插值，请连带恢复 design-system.css 里那两处
+   `transition: opacity ...` 中的 grid-template-rows 条目。
 
-   因此这里同时声明：animation（负责真正的高度插值）+ transition-duration
-   （只作为给 Vue 的时长信号，不参与视觉）。 */
+   grid 包裹层（display:grid + grid-template-rows:1fr + min-height:0 /
+   内层 min-height:0）保留原样：改动它会连带影响子树布局，收益却接近于零，
+   留着只当一个「一个 grid 项」的容器即可。 */
 .tree-children {
   display: grid;
   grid-template-rows: 1fr;
@@ -934,11 +933,10 @@ html[data-theme="dark"] .tree-row.active { background: linear-gradient(135deg, r
 .settings-group { margin-top: var(--sp-4); }
 
 /* 条件出现的设置块（并行上传明细、智能模式的大文件节点等）。
-   外层用 grid-template-rows 做真实高度插值，内层 overflow: hidden + min-height: 0
-   才能被真正压扁；否则 grid 项会撑住高度，动画看起来像「闪一下」。
 
-   与 .tree-children 同理：Vue 需要一条可读的 transition-duration 才知道何时收尾，
-   这里显式声明，避免元素被提前移除。 */
+   与 .tree-children 同理：L4 之后不再插值高度，进场走的是 design-system.css
+   里 .rowExpand-* 的「淡入 + 上移」。这里的 grid 包裹层同样是历史结构，
+   保留以免牵动块内 margin 的折叠行为。 */
 .row-expand { display: grid; grid-template-rows: 1fr; min-height: 0; }
 /* 块内第一层子元素自带 margin-top，收缩时要一并吃掉，否则末尾会留一条缝 */
 .row-expand > * > .settings-group:first-child,
