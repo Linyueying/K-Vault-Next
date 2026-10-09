@@ -2827,7 +2827,7 @@ html[data-perf="low"] .dock{transition:none}
           <div v-else-if="!filteredShares.length" class="token-empty" key="nofilter">
             当前筛选条件下没有匹配的分享。
           </div>
-          <transition-group v-else name="list" tag="div" class="token-list share-list" key="list">
+          <component :is="shareListWrap" v-else class="token-list share-list" key="list" :name="shareListLean ? undefined : 'list'" :tag="shareListLean ? undefined : 'div'">
             <div class="token-row" v-for="s in filteredShares" :key="s.kvKey"
                  :class="{disabled: !s.active}">
               <div class="token-row-top">
@@ -2873,7 +2873,7 @@ html[data-perf="low"] .dock{transition:none}
                      :style="{transform: 'scaleX(' + shareQuotaPercent(s) / 100 + ')'}"></div>
               </div>
             </div>
-          </transition-group>
+          </component>
         </transition>
       </div>
       </template>
@@ -2905,7 +2905,7 @@ html[data-perf="low"] .dock{transition:none}
             <div v-else-if="!filteredShareBundles.length" class="token-empty" key="bnofilter">
               当前筛选条件下没有匹配的分享。
             </div>
-            <transition-group v-else name="list" tag="div" class="token-list share-list" key="blist">
+            <component :is="bundleListWrap" v-else class="token-list share-list" key="blist" :name="bundleListLean ? undefined : 'list'" :tag="bundleListLean ? undefined : 'div'">
               <div class="token-row" v-for="b in filteredShareBundles" :key="b.slug"
                    :class="{disabled: !b.active}">
                 <div class="token-row-top">
@@ -2949,7 +2949,7 @@ html[data-perf="low"] .dock{transition:none}
                   <span v-if="b.createdAt"><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(b.createdAt) }}</span>
                 </div>
               </div>
-            </transition-group>
+            </component>
           </transition>
         </div>
       </template>
@@ -3360,7 +3360,7 @@ html[data-perf="low"] .dock{transition:none}
         <transition name="fade" mode="out-in">
           <div v-if="tokenLoading && !tokens.length" class="token-empty" key="loading"><i class="fas fa-circle-notch fa-spin"></i> 加载中…</div>
           <div v-else-if="!tokens.length" class="token-empty" key="empty">还没有任何 Token。</div>
-          <transition-group v-else name="list" tag="div" class="token-list" key="list">
+          <component :is="tokenListWrap" v-else class="token-list" key="list" :name="tokenListLean ? undefined : 'list'" :tag="tokenListLean ? undefined : 'div'">
             <div class="token-row" v-for="t in tokens" :key="t.id" :class="{disabled: !t.enabled}">
               <div class="token-row-top">
                 <span class="token-name">{{ t.name || '未命名' }}</span>
@@ -3386,7 +3386,7 @@ html[data-perf="low"] .dock{transition:none}
                 <span v-if="tokenPoliciesLabel(t)"><i class="fas fa-filter"></i> {{ tokenPoliciesLabel(t) }}</span>
               </div>
             </div>
-          </transition-group>
+          </component>
         </transition>
       </div>
 
@@ -4294,6 +4294,26 @@ const __kvApp = Vue.createApp({
     sharePanelVisible()     { return this.activeSection === 'shares'; },
     tokenPanelVisible()     { return this.activeSection === 'system'; },
     brandingPanelVisible()  { return this.activeSection === 'system'; },
+
+    /* ---------- 长列表双路降级 ----------
+       分享 / 合集 / Token 三张表都走后端 limit=1000 且没有分页。条目一多，
+       <transition-group> 就要重蹈 index 侧的覆辙（详见 index.js 里 resultLean 的注释）：
+         · render 期对每个既有子节点无条件 getBoundingClientRect() 记 FLIP 位置，
+           与 :css / .list-move 有没有过渡都无关，必然发生；
+         · 子节点被挂上 .transition 后，Vue 的 shouldUpdateComponent 开头那句
+           `if (nv.dirs || nv.transition) return true` 会让全表无条件重渲染。
+       超过阈值统一换成普通 <div>，与 index.html 的 resultListWrap /
+       historyListWrap 同一套路。阈值取 40：短列表仍保留进出场与位移动画，
+       长列表本来也看不清那点位移，白付这笔开销不值得。 */
+    shareListLean()  { return (this.filteredShares || []).length > 40; },
+    bundleListLean() { return (this.filteredShareBundles || []).length > 40; },
+    tokenListLean()  { return (this.tokens || []).length > 40; },
+    /* Vue.TransitionGroup 是全局构建导出的组件对象；不能写成字符串
+       '<transition-group>' —— 内置组件不在字符串组件注册表里，那样只会
+       渲染出一个同名的自定义元素。 */
+    shareListWrap()  { return this.shareListLean  ? 'div' : Vue.TransitionGroup; },
+    bundleListWrap() { return this.bundleListLean ? 'div' : Vue.TransitionGroup; },
+    tokenListWrap()  { return this.tokenListLean  ? 'div' : Vue.TransitionGroup; },
 
     /* Dock 指示器落点（0-3）：拖拽中用手势的浮点 pos，否则按当前板块查表 */
     dockIndicatorIndex() {

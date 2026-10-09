@@ -176,10 +176,11 @@
             </div>
           </div>
 
-          <!-- 交付结果：行数超过 QUEUE_LEAN_LIMIT 时套 .list--lean，
-               该规则把 .list-move 的 transition 关掉，Vue 的 hasCSSTransform()
-               探测不到变换就会整段跳过 FLIP —— 详见 index.js 里 resultLean 的注释。 -->
-          <transition-group name="list" tag="div" class="list list--card" :class="{ 'list--lean': resultLean }" :css="!resultLean">
+          <!-- 交付结果列表：超过 QUEUE_LEAN_LIMIT 行的处理方式见下方双路注释。 -->
+          <!-- 双路：短列表用 transition-group（有进出场/位移动画）；超过阈值换成
+               普通 <div>，省掉 FLIP 的每子节点 getBoundingClientRect 与全量重渲染。
+               详见 index.js 里 resultLean / resultListWrap 的注释。 -->
+          <component :is="resultListWrap" class="list list--card" :class="{ 'list--lean': resultLean }" :name="resultLean ? undefined : 'list'" :tag="resultLean ? undefined : 'div'">
             <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected, 'menu-open': resultMenuFor === index }"
               v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
               <transition name="check">
@@ -212,7 +213,7 @@
               </transition>
             </div>
 
-          </transition-group>
+          </component>
 
           <transition name="collapse">
             <div class="collapse" v-if="resultSelectMode">
@@ -550,7 +551,7 @@
                   <i class="fas fa-calendar-day"></i><span>{{ group.label }}</span>
                 </div>
 
-                <transition-group name="list" tag="div" class="hist-grid" v-if="historyView === 'grid'">
+                <component :is="historyListWrap" class="hist-grid" v-if="historyView === 'grid'" :name="historyLean ? undefined : 'list'" :tag="historyLean ? undefined : 'div'">
                   <div class="hist-card" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }" @click="historyPreview(item)">
                     <input type="checkbox" class="hist-card__check" v-model="item.selected" @click.stop />
                     <div class="hist-card__thumb">
@@ -572,9 +573,9 @@
                       <button class="btn btn--ghost btn--danger" @click.stop="historyDelete(item)" title="仅从本地历史移除（云端文件保留）"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
-                </transition-group>
+                </component>
 
-                <transition-group name="list" tag="div" class="list" v-else>
+                <component :is="historyListWrap" class="list" v-else :name="historyLean ? undefined : 'list'" :tag="historyLean ? undefined : 'div'">
                   <div class="row hist-row" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }">
                     <input type="checkbox" v-model="item.selected" style="accent-color: var(--primary); cursor: pointer; flex-shrink: 0;" />
                     <div class="row__thumb" @click="historyPreview(item)">
@@ -602,7 +603,7 @@
                       <button class="btn btn--ghost btn--icon btn--danger" @click="historyDelete(item)" title="仅从本地历史移除（云端文件保留）"><i class="fas fa-xmark"></i></button>
                     </div>
                   </div>
-                </transition-group>
+                </component>
               </div>
             </div>
 

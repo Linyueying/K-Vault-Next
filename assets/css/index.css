@@ -1056,6 +1056,15 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
       .hist-group__label::after { content: ''; flex: 1; height: 1px; background: var(--glass-border-ice); }
 
       .hist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--sp-2); }
+      /* —— 历史列表：屏幕外的卡片跳过渲染 —— 与上方 .task 同理。
+         历史上限 500 条，切换视图 / 打开抽屉时整批进 DOM，而视口里真正看得见的
+         不过十几张 —— 其余 400 多张的样式计算纯属白算（这正是 S3 场景测到
+         p95 帧 83ms、最长帧 200ms 的来源之一）。
+         卡内没有超出盒子的绝对定位后代（check / actions 都在卡内，且卡片本身
+         overflow:hidden），所以不会踩 .row 那种「菜单被 content-visibility 裁掉」的坑。
+         占位尺寸按实测：网格卡 ≈ 131px（86 缩略图 + 名称行 + 按钮行），列表行 ≈ 62px。 */
+      .hist-card { content-visibility: auto; contain-intrinsic-size: auto 131px; }
+      .row.hist-row { content-visibility: auto; contain-intrinsic-size: auto 62px; }
       .hist-card { position: relative; border-radius: var(--r-md); border: 1.5px solid var(--glass-border); background: var(--glass-subtle); overflow: hidden; transition: border-color 0.3s var(--ease-apple), transform 0.38s var(--ease-spring), box-shadow 0.38s var(--ease-apple); cursor: pointer; }
       .hist-card:hover { border-color: var(--primary-light); transform: translateY(-3px) scale(1.02); box-shadow: 0 10px 22px rgba(2, 132, 199, 0.18); }
       .hist-card:active { transform: translateY(-1px) scale(0.985); transition-duration: 0.1s; }

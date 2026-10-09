@@ -54,7 +54,12 @@
      QUEUE_LEAN_LIMIT 见下方同名的那段注释。各自的推导都在对应注释块里。 */
   const QUEUE_VIEW_MIN_GAP = 150;   /* ms：两次队列落帧之间的最小间隔 */
   const TASK_PREVIEW_BUDGET = 12;   /* 队列里同时保留的即时预览图数量上限 */
-  const QUEUE_LEAN_LIMIT = 24;      /* 队列长过这个数就切到去动画的精简模式 */
+  /* 队列长过这个数就切到去动画的精简模式。
+     24 → 12：精简分支换的是「普通 <div> 而不是 transition-group」，收益来自省掉
+     每行一次的 getBoundingClientRect 与被 .transition 拖垮的 shouldUpdateComponent
+     （详见 resultLean 注释）。批量上传本来就是几十上百个文件，阈值放宽到 12 让更多
+     场景落在快路径上；12 个以内新任务进场时的位移动画仍然可见，观感不受影响。 */
+  const QUEUE_LEAN_LIMIT = 12;
 
   /* ===== 队列合帧渲染（本页最重的一处优化） =====
      问题：XHR 的 upload.onprogress 大约每 50ms 回调一次，而每次回调都是一个
@@ -755,14 +760,28 @@
       },
 
       /* 交付结果列表的精简模式。
-         原因和上传队列不是一回事：这里的行本身几乎不变，开销来自 <transition-group>
-         的 FLIP 位移 —— 每插入一行，Vue 都要给所有已有行写 list-move class + 内联
-         transform，还要对每一行 getBoundingClientRect()（强制同步布局）。
-         100 个文件逐个完成就是 ~n²/2 次写入：实测 row@style 7080 + row@class 3715，
-         占整页剩余 DOM 变更的 86%。
-         Vue 在 onUpdated 里会先用 hasCSSTransform() 探测 moveClass 是否真能产生
-         变换过渡，探测不到就整段跳过，所以这里的落点是 CSS 关掉 .list-move。 */
+         行数超过阈值时整块换成普通 <div>，彻底不用 <transition-group>。
+
+         ⚠️ 这里修正一处历史认知（原注释认为「落点是 CSS 关掉 .list-move」）：
+         关掉 .list-move 只挡住了**一半**。Vue TransitionGroup 的开销有两处，
+         只有第一处受 hasCSSTransform() 保护：
+           1) render 期：对每个既有子节点无条件 setTransitionHooks + getBoundingClientRect()
+              记录 FLIP 位置 —— 与 :css、与 .list-move 有没有过渡都无关，必然发生。
+           2) onUpdated：第二遍 rect + forceReflow + 播 list-move —— 这段才会因为
+              hasCSSTransform() 探测不到而整段跳过。
+         而更贵的是第 1 处带来的副作用：setTransitionHooks 给每个子 vnode 挂上
+         .transition，Vue 的 shouldUpdateComponent 开头就是
+            if (nextVNode.dirs || nextVNode.transition) return true
+         于是「props 引用相等就整行跳过」的机制彻底失效 —— 长列表每一次渲染都是
+         全量重渲染。实测（上传队列侧）：100 个文件逐个完成时 row@style 7080 +
+         row@class 3715，占整页剩余 DOM 变更的 86%。
+         所以唯一干净的解法是「行数多时不用这个组件」，项目里已有同样的先例
+         （下方 upload-queue 的 lean 双分支、task-actions 的 actionWrap），这里沿用。 */
       resultLean() { return this.uploadedFiles.length > QUEUE_LEAN_LIMIT; },
+      /* <component :is> 双路：精简态用普通 div（无 FLIP、无全量重渲染）。
+         Vue.TransitionGroup 是全局构建导出的组件对象，不能写 '<transition-group>'
+         字符串 —— 内置组件不在字符串组件注册表里，那样只会渲染出一个自定义元素。 */
+      resultListWrap() { return this.resultLean ? "div" : Vue.TransitionGroup; },
 
       selectedCount() { return this.uploadedFiles.filter((f) => f.selected).length; },
       selectedFiles() { return this.uploadedFiles.filter((f) => f.selected); },
@@ -951,6 +970,14 @@
         if (this.historyTypeFilter !== "all") list = list.filter((it) => this.getFileCategory(this.getDisplayName(it)) === this.historyTypeFilter);
         return list;
       },
+      /* 本地历史的精简双路，阈值比 QUEUE_LEAN_LIMIT 宽松一些：
+         历史列表一次性可见的条目本来就少（网格 4 列、滚动才看得见），
+         但它的规模可以到 historyMaxItems=500，而且**每个日期分组各一个
+         transition-group** —— 分组一多就是 FG 套：500 行每渲染一次就要
+         做 500 次 getBoundingClientRect，且 shouldUpdateComponent 全程放行。
+         超过阈值后换普通 <div>，与 resultListWrap 同套路。 */
+      historyLean() { return this.historySorted.length > 40; },
+      historyListWrap() { return this.historyLean ? "div" : Vue.TransitionGroup; },
       historySorted() {
         const arr = this.historyFiltered.slice();
         switch (this.historySort) {
