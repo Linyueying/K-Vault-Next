@@ -180,7 +180,7 @@
                该规则把 .list-move 的 transition 关掉，Vue 的 hasCSSTransform()
                探测不到变换就会整段跳过 FLIP —— 详见 index.js 里 resultLean 的注释。 -->
           <transition-group name="list" tag="div" class="list list--card" :class="{ 'list--lean': resultLean }" :css="!resultLean">
-            <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected }"
+            <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected, 'menu-open': resultMenuFor === index }"
               v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
               <transition name="check">
                 <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>

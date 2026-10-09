@@ -59,6 +59,13 @@
          上百行，而屏幕外的那些行同样不该参与渲染。这里限定作用在 .list--card
          （index 的交付结果），避免误伤 admin 里同名的 .row。 */
       .list--card > .row { content-visibility: auto; contain-intrinsic-size: auto 70px; }
+      /* ⚠️ cv:auto 的隐式 containment 会把超出行的绝对定位后代裁掉：交付结果的
+         「···」菜单（.menu 向上 menu--up / 向下弹出）超出 .row 盒子，只露出与行
+         重叠的一小条，其余全被裁没（移动端首行 + menu--up 时 100% 复现）。
+         打开菜单的那一行临时恢复完整渲染即可：菜单关闭后立即回到跳过渲染状态，
+         上百行的性能优化不受影响。实测 elementFromPoint：cv:auto 时菜单上部命中
+         行内元素（被裁穿），menu-open 后命中 MENU 本体。 */
+      .list--card > .row.menu-open { content-visibility: visible; }
       .row + .row::before {
         content: "";
         position: absolute;
