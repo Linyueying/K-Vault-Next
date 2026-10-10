@@ -32,6 +32,7 @@
  */
 
 import { redactSecrets } from '../utils/redact.js';
+import { readMcpEnabledSync } from '../utils/runtime-config.js';
 
 /** JSON-RPC 2.0 版本串。协议固定值，不随 MCP 版本变化。 */
 export const JSONRPC_VERSION = '2.0';
@@ -291,12 +292,40 @@ export function isNotificationMethod(method) {
  * MCP 是否启用（fail-closed）。
  *
  * 默认**关闭**：新增的网络面不应因为「部署时忘了配」而自动对公网敞开。
- * 读取走 envValue 以兼容历史大小写写法。
+ *
+ * ============================================================================
+ * 取值优先级：后台运行时配置（KV）> 环境变量 MCP_ENABLED
+ * ============================================================================
+ *
+ * 这样管理员可以在后台随时开关 MCP，不必改环境变量并重新部署 —— 与
+ * WebDAV / 隔空投送等既有分组完全一致。
+ *
+ * 为什么保留 envValue 参数（而不是直接读 env.MCP_ENABLED）：
+ *   历史写法用 `isMcpEnabled(env, envValue)`，envValue 会做大小写归一
+ *   （把 `MCP_ENABLED` / `mcp_enabled` 都认出来）。这里把 envValue 作为
+ *   **环境变量兜底**继续用，保证老部署的 `mcp_enabled=true` 不会被忽略。
+ *
+ * 为什么是同步的：
+ *   调用方（mcp/_middleware.js）必须在**鉴权之前**判断开关 —— 未开启就
+ *   404，否则探测者能从 401 反推出「端点存在」。那个位置无法 await 一次
+ *   KV 读，因此委托给 readMcpEnabledSync（镜像优先 + 环境变量兜底，
+ *   零 KV 往返）。代价与取舍详见 runtime-config.js 中该函数的注释。
+ *
+ * ⚠️ readMcpEnabledSync 返回**三态**（true / false / null）：
+ *   null 表示"本 isolate 还没读过 MCP 配置，没有意见"，此时才回退环境变量。
+ *   true / false 都是明确结论，一律以它为准 —— 否则会出现
+ *   「后台存了 false，却被环境变量的 true 顶回来」的静默失效。
  *
  * @param {object} env
  * @param {(env: object, name: string) => string} envValue
  */
 export function isMcpEnabled(env, envValue) {
+  // 1) 后台运行时配置：命中镜像即有明确结论（true 或 false 都算数）
+  const fromRuntimeConfig = readMcpEnabledSync(env);
+  if (fromRuntimeConfig !== null) return fromRuntimeConfig;
+
+  // 2) 镜像未命中（本 isolate 尚未读过 MCP 配置）→ 环境变量兜底，
+  //    兼容历史大小写写法。
   const raw = String(envValue(env, 'MCP_ENABLED') ?? '').trim().toLowerCase();
   return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
 }

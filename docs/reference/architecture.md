@@ -101,7 +101,16 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 - **握手方法免鉴权**：`initialize` / `ping` / `notifications/*` 不要求 Token，`tools/list` 与 `tools/call` 强制鉴权。之所以不在 HTTP 层一刀切，是因为主流 MCP 客户端在 `initialize` 阶段尚未发送 `Authorization`，握手即 401 会让客户端在拿到 `capabilities` 之前就断开。为保证不泄露信息，匿名 `initialize` 返回的 `capabilities` 为空对象且不含 `instructions`——工具清单只在带 Token 时才可见。实现上中间件**不解析 body**（读流会消费掉 `request.body`），而是「有 Token 就校验注入、无 Token 则裸放行不注入」，由路由层按 method 决定是否拒绝。
 - **错误分三层**：传输鉴权失败走 HTTP 401/403；JSON-RPC 协议错误走 HTTP **200** + `error` 信封（JSON-RPC over HTTP 的约定）；工具业务失败走 HTTP **200** + `result.isError=true`。因此**判断工具是否成功必须看 `result.isError`，不能只看状态码**。
 
-端点默认关闭（`MCP_ENABLED`），未开启时返回 404 —— 与「管理面 fail-closed」同一思路：新增网络面不因「部署时忘了配」而自动敞开。
+端点默认关闭（后台 `mcp` 配置组，回退环境变量 `MCP_ENABLED`），未开启时返回 404 —— 与「管理面 fail-closed」同一思路：新增网络面不因「部署时忘了配」而自动敞开。
+
+开关与工具级清单存在 `config:mcp` 这个运行时配置组里（与 `webdav` / `airdrop` 等同构：KV 覆盖环境变量、改完即时生效）。为了让中间件能在**鉴权之前**同步判断开关（否则未开启时会先回 401，反而确认了端点存在），配置层提供 `readMcpEnabledSync` —— 它读进程内镜像、零 KV 往返，并返回**三态**：
+
+- `true` / `false` —— 命中镜像，这是明确结论；
+- `null` —— 本 isolate 尚未读过该组配置，"没有意见"，由调用方回退环境变量。
+
+必须区分 `false` 与 `null`：若把两者折叠成同一个假值，调用方 `if (sync) return true;` 之后再回退 env，就会出现**镜像里的 `false` 被环境变量的 `true` 顶回开启**——现象是「后台关了 MCP，`/mcp` 仍然 200」。这一条有专门的回归用例（`scripts/test-mcp.mjs` 的 `[20]`）。
+
+工具级清单存**禁用**名单而非启用名单，这样将来新增工具在存量部署上默认可用，不会因不在旧白名单里被静默关闭。
 | `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，零 SDK 依赖） |
 | `functions/api/chunked-upload/` | 分片上传 init / chunk / complete |
 | `functions/api/share-info.js` | 分享页只读信息（公开） |

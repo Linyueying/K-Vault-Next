@@ -2752,6 +2752,125 @@ html[data-perf="low"] .dock{transition:none}
           </div>
         </div>
 
+        <!-- ===== MCP 端点（AI Agent 接入） ===== -->
+        <div class="token-section">
+          <div class="token-section-head">
+            <h3 class="token-section-title">
+              <i class="fas fa-plug"></i>
+              <span>MCP 端点</span>
+              <q-tip>
+                开启后，支持 <strong>Model Context Protocol</strong> 的 AI 客户端
+                （Claude Desktop、各类 Agent 框架等）可通过
+                <code class="kv-code">/mcp</code> 接入本站，以上传 / 读取 / 删除文件。
+                <br>
+                接入时需在客户端中填写 <strong>API Token</strong>（在「API 令牌」页创建），
+                工具级权限由 Token 的 scope 与本页的开关共同决定。
+              </q-tip>
+            </h3>
+            <span class="badge-env" v-if="mcpSource === 'kv'">KV 覆盖中</span>
+            <span class="badge-env" v-else>来自环境变量</span>
+          </div>
+
+          <div class="set-group">
+            <div class="settings-switch-row">
+              <div class="settings-switch-text">
+                <strong>启用 MCP 端点
+                  <q-tip>
+                    开启后可通过 <code class="kv-code">/mcp</code> 访问。
+                    关闭时该地址对外返回 404，与不存在的路径无法区分 ——
+                    这是有意的，避免向探测者确认端点的存在。
+                  </q-tip>
+                </strong>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="mcpForm.enabled" role="switch"
+                       :aria-checked="String(mcpForm.enabled)" />
+                <span class="switch__track"></span>
+                <span class="switch__thumb"></span>
+              </label>
+            </div>
+          </div>
+
+          <template v-if="mcpForm.enabled">
+            <div class="token-field">
+              <label>服务地址
+                <q-tip>在 MCP 客户端的「传输类型」中选择 Streamable HTTP，地址填这一项。</q-tip>
+              </label>
+              <div class="input-with-unit">
+                <input class="token-input" type="text" :value="mcpEndpointUrl" readonly
+                       @focus="$event.target.select()">
+                <button type="button" class="btn" @click="copyMcpEndpoint" style="flex:0 0 auto">
+                  <i class="fas" :class="mcpAddrCopied ? 'fa-check' : 'fa-copy'"></i>
+                  <span>{{ mcpAddrCopied ? '已复制' : '复制' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 工具级开关 -->
+            <div class="set-group" style="margin-top:12px">
+              <div class="settings-switch-row" style="align-items:flex-start">
+                <div class="settings-switch-text">
+                  <strong>可用工具
+                    <q-tip>
+                      逐项控制 Agent 能调用哪些工具。<strong>关闭某项后</strong>：它不会出现在
+                      Agent 的工具列表（tools/list）里，即使 Agent 硬编码工具名直接调用也会被拒绝。
+                      <br>
+                      注意：这里只是「部署级上限」。Agent 实际能做什么，还要看它持有的
+                      API Token 是否具备对应 scope（表中 scope 列）—— 两者是「与」的关系。
+                    </q-tip>
+                  </strong>
+                </div>
+              </div>
+
+              <div v-if="mcpTools.length === 0" class="settings-note">
+                <i class="fas fa-circle-info"></i>
+                <span>正在加载工具清单…</span>
+              </div>
+
+              <div v-for="tool in mcpTools" :key="tool.name" class="settings-switch-row">
+                <div class="settings-switch-text">
+                  <strong style="font-weight:600">{{ tool.label }}
+                    <span class="badge-env" style="margin-left:6px">{{ tool.scope }}</span>
+                  </strong>
+                  <div class="kv-code" style="display:inline-block;margin-top:4px">{{ tool.name }}</div>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" role="switch" :checked="tool.enabled"
+                         :aria-checked="String(tool.enabled)"
+                         @change="setMcpToolEnabled(tool, $event.target.checked)" />
+                  <span class="switch__track"></span>
+                  <span class="switch__thumb"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-note" v-if="mcpForm.disabledTools.length > 0">
+              <i class="fas fa-circle-info"></i>
+              <span>已关闭 {{ mcpForm.disabledTools.length }} / {{ mcpTools.length }} 个工具。关闭的工具不会下发给 Agent。</span>
+            </div>
+            <div class="settings-note" v-else>
+              <i class="fas fa-circle-info"></i>
+              <span>全部 {{ mcpTools.length }} 个工具均已开放（仍受各自 API Token 的 scope 限制）。</span>
+            </div>
+          </template>
+
+          <div class="settings-note settings-note--warn" v-else>
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>MCP 端点已关闭：<code class="kv-code">/mcp</code> 对外返回 404，AI 客户端无法接入。</span>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn btn--primary" :disabled="mcpSaving" @click="saveMcpSettings">
+              <i class="fas" :class="mcpSaving ? 'fa-circle-notch fa-spin' : 'fa-save'"></i>
+              <span>保存 MCP 设置</span>
+            </button>
+            <button class="btn" :disabled="mcpSaving" @click="resetMcpSettings">
+              <i class="fas fa-rotate-left"></i>
+              <span>恢复默认</span>
+            </button>
+          </div>
+        </div>
+
       </template>
     </section>
 
@@ -4253,6 +4372,21 @@ const __kvApp = Vue.createApp({
       { value:'r2',       label:'Cloudflare R2（容量大、速度快）' }
     ],
     webdavAddrCopied: false,
+
+    /* ---------- MCP 端点（把本项目的上传/读取/删除能力开放给 AI Agent） ----------
+       与 WebDAV 服务端同构：默认关闭，由管理员在后台显式开启。
+       多出来一层"工具级开关"：即使 MCP 总开关开着，也能逐个体关闭某个工具
+       （例如只允许上传、不允许删除）。 */
+    mcpSaving: false,
+    mcpSource: 'env',
+    /* 环境变量基线（只含总开关；工具清单没有环境变量形态） */
+    mcpEnvBaseline: { enabled: false },
+    /* 表单值。disabledTools 是被禁用的工具名数组（存"禁用"而非"启用"：
+       后端将来新增工具时默认可用，不会因为不在旧白名单里而被静默关掉） */
+    mcpForm: { enabled: false, disabledTools: [] },
+    /* 工具目录：由接口下发（名字 + 中文说明 + 所需 scope），前端不自己维护清单 */
+    mcpTools: [],
+    mcpAddrCopied: false,
 
     /* ---------- 隔空投送（Beta）：访客使用权限 + 使用情况 ---------- */
     airdropLoading: false,
@@ -6462,8 +6596,7 @@ const __kvApp = Vue.createApp({
       };
 
       // 站点品牌：站点显示名与浏览器标题，缺省回落 K-Vault-NEXT
-      const branding = data.branding || {};
-      this.brandingSource = branding.source === 'kv' ? 'kv' : 'env';
+      const branding = data.branding || {};      this.brandingSource = branding.source === 'kv' ? 'kv' : 'env';
       this.brandingEnvBaseline = {
         siteName: (data.brandingEnvBaseline && data.brandingEnvBaseline.siteName) || 'K-Vault-NEXT',
         siteTitle: (data.brandingEnvBaseline && data.brandingEnvBaseline.siteTitle) || 'K-Vault-NEXT'
@@ -6472,6 +6605,41 @@ const __kvApp = Vue.createApp({
         siteName: branding.siteName || 'K-Vault-NEXT',
         siteTitle: branding.siteTitle || 'K-Vault-NEXT'
       };
+
+      // MCP 端点：总开关 + 工具级禁用清单。
+      // 工具目录由后端下发（data.mcp.tools），前端只做展示与翻译，
+      // 不自己维护工具名清单 —— 那是最容易与后端 tools.js 漂移的地方。
+      const mcp = data.mcp || {};
+      this.mcpSource = mcp.source === 'kv' ? 'kv' : 'env';
+      this.mcpEnvBaseline = {
+        enabled: !!(data.mcpEnvBaseline && data.mcpEnvBaseline.enabled)
+      };
+      this.mcpForm = {
+        enabled: mcp.enabled === true,
+        disabledTools: Array.isArray(mcp.disabledTools) ? [...mcp.disabledTools] : []
+      };
+      // 把后端下发的工具目录补上中文标签与 scope 说明（仅用于展示）
+      const MCP_TOOL_META = {
+        kvault_capabilities:  { label:'探测服务端能力',   scope:'公开' },
+        kvault_token_info:    { label:'查看当前 Token',   scope:'任意 Token' },
+        kvault_upload_file:   { label:'上传文件',         scope:'upload' },
+        kvault_import_url:    { label:'从 URL 导入',      scope:'upload' },
+        kvault_list_files:    { label:'列出文件',         scope:'read' },
+        kvault_get_file_info: { label:'查看文件详情',     scope:'read' },
+        kvault_get_file:      { label:'下载文件内容',     scope:'read' },
+        kvault_delete_file:   { label:'删除文件',         scope:'delete' },
+        kvault_create_paste:  { label:'创建文本粘贴',     scope:'paste' },
+        kvault_list_pastes:   { label:'列出文本粘贴',     scope:'read' }
+      };
+      this.mcpTools = (Array.isArray(mcp.tools) ? mcp.tools : []).map((t) => {
+        const meta = MCP_TOOL_META[t.name] || {};
+        return {
+          name: t.name,
+          label: meta.label || t.name,
+          scope: meta.scope || '—',
+          enabled: t.enabled !== false
+        };
+      });
     },
 
     async saveGuestSettings() {
@@ -6647,9 +6815,103 @@ const __kvApp = Vue.createApp({
       }
     },
 
+    /* ================= MCP 端点 ================= */
+
+    /* 完整的 MCP 服务地址（供复制）。用当前 origin + /mcp，确保与部署域名一致 */
+    get mcpEndpointUrl() {
+      try {
+        return window.location.origin + '/mcp';
+      } catch (e) {
+        return '/mcp';
+      }
+    },
+
+    /* 单个工具开关：勾选 = 启用。内部存的是"禁用清单"，这里做一次反转，
+       让模板里写 :checked="tool.enabled" 更直观。 */
+    setMcpToolEnabled(tool, enabled) {
+      const name = tool && tool.name;
+      if (!name) return;
+      const set = new Set(this.mcpForm.disabledTools || []);
+      if (enabled) set.delete(name);
+      else set.add(name);
+      this.mcpForm.disabledTools = [...set];
+      if (tool) tool.enabled = !!enabled;
+    },
+
+    async copyMcpEndpoint() {
+      const url = this.mcpEndpointUrl;
+      try {
+        await navigator.clipboard.writeText(url);
+        this.mcpAddrCopied = true;
+        this.showToast('MCP 服务地址已复制', 'success');
+        setTimeout(() => { this.mcpAddrCopied = false; }, 2000);
+      } catch (e) {
+        this.showToast('复制失败，请手动选择地址复制', 'error');
+      }
+    },
+
+    async saveMcpSettings() {
+      /* 前端预校验：把明显的错误在请求前拦下，给出更直接的中文提示。
+         与后端 validateMcp 的口径保持一致（后端仍会再校验一遍）。 */
+      const disabled = Array.isArray(this.mcpForm.disabledTools) ? this.mcpForm.disabledTools : [];
+      if (this.mcpForm.enabled && disabled.length >= this.mcpTools.length && this.mcpTools.length > 0) {
+        const ok = await this.askConfirm(
+          '当前所有工具都被关闭，开启 MCP 后 Agent 将无法调用任何工具（tools/list 会返回空列表）。确定继续吗？',
+          '全部工具已关闭'
+        );
+        if (!ok) return;
+      }
+
+      this.mcpSaving = true;
+      try {
+        const res = await fetch('/api/manage/settings', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mcp: {
+              enabled: this.mcpForm.enabled,
+              disabledTools: disabled
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '保存失败');
+        this.applySettingsView(data);
+        this.showToast(
+          this.mcpForm.enabled ? 'MCP 已开启，立即生效' : 'MCP 已关闭',
+          'success'
+        );
+      } catch (e) {
+        this.showToast(e.message || '保存失败', 'error');
+      } finally {
+        this.mcpSaving = false;
+      }
+    },
+
+    async resetMcpSettings() {
+      const ok = await this.askConfirm(
+        '将清除后台保存的 MCP 设置（含工具级开关），改为使用 Cloudflare Pages 上配置的环境变量 MCP_ENABLED。已连接的 Agent 可能因此断开。确定继续吗？',
+        '恢复 MCP 默认设置'
+      );
+      if (!ok) return;
+
+      this.mcpSaving = true;
+      try {
+        const res = await fetch('/api/manage/settings?group=mcp', { method: 'DELETE', credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '重置失败');
+        this.applySettingsView(data);
+        this.showToast('已恢复为环境变量配置', 'success');
+      } catch (e) {
+        this.showToast(e.message || '重置失败', 'error');
+      } finally {
+        this.mcpSaving = false;
+      }
+    },
+
     /* ================= 站点品牌（自定义网站名 / 标题） ================= */
     openBrandingPanel() { this.goSection('system'); },    closeBrandingPanel() { /* no-op：内联后无关闭语义 */ },
-
     async saveBrandingSettings() {
       const name = String(this.brandingForm.siteName || '').trim();
       const title = String(this.brandingForm.siteTitle || '').trim();

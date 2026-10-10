@@ -34,8 +34,19 @@ import {
   TOOL_DEFINITIONS,
   dispatchTool,
   findTool,
+  isToolDisabled,
   listToolsFor,
 } from '../functions/mcp/tools.js';
+import {
+  CONFIG_GROUPS,
+  MCP_TOOL_IDS,
+  getRuntimeConfig,
+  invalidateRuntimeConfigCache,
+  normalizeMcpConfig,
+  readMcpDisabledToolsSync,
+  readMcpEnabledSync,
+  saveRuntimeConfig,
+} from '../functions/utils/runtime-config.js';
 import { TOOL_HANDLERS, baseCtx, decodeBase64, mimeFromDataUrl, synthRequest } from '../functions/mcp/handlers.js';
 
 let pass = 0;
@@ -56,6 +67,20 @@ function makeOctx({ url = 'https://kv.example.com/mcp', token = null, headers = 
     env: {},
     data: token ? { apiToken: token } : {},
     waitUntil: () => {},
+  };
+}
+
+/** 内存 KV 替身：供配置组读写测试用（含 type:'json' 语义）。 */
+function makeKvStub(store = new Map()) {
+  return {
+    _store: store,
+    async get(key, opts) {
+      const raw = store.get(key);
+      if (raw === undefined || raw === null) return null;
+      return opts && opts.type === 'json' ? JSON.parse(raw) : raw;
+    },
+    async put(key, value) { store.set(key, String(value)); },
+    async delete(key) { store.delete(key); },
   };
 }
 
@@ -320,6 +345,156 @@ console.log('\n[16] 握手方法免鉴权：方法级判定表');
   check('SERVER_CAPABILITIES 仅含 tools',
     Object.keys(SERVER_CAPABILITIES).length === 1 && 'tools' in SERVER_CAPABILITIES,
     Object.keys(SERVER_CAPABILITIES).join(','));
+}
+
+console.log('\n[17] 工具级开关：listToolsFor 过滤');
+{
+  const fullToken = { scopes: ['upload', 'read', 'delete', 'paste'] };
+
+  const all = listToolsFor(fullToken, {}, []);
+  check('未禁用时列出全部工具', all.length === TOOL_DEFINITIONS.length, `实际 ${all.length}`);
+
+  const disabled = ['kvault_delete_file', 'kvault_upload_file'];
+  const filtered = listToolsFor(fullToken, {}, disabled);
+  check('禁用 1 个 → 少 1 个', listToolsFor(fullToken, {}, ['kvault_delete_file']).length === all.length - 1);
+  check('禁用 2 个 → 少 2 个', filtered.length === all.length - 2, `实际 ${filtered.length}`);
+  check('被禁用的工具不出现在列表里',
+    !filtered.some((t) => disabled.includes(t.name)));
+  check('未禁用的工具仍在列表里',
+    filtered.some((t) => t.name === 'kvault_list_files'));
+
+  // 与 scope 过滤叠加：read-only token 本来就只有 6 个工具
+  const readToken = { scopes: ['read'] };
+  const readAll = listToolsFor(readToken, {}, []);
+  const readMinus = listToolsFor(readToken, {}, ['kvault_list_files']);
+  check('scope 过滤与禁用过滤可叠加', readMinus.length === readAll.length - 1,
+    `${readAll.length} → ${readMinus.length}`);
+
+  // 未知工具名不影响任何东西（归一化层本来就该拦掉，这里兜底验证）
+  check('未知工具名不误伤',
+    listToolsFor(fullToken, {}, ['kvault_nonexistent']).length === all.length);
+  // 非数组入参不炸
+  check('非数组 disabledTools 视为空清单',
+    listToolsFor(fullToken, {}, undefined).length === all.length);
+  check('字符串 disabledTools 视为空清单',
+    listToolsFor(fullToken, {}, 'kvault_delete_file').length === all.length);
+  // 元素带空白也要能匹配上
+  check('元素两端空白被忽略',
+    listToolsFor(fullToken, {}, ['  kvault_delete_file  ']).length === all.length - 1);
+}
+
+console.log('\n[18] 工具级开关：dispatchTool 拒绝被禁用的工具');
+{
+  const token = { scopes: ['upload', 'read', 'delete', 'paste'], id: 't1' };
+  const never = { never: async () => { throw new Error('handler 不该被调用'); } };
+
+  const ctx = (disabledTools) => ({
+    ...makeOctx({ token }),
+    data: { apiToken: token, mcpDisabledTools: disabledTools },
+  });
+
+  // 禁用的工具 → denied + TOOL_DISABLED，且 handler 不被触达
+  const denied = await dispatchTool(ctx(['kvault_list_files']), 1, 'kvault_list_files', {}, never);
+  check('被禁用的工具返回 denied', Boolean(denied.denied) && !denied.result);
+  const payload = JSON.parse(denied.denied?.content?.[0]?.text || '{}');
+  check('错误码为 TOOL_DISABLED', payload?.error?.code === 'TOOL_DISABLED', payload?.error?.code);
+  check('isError 为 true', denied.denied?.isError === true);
+  check('错误消息说明是管理员禁用而非权限不足',
+    /disabled by the administrator/i.test(payload?.error?.message || ''));
+
+  // 未禁用的工具 → 正常走 handler
+  const allowed = await dispatchTool(ctx([]), 1, 'kvault_list_files', {}, {
+    list_files: async () => toolResult({ success: true, files: [] }),
+  });
+  check('未禁用的工具正常执行', Boolean(allowed.result) && !allowed.denied);
+  check('正常执行结果 isError=false', allowed.result?.isError === false);
+
+  // 禁用优先于 scope：即使权限不足，也应报「被禁用」而不是「权限不足」，
+  // 否则会把已关闭能力的 scope 需求泄露出去
+  const noScope = { scopes: [], id: 't2' };
+  const ctxNoScope = {
+    ...makeOctx({ token: noScope }),
+    data: { apiToken: noScope, mcpDisabledTools: ['kvault_delete_file'] },
+  };
+  const both = await dispatchTool(ctxNoScope, 1, 'kvault_delete_file', {}, never);
+  const bothPayload = JSON.parse(both.denied?.content?.[0]?.text || '{}');
+  check('禁用判定优先于 scope 判定（不泄露所需 scope）',
+    bothPayload?.error?.code === 'TOOL_DISABLED', bothPayload?.error?.code);
+  check('禁用优先时消息里不含 scope 名',
+    !/scope/i.test(bothPayload?.error?.message || ''), bothPayload?.error?.message);
+
+  // 不存在 + 被禁用：仍走 notFound（工具名无效优先于策略）
+  const ghost = await dispatchTool(ctx(['kvault_nonexistent']), 1, 'kvault_nonexistent', {}, never);
+  check('不存在的工具仍返回 notFound', ghost.notFound === true);
+}
+
+console.log('\n[19] 配置层与工具表同源（防「关了不生效」）');
+{
+  // runtime-config.js 为了不拉起整条路由依赖链，把工具名清单复制了一份。
+  // 两份清单一旦漂移，后果是「后台关了工具却拦不住」（或反过来点不出开关）。
+  // 因此在这里强制断言一致 —— 这是那份复制的代价，也是它的保险。
+  check('MCP_TOOL_IDS 与 TOOL_DEFINITIONS 数量一致',
+    MCP_TOOL_IDS.length === TOOL_DEFINITIONS.length,
+    `配置层 ${MCP_TOOL_IDS.length} vs 工具表 ${TOOL_DEFINITIONS.length}`);
+  const defNames = TOOL_DEFINITIONS.map((t) => t.name);
+  const drift = MCP_TOOL_IDS.filter((n) => !defNames.includes(n))
+    .concat(defNames.filter((n) => !MCP_TOOL_IDS.includes(n)));
+  check('两份工具名清单逐一对应', drift.length === 0, `漂移: ${drift.join(', ')}`);
+
+  // 归一化层只接受白名单内的名字
+  const cleaned = normalizeMcpConfig({ enabled: true, disabledTools: defNames.concat(['bogus_tool']) }, null);
+  check('归一化后未知工具名被丢弃',
+    cleaned.disabledTools.every((n) => defNames.includes(n)) && !cleaned.disabledTools.includes('bogus_tool'));
+  check('归一化保留全部合法工具名',
+    cleaned.disabledTools.length === defNames.length, `实际 ${cleaned.disabledTools.length}`);
+
+  // 同步开关判定（中间件零 KV 往返路径）—— **三态**契约
+  //
+  // 这是本次最容易写错的一处：曾经它返回布尔，"没命中镜像"与"明确关闭"
+  // 折叠成同一个 false，导致 isMcpEnabled 里的 `if (fromRuntimeConfig) return true`
+  // 把镜像的 false 漏过去、又回退 env 把开关顶回开启 ——
+  // 现象就是「后台关了 MCP，/mcp 仍 200」。这里把三态钉死。
+  check('同步判定：无镜像 → null（"没意见"，由调用方回退 env）',
+    readMcpEnabledSync({}) === null);
+  check('同步判定：有镜像但未命中该组 → null',
+    readMcpEnabledSync({ MCP_ENABLED: 'true' }) === null,
+    'env 不参与同步判定，只影响调用方兜底');
+  check('同步禁用清单：无镜像 → null（调用方决定回源）',
+    readMcpDisabledToolsSync({}) === null);
+  check('mcp 已在 CONFIG_GROUPS 中（后台重置按钮依赖它）',
+    CONFIG_GROUPS.includes('mcp'));
+  check('CONFIG_GROUPS 未登记重复分组',
+    new Set(CONFIG_GROUPS).size === CONFIG_GROUPS.length);
+}
+
+console.log('\n[20] isMcpEnabled 三态回退：镜像的 false 不得被 env 顶回');
+{
+  // 真实 KV 替身 → 走 saveRuntimeConfig / getRuntimeConfig，让镜像真被写入
+  const kv = makeKvStub();
+  const env = { img_url: kv, MCP_ENABLED: 'true' }; // env 说开
+  const envValue = (e, name) => e?.[name];
+
+  // 写 KV: enabled=false（后台关闭）
+  await saveRuntimeConfig(env, 'mcp', { enabled: false });
+  await getRuntimeConfig(env, 'mcp');  // 回源 → 写镜像
+
+  check('环境变量=true 但 KV 覆盖为 false → 整体为 false',
+    isMcpEnabled(env, envValue) === false,
+    '镜像的 false 必须压过 env 的 true');
+
+  // 反向：KV 覆盖为 true，env 说 false
+  await saveRuntimeConfig(env, 'mcp', { enabled: true });
+  await getRuntimeConfig(env, 'mcp');
+  check('环境变量=false 但 KV 覆盖为 true → 整体为 true',
+    isMcpEnabled({ ...env, MCP_ENABLED: 'false' }, envValue) === true,
+    '镜像的 true 必须压过 env 的 false');
+
+  // 无镜像时仍走 env（fail-closed 方向）
+  invalidateRuntimeConfigCache(null, env);
+  check('清空镜像后回退 env：env=true → true',
+    isMcpEnabled(env, envValue) === true);
+  check('清空镜像后回退 env：env 未配 → false（fail-closed）',
+    isMcpEnabled({ img_url: kv }, envValue) === false);
 }
 
 console.log(`\n===== ${pass} 通过 / ${fail} 失败 =====`);

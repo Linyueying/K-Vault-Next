@@ -31,6 +31,7 @@ import { envValue } from '../utils/env-config.js';
 import { apiError } from '../utils/api-v1.js';
 import { resolveCorsHeaders } from '../utils/cors.js';
 import { writeAuditLog, AUDIT_EVENTS } from '../utils/audit.js';
+import { getMcpConfig } from '../utils/runtime-config.js';
 import { dispatchTool, listToolsFor } from './tools.js';
 import {
   MAX_BODY_BYTES,
@@ -138,7 +139,14 @@ async function handleSingle(context, message, env, request, waitUntil) {
   }
 
   if (method === 'tools/list') {
-    return rpcResult(id, { tools: listToolsFor(token, env) });
+    // 两级过滤：先剔除管理员禁用的工具，再按 Token scope 收敛。
+    // 顺序无关紧要（两个条件互不影响），但「先策略后权限」读起来更贴近
+    // 语义 —— 禁用是部署级策略，scope 是调用方权限。
+    // dispatchTool 会把这层策略**再校验一遍** —— 列表过滤只影响可发现性，
+    // 不能当成安全边界（客户端完全可以硬编码工具名直接 call）。
+    return rpcResult(id, {
+      tools: listToolsFor(token, env, context.data?.mcpDisabledTools || []),
+    });
   }
 
   if (method === 'tools/call') {
@@ -161,9 +169,21 @@ async function handleSingle(context, message, env, request, waitUntil) {
     }
 
     if (outcome.denied) {
-      // scope 不足按**业务错误**回（result.isError），不是 JSON-RPC 协议错误：
-      // 协议上这次调用完全合法，只是没有权限，模型需要看到这个事实而不是被
-      // 当成协议故障。审计另外记一条，因为这是「凭据配错了」的信号。
+      // 拒绝分两种：scope 不足（凭据配错）与工具被管理员禁用（部署策略）。
+      // 都按**业务错误**回（result.isError），不是 JSON-RPC 协议错误：
+      // 协议上这次调用完全合法，只是不被允许，模型需要看到这个事实而不是被
+      // 当成协议故障。审计里用不同 detail 区分，否则运维从日志上分不清
+      // 「该给 Token 加 scope」还是「去后台把这个工具打开」。
+      // toolError 把 payload 序列化成 content[0].text（见 protocol.js 的
+      // toolResult），结构化字段并不在顶层，所以这里解一次 JSON 取 error.code；
+      // 解析不出来（非常规响应）时按 scope 拒绝归档，不影响主流程。
+      let deniedCode = 'TOKEN_SCOPE_DENIED';
+      try {
+        const payload = JSON.parse(outcome.denied?.content?.[0]?.text || '{}');
+        if (payload?.error?.code === 'TOOL_DISABLED') deniedCode = 'TOOL_DISABLED';
+      } catch {
+        // 保持默认值
+      }
       waitUntil?.(
         writeAuditLog(env, {
           event: AUDIT_EVENTS.MCP_TOOL_DENIED,
@@ -171,7 +191,7 @@ async function handleSingle(context, message, env, request, waitUntil) {
           operation: `tools/call ${toolName}`.slice(0, 64),
           success: false,
           client: String(request.headers.get('User-Agent') || '').slice(0, 60) || 'unknown',
-          detail: 'TOKEN_SCOPE_DENIED',
+          detail: deniedCode,
         }).catch(() => {})
       );
       return rpcResult(id, outcome.denied);
@@ -251,6 +271,26 @@ export async function onRequest(context) {
   // 一刀切，会把合法的匿名握手请求也拒掉。判定统一放在 handleSingle 里，
   // 那里才知道这次调用的是哪个 method。批量请求也因此逐条独立判定，
   // 语义更精确。
+
+  // 工具级禁用清单：每个请求回源读一次（含 30s isolate 缓存），
+  // 挂到 context.data 上供 tools/list 过滤与 tools/call 拒绝共用。
+  //
+  // 为什么在这里读、而不是在 _middleware.js：
+  //   中间件的开关判定必须是同步的（见协议层 isMcpEnabled 的说明），
+  //   而这里已经是 async 上下文，可以承担这一次 KV 回源。放在路由层还有
+  //   一个好处：批量请求里的所有条目共用同一次读取，不会逐条重复回源。
+  //
+  // 读取失败**不**让请求失败：回退为空清单（= 不额外禁用任何工具），
+  // 总开关（fail-closed）已在中间件把关。配置读不出来时让已开启的 MCP
+  // 退化为「全部工具可用」，比整站 500 更符合"配置故障不该放大成事故"。
+  const mcpConfig = await getMcpConfig(env).catch((e) => {
+    console.error('MCP config read error, falling back to no tool restrictions:', e);
+    return null;
+  });
+  context.data = context.data || {};
+  context.data.mcpDisabledTools = Array.isArray(mcpConfig?.disabledTools)
+    ? mcpConfig.disabledTools
+    : [];
 
   let raw;
   try {

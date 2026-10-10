@@ -430,6 +430,124 @@ if FILE_ID:
 
 print()
 print("=" * 60)
+print("[23] 后台设置：MCP 开关与工具级开关（KV 覆盖环境变量）")
+print("=" * 60)
+
+def settings_get():
+    st, hd, body = raw("GET", "/api/manage/settings", None, AUTH)
+    return st, (json.loads(body) if st == 200 else None), body
+
+def settings_post(payload):
+    st, hd, body = raw("POST", "/api/manage/settings", payload, AUTH)
+    try: return st, json.loads(body)
+    except Exception: return st, None
+
+def settings_delete(group):
+    st, hd, body = raw("DELETE", f"/api/manage/settings?group={group}", None, AUTH)
+    try: return st, json.loads(body)
+    except Exception: return st, None
+
+def mcp_alive():
+    """未开启时 /mcp 应 404；开启时 initialize 应 200。返回 (status, is404)"""
+    st, hd, raw_body = raw("POST", "/mcp", {"jsonrpc":"2.0","id":1,"method":"initialize",
+      "params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"1.0"}}},
+      {"Accept":"application/json, text/event-stream"})
+    return st
+
+# 先读一次，确认 mcp 分组已经出现在设置视图里（前端靠它渲染）
+st, view, body = settings_get()
+has_mcp = bool(view and isinstance(view.get("mcp"), dict))
+log("设置视图含 mcp 分组", st == 200 and has_mcp, f"st={st}")
+if has_mcp:
+    log("mcp 分组含 tools 目录（前端不用自己维护清单）",
+        isinstance(view["mcp"].get("tools"), list) and len(view["mcp"]["tools"]) == 10,
+        f"tools={len(view['mcp'].get('tools') or [])}")
+    log("mcp 含 envBaseline（供「来自环境变量」标记）",
+        isinstance(view.get("mcpEnvBaseline"), dict))
+
+# ── 关闭 MCP：应立刻 404 ──
+st, res = settings_post({"mcp": {"enabled": False}})
+log("保存 mcp.enabled=false → 200", st == 200, f"实际 {st} {res if st!=200 else ''}")
+log("保存后 settings.mcp.enabled=false", bool(res and res.get("mcp",{}).get("enabled") is False))
+log("保存后来源为 kv（覆盖环境变量）", bool(res and res.get("mcp",{}).get("source") == "kv"),
+    f"source={res.get('mcp',{}).get('source') if res else None}")
+
+try:
+    st_off = mcp_alive()
+    log("关闭后 /mcp → 404（fail-closed，不泄露端点存在）", st_off == 404, f"实际 {st_off}")
+except RuntimeError as e:
+    log("关闭后 /mcp → 404", False, str(e))
+
+# ── 重新开启：应立刻 200 ──
+st, res = settings_post({"mcp": {"enabled": True}})
+log("保存 mcp.enabled=true → 200", st == 200, f"实际 {st}")
+try:
+    st_on = mcp_alive()
+    log("开启后 /mcp → 200", st_on == 200, f"实际 {st_on}")
+except RuntimeError as e:
+    log("开启后 /mcp → 200", False, str(e))
+
+# ── 工具级开关：禁用两个工具 ──
+DISABLED = ["kvault_delete_file", "kvault_create_paste"]
+st, res = settings_post({"mcp": {"enabled": True, "disabledTools": DISABLED}})
+log("保存工具级禁用清单 → 200", st == 200 and
+    sorted(res.get("mcp",{}).get("disabledTools") or []) == sorted(DISABLED),
+    f"实际 {res.get('mcp',{}).get('disabledTools') if res else None}")
+
+# tools/list 不应再包含被禁用的工具
+st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":1,"method":"tools/list"})
+names = [x["name"] for x in (p or {}).get("result",{}).get("tools",[])] if p else []
+log("tools/list 不含被禁用的工具", all(d not in names for d in DISABLED),
+    f"实际命中 {[d for d in DISABLED if d in names]}")
+log("tools/list 仍含未被禁用的工具", "kvault_list_files" in names, f"共 {len(names)} 个")
+log("tools/list 数量 = 10 - 2", len(names) == 8, f"实际 {len(names)}")
+
+# 硬编码工具名直接调用：应被拒绝（TOOL_DISABLED，业务错误 isError=true）
+st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":1,"method":"tools/call",
+  "params":{"name":"kvault_delete_file","arguments":{"id":"whatever"}}})
+rr = (p or {}).get("result",{})
+log("直接调用被禁用的工具 → HTTP 200 + isError=true", st == 200 and rr.get("isError") is True,
+    f"st={st} isError={rr.get('isError')}")
+code = ""
+if rr.get("content"):
+    try: code = json.loads(rr["content"][0]["text"]).get("error",{}).get("code","")
+    except Exception: pass
+log("错误码为 TOOL_DISABLED（区别于权限不足）", code == "TOOL_DISABLED", f"code={code}")
+
+# 未被禁用的工具仍可正常工作
+st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":1,"method":"tools/call",
+  "params":{"name":"kvault_list_files","arguments":{}}})
+log("未被禁用的工具仍可调用", st == 200 and (p or {}).get("result",{}).get("isError") is False,
+    f"st={st}")
+
+# ── 校验分支：未知工具名应 400 ──
+st, res = settings_post({"mcp": {"enabled": True, "disabledTools": ["kvault_does_not_exist"]}})
+log("提交未知工具名 → 400（API 层严格校验）", st == 400, f"实际 {st}")
+st, res = settings_post({"mcp": {"enabled": "true"}})
+log("enabled 传字符串 → 400", st == 400, f"实际 {st}")
+
+# ── 恢复默认：应回退环境变量 ──
+st, res = settings_delete("mcp")
+log("DELETE ?group=mcp → 200", st == 200 and res is not None, f"实际 {st}")
+log("重置后来源回到 env", bool(res and res.get("mcp",{}).get("source") == "env"),
+    f"source={res.get('mcp',{}).get('source') if res else None}")
+log("重置后禁用清单清空", (res.get("mcp",{}).get("disabledTools") or []) == [],
+    f"实际 {res.get('mcp',{}).get('disabledTools') if res else None}")
+
+# 环境变量 MCP_ENABLED=true → 重置后应仍为开启
+try:
+    st_after = mcp_alive()
+    log("重置后回退环境变量（MCP_ENABLED=true）→ /mcp 仍 200", st_after == 200, f"实际 {st_after}")
+except RuntimeError as e:
+    log("重置后 /mcp 仍 200", False, str(e))
+
+# 重置后工具应全部恢复
+st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":1,"method":"tools/list"})
+names_after = [x["name"] for x in (p or {}).get("result",{}).get("tools",[])] if p else []
+log("重置后 tools/list 恢复全部 10 个工具", len(names_after) == 10, f"实际 {len(names_after)}")
+
+print()
+print("=" * 60)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = [n for n, ok, _ in results if not ok]
 # 本地环境限制（非代码缺陷）单独归类，避免与真实失败混淆

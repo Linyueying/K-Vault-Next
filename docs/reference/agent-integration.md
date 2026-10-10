@@ -71,14 +71,37 @@ K-Vault-Next **原生实现**了 MCP（Model Context Protocol），不依赖任�
 
 **传输**：Streamable HTTP。响应 `Content-Type: application/json`。
 
-### 3.2 开启方式
+### 3.2 开启方式与权限控制
 
 默认**关闭**。未开启时 `/mcp` 返回 `404`（等同不存在，不给探测者正面信号）。
+
+#### 方式一：后台设置（推荐，改完即时生效）
+
+进入 **管理后台 → 系统设置 → MCP 端点**：
+
+- **总开关**：启用 / 关闭 `/mcp`。保存写入 KV，**立即生效，无需重新部署**。
+- **工具级开关**：逐个启用 / 关闭 10 个工具。关闭后该工具
+  - 不出现在 Agent 的 `tools/list` 里；
+  - 即使 Agent 硬编码工具名直接 `tools/call`，也会被拒绝，返回
+    `result.isError=true` 且 `error.code = "TOOL_DISABLED"`。
+- **服务地址**：一键复制 `/mcp` 完整地址，供填进 MCP 客户端。
+
+工具级开关是**部署级上限**，与 API Token 的 scope 是**「与」**的关系：
+某个工具既要未被后台关闭，又要 Token 具备它所需的 scope，才能调用成功。
+
+#### 方式二：环境变量（部署期基线）
 
 ```bash
 # Cloudflare Pages → Settings → Environment variables
 MCP_ENABLED=true
 ```
+
+优先级：**后台设置（KV）覆盖环境变量**。点击后台「恢复默认」会清除 KV 覆盖，
+回退到 `MCP_ENABLED`。工具级禁用清单**没有**环境变量形态，只在后台维护。
+
+> 工具级清单存的是「**禁用**」名单而非「启用」名单：将来新增工具时，
+> 存量部署的配置里没有它的名字，因此默认可用 —— 不会因为不在旧白名单里
+> 而被静默关闭。
 
 开启后复用与 `/api/v1` **完全相同**的 API Token、scope 与策略体系；跨域白名单也复用 `API_CORS_ORIGINS`，不新增变量。
 
@@ -108,7 +131,7 @@ MCP 端点的鉴权**按 JSON-RPC 方法区分**，而不是在 HTTP 层一刀�
 
 1. **客户端行为契合**：主流 MCP 客户端（Claude Desktop、各语言 SDK）在 `initialize` 阶段还不一定发送 `Authorization`，它们把「建立连接」和「提供凭据」分两步。若握手就 401，客户端在拿到 `capabilities` 之前就断了，无法协商、无法降级。
 2. **不泄露信息**：匿名 `initialize` 只返回协议版本与 `serverInfo`，**不声明 tools 能力、不返回 `instructions`**。工具清单属于需要 Token 才可见的资产。
-3. **失败仍然关闭**：`tools/list` 与 `tools/call` 强制鉴权；`MCP_ENABLED` 未开启时整个端点 404。
+3. **失败仍然关闭**：`tools/list` 与 `tools/call` 强制鉴权；MCP 总开关（后台或 `MCP_ENABLED`）未开启时整个端点 404。
 
 > 批量请求（数组）逐条独立判定。若批内任一条是 `tools/*` 且未带 Token，整个 HTTP 请求按 `401` 返回——因为「这次请求本身没通过鉴权」是传输层事实，逐条 200 会掩盖它。
 

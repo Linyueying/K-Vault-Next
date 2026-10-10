@@ -332,7 +332,14 @@ npm run pages:deploy      # 等价于 npx wrangler pages deploy .
 | POST | `/mcp` | JSON-RPC 2.0 请求（单条或批量）。支持 `initialize` / `tools/list` / `tools/call` / `ping` |
 | GET | `/mcp` | `405` —— 无状态模式不提供 SSE 流 |
 
-**开关**：默认**关闭**。需设置环境变量 `MCP_ENABLED=true` 才对公网开放；未开启时 `/mcp` 返回 `404`（fail-closed：新增的网络面不因「忘了配」而自动敞开）。
+**开关**：默认**关闭**。两种开启方式，**后台设置优先于环境变量**：
+
+- **管理后台 → 系统设置 → MCP 端点**（推荐）：总开关 + **10 个工具逐个开关**，保存写入 KV，改完即时生效、无需重新部署。
+- **环境变量** `MCP_ENABLED=true`（部署期基线）：仅在后台未保存过覆盖时生效；点「恢复默认」即回退到它。
+
+未开启时 `/mcp` 返回 `404`（fail-closed：新增的网络面不因「忘了配」而自动敞开）。
+
+**权限是两层的「与」关系**：某工具被后台关闭 → 不出现在 `tools/list`，硬编码工具名直接调用也会收到 `TOOL_DISABLED`；即使未被关闭，仍需调用方 Token 具备该工具所需的 scope。
 
 **鉴权**：与 API v1 共用同一套 API Token（`Authorization: Bearer kvault_<id>_<secret>`），并复用同一份 CORS 白名单 `API_CORS_ORIGINS`。
 

@@ -12,6 +12,7 @@
  *   - upload   分片上传暂存后端（替代环境变量 CHUNK_BACKEND）
  *   - storage  存储回滚模式（writeKvLegacy，替代环境变量 KV_LEGACY_WRITE）
  *   - branding 站点品牌（siteName / siteTitle，替代环境变量 SITE_NAME / SITE_TITLE）
+ *   - mcp      MCP 端点开关 + 工具级禁用清单（替代环境变量 MCP_ENABLED）
  *
  * 这些分组写入 KV 后即时生效，不必改环境变量并重新部署。
  *
@@ -27,8 +28,10 @@ import {
     readBrandingConfigFromEnv,
     readAirdropConfigFromEnv,
     readWebdavServerConfigFromEnv,
+    readMcpConfigFromEnv,
     WEBDAV_BACKENDS,
     MAX_AIRDROP_STATS_RETENTION,
+    MCP_TOOL_IDS,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
 
@@ -47,14 +50,15 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload, storage, branding, airdrop, webdav] = await Promise.all([
+    const [guest, cors, upload, storage, branding, airdrop, webdav, mcp] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
         getRuntimeConfig(env, 'upload'),
         getRuntimeConfig(env, 'storage'),
         getRuntimeConfig(env, 'branding'),
         getRuntimeConfig(env, 'airdrop'),
-        getRuntimeConfig(env, 'webdav')
+        getRuntimeConfig(env, 'webdav'),
+        getRuntimeConfig(env, 'mcp')
     ]);
 
     return {
@@ -103,6 +107,20 @@ async function buildView(env) {
             backend: webdav.backend || 'telegram',
             source: webdav.source
         },
+        // MCP 端点：开关 + 工具级禁用清单。
+        //
+        // `tools` 一并下发**完整工具目录**（名字 + 是否被禁用），这样前端
+        // 不必自己维护一份工具名清单 —— 那是最容易与后端漂移的地方。
+        // 目录来自 MCP_TOOL_IDS（与 tools.js 的 TOOL_DEFINITIONS 同源）。
+        mcp: {
+            enabled: mcp.enabled === true,
+            disabledTools: Array.isArray(mcp.disabledTools) ? mcp.disabledTools : [],
+            tools: MCP_TOOL_IDS.map((name) => ({
+                name,
+                enabled: !(Array.isArray(mcp.disabledTools) && mcp.disabledTools.includes(name))
+            })),
+            source: mcp.source
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
         // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
@@ -121,6 +139,12 @@ async function buildView(env) {
                 readOnly: base.readOnly,
                 backend: base.backend
             };
+        })(),
+        // MCP 的环境变量基线（MCP_ENABLED，缺省 false）。
+        // 工具级禁用清单没有环境变量形态，故基线里不含该字段。
+        mcpEnvBaseline: (() => {
+            const base = readMcpConfigFromEnv(env);
+            return { enabled: base.enabled === true };
         })(),
         hasKvBinding: Boolean(env?.img_url),
         // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
@@ -333,6 +357,57 @@ function validateWebdavServer(input) {
     return { ok: true, value };
 }
 
+/**
+ * 校验 MCP 端点配置。
+ *
+ * 规则：
+ *   · enabled 必须是真布尔值 —— 与 storage.writeKvLegacy 同理，这个开关
+ *     决定「一个网络面是否对公网开放」，把 `'false'` 当假值放行、又在归一化
+ *     时回退成默认值，会出现「后台关了但端点还开着」的静默错配。
+ *   · disabledTools 必须是数组，且每个元素都在 MCP_TOOL_IDS 白名单内。
+ *     未知名字**报错而不是丢弃**：归一化层虽然会丢弃，但在 API 层直接 400
+ *     能让「前端传了个拼错的工具名」立刻暴露，而不是变成一个静默无效的开关。
+ *     这里与归一化层的宽严差异是有意的 —— 归一化面向"可能被手改过的 KV"，
+ *     校验面向"正在提交的请求"，后者理应有更严的要求。
+ */
+function validateMcp(input) {
+    if (!input || typeof input !== 'object') return { error: 'mcp 必须是对象。' };
+
+    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+        return { error: 'mcp.enabled 必须是布尔值（true / false）。' };
+    }
+
+    if (input.disabledTools !== undefined) {
+        if (!Array.isArray(input.disabledTools)) {
+            return { error: 'mcp.disabledTools 必须是数组。' };
+        }
+        const unknown = [];
+        const seen = new Set();
+        for (const item of input.disabledTools) {
+            const name = String(item ?? '').trim();
+            if (!name || seen.has(name)) continue;
+            if (!MCP_TOOL_IDS.includes(name)) { unknown.push(name); continue; }
+            seen.add(name);
+        }
+        if (unknown.length > 0) {
+            return { error: `mcp.disabledTools 含未知工具名：${unknown.join('、')}。` };
+        }
+    }
+
+    // 归一化后的落库值：显式回填，保证类型与去重后的结果一致。
+    // disabledTools 只在请求带了这个字段时才下发 —— 与 webdav.password 同理，
+    // 「字段缺席」表示"不修改已保存的清单"，不能被当成"清空"。
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.disabledTools !== undefined) {
+        value.disabledTools = [...new Set(
+            input.disabledTools.map((item) => String(item ?? '').trim()).filter(Boolean)
+        )];
+    }
+
+    return { ok: true, value };
+}
+
 export async function onRequestGet(context) {
     const { env } = context;
     try {
@@ -360,9 +435,10 @@ export async function onRequestPost(context) {
     const brandingInput = body?.branding;
     const airdropInput = body?.airdrop;
     const webdavInput = body?.webdav;
+    const mcpInput = body?.mcp;
 
-    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput && !mcpInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav / mcp）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -374,6 +450,7 @@ export async function onRequestPost(context) {
     if (brandingInput) checks.push(['branding', validateBranding(brandingInput), brandingInput]);
     if (airdropInput) checks.push(['airdrop', validateAirdrop(airdropInput), airdropInput]);
     if (webdavInput) checks.push(['webdav', validateWebdavServer(webdavInput), webdavInput]);
+    if (mcpInput) checks.push(['mcp', validateMcp(mcpInput), mcpInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);

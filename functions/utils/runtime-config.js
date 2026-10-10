@@ -66,8 +66,21 @@ export const AIRDROP_CONFIG_KEY = 'config:airdrop';
  */
 export const WEBDAV_CONFIG_KEY = 'config:webdav';
 
+/**
+ * MCP 端点配置。
+ *
+ * 存的是「开关 + 工具级禁用清单」：`{ enabled, disabledTools }`。
+ * 之所以存**禁用**清单而不是「启用」清单：
+ *   将来 tools.js 新增工具时，存量部署的配置里没有这个新工具的名字。
+ *   若存启用清单，新工具会因为「不在白名单里」而被**静默禁用** ——
+ *   管理员升级后会发现「新功能怎么用不了」。
+ *   存禁用清单则相反：新工具默认可用，语义与「默认开启、按需关停」
+ *   的直觉一致，也不会让升级变成一次语义回归。
+ */
+export const MCP_CONFIG_KEY = 'config:mcp';
+
 /** 所有配置组的名字，供后台设置接口遍历 */
-export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav'];
+export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav', 'mcp'];
 
 const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
@@ -108,6 +121,36 @@ export const DEFAULT_WEBDAV_BACKEND = 'telegram';
 export const DEFAULT_WEBDAV_READONLY = false;
 /** WebDAV 服务端允许的存储后端（与 storageOptions 保持一致）。 */
 export const WEBDAV_BACKENDS = ['telegram', 'r2', 's3', 'discord', 'huggingface', 'github'];
+
+// ── MCP 端点默认值 ──────────────────────────────────────────
+// 默认**关闭**：MCP 会把站点的上传 / 读取 / 删除能力以标准协议暴露给
+// 任意 Agent，默认必须收窄开放面，由管理员在后台显式开启
+// （与 guest.enabled / DEFAULT_WEBDAV_ENABLED 同源）。
+export const DEFAULT_MCP_ENABLED = false;
+
+/**
+ * MCP 工具白名单 —— 这里**必须**与 functions/mcp/tools.js 的
+ * TOOL_DEFINITIONS 保持同源。
+ *
+ * 为什么不从 tools.js import：
+ *   本文件是「配置层」，被 /api/manage/**、中间件等大量路径引用；
+ *   tools.js 会连带拉起 handlers.js → api/v1/** 的整条路由依赖链。
+ *   为了一个常量把整条链拖进配置层不划算，因此这里只保留**名字**，
+ *   并在 scripts/check_functions.py 与 test-mcp.mjs 里断言两边一致
+ *   ——名字对不上会立刻测挂，而不是等到线上「关了没生效」。
+ */
+export const MCP_TOOL_IDS = [
+  'kvault_capabilities',
+  'kvault_token_info',
+  'kvault_upload_file',
+  'kvault_import_url',
+  'kvault_list_files',
+  'kvault_get_file_info',
+  'kvault_get_file',
+  'kvault_delete_file',
+  'kvault_create_paste',
+  'kvault_list_pastes'
+];
 
 /**
  * 进程内短 TTL 缓存。
@@ -349,6 +392,17 @@ const GROUPS = {
       backend: normalizeWebdavBackend(env?.WEBDAV_SERVER_BACKEND)
     }),
     normalize: (raw, base) => normalizeWebdavServerConfig(raw, base)
+  },
+  mcp: {
+    key: MCP_CONFIG_KEY,
+    // 环境变量基线。enabled 缺省 false（显式 'true' 才开），与 guest / webdav 同源。
+    // 工具级禁用清单**没有**环境变量形态：它天然是"多值集合"，用逗号分隔的
+    // 字符串表达既难读又难校验，索性只允许在后台维护，环境变量只管总开关。
+    fromEnv: (env) => ({
+      enabled: String(env?.MCP_ENABLED ?? 'false') === 'true',
+      disabledTools: []
+    }),
+    normalize: (raw, base) => normalizeMcpConfig(raw, base)
   }
 };
 
@@ -513,6 +567,114 @@ export function normalizeWebdavServerConfig(raw, fallback) {
 export function readWebdavServerConfigFromEnv(env) {
   return GROUPS.webdav.fromEnv(env);
 }
+
+/**
+ * 归一化 MCP 配置。
+ *
+ * 规则：
+ *   · enabled       —— 严格布尔（只认真布尔与 'true'/'false'）。
+ *   · disabledTools —— 必须落在 MCP_TOOL_IDS 白名单内的去重数组。
+ *     未知名字一律**丢弃**而不是保留：名单里留着当前版本不存在的工具名，
+ *     只会让后台显示一个"幽灵开关"，且将来真加了同名工具时会被它意外关掉。
+ *     去重是为了避免前端重复提交把清单撑大（KV 值会无意义地变长）。
+ *
+ * ⚠️ disabledTools 缺省取 base（而不是空数组）：
+ *     后台保存时若只切总开关、不带工具清单，前端可能不传该字段。
+ *     此时必须**保持已保存的清单**，否则会静默清空所有工具级禁用设置。
+ *     真正要清空清单的正确做法是显式传空数组 []。
+ *     这与 webdav.password 的「空串 = 保持原值」是同一类取舍。
+ */
+export function normalizeMcpConfig(raw, fallback) {
+  const base = fallback || {
+    enabled: DEFAULT_MCP_ENABLED,
+    disabledTools: []
+  };
+  if (!raw || typeof raw !== 'object') return { ...base };
+  return {
+    enabled: toBool(raw.enabled, base.enabled),
+    disabledTools: normalizeMcpDisabledTools(raw.disabledTools, base.disabledTools)
+  };
+}
+
+/**
+ * 归一化 MCP 工具禁用清单。
+ *
+ * @param {unknown} raw         - 待归一化的值
+ * @param {string[]} [fallback] - raw 不是数组时回落到该值（缺省空数组）
+ */
+function normalizeMcpDisabledTools(raw, fallback) {
+  // 非数组时回落到 fallback —— 但**仍要走一遍过滤**：fallback 可能来自
+  // 手写进 KV 的值，不能假设它已经干净过。统一从下面这个列表收敛。
+  const source = Array.isArray(raw)
+    ? raw
+    : (Array.isArray(fallback) ? fallback : []);
+  const seen = new Set();
+  const result = [];
+  for (const item of source) {
+    const name = String(item ?? '').trim();
+    if (!name) continue;
+    // 未知工具名直接丢弃（见 normalizeMcpConfig 的说明）
+    if (!MCP_TOOL_IDS.includes(name)) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    result.push(name);
+  }
+  return result;
+}
+
+/** 从环境变量读取 MCP 配置（部署期设定的基线；工具清单恒为空） */
+export function readMcpConfigFromEnv(env) {
+  return GROUPS.mcp.fromEnv(env);
+}
+
+/**
+ * 读取 MCP 配置（KV 覆盖 > 环境变量基线）。
+ *
+ * 与 airdrop / webdav 组同理：**不读镜像缓存** —— /mcp 的每个请求都要拿
+ * 最新的开关与工具清单（管理员刚关掉就该立刻 404），多一次 KV 读的代价
+ * 远小于放行一个本应被拒绝的请求。
+ */
+export async function getMcpConfig(env) {
+  return getRuntimeConfig(env, 'mcp');
+}
+
+/**
+ * 判定 MCP 是否开启 —— **同步、零 KV 往返**版本，供中间件在鉴权前调用。
+ *
+ * 为什么需要同步版本：
+ *   /mcp 的目录级中间件必须在**鉴权之前**判断开关（未开启就 404，
+ *   否则探测者能从 401 反推出"端点存在"）。而那个位置是同步的
+ *   `if (!isMcpEnabled(...)) return 404`，无法 await 一次 KV 读。
+ *
+ * 返回值是三态（**不是**布尔！）：
+ *   · true  —— 命中镜像且明确开启
+ *   · false —— 命中镜像且明确关闭
+ *   · null  —— 未命中镜像，本函数**没有意见**，请调用方回退环境变量
+ *
+ * ⚠️ 为什么必须是三态而不是「布尔 + 兜底 env」：
+ *   曾经这里返回布尔，缺省把"没命中镜像"和"明确关闭"都折叠成 false，
+ *   调用方写成 `if (readMcpEnabledSync(env)) return true;` 再回退 env ——
+ *   结果**镜像里的 false 被当成"没意见"而漏过去**，环境变量 MCP_ENABLED=true
+ *   又把开关顶回开启。表现为「后台关了 MCP，/mcp 仍然 200」。
+ *   把"没意见"(null) 与"明确关闭"(false) 分开，这个坑就不存在了：
+ *   命中镜像时，**无论 true/false 都以镜像为准**，不再看环境变量。
+ *
+ * @param {object} env
+ * @returns {boolean|null}
+ */
+export function readMcpEnabledSync(env) {
+  const mirrored = readMirroredGroupConfig('mcp', env);
+  if (!mirrored) return null;
+  return toBool(mirrored.enabled, DEFAULT_MCP_ENABLED);
+}
+
+/** 同步读取已镜像的 MCP 工具禁用清单（未命中返回 null，由调用方决定是否回源） */
+export function readMcpDisabledToolsSync(env) {
+  const mirrored = readMirroredGroupConfig('mcp', env);
+  if (!mirrored) return null;
+  return normalizeMcpDisabledTools(mirrored.disabledTools, []);
+}
+
 
 /**
  * 读取 WebDAV 服务端配置（KV 覆盖 > 环境变量基线）。
@@ -689,6 +851,11 @@ export async function getStorageConfigResolved(env) {
 /** 站点品牌配置（含 source 标记） */
 export async function getBrandingConfigResolved(env) {
   return getRuntimeConfig(env, 'branding');
+}
+
+/** MCP 端点配置（含 source 标记） */
+export async function getMcpConfigResolved(env) {
+  return getRuntimeConfig(env, 'mcp');
 }
 
 /**

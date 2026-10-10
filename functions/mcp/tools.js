@@ -270,12 +270,39 @@ export const TOOL_DEFINITIONS = [
  * @param {object} token middleware 注入的 token 记录
  * @param {object} [env] 用于按部署实际情况收敛 storage enum
  */
-export function listToolsFor(token, env = {}) {
-  return TOOL_DEFINITIONS.filter((tool) => hasScope(token, tool.requiredScope)).map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    inputSchema: resolveSchema(tool.inputSchema, env),
-  }));
+export function listToolsFor(token, env = {}, disabledTools = []) {
+  const disabled = normalizeDisabledSet(disabledTools);
+  return TOOL_DEFINITIONS
+    .filter((tool) => !disabled.has(tool.name))
+    .filter((tool) => hasScope(token, tool.requiredScope))
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: resolveSchema(tool.inputSchema, env),
+    }));
+}
+
+/**
+ * 把「被管理员禁用的工具名」收敛成一个 Set，便于 O(1) 判定。
+ *
+ * 每一项都 trim 后比对；未知名字也照收 —— 归一化层
+ * （runtime-config.js 的 normalizeMcpDisabledTools）已经过滤过一轮，
+ * 这里再收一次未知名字不会有害（它本来就不在 TOOL_DEFINITIONS 里，
+ * 永远不会被匹配到），却省掉一次白名单交叉校验。
+ */
+function normalizeDisabledSet(disabledTools) {
+  if (!Array.isArray(disabledTools)) return new Set();
+  const set = new Set();
+  for (const item of disabledTools) {
+    const name = String(item ?? '').trim();
+    if (name) set.add(name);
+  }
+  return set;
+}
+
+/** 判断某个工具是否被管理员在后台禁用。 */
+export function isToolDisabled(name, disabledTools) {
+  return normalizeDisabledSet(disabledTools).has(String(name || ''));
 }
 
 /**
@@ -326,7 +353,7 @@ export function findTool(name) {
  * 放进了 context.data.apiToken，这里直接读 scopes 即可 —— 同一请求内的快照，
  * 语义与重新校验一致，但不引入额外存储读。
  *
- * @param {object} octx MCP 请求的 context（含 data.apiToken）
+ * @param {object} octx MCP 请求的 context（含 data.apiToken / data.mcpDisabledTools）
  * @param {string|number|null} id JSON-RPC 请求 id
  * @param {string} name 工具名
  * @param {object} args 工具参数
@@ -336,6 +363,22 @@ export function findTool(name) {
 export async function dispatchTool(octx, id, name, args, handlers = TOOL_HANDLERS) {
   const tool = findTool(name);
   if (!tool) return { notFound: true };
+
+  // 管理员在后台禁用的工具：即使 Token 权限充足也一律拒绝。
+  //
+  // 判定放在 scope 校验**之前**：被禁用的工具对调用方应当表现为
+  // 「服务端不提供这个能力」，而不是「你有权限问题」。反过来放（先查
+  // scope）会对一个本不该存在的工具泄露它所需的 scope 名，等于把已关闭的
+  // 能力轮廓透出去。消息里明确说「已被管理员禁用」，便于 Agent 与运维
+  // 区分「这是策略限制」还是「这是凭证问题」，从而不再重试。
+  if (isToolDisabled(tool.name, octx?.data?.mcpDisabledTools)) {
+    return {
+      denied: toolError(
+        'TOOL_DISABLED',
+        `Tool ${tool.name} is disabled by the administrator of this deployment.`
+      ),
+    };
+  }
 
   const token = octx?.data?.apiToken;
   if (!hasScope(token, tool.requiredScope)) {
