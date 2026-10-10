@@ -46,7 +46,7 @@ import {
   normalizeMcpConfig,
   saveRuntimeConfig,
 } from '../functions/utils/runtime-config.js';
-import { TOOL_HANDLERS, baseCtx, decodeBase64, mimeFromDataUrl, synthRequest } from '../functions/mcp/handlers.js';
+import { TOOL_HANDLERS, baseCtx, decodeBase64, mimeFromDataUrl, synthRequest, withDirectLink } from '../functions/mcp/handlers.js';
 
 let pass = 0;
 let fail = 0;
@@ -310,12 +310,54 @@ console.log('\n[15] 工具描述包含关键引导（防模型踩坑）');
   const upload = findTool('kvault_upload_file');
   check('上传工具描述提示大文件走 import_url',
     /import_url/.test(upload.description), upload.description.slice(0, 80));
+  // 新增的上传通道引导：远程 URL / 本地大文件 / 超大文件三条路各有出口，
+  // 否则模型遇到 >512KB 的本地文件只能反复重试同一个必然失败的工具。
+  check('上传工具描述引导本地大文件走 CLI',
+    /kvault-upload\.mjs/.test(upload.description), upload.description.slice(0, 160));
+  check('上传工具描述引导超大文件走分片上传',
+    /分片上传/.test(upload.description), upload.description.slice(0, 200));
+  check('contentBase64 描述说明 base64 膨胀与 1MiB 上限',
+    /33%/.test(upload.inputSchema.properties.contentBase64.description)
+      && /1MiB/.test(upload.inputSchema.properties.contentBase64.description),
+    upload.inputSchema.properties.contentBase64.description);
   const importTool = findTool('kvault_import_url');
   check('导入工具描述说明 SSRF 防护',
     /SSRF/i.test(importTool.description));
   const getFile = findTool('kvault_get_file');
   check('取文件工具说明不内联二进制',
     /不内联/.test(getFile.description.replace(/\*\*/g, '')) || /不内联/.test(getFile.description));
+}
+
+console.log('\n[15b] 上传响应强调 directLink（MCP 侧包装）');
+{
+  // 锁住「上传类工具的返回里有一个确定的顶层 directLink」这个契约。
+  // 注意这是 **MCP 适配层** 的行为：直接调 v1 REST 的客户端不应看到该字段，
+  // 否则就是适配层反向污染了对外 API 契约（已在 e2e 里对 REST 侧断言）。
+  const payload = {
+    success: true,
+    file: { id: 'r2:x.png', name: 'x.png', size: 10, storage: 'r2' },
+    links: {
+      download: 'https://kv.example.com/file/r2%3Ax.png',
+      share: 'https://kv.example.com/s/x',
+      delete: 'https://kv.example.com/api/v1/file/r2%3Ax.png',
+    },
+  };
+
+  const wrapped = withDirectLink(payload);
+  check('顶层补出 directLink', wrapped.directLink === 'https://kv.example.com/file/r2%3Ax.png', JSON.stringify(wrapped.directLink));
+  check('note 里含该直链', /Direct link: https:\/\/kv\.example\.com\/file\//.test(wrapped.note), wrapped.note);
+  check('links 原样保留（不改 v1 契约）', JSON.stringify(wrapped.links) === JSON.stringify(payload.links));
+  check('file 原样保留', JSON.stringify(wrapped.file) === JSON.stringify(payload.file));
+  check('只多出 directLink / note 两个键',
+    Object.keys(wrapped).length === Object.keys(payload).length + 2,
+    Object.keys(wrapped).join(','));
+  check('不改动传入对象（无副作用）', payload.directLink === undefined);
+
+  check('无 links.download 时原样返回', withDirectLink({ success: true }).directLink === undefined);
+  check('download 非字符串时不包装', withDirectLink({ links: { download: 42 } }).directLink === undefined);
+  check('download 为空串时不包装', withDirectLink({ links: { download: '' } }).directLink === undefined);
+  check('null 输入安全', withDirectLink(null) === null);
+  check('字符串输入安全', withDirectLink('x') === 'x');
 }
 
 console.log('\n[16] 握手方法免鉴权：方法级判定表');

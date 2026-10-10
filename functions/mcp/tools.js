@@ -95,15 +95,22 @@ export const TOOL_DEFINITIONS = [
     handler: 'upload_file',
     requiredScope: 'upload',
     description:
-      '上传小文件（内容以 base64 传递）。适合 ≤512KB 的图片或文本。'
-      + '⚠️ 大文件请改用 kvault_import_url：base64 会使体积膨胀约 33%，'
-      + '超过请求体上限会直接失败。支持可选的分享控制（slug / 有效期 / 密码 / 下载次数）。',
+      '上传一个小文件（内容以 base64 传递）。**仅适合 ≤512KB** 的图片或文本。'
+      + '⚠️ 三种大文件通道，按场景选：'
+      + '（1）远程 URL → 用 kvault_import_url（服务端抓取，不经模型上下文）；'
+      + '（2）本地大文件 → 用命令行 `node scripts/kvault-upload.mjs upload <路径>`'
+      + '（把本地路径直接换成直链，支持目录/glob/多文件）；'
+      + '（3）超大文件（>100MB）→ 用网页端的分片上传（R2 原生 multipart，最高 10GB）。'
+      + 'base64 会使体积膨胀约 33%，且本端点请求体上限 1MiB，超过会直接失败。'
+      + '支持可选的分享控制（slug / 有效期 / 密码 / 下载次数）。',
     inputSchema: {
       type: 'object',
       properties: {
         contentBase64: {
           type: 'string',
-          description: '文件内容的 base64 字符串。也接受 data URL（data:image/png;base64,...）形式。',
+          description:
+            '文件内容的 base64 字符串。也接受 data URL（data:image/png;base64,...）形式。'
+            + '注意 base64 会膨胀约 33%：本端点请求体上限 1MiB，因此原文件实际上限约 750KB。',
         },
         fileName: {
           type: 'string',

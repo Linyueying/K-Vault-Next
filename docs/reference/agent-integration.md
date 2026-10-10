@@ -239,8 +239,8 @@ curl -s -X POST "https://your-kvault-domain/mcp" \
 | :--- | :--- | :--- |
 | `kvault_capabilities` | 公开 | 已启用的存储后端、上传上限、图片类型 |
 | `kvault_token_info` | 任意 Token | 当前 Token 的 scopes / policies / 用量 |
-| `kvault_upload_file` | `upload` | base64 上传，**适合 ≤512KB**；支持 slug / 有效期 / 密码 / 下载次数 |
-| `kvault_import_url` | `upload` | 服务端抓取远程 URL 入库，**大文件走这个**（带 SSRF 防护） |
+| `kvault_upload_file` | `upload` | base64 上传，**适合 ≤512KB**；支持 slug / 有效期 / 密码 / 下载次数。返回含顶层 `directLink` |
+| `kvault_import_url` | `upload` | 服务端抓取远程 URL 入库，**远程大文件走这个**（带 SSRF 防护） |
 | `kvault_list_files` | `read` | 游标分页列表 |
 | `kvault_get_file_info` | `read` | 文件元信息（JSON） |
 | `kvault_get_file` | `read` | 下载链接与状态（**不内联二进制**） |
@@ -248,10 +248,72 @@ curl -s -X POST "https://your-kvault-domain/mcp" \
 | `kvault_create_paste` | `paste` | 创建文本片段 |
 | `kvault_list_pastes` | `read` | 文本片段列表 |
 
-**两条分工边界**（同时也是工具 `description` 里强调的内容）：
+**大文件的三条出口**（同时也是工具 `description` 里强调的内容）：
 
-1. **小文件走 `kvault_upload_file`，大文件走 `kvault_import_url`。** base64 会使体积膨胀约 33%，且受请求体上限约束，超过会直接失败。
-2. **`kvault_get_file` 不内联文件字节**，只返回可下载链接——图床场景下 Agent 需要的是链接而非像素；内联 base64 会撑爆上下文窗口。
+| 场景 | 走哪条路 |
+| :--- | :--- |
+| 远程 URL | `kvault_import_url` —— 服务端抓取，内容不经过模型上下文 |
+| **本地文件**（≤100MB） | 命令行 `node scripts/kvault-upload.mjs upload <路径>`（见 §3.13） |
+| 超大文件（>100MB） | 网页端**分片上传**（R2 原生 multipart，最高 10GB）—— 需 Cookie/Basic 会话，不接受 API Token |
+
+> 为什么本地文件不该硬塞进 `kvault_upload_file`：base64 会使体积膨胀约 33%，而 `/mcp` 请求体上限 1MiB，实际只能传约 750KB 的原文件。超过后模型只能反复重试同一个必然失败的工具。
+
+**`kvault_upload_file` / `kvault_import_url` 的返回含顶层 `directLink`**：等于 `links.download`，另附 `note: "Direct link: <url>"`。这是 MCP 适配层额外加的，**直接调 REST 的客户端不会看到该字段**。
+
+### 3.13 命令行上传客户端（本地文件推荐）
+
+上面 §3.8 的表格里，**本地文件**这条路上 MCP 工具会吃亏：内容得先编码成 base64 塞进 JSON，而 `/mcp` 请求体上限 1MiB，实际只能传约 750KB。当你要传的是本机上的文件时，用 CLI 更直接——**它连的是 v1 REST 端点，不是 MCP**，因此没有 1MiB 约束（上限 100MB）。
+
+```bash
+export KVAULT_ENDPOINT="https://your-kvault-domain"
+export KVAULT_TOKEN="kvault_<id>_<secret>"
+
+node scripts/kvault-upload.mjs upload ./cover.png
+```
+
+**零 npm 依赖**：只用 Node 22 内置的 `parseArgs` / `fetch` / `FormData` / `Blob` / `fs.globSync`，不需要 `npm install`。
+
+| 选项 | 环境变量 | 说明 |
+| :--- | :--- | :--- |
+| `-e, --endpoint` | `KVAULT_ENDPOINT` | 站点地址（`KVAULT_BASE_URL` 亦可；自动补 `https://`、去掉尾部路径） |
+| `-t, --token` | `KVAULT_TOKEN` / `KVAULT_API_TOKEN` | API Token，需 `upload` scope |
+| `-s, --storage` | — | 存储后端 |
+| `-f, --folder` | — | 目录前缀（服务端字段名是 `folderPath`） |
+| `-p, --password` | — | 分享密码 |
+| `--expires-in` | — | 分享有效期（秒） |
+| `--max-downloads` | — | 分享下载次数上限 |
+| `--slug` | — | 自定义分享 slug |
+| `--dedupe` | — | 请求服务端按内容去重 |
+| `--json` / `-q, --quiet` | — | 结构化输出 / 只输出直链（互斥） |
+
+优先级：**命令行参数 > 环境变量**。
+
+输入形态可以混用：
+
+```bash
+node scripts/kvault-upload.mjs upload ./a.png ./b.jpg     # 多文件（逐个独立成败）
+node scripts/kvault-upload.mjs upload './shots/*.png'     # glob（支持 **）
+node scripts/kvault-upload.mjs upload ./dist/             # 目录递归
+cat report.pdf | node scripts/kvault-upload.mjs upload -  # 标准输入
+```
+
+退出码与输出：
+
+| 退出码 | 含义 |
+| :--- | :--- |
+| `0` | 全部成功 |
+| `1` | 有文件上传失败（批量模式下只要有一个失败就是 1） |
+| `2` | 用法 / 配置错误（参数非法、缺 Token、路径不存在、单文件超过 100MB） |
+
+- `--quiet` 只输出直链（每行一个），可直接用于 `LINK=$(...)`
+- `--json` 每文件输出一个 JSON 对象，含 `directLink` / `links` / `file` / `sha256`
+- **错误隔离**：批量模式下某个文件失败不影响其余；失败项的 `error.code` 原样保留在 `--json` 输出里
+
+**边界**：
+
+- 单文件 ≤100MB。更大的文件走网页端**分片上传**——那条链路需要 Cookie/Basic 会话，不接受 API Token，本 CLI 刻意不覆盖。
+- 不做流式上传：Node 原生 `FormData`/`Blob` 要求内容全量驻留内存。手写 multipart 流式编码器会引入 boundary 生成 / 分块拼接 / 背压处理一整套复杂度，对「零依赖小工具」不值得；代价被显式圈在 100MB。
+- CLI 是**服务端到服务端**调用（无 `Origin` 头），因此不受 CORS 约束。
 
 ### 3.9 错误分层（务必区分）
 
@@ -290,7 +352,7 @@ curl -s -X POST "https://your-kvault-domain/mcp" \
 
 - **不提供 SSE**（`GET /mcp` 返回 405）：Serverless 环境不适合长连接。因此也无法推送 `tools/list_changed` 通知（`capabilities.tools.listChanged` 声明为 `false`）。
 - **不支持取消**：`notifications/cancelled` 在无状态模式下一旦请求分发就无法中断。
-- **请求体上限 1MiB**：主要约束 base64 上传，大文件请用 `kvault_import_url`。
+- **请求体上限 1MiB**：主要约束 base64 上传（原文件实际约 750KB）。远程大文件请用 `kvault_import_url`，**本地大文件请用 CLI**（§3.13，上限 100MB）。
 - **`kvault_upload_file` 依赖上游 multipart 处理**：该工具会合成 `multipart/form-data` 请求转发给 `/api/v1/upload`，因此继承上游的一切行为与限制（含请求体上限与存储后端配置）。若上游 multipart 链路异常，本工具会一并失败——这与 `DELETE /file/<id>`、`GET /file/<id>` 等工具的失败表现一致。
 
 ### 3.12 测试与验证
@@ -300,6 +362,7 @@ MCP 端点有两层测试，职责互补：
 | 脚本 | 类型 | 运行方式 |
 | :--- | :--- | :--- |
 | `scripts/test-mcp.mjs` | 纯函数单测（协议层 / 工具表 / 适配层契约），无需起服务 | `npm test` 已包含 |
+| `scripts/test-kvault-upload.mjs` | 上传 CLI 纯函数单测（参数 / 路径展开 / 请求构造 / 错误翻译 / 退出码，注入 fetch 替身） | `npm test` 已包含 |
 | `scripts/test-mcp-e2e.py` | 真实 HTTP 端到端，需先手动启动 `wrangler pages dev` | 见脚本头部注释 |
 
 端到端脚本覆盖：握手与版本协商、匿名 vs 带 Token 的能力差异、`tools/list` 的 scope 过滤、各工具成功与错误路径、错误分层、`401`/`405`/`413`/`204` 边界、批量请求、paste 读写闭环。

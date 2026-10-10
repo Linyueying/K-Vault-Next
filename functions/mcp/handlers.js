@@ -106,6 +106,36 @@ function baseCtx(octx, request, params = {}) {
 }
 
 /**
+ * 给上传类响应补一个顶层 `directLink` + `note`。
+ *
+ * ============================================================================
+ * 为什么需要这一层包装
+ * ============================================================================
+ *
+ * v1 的响应里链接藏在 `links.download`，字段名对模型来说不够直白 ——
+ * 实测中模型会去翻 `file.url`（不存在）、或干脆把整个 `links` 对象当成
+ * 「一堆链接」而复述给用户，而不是选出那个真正要用的直链。
+ *
+ * 顶层给它一个**唯一确定**的 `directLink`，模型选错的概率大幅下降。
+ * 同时用 `note` 明确写出「这就是你要贴出去的地址」，因为指令性文字比
+ * 结构化字段更容易被模型遵循。
+ *
+ * **不改 v1 契约**：`links` / `file` 原样保留，只是在外层加了两个键。
+ * 直接调 REST 的客户端看不到任何变化，只有 MCP 的工具返回多这两个字段。
+ * 这是刻意的 —— 内部适配层不该反向污染对外的 API 契约。
+ */
+function withDirectLink(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const download = payload?.links?.download;
+  if (typeof download !== 'string' || !download) return payload;
+  return {
+    ...payload,
+    directLink: download,
+    note: `Direct link: ${download}`,
+  };
+}
+
+/**
  * 把下游 handler 的 Response 归一化成 MCP content。
  *
  * 分两类：
@@ -114,8 +144,13 @@ function baseCtx(octx, request, params = {}) {
  *
  * 为什么二进制不内联：base64 会放大 33%，且客户端拿到几 MB 文本既无意义
  * 又容易撑爆上下文窗口。图床场景下 Agent 要的是链接。
+ *
+ * `emphasizeDirectLink`：把 `links.download` 提升为顶层 `directLink` 并附一句
+ * `note`。**只对上传类工具开启**，原因见下方注释。
+ *
+ * @param {{emphasizeDirectLink?: boolean}} [options]
  */
-async function normalizeResult(response, octx, id) {
+async function normalizeResult(response, octx, id, { emphasizeDirectLink = false } = {}) {
   const contentType = String(response.headers.get('Content-Type') || '');
   const ok = response.ok;
 
@@ -129,7 +164,7 @@ async function normalizeResult(response, octx, id) {
       });
     }
     // v1 的响应体已经是 `{success:...}` 信封，直接透传最省事也最保真。
-    return toolResult(payload, !ok);
+    return toolResult(emphasizeDirectLink ? withDirectLink(payload) : payload, !ok);
   }
 
   // 非 JSON：一律当作二进制/文本流处理。
@@ -240,7 +275,7 @@ async function runUploadFile(octx, args) {
     headers: formType ? { 'Content-Type': formType } : {},
   });
   const response = await v1Upload(baseCtx(octx, request));
-  return normalizeResult(response, octx, '');
+  return normalizeResult(response, octx, '', { emphasizeDirectLink: true });
 }
 
 /** URL 导入：v1/import.js 读 JSON body（且要求该 Content-Type）。 */
@@ -389,4 +424,4 @@ export const TOOL_HANDLERS = {
   list_pastes: runListPastes,
 };
 
-export { synthRequest, baseCtx, decodeBase64, mimeFromDataUrl };
+export { synthRequest, baseCtx, decodeBase64, mimeFromDataUrl, withDirectLink };

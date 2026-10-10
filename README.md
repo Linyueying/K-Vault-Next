@@ -40,6 +40,7 @@
 ### 上传 —— 怎么顺手怎么来
 
 - **拖拽 / 粘贴 / 批量上传** —— 把文件拖进页面就行，支持多选
+- **命令行直传** —— 一条命令把本地路径换成直链，支持目录 / glob / 多文件 / 管道，零依赖
 - **URL 转存** —— 贴一个网址，服务器替你抓下来存好（带 SSRF 防护）
 - **分片上传** —— R2 原生 multipart，单文件最高 **10GB**
 - **智能节点选择** —— 超过阈值自动切换存储后端，还能开启并行上传（Telegram 池与分片池分离）
@@ -47,6 +48,27 @@
 - **上传历史** —— 本地上传记录，随时找回直链
 - **多种链接格式** —— 直链 / Markdown / HTML / BBCode 一键复制
 - **按条目配置分享** —— 每个文件单独配自己的分享策略
+
+#### 命令行上传（`scripts/kvault-upload.mjs`）
+
+「本地有个文件，给我个链接」——不必开浏览器，也不必把内容 base64 塞进 JSON。
+
+```bash
+export KVAULT_ENDPOINT="https://your-kvault-domain"
+export KVAULT_TOKEN="kvault_<id>_<secret>"
+
+node scripts/kvault-upload.mjs upload ./cover.png          # 单文件
+node scripts/kvault-upload.mjs upload ./shots/*.png        # glob（含 ** 递归）
+node scripts/kvault-upload.mjs upload ./dist/ --folder blog/2026
+node scripts/kvault-upload.mjs upload ./a.png ./b.jpg     # 多文件，逐个独立成败
+cat report.pdf | node scripts/kvault-upload.mjs upload - --slug q3-report
+```
+
+- **零 npm 依赖**：只用 Node 22 内置的 `parseArgs` / `fetch` / `FormData` / `fs.globSync`，装了 Node 就能跑，不需要 `npm install`
+- **`--quiet` 只输出直链**，可直接 `LINK=$(node scripts/kvault-upload.mjs upload ./a.png -q)`；`--json` 输出结构化结果供脚本消费
+- **批量错误隔离**：一批文件里某个失败不影响其余，退出码 `1` 表示有失败、`2` 表示用法/配置错误
+- **单文件上限 100MB**（客户端预检直接拦下，不浪费流量）。更大的请走网页端的分片上传
+- 也可以用 `npm run upload -- upload ./a.png`，参数完全相同
 
 ### 管理后台 —— 一个正经的云盘该有的样子
 
@@ -321,7 +343,18 @@ npm run pages:deploy      # 等价于 npx wrangler pages deploy .
 | GET | `/api/v1/pastes` | `read` | 粘贴列表 |
 | GET / DELETE | `/api/v1/paste/<id>` | `read` / `delete` | 读取 / 删除 |
 
-机器可读定义见 [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml)，Agent 接入指南见 [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md)（含 MCP 工具映射）。
+机器可读定义见 [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml)，Agent 接入指南见 [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md)（含 MCP 工具映射与 CLI 用法）。
+
+### 命令行客户端
+
+[`scripts/kvault-upload.mjs`](scripts/kvault-upload.mjs) 是一个零依赖的 v1 API 客户端 —— **服务端到服务端**，因此不受 CORS 约束，适合 CI、构建脚本与本地自动化：
+
+```bash
+KVAULT_ENDPOINT=https://your-kvault-domain KVAULT_TOKEN=kvault_xxx_yyy \
+  node scripts/kvault-upload.mjs upload ./dist/*.js --folder assets --json
+```
+
+鉴权走 `Authorization: Bearer`，需要 Token 具备 `upload` scope。CLI 完整选项见 `--help`。
 
 ### MCP 端点
 
@@ -399,6 +432,7 @@ Cloudflare Pages **没有构建步骤**，仓库根目录即站点根目录。�
 │       └── ssrf-guard.js ratelimit.js redact.js metadata-d1.js …
 ├── migrations/                          # 由 scripts/gen-migrations.py 从 schema.js 生成，勿手改
 ├── scripts/                             # 校验 / 测试 / D1 工具
+│   └── kvault-upload.mjs                # 零依赖上传 CLI（含配套 test-kvault-upload.mjs）
 ├── docs/                                # 分层文档，总入口见 docs/README.md
 └── .env.example                         # 变量清单（Pages 不读此文件）
 ```
