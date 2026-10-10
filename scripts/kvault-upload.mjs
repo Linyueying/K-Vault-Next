@@ -107,6 +107,11 @@ export const ERROR_HINTS = {
   VALIDATION_ERROR: '参数不合法。检查文件字段与各分享参数。',
   BAD_REQUEST: '请求格式不对，需要 multipart/form-data。',
   RATE_LIMITED: '触发 Token 限流，稍后重试。',
+  FILE_NOT_FOUND: '文件不存在。确认文件 ID 是否正确（可用 list 子命令查看）。',
+  SLUG_CONFLICT: '自定义 slug 已被占用。换一个 --slug，或去掉它自动生成。',
+  SHARE_UNSUPPORTED_STORAGE: '该存储后端不支持分享设置（Telegram 元数据写入已关闭）。',
+  SHARE_UPDATE_FAILED: '分享配置写入失败。看 message 详情。',
+  VALIDATION_FAILED: '分享参数校验失败。检查各字段取值。',
 };
 
 /** HTTP 状态兜底提示（响应体里没有可识别的 error.code 时使用）。 */
@@ -126,28 +131,54 @@ export const STATUS_HINTS = {
  * ========================================================================== */
 
 /** `--help` 正文。写在这里而不是散在打印语句里，方便测试断言关键片段。 */
-export const HELP_TEXT = `K-Vault 上传 CLI —— 本地文件直接换直链
+export const HELP_TEXT = `K-Vault CLI —— 上传文件、管理分享链接
 
 用法:
   kvault-upload upload <路径...> [选项]
+  kvault-upload share <文件ID> [选项]
 
+── upload ──────────────────────────────────────────────────────────
 路径可以是文件、目录（递归）、glob（如 './shots/*.png'）或 '-'（读标准输入）。
 可一次给多个，逐个上传、互不影响。
+
+── share ───────────────────────────────────────────────────────────
+为**已存在的文件**创建 / 修改 / 取消分享链接，不重新上传。
+用 --action 选择动作（默认 create）：
+  create  创建或覆盖分享配置
+  update  增量修改（只改传入的字段）
+  revoke  取消分享（清除全部限制并删除短链映射）
+  get     只查询当前分享状态，不改动任何数据
+
+增量语义：**不传**的字段保持不变；传 0 或空串表示**清除**该限制。
+例：--expires-in 3600       有效期一小时
+    --password ""           清除密码
+    --max-downloads 0       取消次数限制
 
 选项:
   -e, --endpoint <url>     站点地址，如 https://kvault.example.com
                            也可用环境变量 KVAULT_ENDPOINT
   -t, --token <token>      API Token（kvault_<id>_<secret>）
                            也可用环境变量 KVAULT_TOKEN / KVAULT_API_TOKEN
+
+  [upload]
   -s, --storage <name>     存储后端（telegram/r2/s3/discord/huggingface/webdav/github）
   -f, --folder <path>      存储目录前缀，如 blog/2026
-  -p, --password <pass>    分享链接密码
-      --expires-in <sec>   分享链接有效期（秒），缺省永久
-      --max-downloads <n>  分享链接最大下载次数，缺省不限
-      --slug <slug>        自定义分享短链标识（字母/数字/下划线/短横线）
       --dedupe             请求服务端按内容去重（相同内容返回已有文件）
+
+  [share]
+  -a, --action <name>      create（默认）/ update / revoke / get
+      --slug <slug>        自定义分享短链标识（字母/数字/下划线/短横线）
+      --title <text>       分享页标题
+      --desc <text>        分享页描述
+
+  [通用分享参数：upload 与 share 都可用]
+  -p, --password <pass>    分享链接密码（传空串清除）
+      --expires-in <sec>   分享链接有效期（秒），0 表示永久
+      --max-downloads <n>  分享链接最大下载次数，0 表示不限
+
+  [输出]
       --json               以 JSON 输出结果（便于脚本消费）
-  -q, --quiet              只输出直链，每行一个
+  -q, --quiet              只输出链接，每行一个
   -h, --help               显示本帮助
   -v, --version            显示版本
 
@@ -156,14 +187,19 @@ export const HELP_TEXT = `K-Vault 上传 CLI —— 本地文件直接换直链
   KVAULT_TOKEN              API Token（KVAULT_API_TOKEN 亦可）
 
 退出码:
-  0 成功   1 有文件上传失败   2 用法或配置错误
+  0 成功   1 操作失败   2 用法或配置错误
 
 示例:
   export KVAULT_ENDPOINT=https://kvault.example.com
   export KVAULT_TOKEN=kvault_xxx_yyy
+
   node scripts/kvault-upload.mjs upload ./cover.png
   node scripts/kvault-upload.mjs upload ./shots/*.png --folder blog/2026 --quiet
   cat report.pdf | node scripts/kvault-upload.mjs upload - --slug q3-report
+
+  node scripts/kvault-upload.mjs share r2:r2_123_abc.png --slug my-link --expires-in 3600
+  node scripts/kvault-upload.mjs share r2:r2_123_abc.png --action get
+  node scripts/kvault-upload.mjs share r2:r2_123_abc.png --action revoke
 `;
 
 /** 参数规范。导出供测试直接断言 parseArgs 的行为。 */
@@ -176,6 +212,9 @@ export const OPTION_SPEC = {
   'expires-in': { type: 'string' },
   'max-downloads': { type: 'string' },
   slug: { type: 'string' },
+  action: { type: 'string', short: 'a' },
+  title: { type: 'string' },
+  desc: { type: 'string' },
   dedupe: { type: 'boolean' },
   json: { type: 'boolean' },
   quiet: { type: 'boolean', short: 'q' },
@@ -250,10 +289,207 @@ export function resolveOptions(flags = {}, env = process.env) {
     rawExpiresIn: flags['expires-in'],
     rawMaxDownloads: flags['max-downloads'],
     slug: pickString(flags.slug),
+    action: pickString(flags.action) || 'create',
+    title: pickString(flags.title),
+    desc: pickString(flags.desc),
+    // ---- share 子命令专用：区分「未传」与「传了空值」 ----
+    //
+    // 这是本文件里最容易写错的一处。`upload` 与 `share` 对空串的语义**相反**：
+    //
+    //   · upload：`--password ""` ≡ 没传（不设置密码）；
+    //   · share ：`--password ""` = **明确要求清除密码**（区别于「不传=保持不变」）。
+    //
+    // 若共用上面那套「空串视同未提供」的归一化，`share --password ""` 就会被
+    // 悄悄降级成「不改密码」，用户永远清不掉已有的密码。因此这里保留
+    // `hasOwnProperty` 的原始存在性判断，把「传没传」这个信息一路带到请求体。
+    present: {
+      password: hasFlag(flags, 'password'),
+      slug: hasFlag(flags, 'slug'),
+      title: hasFlag(flags, 'title'),
+      desc: hasFlag(flags, 'desc'),
+      expiresIn: hasFlag(flags, 'expires-in'),
+      maxDownloads: hasFlag(flags, 'max-downloads'),
+    },
     dedupe: flags.dedupe === true,
     json: flags.json === true,
     quiet: flags.quiet === true,
   };
+}
+
+/**
+ * 该 flag 是否被显式传了（哪怕值是空串）。
+ *
+ * parseArgs 对已传但无值/空值的字符串选项会给出 `''`，对未传则给出
+ * `undefined`。两者必须区分，见 resolveOptions 中 `present` 的注释。
+ */
+function hasFlag(flags, name) {
+  return Object.prototype.hasOwnProperty.call(flags, name) && flags[name] !== undefined;
+}
+
+/**
+ * 构造分享请求体。
+ *
+ * 只在「该字段被显式传了」时才写进 body —— 这与服务端的增量语义严格对应：
+ * 字段出现 = 我要改它（空值 = 清除它），字段缺席 = 保持原样。
+ *
+ * 空串是**有效载荷**（表示清除），因此这里不能沿用 `pickString` 那套
+ * 「空串视同未提供」的归一化。
+ */
+export function buildShareBody(options = {}) {
+  const body = { action: String(options.action || 'create').toLowerCase() };
+  const present = options.present || {};
+
+  if (present.slug) body.slug = String(options.slug ?? '');
+  if (present.password) body.password = String(options.password ?? '');
+  if (present.title) body.title = String(options.title ?? '');
+  if (present.desc) body.description = String(options.desc ?? '');
+
+  // 数值字段：显式传 0 表示「清除限制」，因此 0 是有效值而不是「未传」。
+  if (present.expiresIn) body.expiresIn = parseNonNegative(options.rawExpiresIn);
+  if (present.maxDownloads) body.maxDownloads = parseNonNegative(options.rawMaxDownloads);
+
+  return body;
+}
+
+/** 解析非负整数；非法返回 null（由调用方决定如何报错）。 */
+export function parseNonNegative(raw) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return 0;
+  const parsed = Number.parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+/** 校验 share 子命令的参数，返回第一条错误。 */
+export function validateShareOptions(options = {}) {
+  const action = String(options.action || 'create').toLowerCase();
+  if (!['create', 'update', 'revoke', 'get'].includes(action)) {
+    return { ok: false, error: `--action 只支持 create / update / revoke / get，收到 "${action}"。` };
+  }
+  const present = options.present || {};
+  if (present.expiresIn && parseNonNegative(options.rawExpiresIn) === null) {
+    return { ok: false, error: '--expires-in 需要非负整数（秒；0 表示永久）。' };
+  }
+  if (present.maxDownloads && parseNonNegative(options.rawMaxDownloads) === null) {
+    return { ok: false, error: '--max-downloads 需要非负整数（0 表示不限）。' };
+  }
+  // revoke / get 不改配置，传分享参数多半是误用 —— 明确报错好过静默忽略。
+  if (action === 'revoke' || action === 'get') {
+    const conflicting = ['slug', 'password', 'title', 'desc', 'expiresIn', 'maxDownloads']
+      .filter((key) => present[key]);
+    if (conflicting.length > 0) {
+      return {
+        ok: false,
+        error: `--action ${action} 不接受分享参数（收到 ${conflicting.join(', ')}）。这两种动作不修改分享配置。`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * 调用分享端点。
+ *
+ * `action=get` 走 GET 查询分支，其余走 PATCH。
+ */
+export async function shareOnce(fileId, options, { fetchImpl = globalThis.fetch } = {}) {
+  const action = String(options.action || 'create').toLowerCase();
+  const isGet = action === 'get';
+  const url = `${options.endpoint}/api/v1/file/${encodeURIComponent(fileId)}/share`;
+
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      method: isGet ? 'GET' : 'PATCH',
+      headers: buildHeaders(options.token, isGet ? {} : { 'Content-Type': 'application/json' }),
+      ...(isGet ? {} : { body: JSON.stringify(buildShareBody(options)) }),
+    });
+  } catch (error) {
+    return { ok: false, fileId, action, status: 0, payload: null, message: `网络请求失败：${error?.message || error}` };
+  }
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok || payload?.success === false) {
+    return { ok: false, fileId, action, status: response.status, payload, message: describeFailure(response.status, payload) };
+  }
+  return { ok: true, fileId, action, status: response.status, payload };
+}
+
+/** 渲染分享操作结果。三种形态与上传侧保持一致（human / json / quiet）。 */
+export function renderShareResult(result, { json = false, quiet = false } = {}) {
+  if (!result?.ok) {
+    return json
+      ? JSON.stringify(
+          {
+            success: false,
+            fileId: result?.fileId,
+            status: result?.status,
+            error: result?.payload?.error || null,
+            message: result?.message,
+          },
+          null,
+          2,
+        )
+      : `✗ ${result?.fileId}\n  ${result?.message}`;
+  }
+
+  const payload = result.payload || {};
+  const shareLink = payload.links?.share || '';
+  const downloadLink = payload.links?.download || '';
+
+  if (quiet) {
+    // get / revoke 没有可用的分享链接，回落到直链 —— 仍是有效信息，且保证
+    // `$(... -q)` 在有分享时一定拿到分享链接、没有时拿到一个可用地址。
+    return shareLink || downloadLink || '';
+  }
+  if (json) {
+    return JSON.stringify(
+      {
+        success: true,
+        fileId: result.fileId,
+        action: payload.action || result.action,
+        active: Boolean(payload.active),
+        revoked: Boolean(payload.revoked),
+        shareSlug: payload.shareSlug || '',
+        shareExpiresAt: payload.shareExpiresAt || null,
+        shareMaxDownloads: payload.shareMaxDownloads || null,
+        sharePasswordProtected: Boolean(payload.sharePasswordProtected),
+        shareDownloadCount: Number(payload.shareDownloadCount) || 0,
+        shareTitle: payload.shareTitle || '',
+        links: payload.links || null,
+        directLink: downloadLink,
+      },
+      null,
+      2,
+    );
+  }
+
+  const lines = [`✓ ${result.fileId}`];
+  if (payload.revoked) {
+    lines.push('  分享已取消');
+  } else if (!payload.active) {
+    lines.push('  当前无分享配置');
+  } else {
+    lines.push(`  分享  ${shareLink || '(无短链)'}`);
+    lines.push(
+      payload.shareExpiresAt
+        ? `  过期  ${new Date(payload.shareExpiresAt).toISOString()}`
+        : '  过期  永久有效',
+    );
+    lines.push(
+      `  次数  ${payload.shareMaxDownloads ?? '不限'}`
+        + (payload.shareDownloadCount ? `（已下载 ${payload.shareDownloadCount}）` : ''),
+    );
+    lines.push(`  密码  ${payload.sharePasswordProtected ? '已设置' : '无'}`);
+    if (payload.shareTitle) lines.push(`  标题  ${payload.shareTitle}`);
+  }
+  lines.push(`  直链  ${downloadLink}`);
+  return lines.join('\n');
 }
 
 /** 空字符串视同未提供（`--folder ""` 与不写等价）。 */
@@ -790,6 +1026,44 @@ export async function runUpload(entries, options, { fetchImpl = globalThis.fetch
   return { results, failed, oversized };
 }
 
+/**
+ * `share` 子命令：对**已存在**的文件创建 / 修改 / 取消分享，或查询分享状态。
+ *
+ * 与 `upload` 的差别在「位置参数」：这里只接受**一个**文件 ID（而不是文件路径），
+ * 因此不做 glob 展开、不做体积预检 —— 文件早在存储里了。
+ */
+export async function runShareCommand(paths, flags, { stdout, stderr, env, fetchImpl, io = {} } = {}) {
+  if (paths.length === 0) {
+    stderr('没有指定文件 ID。用法：kvault-upload share <文件ID> [--action create|update|revoke|get]');
+    return EXIT_USAGE;
+  }
+  if (paths.length > 1) {
+    // 分享端点是按文件 ID 定位的，一次只能操作一个；批量请自己循环。
+    stderr(`share 一次只能处理一个文件 ID，收到 ${paths.length} 个：${paths.join(', ')}`);
+    return EXIT_USAGE;
+  }
+
+  const fileId = paths[0];
+  const options = resolveOptions(flags, env);
+  const validation = validateShareOptions(options);
+  if (!validation.ok) {
+    stderr(validation.error);
+    return EXIT_USAGE;
+  }
+
+  const result = await shareOnce(fileId, options, { fetchImpl });
+  const text = renderShareResult(result, { json: options.json, quiet: options.quiet });
+  if (text) (result.ok ? stdout : stderr)(text);
+
+  if (!result.ok) {
+    if (!options.json && !options.quiet) {
+      stderr(`（HTTP ${result.status || '—'}${result.payload?.error?.code ? ` · ${result.payload.error.code}` : ''}）`);
+    }
+    return EXIT_UPLOAD_FAILED;
+  }
+  return EXIT_OK;
+}
+
 /** 版本号从 package.json 读，避免两处各写一份。 */
 export function readVersion({ cwd = process.cwd() } = {}) {
   try {
@@ -824,9 +1098,13 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     return EXIT_OK;
   }
 
+  if (command === 'share') {
+    return runShareCommand(paths, flags, { stdout, stderr, env, fetchImpl: io.fetchImpl || globalThis.fetch, io });
+  }
+
   if (command !== 'upload') {
     stderr(command ? `未知命令：${command}` : '缺少命令。');
-    stderr('目前只支持：upload <路径...>。用 --help 查看用法。');
+    stderr('支持：upload <路径...> / share <文件ID>。用 --help 查看用法。');
     return EXIT_USAGE;
   }
   if (paths.length === 0) {

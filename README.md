@@ -49,7 +49,7 @@
 - **多种链接格式** —— 直链 / Markdown / HTML / BBCode 一键复制
 - **按条目配置分享** —— 每个文件单独配自己的分享策略
 
-#### 命令行上传（`scripts/kvault-upload.mjs`）
+#### 命令行上传与分享（`scripts/kvault-upload.mjs`）
 
 「本地有个文件，给我个链接」——不必开浏览器，也不必把内容 base64 塞进 JSON。
 
@@ -64,10 +64,19 @@ node scripts/kvault-upload.mjs upload ./a.png ./b.jpg     # 多文件，逐个�
 cat report.pdf | node scripts/kvault-upload.mjs upload - --slug q3-report
 ```
 
+**已经躺在存储里的文件**也能直接补一个分享链接，不需要重新上传：
+
+```bash
+node scripts/kvault-upload.mjs share r2:r2_123_abc.png --slug promo --expires-in 3600
+node scripts/kvault-upload.mjs share r2:r2_123_abc.png --action get     # 查状态
+node scripts/kvault-upload.mjs share r2:r2_123_abc.png --action revoke  # 取消分享
+```
+
 - **零 npm 依赖**：只用 Node 22 内置的 `parseArgs` / `fetch` / `FormData` / `fs.globSync`，装了 Node 就能跑，不需要 `npm install`
-- **`--quiet` 只输出直链**，可直接 `LINK=$(node scripts/kvault-upload.mjs upload ./a.png -q)`；`--json` 输出结构化结果供脚本消费
+- **`--quiet` 只输出链接**，可直接 `LINK=$(node scripts/kvault-upload.mjs upload ./a.png -q)`；`--json` 输出结构化结果供脚本消费
 - **批量错误隔离**：一批文件里某个失败不影响其余，退出码 `1` 表示有失败、`2` 表示用法/配置错误
 - **单文件上限 100MB**（客户端预检直接拦下，不浪费流量）。更大的请走网页端的分片上传
+- **分享是增量修改**：`share` 只改显式传入的字段，传 `0` 或空串表示清除该限制
 - 也可以用 `npm run upload -- upload ./a.png`，参数完全相同
 
 ### 管理后台 —— 一个正经的云盘该有的样子
@@ -326,7 +335,9 @@ npm run pages:deploy      # 等价于 npx wrangler pages deploy .
 - API v1：`Authorization: Bearer kvault_<tokenId>_<secret>`
 - MCP：同一个 Bearer Token，工具可见性由 scope 决定
 
-四种 scope：`upload` · `read` · `delete` · `paste`
+五种 scope：`upload` · `read` · `delete` · `paste` · `share`
+
+> 新加的 `share` scope 用于「为**已有**文件创建/修改/取消分享链接」。scope 是白名单，**已签发的 Token 不会自动获得它**（fail-closed），需要时请到后台给对应 Token 勾上 `share`，或重新签发。
 
 ### API v1 端点
 
@@ -339,6 +350,7 @@ npm run pages:deploy      # 等价于 npx wrangler pages deploy .
 | GET | `/api/v1/files` | `read` | 分页列表 |
 | GET / DELETE | `/api/v1/file/<path>` | `read` / `delete` | 直链流 / 删除 |
 | GET | `/api/v1/file/<path>/info` | `read` | 元数据 |
+| GET / PATCH | `/api/v1/file/<path>/share` | `share` | 查询 / 创建 / 更新 / 取消分享 |
 | POST | `/api/v1/paste` | `paste` | 创建粘贴 |
 | GET | `/api/v1/pastes` | `read` | 粘贴列表 |
 | GET / DELETE | `/api/v1/paste/<id>` | `read` / `delete` | 读取 / 删除 |
@@ -354,7 +366,7 @@ KVAULT_ENDPOINT=https://your-kvault-domain KVAULT_TOKEN=kvault_xxx_yyy \
   node scripts/kvault-upload.mjs upload ./dist/*.js --folder assets --json
 ```
 
-鉴权走 `Authorization: Bearer`，需要 Token 具备 `upload` scope。CLI 完整选项见 `--help`。
+鉴权走 `Authorization: Bearer`：`upload` 子命令需要 Token 具备 `upload` scope，`share` 子命令需要 `share` scope。CLI 完整选项见 `--help`。
 
 ### MCP 端点
 
@@ -367,7 +379,7 @@ KVAULT_ENDPOINT=https://your-kvault-domain KVAULT_TOKEN=kvault_xxx_yyy \
 
 **开关**：默认**关闭**。两种开启方式，**后台设置优先于环境变量**：
 
-- **管理后台 → 系统设置 → MCP 端点**（推荐）：总开关 + **10 个工具逐个开关**，保存写入 KV，改完即时生效、无需重新部署。
+- **管理后台 → 系统设置 → MCP 端点**（推荐）：总开关 + **11 个工具逐个开关**，保存写入 KV，改完即时生效、无需重新部署。
 - **环境变量** `MCP_ENABLED=true`（部署期基线）：仅在后台未保存过覆盖时生效；点「恢复默认」即回退到它。取值兼容 `true / 1 / yes / on`。
 
 未开启时 `/mcp` 返回 `404`（fail-closed：新增的网络面不因「忘了配」而自动敞开）。
@@ -387,7 +399,7 @@ KVAULT_ENDPOINT=https://your-kvault-domain KVAULT_TOKEN=kvault_xxx_yyy \
 
 主流的 MCP 客户端在 `initialize` 阶段还不一定发送 `Authorization`（它们把「建立连接」与「提供凭据」分两步），因此握手免鉴权是兼容性所必需的；同时因为匿名握手不泄露任何工具信息，安全边界并未放宽。
 
-**10 个工具**：
+**11 个工具**：
 
 | Tool | 所需 scope |
 | :--- | :--- |
@@ -398,6 +410,7 @@ KVAULT_ENDPOINT=https://your-kvault-domain KVAULT_TOKEN=kvault_xxx_yyy \
 | `kvault_list_files` | `read` |
 | `kvault_get_file_info` | `read` |
 | `kvault_get_file` | `read` |
+| `kvault_manage_share` | `share` |
 | `kvault_delete_file` | `delete` |
 | `kvault_create_paste` | `paste` |
 | `kvault_list_pastes` | `read` |

@@ -7,7 +7,7 @@ info:
     deployments (parity contract).
 
     Authentication uses long-lived API Tokens (`kvault_<id>_<secret>`) via the
-    `Authorization: Bearer` header. Tokens carry scopes (upload/read/delete/paste)
+    `Authorization: Bearer` header. Tokens carry scopes (upload/read/delete/paste/share)
     and optional policies (allowedStorages / allowedMimeTypes / maxFileSize /
     folderPrefix / allowedSourceHosts).
 
@@ -171,6 +171,57 @@ paths:
       responses:
         '200': { description: Deleted }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/file/{id}/share:
+    get:
+      tags: [Assets]
+      summary: 'Inspect a file share (scope: share)'
+      description: Read the current share state without modifying anything.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: >
+            Share state. `active=false` when the file has no share configured.
+            Includes `links.share` (short link) and `links.download`.
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Assets]
+      summary: 'Create / update / revoke a file share (scope: share)'
+      description: |
+        Incremental semantics: a field that is **absent** keeps its current
+        value; a field present but empty (`""` / `0`) **clears** that limit.
+        Implemented once in `utils/share-options.js` and shared with the
+        `kvault_manage_share` MCP tool.
+
+        Note the file `id` may itself contain `/` (e.g. `gh:blog/2026/a.png`);
+        the endpoint strips the trailing `/share` before resolving the id.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [create, update, revoke, get]
+                  default: create
+                slug: { type: string, description: 'Custom short-link id; "" clears it' }
+                password: { type: string, description: 'Share password; "" clears it' }
+                title: { type: string }
+                description: { type: string }
+                expiresIn: { type: integer, minimum: 0, description: 'Seconds; 0 = never expires' }
+                maxDownloads: { type: integer, minimum: 0, description: '0 = unlimited' }
+      responses:
+        '200': { description: 'Share state after the operation (includes links.share / links.download)' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'SLUG_CONFLICT (slug taken by another file) or SHARE_UNSUPPORTED_STORAGE'
   /api/v1/paste:
     post:
       tags: [Assets]
@@ -500,6 +551,16 @@ components:
             code: { type: string }
             message: { type: string }
   responses:
+    BadRequest:
+      description: Invalid request (VALIDATION_ERROR / VALIDATION_FAILED — e.g. unknown share action or illegal field value)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Token lacks the required scope (TOKEN_SCOPE_DENIED / SCOPE_REQUIRED) or a policy rejected it
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     Unauthorized:
       description: Missing/invalid token
       content:

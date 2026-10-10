@@ -71,10 +71,11 @@ export const SERVER_INSTRUCTIONS = [
   'K-Vault-Next 是一个 serverless 文件托管服务（云盘 / 图床）。',
   '工具能力：kvault_capabilities 查看已启用的存储后端与上传上限；',
   'kvault_upload_file 上传小文件（base64，建议 ≤512KB）；',
-  'kvault_import_url 让服务端抓取远程 URL 入库（大文件请走这个）；',
+  'kvault_import_url 让服务端抓取远程 URL 入库（远程大文件请走这个）；',
   'kvault_list_files / kvault_get_file_info / kvault_get_file 浏览与取回；',
+  'kvault_manage_share 为**已有文件**创建 / 修改 / 取消分享链接；',
   'kvault_delete_file 删除；kvault_create_paste / kvault_list_pastes 管理文本片段。',
-  '工具可见性由 API Token 的 scopes（upload / read / delete / paste）决定：',
+  '工具可见性由 API Token 的 scopes（upload / read / delete / paste / share）决定：',
   'tools/list 只会列出当前 Token 有权调用的工具。',
 ].join(' ');
 

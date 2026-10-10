@@ -217,6 +217,52 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'kvault_manage_share',
+    handler: 'manage_share',
+    requiredScope: 'share',
+    description:
+      '管理**已存在文件**的分享链接（不重新上传）。四种动作：'
+      + 'action=create（默认）创建或覆盖分享配置；'
+      + 'action=update 增量修改（只改传入的字段）；'
+      + 'action=revoke 取消分享（清除全部限制并删除短链映射）；'
+      + 'action=get 只查询当前分享状态，不改动任何数据。'
+      + '⚠️ 增量语义：字段**不传** = 保持不变；传 0/空串 = 清除该限制。'
+      + '返回 links.share（分享短链）与 links.download（直链）。'
+      + '需要 Token 具备 share scope。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '文件 ID，来自上传响应或 kvault_list_files。' },
+        action: {
+          type: 'string',
+          enum: ['create', 'update', 'revoke', 'get'],
+          description: '要执行的动作，默认 create。get 只读查询。',
+        },
+        slug: {
+          type: 'string',
+          description:
+            '自定义分享短链标识（仅限字母、数字、下划线、短横线）。'
+            + '传空串则恢复为自动短链（用文件 ID）。冲突时返回 SLUG_CONFLICT。',
+        },
+        expiresIn: {
+          type: 'integer',
+          minimum: 0,
+          description: '分享链接有效期（秒）。0 或留空表示永久有效。',
+        },
+        maxDownloads: {
+          type: 'integer',
+          minimum: 0,
+          description: '分享链接最大下载次数。0 或留空表示不限次数。',
+        },
+        password: { type: 'string', description: '分享访问密码。传空串清除密码。' },
+        title: { type: 'string', description: '分享页标题。传空串清除。' },
+        description: { type: 'string', description: '分享页描述。传空串清除。' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'kvault_delete_file',
     handler: 'delete_file',
     requiredScope: 'delete',

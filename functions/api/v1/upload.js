@@ -159,13 +159,33 @@ function sanitizeSlug(rawValue = '') {
   return normalized.slice(0, 64);
 }
 
-async function applyApiUploadMetadata(env, key, originalMetadata, options = {}) {
+/**
+ * 写入上传相关的分享元数据 + 内容指纹。
+ *
+ * 导出仅为单测可达 —— 它是「指纹有没有真的落库」这个缺陷的所在层，
+ * 而完整上传路径依赖真实的 R2/S3/Telegram 绑定，不适合放进 `npm test`。
+ */
+export async function applyApiUploadMetadata(env, key, originalMetadata, options = {}) {
   if (!env?.img_url || !key) return;
 
   const nextMetadata = {
     ...(originalMetadata || {}),
   };
   const oldSlug = sanitizeSlug(originalMetadata?.shareSlug || '');
+
+  // 内容指纹随元数据一起落库。
+  //
+  // 为什么必须在这里写：D1 的 `files.content_sha` 列取自
+  // `metadata.contentSha || metadata.sha256`（见 metadata-d1.js 的
+  // metadataToColumns），而 `content_sha` 上那条唯一索引正是去重查询的
+  // 依据。此前 SHA-256 只在「预检分支」里算了一次、用完即弃，从未写回元
+  // 数据 —— 于是**首次上传的 D1 行 content_sha 恒为 NULL**，第二次传同
+  // 一份内容时查不到任何记录，去重永远不会命中（`--dedupe` 形同虚设）。
+  //
+  // 只在本次真的算出了指纹时才写，避免把已有的指纹擦成 undefined。
+  if (options.contentSha) {
+    nextMetadata.contentSha = options.contentSha;
+  }
 
   const expiresIn = parsePositiveInt(options.expiresIn, { defaultValue: 0, min: 1, max: 3650 * 24 * 3600 });
   if (expiresIn > 0) {
@@ -320,12 +340,38 @@ export async function onRequestPost(context) {
     return apiError(policyCheck.code, policyCheck.message, policyCheck.status);
   }
 
-  // Content dedup for small uploads (requirement #11): identical content returns the existing object.
+  // ==========================================================================
+  // 内容指纹：算一次，两处用
+  // ==========================================================================
+  //
+  // 此前 SHA-256 只在「需要去重预检」时才计算，且算完即弃。这带来两个后果：
+  //
+  //   1. 不带 `deduplicate` 的上传**从不记录指纹** → 之后拿同一份内容来查重
+  //      也查不到（索引里根本没这条）;
+  //   2. 带 `deduplicate` 首次上传时同样没写回元数据 → D1 的 `content_sha`
+  //      列留空 → 第二次上传依旧查不到。两条路叠加，去重实际永不命中。
+  //
+  // 因此改为**指纹始终计算并落库**（受下面同一个体积闸门约束），
+  // 只是「要不要拿它去查重」仍由 `deduplicate` 决定。这样：
+  //   · 首次上传无论是否带 `deduplicate`，指纹都进了索引；
+  //   · 后续任何一次带 `deduplicate` 的上传都能命中。
+  //
+  // 体积闸门（`DEDUP_MAX_INLINE_BYTES = 25MB`）是刻意的：要把整个文件读进
+  // 内存才能算哈希，对大文件做这件事会吃掉 Worker 的内存预算，收益（省一次
+  // 上传）也远不如小文件场景明显。
   let contentSha256 = '';
-  if (deduplicate && file.size > 0 && file.size <= DEDUP_MAX_INLINE_BYTES && env?.img_url) {
+  if (file.size > 0 && file.size <= DEDUP_MAX_INLINE_BYTES && env?.img_url) {
     try {
       const bytes = await file.arrayBuffer();
       contentSha256 = await sha256HexBuffer(bytes);
+    } catch {
+      contentSha256 = '';
+    }
+  }
+
+  // 去重预检：只有显式要求时才查（查重本身很便宜，但语义上该由调用方决定）。
+  if (deduplicate && contentSha256) {
+    try {
       // D1 优先（content_sha 唯一索引 + 90 天窗口），未命中回落 KV 的存量键。
       // 命中后统一成 `existing` 的原形状，下面拼响应的代码无需改动。
       const hit = await findDuplicate(env, contentSha256, { ttlSeconds: DEDUP_TTL_SECONDS });
@@ -432,6 +478,7 @@ export async function onRequestPost(context) {
         expiresIn,
         maxDownloads,
         slug: normalizedSlug,
+        contentSha: contentSha256,
       });
     } catch (error) {
       const message = error?.message || '写入上传元数据失败。';

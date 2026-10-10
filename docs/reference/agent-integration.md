@@ -31,8 +31,14 @@ curl -X POST "https://your-kvault-domain/api/admin/tokens" \
 | `read` | `GET /api/v1/files`、`GET /api/v1/file/:id`、`GET /api/v1/file/:id/info` | `kvault_list_files`、`kvault_get_file_info`、`kvault_get_file`、`kvault_list_pastes` |
 | `delete` | `DELETE /api/v1/file/:id` | `kvault_delete_file` |
 | `paste` | Paste 相关端点 | `kvault_create_paste` |
+| `share` | `GET` / `PATCH /api/v1/file/:id/share` | `kvault_manage_share` |
 
 `kvault_capabilities`（公开）与 `kvault_token_info`（任意有效 Token）不要求额外 scope。
+
+> **`share` 为什么单独一个 scope，而不是复用 `upload`？**
+> 「能不能上传」与「能不能把**已有**东西公开出去」是两种风险。前者是往你自己的空间里放东西，后者是**改变一个已存在对象的对外可见性**——包括给别人的文件挂上公开短链。把 publish 能力与 write 能力绑死，会让「只想让 Agent 传个图」的场景被迫附带对外发布权，所以这里刻意拆开。
+>
+> **已签发的 Token 不会自动获得 `share`**：scope 是白名单，新增 scope 后旧 Token 仍然只持有签发时的那个集合（fail-closed）。需要时到后台给对应 Token 勾上 `share`，或直接重新签发一个。
 
 ### 策略（policies，可选）
 
@@ -80,7 +86,7 @@ K-Vault-Next **原生实现**了 MCP（Model Context Protocol），不依赖任�
 进入 **管理后台 → 系统设置 → MCP 端点**：
 
 - **总开关**：启用 / 关闭 `/mcp`。保存写入 KV，**立即生效，无需重新部署**。
-- **工具级开关**：逐个启用 / 关闭 10 个工具。关闭后该工具
+- **工具级开关**：逐个启用 / 关闭 11 个工具。关闭后该工具
   - 不出现在 Agent 的 `tools/list` 里；
   - 即使 Agent 硬编码工具名直接 `tools/call`，也会被拒绝，返回
     `result.isError=true` 且 `error.code = "TOOL_DISABLED"`。
@@ -233,7 +239,7 @@ curl -s -X POST "https://your-kvault-domain/mcp" \
 
 **结果的 `content[0].text` 是 JSON 字符串**（而非自然语言），可直接解析出 `id` / `links` 等字段。所有工具的产出都是这一形态，跨客户端兼容性最好。
 
-### 3.8 工具清单（10 个）
+### 3.8 工具清单（11 个）
 
 | Tool | 所需 scope | 说明 |
 | :--- | :--- | :--- |
@@ -244,6 +250,7 @@ curl -s -X POST "https://your-kvault-domain/mcp" \
 | `kvault_list_files` | `read` | 游标分页列表 |
 | `kvault_get_file_info` | `read` | 文件元信息（JSON） |
 | `kvault_get_file` | `read` | 下载链接与状态（**不内联二进制**） |
+| `kvault_manage_share` | `share` | 为**已有**文件创建 / 修改 / 取消 / 查询分享。支持短链 slug、有效期、次数、密码、标题描述 |
 | `kvault_delete_file` | `delete` | 永久删除 |
 | `kvault_create_paste` | `paste` | 创建文本片段 |
 | `kvault_list_pastes` | `read` | 文本片段列表 |
@@ -259,6 +266,32 @@ curl -s -X POST "https://your-kvault-domain/mcp" \
 > 为什么本地文件不该硬塞进 `kvault_upload_file`：base64 会使体积膨胀约 33%，而 `/mcp` 请求体上限 1MiB，实际只能传约 750KB 的原文件。超过后模型只能反复重试同一个必然失败的工具。
 
 **`kvault_upload_file` / `kvault_import_url` 的返回含顶层 `directLink`**：等于 `links.download`，另附 `note: "Direct link: <url>"`。这是 MCP 适配层额外加的，**直接调 REST 的客户端不会看到该字段**。
+
+#### `kvault_manage_share` 的增量语义（重要）
+
+这个工具解决的是「文件已经在存储里了，我想给它挂个分享链接」——此前只能重新上传一遍。
+
+| `action` | 行为 |
+| :--- | :--- |
+| `create`（默认） | 创建或**覆盖**分享配置 |
+| `update` | **增量**修改，只改传入的字段 |
+| `revoke` | 取消分享：清空全部限制并删除短链映射 |
+| `get` | 只查询当前分享状态，不改数据 |
+
+**增量语义是「字段缺席 = 保持不变，字段存在但为空/0 = 清除」**：
+
+| 你传的 | 效果 |
+| :--- | :--- |
+| 不传 `maxDownloads` | 保持原有次数限制 |
+| `"maxDownloads": 0` | **清除**次数限制（变为不限） |
+| `"password": ""` | **清除**密码 |
+| `"slug": ""` | **清除**自定义短链（回落自动 slug） |
+
+> 这层语义由 `utils/share-options.js` 集中实现，REST 与 MCP 共用同一份逻辑。`runManageShare` 只把**实际出现在 args 里**的字段转发给端点——漏掉这层过滤，`update` 就会退化成 `create`，把用户没提的限制悄悄清掉。
+
+**返回**：含 `links.share`（短链）、`links.download`（直链），以及扁平的 `shareSlug` / `shareExpiresAt` / `shareMaxDownloads` / `sharePasswordProtected` / `shareDownloadCount` / `shareTitle` / `active`。
+
+**`revoke` 的一个已知行为**：`/s/<slug>` 是**基于文件路径**的静态 302 路由，取消分享不会删除该路由本身；但数据层已不再认识这个 slug，访问 `/api/share-info` 会得到 `SHARE_NOT_FOUND`，分享页因此正确显示「分享不存在」。也就是说**权限已失效，只是短链地址本身还能解析到一次 302**。
 
 ### 3.13 命令行上传客户端（本地文件推荐）
 
@@ -315,6 +348,34 @@ cat report.pdf | node scripts/kvault-upload.mjs upload -  # 标准输入
 - 不做流式上传：Node 原生 `FormData`/`Blob` 要求内容全量驻留内存。手写 multipart 流式编码器会引入 boundary 生成 / 分块拼接 / 背压处理一整套复杂度，对「零依赖小工具」不值得；代价被显式圈在 100MB。
 - CLI 是**服务端到服务端**调用（无 `Origin` 头），因此不受 CORS 约束。
 
+#### `share` 子命令（管理已有文件的分享）
+
+上传时就能带分享参数（`--slug` / `--expires-in` / `--max-downloads` / `--password`）。但如果文件**已经在存储里**，重传一遍只为挂个链接显然不合理——这时用 `share`：
+
+```bash
+FID='r2:r2_123_abc.png'
+
+node scripts/kvault-upload.mjs share "$FID" --slug promo --expires-in 3600
+node scripts/kvault-upload.mjs share "$FID" --action get       # 只看状态，不改动
+node scripts/kvault-upload.mjs share "$FID" --action revoke    # 取消分享
+LINK=$(node scripts/kvault-upload.mjs share "$FID" --action get -q)   # 取链接
+```
+
+**位置参数是一个文件 ID**（不是路径），因此不做 glob 展开、不做体积预检；一次只处理一个 ID（要批量请自己循环）。
+
+| 选项 | 说明 |
+| :--- | :--- |
+| `-a, --action` | `create`（默认）/ `update` / `revoke` / `get` |
+| `--slug` | 自定义短链标识（字母 / 数字 / 下划线 / 短横线） |
+| `--title` / `--desc` | 分享页标题 / 描述 |
+| `-p, --password` | 分享密码（传空串 = 清除） |
+| `--expires-in` | 有效期秒数，`0` = 永久（传 `0` = 清除） |
+| `--max-downloads` | 次数上限，`0` = 不限（传 `0` = 清除） |
+
+**增量语义**：`update` 只改**显式传入**的字段，不传的保持原样；传 `0` 或空串表示**清除**该限制。这与 `kvault_manage_share` 的语义完全一致（同一份 `utils/share-options.js`）——CLI 里 `upload` 与 `share` 共用同一套分享选项，唯一的差别是 `upload` 把「空串」当作「未提供」，而 `share` 把它当作「清除」，因为后者的使用场景就是要能清掉旧限制。
+
+**需要 `share` scope**（与 `upload` 不同）。退出码沿用 `0` / `1` / `2`：参数非法或 `revoke`/`get` 误带分享参数 → `2`，且**不会发出请求**。
+
 ### 3.9 错误分层（务必区分）
 
 | 层 | 表现 | 何时出现 |
@@ -362,7 +423,8 @@ MCP 端点有两层测试，职责互补：
 | 脚本 | 类型 | 运行方式 |
 | :--- | :--- | :--- |
 | `scripts/test-mcp.mjs` | 纯函数单测（协议层 / 工具表 / 适配层契约），无需起服务 | `npm test` 已包含 |
-| `scripts/test-kvault-upload.mjs` | 上传 CLI 纯函数单测（参数 / 路径展开 / 请求构造 / 错误翻译 / 退出码，注入 fetch 替身） | `npm test` 已包含 |
+| `scripts/test-kvault-upload.mjs` | CLI 纯函数单测（上传 + 分享：参数 / 路径展开 / 请求构造 / 错误翻译 / 退出码，注入 fetch 替身） | `npm test` 已包含 |
+| `scripts/test-upload-dedup-write.mjs` | 内容去重写入回归（指纹必须落库，否则 `--dedupe` 永不命中） | `npm test` 已包含 |
 | `scripts/test-mcp-e2e.py` | 真实 HTTP 端到端，需先手动启动 `wrangler pages dev` | 见脚本头部注释 |
 
 端到端脚本覆盖：握手与版本协商、匿名 vs 带 Token 的能力差异、`tools/list` 的 scope 过滤、各工具成功与错误路径、错误分层、`401`/`405`/`413`/`204` 边界、批量请求、paste 读写闭环。
@@ -464,6 +526,50 @@ curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/ap
 curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/api/v1/file/<id>"
 ```
 
+### 4.7 分享（`kvault_manage_share` 对应端点）
+
+同一端点，靠方法与 body 里的 `action` 分流：
+
+```bash
+# 查询当前分享状态（scope: share）
+curl -H "Authorization: Bearer $KVAULT_API_TOKEN" \
+  "https://your-kvault-domain/api/v1/file/<id>/share"
+
+# 创建 / 覆盖（scope: share）
+curl -X PATCH "https://your-kvault-domain/api/v1/file/<id>/share" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"create","slug":"promo","expiresIn":3600,"maxDownloads":5,"password":"s3cret","title":"标题"}'
+
+# 增量修改：只改传入字段（scope: share）
+curl -X PATCH "https://your-kvault-domain/api/v1/file/<id>/share" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"update","expiresIn":7200}'
+# 清除限制：空串 / 0
+curl -X PATCH "https://your-kvault-domain/api/v1/file/<id>/share" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"update","password":"","maxDownloads":0}'
+
+# 取消分享（scope: share）
+curl -X PATCH "https://your-kvault-domain/api/v1/file/<id>/share" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"revoke"}'
+```
+
+`<id>` 可能自身含 `/`（如 `gh:blog/2026/a.png`），但端点尾部固定是 `/share`，服务端会剥掉这一段再解析 ID，因此无需额外转义斜杠（URL 编码整个 ID 即可）。
+
+成功响应含 `links.share` / `links.download`，以及扁平字段 `active` / `shareSlug` / `sharePath` / `shareExpiresAt` / `shareMaxDownloads` / `sharePasswordProtected` / `shareDownloadCount` / `shareTitle` / `shareDescription`。
+
+常见错误码：
+
+| 状态 | `error.code` | 含义 |
+| :--- | :--- | :--- |
+| 400 | `VALIDATION_ERROR` | `action` 非法或请求体不是合法 JSON |
+| 400 | `VALIDATION_FAILED` | 字段值不合法（如 slug 含非法字符、数值为负） |
+| 403 | `TOKEN_SCOPE_DENIED` | Token 缺 `share` scope |
+| 404 | `FILE_NOT_FOUND` | 文件 ID 不存在 |
+| 409 | `SLUG_CONFLICT` | 短链已被**别的**文件占用 |
+| 409 | `SHARE_UNSUPPORTED_STORAGE` | 该存储后端不支持分享 |
+
 ## 5. 其他端点
 
 - `POST /api/v1/paste`（scope: `paste`）：`{"content":"...","language":"text","expires_in":86400,"password":""}` → 201 + `paste{id, language, createdAt, expiresAt, hasPassword}` 与 `links.view / links.raw`。
@@ -475,5 +581,5 @@ curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/ap
 1. Token 明文只在创建/轮换时返回一次，服务端只存哈希；疑似泄露立即 rotate，旧密钥即刻失效。
 2. 禁用的 Token 立即失效，且不能被任何遥测写入"复活"（用量统计与凭据分离存储，60 秒防抖）。
 3. 上传默认拒绝 SVG；URL 导入仅 http(s) + 端口白名单。
-4. 为 Agent 配最小权限：推荐 `upload` scope + `folderPrefix` 策略。
+4. 为 Agent 配最小权限：推荐 `upload` scope + `folderPrefix` 策略。**只在确有必要时才加 `share`**——它能改变已有对象的对外可见性（含给别的文件挂公开短链）。
 5. 浏览器前端直连需配置 `API_CORS_ORIGINS` 白名单；纯服务端调用无需 CORS。

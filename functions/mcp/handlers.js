@@ -41,6 +41,7 @@ import { onRequest as v1Import } from '../api/v1/import.js';
 import { onRequest as v1Files } from '../api/v1/files.js';
 import { onRequest as v1File } from '../api/v1/file/[[path]].js';
 import { onRequest as v1FileInfo } from '../api/v1/file/[[path]]/info.js';
+import { onRequest as v1FileShare } from '../api/v1/file/[[path]]/share.js';
 import { onRequest as v1Paste } from '../api/v1/paste.js';
 import { onRequest as v1Pastes } from '../api/v1/pastes.js';
 import { toolError, toolResult } from './protocol.js';
@@ -359,6 +360,44 @@ async function runDeleteFile(octx, args) {
   return normalizeResult(response, octx, id);
 }
 
+/**
+ * 分享管理：把工具参数翻译成 `PATCH /api/v1/file/:id/share` 的请求体。
+ *
+ * 关键点是**只透传用户真正给了的字段**。v1 端点的增量语义是「字段出现 =
+ * 我要改它」（`0`/空串 = 清除），因此把 `undefined` 也塞进 body 会被误读成
+ * 「清除这项设置」—— 那会让一次「只想改有效期」的调用顺手把密码删掉。
+ * 这正是下面逐个 `hasOwnProperty` 判断存在的原因，也是本函数最容易被改错之处。
+ */
+async function runManageShare(octx, args) {
+  const id = String(args.id ?? '').trim();
+  if (!id) return toolError('VALIDATION_ERROR', 'Field "id" is required.');
+
+  const body = {};
+  const action = String(args.action ?? 'create').trim().toLowerCase();
+  if (action) body.action = action;
+
+  // 字段名与 v1 端点一致（驼峰）；值是「透传」而非「过滤空值」——
+  // 空串在此处是有意义的信号（清除），不能当缺省丢掉。
+  const passthrough = ['slug', 'expiresIn', 'maxDownloads', 'password', 'title', 'description'];
+  for (const key of passthrough) {
+    if (Object.prototype.hasOwnProperty.call(args, key) && args[key] !== undefined && args[key] !== null) {
+      body[key] = args[key];
+    }
+  }
+
+  const path = `/api/v1/file/${encodeURIComponent(id)}/share`;
+  // GET 走查询分支，其余走写分支 —— 与 v1 端点的分流逻辑一致。
+  const method = action === 'get' ? 'GET' : 'PATCH';
+  const response = await v1FileShare(
+    fileRouteContext(octx, id, path, {
+      method,
+      body: method === 'GET' ? null : JSON.stringify(body),
+      headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+    })
+  );
+  return normalizeResult(response, octx, id, { emphasizeDirectLink: true });
+}
+
 async function runCreatePaste(octx, args) {
   const content = String(args.content ?? '');
   if (!content.trim()) {
@@ -419,6 +458,7 @@ export const TOOL_HANDLERS = {
   list_files: runListFiles,
   get_file_info: runGetFileInfo,
   get_file: runGetFile,
+  manage_share: runManageShare,
   delete_file: runDeleteFile,
   create_paste: runCreatePaste,
   list_pastes: runListPastes,

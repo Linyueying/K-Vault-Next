@@ -90,7 +90,7 @@ def make_token(name, scopes):
     # 兼容两种结构：扁平 {token:...} 与包裹 {data:{token:...}}
     return j.get("data", {}).get("token") or j.get("token")
 
-TOKEN = make_token("mcp-e2e-full", ["upload","read","delete","paste"])
+TOKEN = make_token("mcp-e2e-full", ["upload","read","delete","paste","share"])
 print(f"  全权 token: {TOKEN[:32]}..." if TOKEN else "  全权 token 创建失败")
 if not TOKEN:
     raise SystemExit(1)
@@ -141,12 +141,13 @@ log("通知无响应体", raw_body.strip() == b"", f"长度 {len(raw_body)}")
 
 print()
 print("=" * 60)
-print("[4] tools/list：全权 token 应看到 10 个工具")
+print("[4] tools/list：全权 token 应看到全部工具")
 print("=" * 60)
 st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":3,"method":"tools/list"})
 tools = p.get("result",{}).get("tools",[]) if p else []
 log("tools/list → HTTP 200", st == 200, f"实际 {st}")
-log(f"全权 token 看到 {len(tools)} 个工具（期望 10）", len(tools) == 10, "")
+EXPECTED_TOOLS = 11  # 与 functions/utils/runtime-config.js 的 MCP_TOOL_IDS 保持一致
+log(f"全权 token 看到 {len(tools)} 个工具（期望 {EXPECTED_TOOLS}）", len(tools) == EXPECTED_TOOLS, "")
 names_full = sorted(x["name"] for x in tools)
 log("工具名列表", True, ", ".join(names_full))
 log("每个工具都有 inputSchema", all("inputSchema" in x for x in tools))
@@ -162,6 +163,23 @@ names_ro = sorted(x["name"] for x in ro_tools)
 log(f"只读 token 看到 {len(ro_tools)} 个工具（少于 10）", 0 < len(ro_tools) < 10, ", ".join(names_ro))
 log("只读 token 看不到上传工具", "kvault_upload_file" not in names_ro)
 log("只读 token 看不到删除工具", "kvault_delete_file" not in names_ro)
+log("只读 token 看不到分享工具（share scope 未被 upload 吸收）",
+    "kvault_manage_share" not in names_ro)
+log("全权 token 能看到分享工具", "kvault_manage_share" in names_full)
+
+# 只有 upload 的 token：不应顺带获得分享能力（证明 publish 与 write 已拆分）
+UP_TOKEN = make_token("mcp-e2e-upload", ["upload"])
+if UP_TOKEN:
+    st, hd, p, t = rpc(UP_TOKEN, {"jsonrpc":"2.0","id":41,"method":"tools/list"})
+    up_names = sorted(x["name"] for x in (p.get("result",{}).get("tools",[]) if p else []))
+    log("仅 upload 的 token 看不到分享工具（publish 与 write 拆分）",
+        "kvault_manage_share" not in up_names, ", ".join(up_names))
+    # 直接调也应被拒，而不是静默通过
+    st, hd, p, t = rpc(UP_TOKEN, {"jsonrpc":"2.0","id":42,"method":"tools/call",
+      "params":{"name":"kvault_manage_share","arguments":{"id":"r2:nope"}}})
+    res = p.get("result",{}) if p else {}
+    log("仅 upload 的 token 直接调分享工具 → isError=true",
+        res.get("isError") is True, f"content={t[:200]}")
 
 print()
 print("=" * 60)
@@ -193,7 +211,9 @@ print("=" * 60)
 print("[9] tools/call：kvault_upload（真实写入 R2）")
 print("=" * 60)
 payload = base64.b64encode("Hello from MCP e2e test! 你好".encode()).decode()
-FILE_ID = None
+# 允许外部预置一个已存在的文件 ID（本地 upload 链路挂起时，用它把 share 往返跑完整）。
+# 例如：先用 CLI 上传一个文件，再 `MCP_E2E_FILE_ID=r2:xxx python3 scripts/test-mcp-e2e.py`
+FILE_ID = os.environ.get("MCP_E2E_FILE_ID") or None
 UPLOAD_HUNG = False
 try:
     st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":8,"method":"tools/call",
@@ -260,6 +280,82 @@ if FILE_ID:
         f"st={st} isError={res.get('isError')}")
     txt = json.dumps(res.get("content",[]), ensure_ascii=False)
     log("返回链接而非原始二进制", "http" in txt or "link" in txt.lower(), txt[:200])
+
+print()
+print("=" * 60)
+print("[12b] tools/call：kvault_manage_share（对已有文件建 / 查 / 改 / 撤分享）")
+print("=" * 60)
+SHARE_FILE_ID = None
+if FILE_ID:
+    SHARE_FILE_ID = FILE_ID
+else:
+    # upload 链路在本地会挂起，这里退化用「直接造一个 R2 对象 + 走 REST 上传」太绕，
+    # 改为通过 share 工具对不存在的文件调用，至少覆盖参数校验与错误映射。
+    SHARE_FILE_ID = "r2:e2e-no-such-file.txt"
+
+if FILE_ID:
+    # create：建分享，带 slug / 有效期 / 次数
+    st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":111,"method":"tools/call",
+      "params":{"name":"kvault_manage_share","arguments":{
+        "id": SHARE_FILE_ID, "action":"create",
+        "slug":"e2e-share","expiresIn":3600,"maxDownloads":3,"title":"E2E 分享"}}})
+    res = p.get("result",{}) if p else {}
+    log("manage_share create → HTTP 200 且 isError=false",
+        st == 200 and res.get("isError") is False,
+        f"st={st} isError={res.get('isError')} {t[:200]}")
+    if not res.get("isError"):
+        inner = json.loads(res["content"][0]["text"])
+        flat = inner.get("data", inner)
+        log("create 返回 active=true", flat.get("active") is True, json.dumps(flat, ensure_ascii=False)[:200])
+        log("create 返回 shareSlug", flat.get("shareSlug") == "e2e-share", str(flat.get("shareSlug")))
+        log("create 返回 links.share", bool((flat.get("links") or {}).get("share")),
+            json.dumps(flat.get("links") or {}, ensure_ascii=False))
+        log("create 返回顶层 directLink",
+            bool(flat.get("directLink")), str(flat.get("directLink"))[:120])
+
+    # update：只传 expiresIn，其余必须保持不变（增量语义的关键回归）
+    st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":112,"method":"tools/call",
+      "params":{"name":"kvault_manage_share","arguments":{
+        "id": SHARE_FILE_ID, "action":"update", "expiresIn":7200}}})
+    res = p.get("result",{}) if p else {}
+    log("manage_share update → isError=false", res.get("isError") is False, t[:200])
+    if not res.get("isError"):
+        flat = json.loads(res["content"][0]["text"])
+        flat = flat.get("data", flat)
+        log("update 只改 expiresIn（未传字段被保留：maxDownloads=3）",
+            flat.get("shareMaxDownloads") == 3, f"maxDownloads={flat.get('shareMaxDownloads')}")
+        log("update 未清掉 slug", flat.get("shareSlug") == "e2e-share", str(flat.get("shareSlug")))
+        log("update 未清掉 title", flat.get("shareTitle") == "E2E 分享", str(flat.get("shareTitle")))
+
+    # get：查询不改动
+    st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":113,"method":"tools/call",
+      "params":{"name":"kvault_manage_share","arguments":{"id": SHARE_FILE_ID, "action":"get"}}})
+    res = p.get("result",{}) if p else {}
+    log("manage_share get → isError=false", res.get("isError") is False, t[:200])
+
+    # revoke：取消分享
+    st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":114,"method":"tools/call",
+      "params":{"name":"kvault_manage_share","arguments":{"id": SHARE_FILE_ID, "action":"revoke"}}})
+    res = p.get("result",{}) if p else {}
+    log("manage_share revoke → isError=false", res.get("isError") is False, t[:200])
+    if not res.get("isError"):
+        flat = json.loads(res["content"][0]["text"])
+        flat = flat.get("data", flat)
+        log("revoke 后 active=false", flat.get("active") is False, json.dumps(flat, ensure_ascii=False)[:200])
+else:
+    log("manage_share 端到端跳过（upload 链路在本地挂起，无 FILE_ID）", False)
+
+# 非法 action → 业务层错误（协议仍合法）
+st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":115,"method":"tools/call",
+  "params":{"name":"kvault_manage_share","arguments":{"id": SHARE_FILE_ID, "action":"destroy"}}})
+res = p.get("result",{}) if p else {}
+log("manage_share 非法 action → isError=true", res.get("isError") is True, f"content={t[:200]}")
+
+# 缺 id → 业务层校验失败
+st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":116,"method":"tools/call",
+  "params":{"name":"kvault_manage_share","arguments":{"action":"get"}}})
+res = p.get("result",{}) if p else {}
+log("manage_share 缺 id → isError=true", res.get("isError") is True, f"content={t[:200]}")
 
 print()
 print("[13] tools/call：kvault_create_paste")
@@ -460,7 +556,7 @@ has_mcp = bool(view and isinstance(view.get("mcp"), dict))
 log("设置视图含 mcp 分组", st == 200 and has_mcp, f"st={st}")
 if has_mcp:
     log("mcp 分组含 tools 目录（前端不用自己维护清单）",
-        isinstance(view["mcp"].get("tools"), list) and len(view["mcp"]["tools"]) == 10,
+        isinstance(view["mcp"].get("tools"), list) and len(view["mcp"]["tools"]) == EXPECTED_TOOLS,
         f"tools={len(view['mcp'].get('tools') or [])}")
     log("mcp 含 envBaseline（供「来自环境变量」标记）",
         isinstance(view.get("mcpEnvBaseline"), dict))
@@ -500,7 +596,7 @@ names = [x["name"] for x in (p or {}).get("result",{}).get("tools",[])] if p els
 log("tools/list 不含被禁用的工具", all(d not in names for d in DISABLED),
     f"实际命中 {[d for d in DISABLED if d in names]}")
 log("tools/list 仍含未被禁用的工具", "kvault_list_files" in names, f"共 {len(names)} 个")
-log("tools/list 数量 = 10 - 2", len(names) == 8, f"实际 {len(names)}")
+log(f"tools/list 数量 = {EXPECTED_TOOLS} - 2", len(names) == EXPECTED_TOOLS - 2, f"实际 {len(names)}")
 
 # 硬编码工具名直接调用：应被拒绝（TOOL_DISABLED，业务错误 isError=true）
 st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":1,"method":"tools/call",
@@ -544,7 +640,7 @@ except RuntimeError as e:
 # 重置后工具应全部恢复
 st, hd, p, t = rpc(TOKEN, {"jsonrpc":"2.0","id":1,"method":"tools/list"})
 names_after = [x["name"] for x in (p or {}).get("result",{}).get("tools",[])] if p else []
-log("重置后 tools/list 恢复全部 10 个工具", len(names_after) == 10, f"实际 {len(names_after)}")
+log(f"重置后 tools/list 恢复全部 {EXPECTED_TOOLS} 个工具", len(names_after) == EXPECTED_TOOLS, f"实际 {len(names_after)}")
 
 print()
 print("=" * 60)

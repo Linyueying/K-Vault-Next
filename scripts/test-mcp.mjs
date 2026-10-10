@@ -84,7 +84,10 @@ function makeKvStub(store = new Map()) {
 }
 
 const READ_TOKEN = { id: 'tok_read', scopes: ['read'] };
-const FULL_TOKEN = { id: 'tok_full', scopes: ['upload', 'read', 'delete', 'paste'] };
+const FULL_TOKEN = { id: 'tok_full', scopes: ['upload', 'read', 'delete', 'paste', 'share'] };
+
+/** 工具总数以 MCP_TOOL_IDS 为唯一事实来源，避免各处硬编码数字随新增工具漂移。 */
+const TOTAL_TOOLS = MCP_TOOL_IDS.length;
 
 console.log('\n[1] JSON-RPC 信封解析');
 {
@@ -182,7 +185,7 @@ console.log('\n[7] MCP 开关（fail-closed）');
 console.log('\n[8] 工具定义表完整性');
 {
   const names = TOOL_DEFINITIONS.map((t) => t.name);
-  check('共 10 个工具', TOOL_DEFINITIONS.length === 10, `实际 ${TOOL_DEFINITIONS.length}`);
+  check(`共 ${TOTAL_TOOLS} 个工具`, TOOL_DEFINITIONS.length === TOTAL_TOOLS, `实际 ${TOOL_DEFINITIONS.length}`);
   check('全部 kvault_ 前缀', names.every((n) => n.startsWith('kvault_')));
   check('工具名无重复', new Set(names).size === names.length);
 
@@ -208,7 +211,7 @@ console.log('\n[9] tools/list 按 scope 过滤');
   check('read token 含 token_info（@me）', readTools.includes('kvault_token_info'));
 
   const fullTools = listToolsFor(FULL_TOKEN).map((t) => t.name);
-  check('全量 token 列出全部 10 个', fullTools.length === 10, `实际 ${fullTools.length}`);
+  check(`全量 token 列出全部 ${TOTAL_TOOLS} 个`, fullTools.length === TOTAL_TOOLS, `实际 ${fullTools.length}`);
 
   const noTools = listToolsFor({ scopes: [] }).map((t) => t.name);
   check('无 scope token 仍能看到公开与 @me 工具',
@@ -299,7 +302,7 @@ console.log('\n[14] 上游响应归一化');
   // normalizeResult 未导出，通过 handlers 的间接行为验证会更重；
   // 这里改为验证它的两个可观察契约：JSON 透传 与 二进制不改写字节。
   const { TOOL_HANDLERS: _h } = await import('../functions/mcp/handlers.js');
-  check('handlers 导出 10 个执行函数', Object.keys(_h).length === 10,
+  check(`handlers 导出 ${TOTAL_TOOLS} 个执行函数`, Object.keys(_h).length === TOTAL_TOOLS,
     Object.keys(_h).join(','));
   check('handler key 与定义表 handler 字段一一对应',
     TOOL_DEFINITIONS.every((t) => typeof _h[t.handler] === 'function'));
@@ -326,6 +329,31 @@ console.log('\n[15] 工具描述包含关键引导（防模型踩坑）');
   const getFile = findTool('kvault_get_file');
   check('取文件工具说明不内联二进制',
     /不内联/.test(getFile.description.replace(/\*\*/g, '')) || /不内联/.test(getFile.description));
+
+  // 分享管理工具：描述必须把「增量语义」讲清楚 —— 这是最容易被模型用错的
+  // 地方（它可能以为「不传 password」等于「清空密码」，而实际是「保持」）。
+  const shareTool = findTool('kvault_manage_share');
+  check('分享工具存在', Boolean(shareTool));
+  check('分享工具要求 share scope', shareTool?.requiredScope === 'share', String(shareTool?.requiredScope));
+  check('分享工具说明「不传 = 保持不变」',
+    /不传.*保持不变|保持不变/.test(shareTool.description.replace(/\*\*/g, '')), shareTool.description.slice(0, 200));
+  check('分享工具列出四种 action',
+    ['create', 'update', 'revoke', 'get'].every((a) => shareTool.inputSchema.properties.action.enum.includes(a)),
+    JSON.stringify(shareTool.inputSchema.properties.action.enum));
+  check('分享工具 action 有 enum 约束（防模型编造动作）',
+    Array.isArray(shareTool.inputSchema.properties.action.enum));
+  check('分享工具接受 id 作为必填', shareTool.inputSchema.required.includes('id'), JSON.stringify(shareTool.inputSchema.required));
+  check('分享工具说明返回 links.share',
+    /links\.share/.test(shareTool.description), shareTool.description.slice(-160));
+
+  // scope 过滤：只有 read 的 token 不应看到分享工具（它能改公开可见性）
+  const readOnly = listToolsFor({ scopes: ['read'] }).map((t) => t.name);
+  check('read token 看不到分享工具（防越权发布）', !readOnly.includes('kvault_manage_share'));
+  const uploadOnly = listToolsFor({ scopes: ['upload'] }).map((t) => t.name);
+  check('upload token 也看不到分享工具（两者独立）', !uploadOnly.includes('kvault_manage_share'));
+  const shareOnly = listToolsFor({ scopes: ['share'] }).map((t) => t.name);
+  check('share token 能看到分享工具', shareOnly.includes('kvault_manage_share'));
+  check('share token 看不到上传工具', !shareOnly.includes('kvault_upload_file'));
 }
 
 console.log('\n[15b] 上传响应强调 directLink（MCP 侧包装）');
@@ -390,7 +418,7 @@ console.log('\n[16] 握手方法免鉴权：方法级判定表');
 
 console.log('\n[17] 工具级开关：listToolsFor 过滤');
 {
-  const fullToken = { scopes: ['upload', 'read', 'delete', 'paste'] };
+  const fullToken = { scopes: ['upload', 'read', 'delete', 'paste', 'share'] };
 
   const all = listToolsFor(fullToken, {}, []);
   check('未禁用时列出全部工具', all.length === TOOL_DEFINITIONS.length, `实际 ${all.length}`);

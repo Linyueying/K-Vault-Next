@@ -34,6 +34,10 @@
  *   [10] renderResult —— human / json / quiet 三种形态
  *   [11] uploadOnce / runUpload —— 注入 fetch 替身，断言请求与错误隔离
  *   [12] main —— 端到端（替身 fetch）退出码与输出流向
+ *   [13] share 参数层 —— buildShareBody / parseNonNegative / validateShareOptions
+ *   [14] shareOnce —— 注入 fetch 替身，断言 GET vs PATCH 与请求体形状
+ *   [15] renderShareResult —— human / json / quiet 三种形态
+ *   [16] main share 子命令 —— 端到端（替身 fetch）退出码与输出流向
  *
  * 运行：node scripts/test-kvault-upload.mjs
  */
@@ -48,6 +52,7 @@ import {
   MAX_UPLOAD_BYTES,
   STDIN_FILE_NAME,
   buildHeaders,
+  buildShareBody,
   buildUploadForm,
   checkSizeLimit,
   describeFailure,
@@ -60,13 +65,17 @@ import {
   main,
   normalizeEndpoint,
   parseCliArgs,
+  parseNonNegative,
   pickInt,
   renderResult,
+  renderShareResult,
   resolveOptions,
   runUpload,
   sha256Hex,
+  shareOnce,
   uploadOnce,
   validateOptions,
+  validateShareOptions,
 } from './kvault-upload.mjs';
 
 let pass = 0;
@@ -146,6 +155,27 @@ function jsonResponse(status, payload) {
     async json() {
       return payload;
     },
+  };
+}
+
+/** 造一个成功的 share 端点响应。 */
+function okSharePayload(overrides = {}) {
+  return {
+    success: true,
+    action: 'create',
+    fileId: 'r2:abc.png',
+    active: true,
+    shareSlug: 'my-link',
+    shareExpiresAt: 1791650000000,
+    shareMaxDownloads: 5,
+    sharePasswordProtected: true,
+    shareDownloadCount: 2,
+    shareTitle: '标题',
+    links: {
+      share: 'https://kv.example.com/s/my-link',
+      download: 'https://kv.example.com/file/r2%3Aabc.png',
+    },
+    ...overrides,
   };
 }
 
@@ -853,6 +883,415 @@ console.log('\n[12] main 端到端');
   }
 
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ==========================================================================
+ * [13] share 参数层
+ *
+ * 这一组的核心是「增量语义」：字段**缺席** = 保持不变，字段**存在但为空** =
+ * 清除。CLI 侧最容易犯的错就是沿用 upload 那套「空串视同未提供」的归一化，
+ * 结果用户永远清不掉密码。所以这里专门针对「空串必须保留」下断言。
+ * ========================================================================== */
+console.log('\n[13] buildShareBody / parseNonNegative / validateShareOptions');
+{
+  // 默认 action = create
+  const b1 = buildShareBody({ action: undefined });
+  eq('缺省 action 为 create', b1.action, 'create');
+  check('未传 present 时只有 action', Object.keys(b1).length === 1, JSON.stringify(b1));
+
+  // 空串必须作为有效载荷发送（= 清除），不能被丢掉
+  const b2 = buildShareBody({
+    action: 'update',
+    slug: 'x',
+    password: '',
+    title: '',
+    desc: '',
+    present: { slug: true, password: true, title: true, desc: true },
+  });
+  eq('空串 password 被保留在 body', b2.password, '');
+  eq('空串 title 被保留在 body', b2.title, '');
+  eq('空串 description 被保留在 body', b2.description, '');
+
+  // present 为 false 的字段必须完全不出现
+  const b3 = buildShareBody({
+    action: 'update',
+    slug: 'kept',
+    password: 'should-not-appear',
+    present: { slug: true, password: false },
+  });
+  eq('present 为 false 的字段不发送', b3.password, undefined);
+  check('未 present 的字段不在 body key 中', !('password' in b3), JSON.stringify(b3));
+  check('present 的字段在 body 中', 'slug' in b3, JSON.stringify(b3));
+
+  // 数值：0 是有效值（清除），不是「未传」
+  const b4 = buildShareBody({
+    action: 'update',
+    rawExpiresIn: '0',
+    rawMaxDownloads: '0',
+    present: { expiresIn: true, maxDownloads: true },
+  });
+  eq('expiresIn=0 被发送', b4.expiresIn, 0);
+  eq('maxDownloads=0 被发送', b4.maxDownloads, 0);
+
+  // 数值：给出真实值
+  const b5 = buildShareBody({
+    rawExpiresIn: '3600',
+    rawMaxDownloads: '12',
+    present: { expiresIn: true, maxDownloads: true },
+  });
+  eq('expiresIn 解析为正整数', b5.expiresIn, 3600);
+  eq('maxDownloads 解析为正整数', b5.maxDownloads, 12);
+
+  // action 统一小写
+  eq('action 被规范化小写', buildShareBody({ action: 'REVOKE' }).action, 'revoke');
+
+  // parseNonNegative
+  eq('parseNonNegative("0")', parseNonNegative('0'), 0);
+  eq('parseNonNegative(3600)', parseNonNegative(3600), 3600);
+  eq('parseNonNegative("") 视作 0', parseNonNegative(''), 0);
+  eq('parseNonNegative(null) 视作 0', parseNonNegative(null), 0);
+  eq('parseNonNegative("abc") 为 null', parseNonNegative('abc'), null);
+  eq('parseNonNegative("-5") 为 null', parseNonNegative('-5'), null);
+
+  // validateShareOptions —— 合法
+  check('默认参数合法', validateShareOptions({ action: 'create' }).ok);
+  check(
+    'create + 数值合法',
+    validateShareOptions({
+      action: 'create',
+      rawExpiresIn: '60',
+      rawMaxDownloads: '3',
+      present: { expiresIn: true, maxDownloads: true },
+    }).ok,
+  );
+
+  // validateShareOptions —— 非法 action
+  const vBad = validateShareOptions({ action: 'destroy' });
+  check('未知 action 被拒', !vBad.ok, JSON.stringify(vBad));
+  check('错误信息里提到 destroy', vBad.error.includes('destroy'), vBad.error);
+
+  // validateShareOptions —— 非法数值（必须能区分「没传」和「传了 abc」）
+  const vNum = validateShareOptions({
+    action: 'update',
+    rawExpiresIn: 'abc',
+    present: { expiresIn: true },
+  });
+  check('非法 expires-in 被拒', !vNum.ok, JSON.stringify(vNum));
+  const vNum2 = validateShareOptions({
+    action: 'update',
+    rawMaxDownloads: '-1',
+    present: { maxDownloads: true },
+  });
+  check('负数 max-downloads 被拒', !vNum2.ok, JSON.stringify(vNum2));
+  // 关键回归：没传 expires-in 时不应报错（曾被误判成非法）
+  check(
+    '未传 expires-in 不报错（回归）',
+    validateShareOptions({ action: 'create', present: {} }).ok,
+  );
+
+  // validateShareOptions —— revoke / get 不接受分享参数
+  const vRevoke = validateShareOptions({
+    action: 'revoke',
+    present: { slug: true },
+    slug: 'nope',
+  });
+  check('revoke + 分享参数被拒', !vRevoke.ok, JSON.stringify(vRevoke));
+  const vGet = validateShareOptions({
+    action: 'get',
+    present: { expiresIn: true },
+    rawExpiresIn: '60',
+  });
+  check('get + 分享参数被拒', !vGet.ok, JSON.stringify(vGet));
+  check('revoke 无参数时合法', validateShareOptions({ action: 'revoke', present: {} }).ok);
+}
+
+/* ==========================================================================
+ * [14] shareOnce
+ * ========================================================================== */
+console.log('\n[14] shareOnce');
+{
+  // get → GET，无 body
+  const f1 = makeFetch(jsonResponse(200, okSharePayload({ action: 'get' })));
+  const r1 = await shareOnce('r2:abc.png', {
+    endpoint: 'https://kv.example.com',
+    token: 'kvault_a_b',
+    action: 'get',
+  }, { fetchImpl: f1 });
+  check('get 成功', r1.ok, JSON.stringify(r1));
+  eq('get 使用 GET', f1.calls[0].options.method, 'GET');
+  check('get 不带 body', f1.calls[0].options.body === undefined, String(f1.calls[0].options.body));
+  check(
+    'get 不带 Content-Type',
+    !('Content-Type' in (f1.calls[0].options.headers || {})),
+    JSON.stringify(f1.calls[0].options.headers),
+  );
+  check(
+    'URL 含 /api/v1/file/.../share',
+    f1.calls[0].url === 'https://kv.example.com/api/v1/file/r2%3Aabc.png/share',
+    f1.calls[0].url,
+  );
+
+  // create → PATCH，带 JSON body
+  const f2 = makeFetch(jsonResponse(200, okSharePayload()));
+  const r2 = await shareOnce('r2:abc.png', {
+    endpoint: 'https://kv.example.com',
+    token: 'kvault_a_b',
+    action: 'create',
+    slug: 'my-link',
+    rawExpiresIn: '3600',
+    present: { slug: true, expiresIn: true },
+  }, { fetchImpl: f2 });
+  check('create 成功', r2.ok, JSON.stringify(r2));
+  eq('create 使用 PATCH', f2.calls[0].options.method, 'PATCH');
+  const sent = JSON.parse(f2.calls[0].options.body);
+  eq('body.action', sent.action, 'create');
+  eq('body.slug', sent.slug, 'my-link');
+  eq('body.expiresIn', sent.expiresIn, 3600);
+  check('body 不含未传字段 maxDownloads', !('maxDownloads' in sent), JSON.stringify(sent));
+  eq(
+    'Content-Type 为 JSON',
+    f2.calls[0].options.headers['Content-Type'],
+    'application/json',
+  );
+
+  // 文件 ID 含斜杠时仍被正确编码
+  const f2b = makeFetch(jsonResponse(200, okSharePayload()));
+  await shareOnce('gh:blog/2026/a b.png', {
+    endpoint: 'https://kv.example.com',
+    token: 'kvault_a_b',
+    action: 'get',
+  }, { fetchImpl: f2b });
+  check(
+    'ID 中的斜杠与空格被编码',
+    f2b.calls[0].url.includes('gh%3Ablog%2F2026%2Fa%20b.png'),
+    f2b.calls[0].url,
+  );
+
+  // 服务端业务失败（HTTP 200 但 success:false）
+  const f3 = makeFetch(
+    jsonResponse(200, { success: false, error: { code: 'SLUG_CONFLICT', message: '短链已被占用。' } }),
+  );
+  const r3 = await shareOnce('r2:abc.png', {
+    endpoint: 'https://kv.example.com',
+    token: 'kvault_a_b',
+    action: 'create',
+  }, { fetchImpl: f3 });
+  check('业务失败被识别', !r3.ok, JSON.stringify(r3));
+  check('错误信息来自服务端', r3.message.includes('短链'), r3.message);
+
+  // 404
+  const f4 = makeFetch(
+    jsonResponse(404, { success: false, error: { code: 'FILE_NOT_FOUND', message: '未找到文件。' } }),
+  );
+  const r4 = await shareOnce('r2:nope.png', {
+    endpoint: 'https://kv.example.com',
+    token: 'kvault_a_b',
+    action: 'get',
+  }, { fetchImpl: f4 });
+  eq('404 保留状态码', r4.status, 404);
+
+  // 网络异常被捕获而不是抛出
+  const f5 = makeFetch(new Error('ECONNREFUSED'));
+  const r5 = await shareOnce('r2:abc.png', {
+    endpoint: 'https://kv.example.com',
+    token: 'kvault_a_b',
+    action: 'get',
+  }, { fetchImpl: f5 });
+  check('网络异常不抛出', !r5.ok && r5.status === 0, JSON.stringify(r5));
+  check('网络异常信息可读', r5.message.includes('网络请求失败'), r5.message);
+}
+
+/* ==========================================================================
+ * [15] renderShareResult
+ * ========================================================================== */
+console.log('\n[15] renderShareResult');
+{
+  const ok = { ok: true, fileId: 'r2:abc.png', action: 'create', status: 200, payload: okSharePayload() };
+
+  const human = renderShareResult(ok, {});
+  check('human 含文件 ID', human.includes('r2:abc.png'), human);
+  check('human 含分享链接', human.includes('https://kv.example.com/s/my-link'), human);
+  check('human 含下载直链', human.includes('https://kv.example.com/file/r2%3Aabc.png'), human);
+  check('human 含次数', human.includes('5'), human);
+  check('human 含密码状态', human.includes('已设置'), human);
+  check('human 含已下载次数', human.includes('已下载 2'), human);
+
+  const quiet = renderShareResult(ok, { quiet: true });
+  eq('quiet 只输出分享链接', quiet, 'https://kv.example.com/s/my-link');
+
+  const json = JSON.parse(renderShareResult(ok, { json: true }));
+  eq('json.success', json.success, true);
+  eq('json.active', json.active, true);
+  eq('json.shareSlug', json.shareSlug, 'my-link');
+  eq('json.shareMaxDownloads', json.shareMaxDownloads, 5);
+  eq('json.sharePasswordProtected', json.sharePasswordProtected, true);
+  eq('json.directLink', json.directLink, 'https://kv.example.com/file/r2%3Aabc.png');
+  eq('json.links.share', json.links.share, 'https://kv.example.com/s/my-link');
+
+  // revoked 形态
+  const revoked = renderShareResult(
+    {
+      ok: true,
+      fileId: 'r2:abc.png',
+      action: 'revoke',
+      status: 200,
+      payload: okSharePayload({ action: 'revoke', active: false, revoked: true, shareSlug: '' }),
+    },
+    {},
+  );
+  check('revoke 文案出现', revoked.includes('分享已取消'), revoked);
+
+  // 未开启分享（get 到一个没配置的文件）
+  const inactive = renderShareResult(
+    {
+      ok: true,
+      fileId: 'r2:abc.png',
+      action: 'get',
+      status: 200,
+      payload: { success: true, action: 'get', active: false, links: { download: 'https://kv.example.com/file/x' } },
+    },
+    {},
+  );
+  check('无分享时有明确提示', inactive.includes('当前无分享配置'), inactive);
+
+  // quiet 在无分享时回落到直链（保证 `$(... -q)` 总有可用地址）
+  const quietInactive = renderShareResult(
+    {
+      ok: true,
+      fileId: 'r2:abc.png',
+      action: 'get',
+      status: 200,
+      payload: { success: true, action: 'get', active: false, links: { download: 'https://kv.example.com/file/x' } },
+    },
+    { quiet: true },
+  );
+  eq('quiet 无分享时回落直链', quietInactive, 'https://kv.example.com/file/x');
+
+  // 失败形态
+  const failedHuman = renderShareResult(
+    { ok: false, fileId: 'r2:abc.png', action: 'create', status: 409, payload: { error: { code: 'SLUG_CONFLICT' } }, message: '短链已被占用。' },
+    {},
+  );
+  check('失败 human 含 ✗', failedHuman.includes('✗'), failedHuman);
+  check('失败 human 含原因', failedHuman.includes('短链已被占用'), failedHuman);
+
+  const failedJson = JSON.parse(
+    renderShareResult(
+      { ok: false, fileId: 'r2:abc.png', status: 409, payload: { error: { code: 'SLUG_CONFLICT', message: 'x' } }, message: '短链已被占用。' },
+      { json: true },
+    ),
+  );
+  eq('失败 json.success', failedJson.success, false);
+  eq('失败 json.status', failedJson.status, 409);
+  eq('失败 json.error.code', failedJson.error.code, 'SLUG_CONFLICT');
+}
+
+/* ==========================================================================
+ * [16] main share 子命令
+ * ========================================================================== */
+console.log('\n[16] main share 子命令');
+{
+  const env = { KVAULT_ENDPOINT: 'https://kv.example.com', KVAULT_TOKEN: 'kvault_a_b' };
+
+  // 成功
+  {
+    const io = makeIo();
+    const f = makeFetch(jsonResponse(200, okSharePayload()));
+    const code = await main(['share', 'r2:abc.png', '--slug', 'my-link'], {
+      ...io,
+      env,
+      fetchImpl: f,
+    });
+    eq('share 成功退出 0', code, EXIT_OK);
+    check('标准输出含 ✓', io.outText().includes('✓'), io.outText());
+    check('stderr 为空', io.errText() === '', io.errText());
+    eq('发出的方法为 PATCH', f.calls[0].options.method, 'PATCH');
+  }
+
+  // 缺文件 ID
+  {
+    const io = makeIo();
+    const code = await main(['share'], { ...io, env, fetchImpl: makeFetch(jsonResponse(200, okSharePayload())) });
+    eq('缺文件 ID 退出 2', code, EXIT_USAGE);
+    check('stderr 说明用法', io.errText().includes('没有指定文件 ID'), io.errText());
+  }
+
+  // 多个文件 ID
+  {
+    const io = makeIo();
+    const code = await main(['share', 'a.png', 'b.png'], {
+      ...io,
+      env,
+      fetchImpl: makeFetch(jsonResponse(200, okSharePayload())),
+    });
+    eq('多个 ID 退出 2', code, EXIT_USAGE);
+    check('stderr 说明一次只能一个', io.errText().includes('一次只能处理一个'), io.errText());
+  }
+
+  // 非法 action
+  {
+    const io = makeIo();
+    const code = await main(['share', 'r2:abc.png', '--action', 'destroy'], {
+      ...io,
+      env,
+      fetchImpl: makeFetch(jsonResponse(200, okSharePayload())),
+    });
+    eq('非法 action 退出 2', code, EXIT_USAGE);
+    check('stderr 提到 destroy', io.errText().includes('destroy'), io.errText());
+  }
+
+  // 服务端失败 → 退出 1，且错误写 stderr
+  {
+    const io = makeIo();
+    const code = await main(['share', 'r2:abc.png', '--slug', 'taken'], {
+      ...io,
+      env,
+      fetchImpl: makeFetch(
+        jsonResponse(409, { success: false, error: { code: 'SLUG_CONFLICT', message: '短链已被占用。' } }),
+      ),
+    });
+    eq('服务端失败退出 1', code, EXIT_UPLOAD_FAILED);
+    check('错误写 stderr', io.errText().includes('✗'), io.errText());
+    check('stderr 含 HTTP 状态', io.errText().includes('409'), io.errText());
+  }
+
+  // --quiet 只吐链接（可用于 `LINK=$(...)`）
+  {
+    const io = makeIo();
+    const code = await main(['share', 'r2:abc.png', '--action', 'get', '--quiet'], {
+      ...io,
+      env,
+      fetchImpl: makeFetch(jsonResponse(200, okSharePayload({ action: 'get' }))),
+    });
+    eq('quiet 退出 0', code, EXIT_OK);
+    eq('quiet 输出仅一行链接', io.outText().trim(), 'https://kv.example.com/s/my-link');
+  }
+
+  // --json 可被解析
+  {
+    const io = makeIo();
+    const code = await main(['share', 'r2:abc.png', '--action', 'create', '--json'], {
+      ...io,
+      env,
+      fetchImpl: makeFetch(jsonResponse(200, okSharePayload())),
+    });
+    eq('json 退出 0', code, EXIT_OK);
+    const parsed = JSON.parse(io.outText());
+    eq('json 可解析且有 shareSlug', parsed.shareSlug, 'my-link');
+  }
+
+  // revoke 传分享参数 → 用法错，且不发请求
+  {
+    const io = makeIo();
+    const f = makeFetch(jsonResponse(200, okSharePayload()));
+    const code = await main(['share', 'r2:abc.png', '--action', 'revoke', '--slug', 'x'], {
+      ...io,
+      env,
+      fetchImpl: f,
+    });
+    eq('revoke+参数退出 2', code, EXIT_USAGE);
+    eq('未发出任何请求', f.calls.length, 0);
+  }
 }
 
 /* ==========================================================================

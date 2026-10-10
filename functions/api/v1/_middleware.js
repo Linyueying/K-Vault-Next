@@ -36,6 +36,17 @@ function resolveRequiredScope(request) {
   // `/api/v1/file/a/b` matched nothing and slipped through unauthenticated.
   // Any other method still needs a valid token.
   if (subPath === '/file' || subPath.startsWith('/file/')) {
+    // 分享配置的读写单独要求 `share` scope —— 它能改变一个文件「是否对外
+    // 可见」，与单纯读取元信息不是一回事。放在下面的通配分支之前判定，
+    // 否则会被 `@me` 接走（任何有效 Token 都能改分享，等于没设防）。
+    //
+    // 匹配 `/file/<id>/share`：id 可能含斜杠，因此只锚定结尾的 `/share`。
+    if (/\/share\/?$/.test(subPath)) {
+      if (isReadMethod) return 'share';
+      if (method === 'PATCH' || method === 'POST' || method === 'PUT') return 'share';
+      if (method === 'DELETE') return 'share';
+      return '@me';
+    }
     if (isReadMethod) return 'read';
     if (method === 'DELETE') return 'delete';
     return '@me';

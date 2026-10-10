@@ -4345,7 +4345,8 @@ const __kvApp = Vue.createApp({
       { value:'upload', label:'上传', desc:'写入新文件（POST /api/v1/upload、/import）' },
       { value:'read',   label:'读取', desc:'列出文件、下载、查询元信息与粘贴' },
       { value:'delete', label:'删除', desc:'删除文件与粘贴' },
-      { value:'paste',  label:'粘贴', desc:'创建文本粘贴' }
+      { value:'paste',  label:'粘贴', desc:'创建文本粘贴' },
+      { value:'share',  label:'分享', desc:'为已有文件创建 / 修改 / 取消分享链接' }
     ],
     tokenPolicyStorages: ['telegram','r2','s3','discord','huggingface','webdav','github'],
     tokenForm: {
@@ -6643,6 +6644,7 @@ const __kvApp = Vue.createApp({
         kvault_list_files:    { label:'列出文件',         scope:'read' },
         kvault_get_file_info: { label:'查看文件详情',     scope:'read' },
         kvault_get_file:      { label:'下载文件内容',     scope:'read' },
+        kvault_manage_share:  { label:'管理分享链接',     scope:'share' },
         kvault_delete_file:   { label:'删除文件',         scope:'delete' },
         kvault_create_paste:  { label:'创建文本粘贴',     scope:'paste' },
         kvault_list_pastes:   { label:'列出文本粘贴',     scope:'read' }

@@ -55,7 +55,23 @@ import {
 export const TOKEN_PREFIX = 'kvault_';
 const TOKEN_KEY_PREFIX = 'api_token:';
 const STAT_KEY_PREFIX = 'token_stat:';
-const VALID_SCOPES = new Set(['upload', 'read', 'delete', 'paste']);
+/**
+ * 合法 scope 集合。
+ *
+ * `share` 是后加的，语义上独立于 `upload`：
+ *   · `upload` 管「把内容放进存储」；
+ *   · `share`  管「把已有内容对外开放」—— 包括设置/修改/取消分享链接。
+ *
+ * 之所以不让 `upload` 顺带覆盖分享，是因为两者风险面不同：一个只能提交 Token
+ * 的 Agent 若同时能随意把**任意已有文件**（包括别人的、历史上传的）开放成
+ * 公开链接，等于把「写入」权限悄悄提升成了「对外发布」权限。拆开后可以做到
+ * 「只让 Agent 传新图、不许它改任何已有文件的分享状态」。
+ *
+ * ⚠️ 兼容性：新增 scope 后，**既有 Token 一律不含它**（scope 是白名单而非
+ * 黑名单），因此它们调用分享类工具会收到 `TOKEN_SCOPE_DENIED`。这是刻意的
+ * fail-closed —— 宁可让人去后台勾一下，也不要默认把发布能力发给所有旧 Token。
+ */
+const VALID_SCOPES = new Set(['upload', 'read', 'delete', 'paste', 'share']);
 export const VALID_STORAGES = ['telegram', 'r2', 's3', 'discord', 'huggingface', 'webdav', 'github'];
 const TOKEN_ID_LENGTH = 12;
 const TOKEN_SECRET_LENGTH = 40;

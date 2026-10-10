@@ -147,6 +147,7 @@ export const MCP_TOOL_IDS = [
   'kvault_list_files',
   'kvault_get_file_info',
   'kvault_get_file',
+  'kvault_manage_share',
   'kvault_delete_file',
   'kvault_create_paste',
   'kvault_list_pastes'
