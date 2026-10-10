@@ -49,6 +49,7 @@ import { handleApiPreflight, resolveCorsHeaders } from '../utils/cors.js';
 import { writeAuditLog, AUDIT_EVENTS } from '../utils/audit.js';
 import { getClientIp } from '../utils/ratelimit.js';
 import { envValue } from '../utils/env-config.js';
+import { getMcpConfig } from '../utils/runtime-config.js';
 import { isMcpEnabled } from './protocol.js';
 
 /**
@@ -99,7 +100,21 @@ export async function onRequest(context) {
   // 会先被这里的鉴权拦下返回 401 —— 那等于告诉探测者「这个端点是存在的，
   // 只是你没带凭证」，恰好抵消了 fail-closed 想要的效果。
   // 未开启时应当干脆 404，与「根本不存在的路径」无法区分。
-  if (!isMcpEnabled(env, envValue)) {
+  //
+  // 这里 await 一次配置回源（getMcpConfig，KV 覆盖 > 环境基线，带 30s
+  // isolate 缓存）。早先为「零 KV 往返」改读内存镜像，结果镜像只在保存配置
+  // 的那个 isolate、且仅 30 秒内有效，过期后回退到未配置的环境变量 → 永久
+  // 404。详见 protocol.js 中 isMcpEnabled 的说明。
+  //
+  // 读到的整组配置顺手挂到 context.data.mcpConfig，供 [[path]].js 复用，
+  // 避免同一请求内二次回源。
+  context.data = context.data || {};
+  context.data.mcpConfig = await getMcpConfig(env).catch((e) => {
+    console.error('MCP config read error, falling back to enabled check via env:', e);
+    return null;
+  });
+
+  if (!(await isMcpEnabled(env, envValue))) {
     return new Response('Not Found', {
       status: 404,
       headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'Cache-Control': 'no-store' },

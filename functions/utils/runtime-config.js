@@ -638,43 +638,17 @@ export async function getMcpConfig(env) {
   return getRuntimeConfig(env, 'mcp');
 }
 
-/**
- * 判定 MCP 是否开启 —— **同步、零 KV 往返**版本，供中间件在鉴权前调用。
+/*
+ * 注：MCP 开关曾有过一对「同步读内存镜像」的函数
+ * （readMcpEnabledSync / readMcpDisabledToolsSync），供中间件在鉴权前
+ * 零 KV 往返地判断开关。该方案已废弃并删除，原因见 functions/mcp/protocol.js
+ * 中 isMcpEnabled 的说明：内存镜像只在保存配置的那个 isolate、且仅 30 秒内
+ * 有效，过期后回退到未配置的环境变量 → 生产环境表现为「后台开着 MCP，
+ * 过一会儿访问 /mcp 却永久 404」。现在统一改为异步回源 getMcpConfig。
  *
- * 为什么需要同步版本：
- *   /mcp 的目录级中间件必须在**鉴权之前**判断开关（未开启就 404，
- *   否则探测者能从 401 反推出"端点存在"）。而那个位置是同步的
- *   `if (!isMcpEnabled(...)) return 404`，无法 await 一次 KV 读。
- *
- * 返回值是三态（**不是**布尔！）：
- *   · true  —— 命中镜像且明确开启
- *   · false —— 命中镜像且明确关闭
- *   · null  —— 未命中镜像，本函数**没有意见**，请调用方回退环境变量
- *
- * ⚠️ 为什么必须是三态而不是「布尔 + 兜底 env」：
- *   曾经这里返回布尔，缺省把"没命中镜像"和"明确关闭"都折叠成 false，
- *   调用方写成 `if (readMcpEnabledSync(env)) return true;` 再回退 env ——
- *   结果**镜像里的 false 被当成"没意见"而漏过去**，环境变量 MCP_ENABLED=true
- *   又把开关顶回开启。表现为「后台关了 MCP，/mcp 仍然 200」。
- *   把"没意见"(null) 与"明确关闭"(false) 分开，这个坑就不存在了：
- *   命中镜像时，**无论 true/false 都以镜像为准**，不再看环境变量。
- *
- * @param {object} env
- * @returns {boolean|null}
+ * readMirroredGroupConfig / mirrorGroupConfig 本身仍保留 —— 存储回滚模式
+ * （shouldWriteKvLegacy 等）继续依赖它，不在本次改动范围。
  */
-export function readMcpEnabledSync(env) {
-  const mirrored = readMirroredGroupConfig('mcp', env);
-  if (!mirrored) return null;
-  return toBool(mirrored.enabled, DEFAULT_MCP_ENABLED);
-}
-
-/** 同步读取已镜像的 MCP 工具禁用清单（未命中返回 null，由调用方决定是否回源） */
-export function readMcpDisabledToolsSync(env) {
-  const mirrored = readMirroredGroupConfig('mcp', env);
-  if (!mirrored) return null;
-  return normalizeMcpDisabledTools(mirrored.disabledTools, []);
-}
-
 
 /**
  * 读取 WebDAV 服务端配置（KV 覆盖 > 环境变量基线）。

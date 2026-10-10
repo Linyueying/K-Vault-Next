@@ -233,7 +233,7 @@ export async function onRequest(context) {
   // fail-closed 的开关判定在 `_middleware.js` 里（必须在鉴权之前，否则未开启时
   // 会先返回 401、反而确认了端点的存在）。这里只做兜底断言：正常路径下
   // 中间件已经把关，走到这里必然已开启。
-  if (!isMcpEnabled(env, envValue)) {
+  if (!(await isMcpEnabled(env, envValue))) {
     return new Response('Not Found', {
       status: 404,
       headers: { 'Content-Type': 'text/plain;charset=UTF-8', 'Cache-Control': 'no-store' },
@@ -272,18 +272,17 @@ export async function onRequest(context) {
   // 那里才知道这次调用的是哪个 method。批量请求也因此逐条独立判定，
   // 语义更精确。
 
-  // 工具级禁用清单：每个请求回源读一次（含 30s isolate 缓存），
-  // 挂到 context.data 上供 tools/list 过滤与 tools/call 拒绝共用。
+  // 工具级禁用清单：优先复用中间件已读到的整组配置（context.data.mcpConfig，
+  // 见 _middleware.js），避免同一请求二次回源。中间件未注入时（例如绕过
+  // 中间件的直接调用）再回源一次，保持防御性。
   //
-  // 为什么在这里读、而不是在 _middleware.js：
-  //   中间件的开关判定必须是同步的（见协议层 isMcpEnabled 的说明），
-  //   而这里已经是 async 上下文，可以承担这一次 KV 回源。放在路由层还有
-  //   一个好处：批量请求里的所有条目共用同一次读取，不会逐条重复回源。
+  // 放在路由层还有一个好处：批量请求里的所有条目共用同一次读取，
+  // 不会逐条重复回源。
   //
   // 读取失败**不**让请求失败：回退为空清单（= 不额外禁用任何工具），
   // 总开关（fail-closed）已在中间件把关。配置读不出来时让已开启的 MCP
   // 退化为「全部工具可用」，比整站 500 更符合"配置故障不该放大成事故"。
-  const mcpConfig = await getMcpConfig(env).catch((e) => {
+  const mcpConfig = context.data?.mcpConfig ?? await getMcpConfig(env).catch((e) => {
     console.error('MCP config read error, falling back to no tool restrictions:', e);
     return null;
   });

@@ -32,7 +32,7 @@
  */
 
 import { redactSecrets } from '../utils/redact.js';
-import { readMcpEnabledSync } from '../utils/runtime-config.js';
+import { getMcpConfig } from '../utils/runtime-config.js';
 
 /** JSON-RPC 2.0 版本串。协议固定值，不随 MCP 版本变化。 */
 export const JSONRPC_VERSION = '2.0';
@@ -303,31 +303,64 @@ export function isNotificationMethod(method) {
  * 为什么保留 envValue 参数（而不是直接读 env.MCP_ENABLED）：
  *   历史写法用 `isMcpEnabled(env, envValue)`，envValue 会做大小写归一
  *   （把 `MCP_ENABLED` / `mcp_enabled` 都认出来）。这里把 envValue 作为
- *   **环境变量兜底**继续用，保证老部署的 `mcp_enabled=true` 不会被忽略。
+ *   **读取失败时的兜底**继续用，保证老部署的 `mcp_enabled=true` 不会被忽略。
  *
- * 为什么是同步的：
- *   调用方（mcp/_middleware.js）必须在**鉴权之前**判断开关 —— 未开启就
- *   404，否则探测者能从 401 反推出「端点存在」。那个位置无法 await 一次
- *   KV 读，因此委托给 readMcpEnabledSync（镜像优先 + 环境变量兜底，
- *   零 KV 往返）。代价与取舍详见 runtime-config.js 中该函数的注释。
+ * ============================================================================
+ * 为什么是**异步回源**，而不是同步读内存镜像
+ * ============================================================================
  *
- * ⚠️ readMcpEnabledSync 返回**三态**（true / false / null）：
- *   null 表示"本 isolate 还没读过 MCP 配置，没有意见"，此时才回退环境变量。
- *   true / false 都是明确结论，一律以它为准 —— 否则会出现
- *   「后台存了 false，却被环境变量的 true 顶回来」的静默失效。
+ * 早期版本为了「在鉴权之前零 KV 往返地判断开关」，改读模块级内存镜像
+ * （readMcpEnabledSync）。但这个方案有两个硬伤，最终表现为生产环境
+ * 「后台开了 MCP，过一会儿访问 /mcp 却永久 404」：
+ *
+ *   1) 镜像**只在保存过配置的那个 isolate 里有效**。生产是多 isolate 的，
+ *      绝大多数请求落到别的 isolate，根本没有镜像。
+ *   2) 镜像有 30 秒 TTL（CACHE_TTL_MS）。一旦过期就返回 null，判定随即
+ *      **回退到环境变量 MCP_ENABLED** —— 而后台保存的开关只存在 KV 里，
+ *      环境变量通常没配，于是回退结果恒为 false。
+ *
+ * 等于把「跨 isolate 的 30 秒生效延迟」放大成了「永久关闭」。
+ *
+ * 正确做法就是回源：每次调用都走 getMcpConfig（KV 覆盖 > 环境基线），
+ * 它本身带 30 秒 isolate 缓存，因此同 isolate 内的高频 /mcp 请求并不会
+ * 反复打 KV。代价上也不吃亏 —— 路由层（[[path]].js）本来就要为工具禁用
+ * 清单回源读一次，现在这次读提前到中间件、结果经 context.data 复用，
+ * 总 KV 读次数不增反减。
+ *
+ * 调用方（mcp/_middleware.js、mcp/[[path]].js）本就处于 async 上下文，
+ * `await` 放在**预检与鉴权之前**，fail-closed 语义不变：未开启依旧 404，
+ * 与「根本不存在的路径」无法区分。
  *
  * @param {object} env
  * @param {(env: object, name: string) => string} envValue
+ * @returns {Promise<boolean>}
  */
-export function isMcpEnabled(env, envValue) {
-  // 1) 后台运行时配置：命中镜像即有明确结论（true 或 false 都算数）
-  const fromRuntimeConfig = readMcpEnabledSync(env);
-  if (fromRuntimeConfig !== null) return fromRuntimeConfig;
+export async function isMcpEnabled(env, envValue) {
+  // 环境变量 MCP_ENABLED 的宽容解析：`true / 1 / yes / on`（大小写不敏感）。
+  // 这是**历史行为**，很多老部署写的是 `mcp_enabled=1` 或 `=on`。配置层
+  // 的 fromEnv 只认字面量 'true'（与 guest/webdav 同源，供后台视图展示），
+  // 因此在这里单独放宽，避免老部署升级后开关莫名失效。
+  const envEnabled = () => {
+    const raw = String(envValue(env, 'MCP_ENABLED') ?? '').trim().toLowerCase();
+    return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+  };
 
-  // 2) 镜像未命中（本 isolate 尚未读过 MCP 配置）→ 环境变量兜底，
-  //    兼容历史大小写写法。
-  const raw = String(envValue(env, 'MCP_ENABLED') ?? '').trim().toLowerCase();
-  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+  let cfg;
+  try {
+    cfg = await getMcpConfig(env);
+  } catch (e) {
+    // KV 读取异常时的兜底：退到环境变量基线。
+    // 宁可沿用部署期设定，也不要因为一次读失败就把已开启的端点关掉。
+    console.error('MCP enabled check fell back to env var:', e);
+    return envEnabled();
+  }
+
+  // KV 有明确覆盖（source='kv'）时**一律以 KV 为准** —— 包括 false。
+  // 否则会出现「后台关了 MCP，却被环境变量的 true 顶回开启」的静默失效。
+  if (cfg?.source === 'kv') return cfg.enabled === true;
+
+  // 无 KV 覆盖：以环境变量基线为准，沿用上面的宽容解析。
+  return envEnabled();
 }
 
 /** 响应统一 JSON：MCP 客户端会同时接受 application/json 与 text/event-stream。 */

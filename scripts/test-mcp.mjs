@@ -40,11 +40,10 @@ import {
 import {
   CONFIG_GROUPS,
   MCP_TOOL_IDS,
+  getMcpConfig,
   getRuntimeConfig,
   invalidateRuntimeConfigCache,
   normalizeMcpConfig,
-  readMcpDisabledToolsSync,
-  readMcpEnabledSync,
   saveRuntimeConfig,
 } from '../functions/utils/runtime-config.js';
 import { TOOL_HANDLERS, baseCtx, decodeBase64, mimeFromDataUrl, synthRequest } from '../functions/mcp/handlers.js';
@@ -173,11 +172,11 @@ console.log('\n[6] 错误响应脱敏');
 console.log('\n[7] MCP 开关（fail-closed）');
 {
   const envValue = (env, name) => env?.[name];
-  check('未配置 → 关闭', isMcpEnabled({}, envValue) === false);
-  check('空串 → 关闭', isMcpEnabled({ MCP_ENABLED: '' }, envValue) === false);
-  check('false → 关闭', isMcpEnabled({ MCP_ENABLED: 'false' }, envValue) === false);
-  check('true → 开启', isMcpEnabled({ MCP_ENABLED: 'true' }, envValue) === true);
-  check('大小写/别名兼容', isMcpEnabled({ MCP_ENABLED: 'On' }, envValue) === true);
+  check('未配置 → 关闭', (await isMcpEnabled({}, envValue)) === false);
+  check('空串 → 关闭', (await isMcpEnabled({ MCP_ENABLED: '' }, envValue)) === false);
+  check('false → 关闭', (await isMcpEnabled({ MCP_ENABLED: 'false' }, envValue)) === false);
+  check('true → 开启', (await isMcpEnabled({ MCP_ENABLED: 'true' }, envValue)) === true);
+  check('大小写/别名兼容', (await isMcpEnabled({ MCP_ENABLED: 'On' }, envValue)) === true);
 }
 
 console.log('\n[8] 工具定义表完整性');
@@ -448,53 +447,86 @@ console.log('\n[19] 配置层与工具表同源（防「关了不生效」）');
   check('归一化保留全部合法工具名',
     cleaned.disabledTools.length === defNames.length, `实际 ${cleaned.disabledTools.length}`);
 
-  // 同步开关判定（中间件零 KV 往返路径）—— **三态**契约
-  //
-  // 这是本次最容易写错的一处：曾经它返回布尔，"没命中镜像"与"明确关闭"
-  // 折叠成同一个 false，导致 isMcpEnabled 里的 `if (fromRuntimeConfig) return true`
-  // 把镜像的 false 漏过去、又回退 env 把开关顶回开启 ——
-  // 现象就是「后台关了 MCP，/mcp 仍 200」。这里把三态钉死。
-  check('同步判定：无镜像 → null（"没意见"，由调用方回退 env）',
-    readMcpEnabledSync({}) === null);
-  check('同步判定：有镜像但未命中该组 → null',
-    readMcpEnabledSync({ MCP_ENABLED: 'true' }) === null,
-    'env 不参与同步判定，只影响调用方兜底');
-  check('同步禁用清单：无镜像 → null（调用方决定回源）',
-    readMcpDisabledToolsSync({}) === null);
   check('mcp 已在 CONFIG_GROUPS 中（后台重置按钮依赖它）',
     CONFIG_GROUPS.includes('mcp'));
   check('CONFIG_GROUPS 未登记重复分组',
     new Set(CONFIG_GROUPS).size === CONFIG_GROUPS.length);
 }
 
-console.log('\n[20] isMcpEnabled 三态回退：镜像的 false 不得被 env 顶回');
+console.log('\n[20] isMcpEnabled 回源 KV：后台开关必须稳定生效（回归：镜像过期永久 404）');
 {
-  // 真实 KV 替身 → 走 saveRuntimeConfig / getRuntimeConfig，让镜像真被写入
-  const kv = makeKvStub();
-  const env = { img_url: kv, MCP_ENABLED: 'true' }; // env 说开
   const envValue = (e, name) => e?.[name];
+  const kv = makeKvStub();
 
-  // 写 KV: enabled=false（后台关闭）
-  await saveRuntimeConfig(env, 'mcp', { enabled: false });
-  await getRuntimeConfig(env, 'mcp');  // 回源 → 写镜像
-
-  check('环境变量=true 但 KV 覆盖为 false → 整体为 false',
-    isMcpEnabled(env, envValue) === false,
-    '镜像的 false 必须压过 env 的 true');
-
-  // 反向：KV 覆盖为 true，env 说 false
+  // ── 回归主用例：KV 覆盖为 true，且 env **未配** ──
+  //
+  // 这正是生产环境的形态（开关只存在 KV，没设 MCP_ENABLED）。早期用同步
+  // 内存镜像判定时，镜像一旦过期就回退到恒为 false 的 env，表现为
+  // 「后台开着 MCP，过一会儿 /mcp 永久 404」。现在改为回源，必须恒为 true。
+  const env = { img_url: kv };
   await saveRuntimeConfig(env, 'mcp', { enabled: true });
-  await getRuntimeConfig(env, 'mcp');
-  check('环境变量=false 但 KV 覆盖为 true → 整体为 true',
-    isMcpEnabled({ ...env, MCP_ENABLED: 'false' }, envValue) === true,
-    '镜像的 true 必须压过 env 的 false');
 
-  // 无镜像时仍走 env（fail-closed 方向）
-  invalidateRuntimeConfigCache(null, env);
-  check('清空镜像后回退 env：env=true → true',
-    isMcpEnabled(env, envValue) === true);
-  check('清空镜像后回退 env：env 未配 → false（fail-closed）',
-    isMcpEnabled({ img_url: kv }, envValue) === false);
+  // 模拟镜像过期 / 换 isolate：清掉所有进程内缓存后必须仍为 true。
+  // 注意必须用无参调用清**全部**缓存 —— 只传 group 清的是按绑定分区的镜像，
+  // 而 getRuntimeConfig 的主缓存键是不带绑定的组名，留着会跨用例串味。
+  invalidateRuntimeConfigCache();
+  check('KV=true 且 env 未配 → true（不依赖内存镜像是否还在）',
+    (await isMcpEnabled(env, envValue)) === true,
+    '这是本次修复的核心：镜像过期/跨 isolate 不得让开关失效');
+
+  check('KV=true 时，即使 env=false 也以 KV 为准 → true',
+    (await isMcpEnabled({ ...env, MCP_ENABLED: 'false' }, envValue)) === true,
+    'KV 覆盖优先级高于环境变量基线');
+
+  // ── 反向：KV 覆盖为 false，env 说 true（含宽容写法）──
+  await saveRuntimeConfig(env, 'mcp', { enabled: false });
+  invalidateRuntimeConfigCache();
+  check('KV=false 且 env=true → false（KV 覆盖压过 env）',
+    (await isMcpEnabled({ ...env, MCP_ENABLED: 'true' }, envValue)) === false);
+  invalidateRuntimeConfigCache();
+  check('KV=false 且 env=on（宽容写法）→ 仍 false',
+    (await isMcpEnabled({ ...env, MCP_ENABLED: 'on' }, envValue)) === false,
+    'KV 的明确 false 不得被 env 的宽容写法顶回');
+
+  // ── KV 无覆盖时回退环境变量（fail-closed 方向）──
+  //
+  // ⚠️ 每条断言前都要清缓存：getRuntimeConfig 的主缓存键是**组名**（不带
+  // 绑定 ID），同进程内不同 env 之间会互相污染。生产里一个 isolate 只有一个
+  // env 所以无碍，测试里必须逐条隔离。
+  const kvBare = makeKvStub();  // 空 KV：没有 config:mcp
+  invalidateRuntimeConfigCache();
+  check('无 KV 覆盖 + env=true → true',
+    (await isMcpEnabled({ img_url: kvBare, MCP_ENABLED: 'true' }, envValue)) === true);
+  invalidateRuntimeConfigCache();
+  check('无 KV 覆盖 + env=on（宽容写法）→ true',
+    (await isMcpEnabled({ img_url: kvBare, MCP_ENABLED: 'on' }, envValue)) === true,
+    '老部署的 1/yes/on 必须继续生效');
+  invalidateRuntimeConfigCache();
+  check('无 KV 覆盖 + env 未配 → false（fail-closed）',
+    (await isMcpEnabled({ img_url: kvBare }, envValue)) === false);
+  invalidateRuntimeConfigCache();
+  check('无 KV 绑定 + env 未配 → false（fail-closed）',
+    (await isMcpEnabled({}, envValue)) === false);
+
+  // ── KV 读取异常时兜底 env，且不抛出 ──
+  const brokenKv = {
+    _store: new Map(),
+    async get() { throw new Error('KV unavailable'); },
+    async put() {},
+    async delete() {},
+  };
+  const origError = console.error;
+  console.error = () => {};  // 静音预期的错误日志
+  try {
+    invalidateRuntimeConfigCache();
+    check('KV 读异常 + env=true → 兜底 true（不抛错）',
+      (await isMcpEnabled({ img_url: brokenKv, MCP_ENABLED: 'true' }, envValue)) === true);
+    invalidateRuntimeConfigCache();
+    check('KV 读异常 + env 未配 → 兜底 false（fail-closed）',
+      (await isMcpEnabled({ img_url: brokenKv }, envValue)) === false);
+  } finally {
+    console.error = origError;
+  }
 }
 
 console.log(`\n===== ${pass} 通过 / ${fail} 失败 =====`);

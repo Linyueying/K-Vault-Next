@@ -103,12 +103,11 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 
 端点默认关闭（后台 `mcp` 配置组，回退环境变量 `MCP_ENABLED`），未开启时返回 404 —— 与「管理面 fail-closed」同一思路：新增网络面不因「部署时忘了配」而自动敞开。
 
-开关与工具级清单存在 `config:mcp` 这个运行时配置组里（与 `webdav` / `airdrop` 等同构：KV 覆盖环境变量、改完即时生效）。为了让中间件能在**鉴权之前**同步判断开关（否则未开启时会先回 401，反而确认了端点存在），配置层提供 `readMcpEnabledSync` —— 它读进程内镜像、零 KV 往返，并返回**三态**：
+开关与工具级清单存在 `config:mcp` 这个运行时配置组里（与 `webdav` / `airdrop` 等同构：KV 覆盖环境变量）。
 
-- `true` / `false` —— 命中镜像，这是明确结论；
-- `null` —— 本 isolate 尚未读过该组配置，"没有意见"，由调用方回退环境变量。
+**开关判定必须回源 KV，不能读进程内镜像。** 中间件在**鉴权之前**判断开关（否则未开启时会先回 401，反而确认了端点存在），因此 `isMcpEnabled()` 是 `async` 的，内部 `await getMcpConfig(env)` 每次回源（带 30 秒 isolate 缓存）。路由层随后复用 `context.data.mcpConfig`，同一请求不二次回源 —— 总 KV 读次数不增反减（原先路由层本就要读一次拿工具禁用清单）。
 
-必须区分 `false` 与 `null`：若把两者折叠成同一个假值，调用方 `if (sync) return true;` 之后再回退 env，就会出现**镜像里的 `false` 被环境变量的 `true` 顶回开启**——现象是「后台关了 MCP，`/mcp` 仍然 200」。这一条有专门的回归用例（`scripts/test-mcp.mjs` 的 `[20]`）。
+> **一次已废弃的尝试（值得记录）**：早期为追求「零 KV 往返」，改读模块级内存镜像并返回**三态**（`true`/`false`/命中与否）。它解决了一个真实问题——把「没命中」与「明确关闭」折叠成同一个 `false` 会导致「后台关了 MCP，`/mcp` 仍 200」——但引入了更严重的缺陷：镜像**只在保存过配置的那个 isolate 内**有效，且仅 30 秒 TTL；过期或落到别的 isolate 就返回 `null`，回退到环境变量 `MCP_ENABLED`（生产通常未配）→ 恒为 `false`。现象是「后台明明开着 MCP，过一会儿 `/mcp` 就一直 404 了」。等价的同步方案对跨 isolate 的配置天然不可靠，故整体删除，回归回源读取。回归用例见 `scripts/test-mcp.mjs` 的 `[20]`（模拟清空缓存后开关仍稳定生效）。
 
 工具级清单存**禁用**名单而非启用名单，这样将来新增工具在存量部署上默认可用，不会因不在旧白名单里被静默关闭。
 | `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，零 SDK 依赖） |
