@@ -3484,6 +3484,22 @@ html[data-perf="low"] .dock{transition:none}
           </label>
         </div>
 
+        <!-- 提交按钮。
+             必须显式放一个按钮：此前 `submitTokenForm` 只挂在名称输入框的
+             @keyup.enter 上，桌面端按回车能提交，**移动端没有回车键就无路可走**
+             —— 表单填完却找不到任何可点的提交入口。
+             桌面端按回车仍然照旧可用（未移除原快捷键）。 -->
+        <div class="row" style="margin-top:12px">
+          <button class="btn btn--primary" :disabled="tokenSubmitting" @click="submitTokenForm">
+            <i class="fas" :class="tokenSubmitting ? 'fa-circle-notch fa-spin' : (tokenEditingId ? 'fa-floppy-disk' : 'fa-plus')"></i>
+            <span>{{ tokenSubmitting ? '提交中…' : (tokenEditingId ? '保存修改' : '创建 Token') }}</span>
+          </button>
+          <button class="btn" v-if="tokenEditingId" :disabled="tokenSubmitting" @click="resetTokenForm">
+            <i class="fas fa-xmark"></i>
+            <span>取消编辑</span>
+          </button>
+        </div>
+
       </div>
 
       <div class="token-divider"></div>
