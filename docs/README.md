@@ -33,7 +33,7 @@ K-Vault-Next 的完整文档索引。**刚接手的话先看右列，别按目�
 | 文件 | 内容 |
 | :--- | :--- |
 | [`architecture.md`](reference/architecture.md) | 项目定位、与上游 K-Vault 的差异、技术架构（前端/后端/数据层/存储）、安全设计 |
-| [`agent-integration.md`](reference/agent-integration.md) | API Token 获取、scopes、policies、幂等键、7 个 MCP Tools 映射 |
+| [`agent-integration.md`](reference/agent-integration.md) | API Token 获取、scopes、policies、幂等键；**原生 MCP 端点接入指南**（10 个工具）+ REST↔Tool 对照表 |
 | [`openapi.yaml`](reference/openapi.yaml) | OpenAPI 3 机器可读的 API 定义 |
 
 ## 给 AI Agent `agents/`

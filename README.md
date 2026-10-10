@@ -123,6 +123,7 @@
    浏览器 / Agent ──▶│  静态页面 (8 个 HTML)  +  functions/ 路由    │
                     │         │                    │               │
                     │         │                    ├── /api/v1/**   │  REST API
+                    │         │                    ├── /mcp         │  MCP 端点
                     │         │                    ├── /file/**    │  文件直链
                     │         │                    ├── /dav/**     │  WebDAV 服务端
                     │         │                    ├── /s/:slug    │  分享短链
@@ -164,6 +165,7 @@ Cloudflare Pages Functions（`functions/`），**无 Node 服务器、无 Docker
 | `functions/api/manage/` | 文件与目录管理、分享管理、运行时配置 |
 | `functions/api/admin/` | API Token 管理、用量监控 |
 | `functions/api/v1/` | 对外 REST API v1（Token 鉴权、scope、策略） |
+| `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，无第三方 SDK） |
 | `functions/api/chunked-upload/` | 分片上传 init / chunk / complete |
 | `functions/api/airdrop/` | 隔空投送房间与文件周转 |
 | `functions/api/telegram/webhook.js` | Telegram Webhook 回链 |
@@ -300,6 +302,7 @@ npm run pages:deploy      # 等价于 npx wrangler pages deploy .
 
 - 网页后台：Cookie 会话 或 HTTP Basic
 - API v1：`Authorization: Bearer kvault_<tokenId>_<secret>`
+- MCP：同一个 Bearer Token，工具可见性由 scope 决定
 
 四种 scope：`upload` · `read` · `delete` · `paste`
 
@@ -320,6 +323,47 @@ npm run pages:deploy      # 等价于 npx wrangler pages deploy .
 
 机器可读定义见 [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml)，Agent 接入指南见 [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md)（含 MCP 工具映射）。
 
+### MCP 端点
+
+原生实现 [Model Context Protocol](https://modelcontextprotocol.io/)，**不依赖任何第三方 SDK**——纯手写 JSON-RPC 2.0 + Streamable HTTP，与项目「零运行时依赖」的定位一致。
+
+| 方法 | 路径 | 说明 |
+| :--- | :--- | :--- |
+| POST | `/mcp` | JSON-RPC 2.0 请求（单条或批量）。支持 `initialize` / `tools/list` / `tools/call` / `ping` |
+| GET | `/mcp` | `405` —— 无状态模式不提供 SSE 流 |
+
+**开关**：默认**关闭**。需设置环境变量 `MCP_ENABLED=true` 才对公网开放；未开启时 `/mcp` 返回 `404`（fail-closed：新增的网络面不因「忘了配」而自动敞开）。
+
+**鉴权**：与 API v1 共用同一套 API Token（`Authorization: Bearer kvault_<id>_<secret>`），并复用同一份 CORS 白名单 `API_CORS_ORIGINS`。
+
+**鉴权粒度按 JSON-RPC 方法区分**（不是按连接一刀切）：
+
+| 方法 | 需要 Token | 说明 |
+| :--- | :--- | :--- |
+| `initialize` / `ping` / `notifications/*` | 否 | 协议握手。匿名 `initialize` 的 `capabilities` 为空对象、不含 `instructions`，**不暴露工具清单**；带 Token 才返回完整能力 |
+| `tools/list` / `tools/call` | **是** | 缺失 → HTTP `401` |
+
+主流的 MCP 客户端在 `initialize` 阶段还不一定发送 `Authorization`（它们把「建立连接」与「提供凭据」分两步），因此握手免鉴权是兼容性所必需的；同时因为匿名握手不泄露任何工具信息，安全边界并未放宽。
+
+**10 个工具**：
+
+| Tool | 所需 scope |
+| :--- | :--- |
+| `kvault_capabilities` | 公开 |
+| `kvault_token_info` | 任意 Token |
+| `kvault_upload_file` | `upload` |
+| `kvault_import_url` | `upload` |
+| `kvault_list_files` | `read` |
+| `kvault_get_file_info` | `read` |
+| `kvault_get_file` | `read` |
+| `kvault_delete_file` | `delete` |
+| `kvault_create_paste` | `paste` |
+| `kvault_list_pastes` | `read` |
+
+`tools/list` **只返回当前 Token 有权限调用的工具**，避免把必然被拒的工具喂给模型。工具执行时仍会按 scope 二次校验（可见性过滤不是安全边界）。
+
+**无状态设计**：不分配 `Mcp-Session-Id`。Cloudflare Pages Functions 无常驻进程，维护会话需要落 KV 并在每个请求回读，而 MCP 规范允许服务端不分配会话，因此无状态是 Serverless 上的正确取舍。
+
 ---
 
 ## 📁 目录结构
@@ -335,6 +379,7 @@ Cloudflare Pages **没有构建步骤**，仓库根目录即站点根目录。�
 │   └── vendor/                          # fontawesome / glassfx / vue / qrcode
 ├── functions/                           # Cloudflare Pages Functions 后端（路径即路由，勿动）
 │   ├── api/                             # auth / manage / admin / v1 / airdrop / chunked-upload
+│   ├── mcp/[[path]].js                  # MCP 端点（JSON-RPC 2.0，无状态 Streamable HTTP）
 │   ├── file/[[path]].js                 # 文件直链（多层路径、密码）
 │   ├── dav/[[path]].js                  # WebDAV 服务端
 │   ├── s/[slug].js                      # 分享短链 → 302 到落地页

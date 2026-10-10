@@ -67,7 +67,7 @@ paths:
   /api/v1/upload:
     post:
       tags: [Assets]
-      summary: Upload a file (scope: upload)
+      summary: 'Upload a file (scope: upload)'
       requestBody:
         required: true
         content:
@@ -110,7 +110,7 @@ paths:
   /api/v1/import:
     post:
       tags: [Assets]
-      summary: Import an image from a remote URL (scope: upload)
+      summary: 'Import an image from a remote URL (scope: upload)'
       description: |
         Server-side fetch with full SSRF protection: every redirect hop is
         re-validated (private ranges, link-local, CGNAT, metadata hosts are
@@ -151,13 +151,13 @@ paths:
   /api/v1/files:
     get:
       tags: [Assets]
-      summary: List files (scope: read)
+      summary: 'List files (scope: read)'
       responses:
         '200': { description: Paginated file list }
   /api/v1/file/{id}:
     get:
       tags: [Assets]
-      summary: Download or inspect a file (scope: read)
+      summary: 'Download or inspect a file (scope: read)'
       parameters:
         - $ref: '#/components/parameters/FileId'
       responses:
@@ -165,7 +165,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Assets]
-      summary: Delete a file (scope: delete)
+      summary: 'Delete a file (scope: delete)'
       parameters:
         - $ref: '#/components/parameters/FileId'
       responses:
@@ -174,7 +174,7 @@ paths:
   /api/v1/paste:
     post:
       tags: [Assets]
-      summary: Create a text paste (scope: paste)
+      summary: 'Create a text paste (scope: paste)'
       requestBody:
         required: true
         content:
@@ -190,13 +190,13 @@ paths:
   /api/v1/pastes:
     get:
       tags: [Assets]
-      summary: List pastes (scope: read)
+      summary: 'List pastes (scope: read)'
       responses:
         '200': { description: Paste list }
   /api/v1/paste/{id}:
     get:
       tags: [Assets]
-      summary: Read a paste (scope: read)
+      summary: 'Read a paste (scope: read)'
       parameters:
         - name: id
           in: path
@@ -206,7 +206,7 @@ paths:
         '200': { description: Paste content }
     delete:
       tags: [Assets]
-      summary: Delete a paste (scope: delete)
+      summary: 'Delete a paste (scope: delete)'
       parameters:
         - name: id
           in: path
@@ -214,6 +214,67 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: Deleted }
+  /mcp:
+    post:
+      tags: [Account]
+      summary: 'MCP (Model Context Protocol) endpoint — JSON-RPC 2.0 over Streamable HTTP (stateless)'
+      description: |
+        Native MCP endpoint. Requires `MCP_ENABLED=true`; when disabled the
+        route returns 404. Uses the same API Token (`Authorization: Bearer`)
+        and the same CORS allowlist (`API_CORS_ORIGINS`) as `/api/v1`.
+
+        Stateless: no `Mcp-Session-Id` is issued. `tools/list` only returns
+        tools permitted by the token's scopes.
+
+        Auth granularity is per JSON-RPC method, not per connection:
+        - Handshake methods (`initialize`, `ping`, `notifications/*`) work
+          without a token. An anonymous `initialize` returns an empty
+          ``capabilities`` object and no ``instructions``, so the tool
+          inventory is never disclosed without a token.
+        - `tools/list` and `tools/call` require a token; missing token -> 401.
+
+        Error layering:
+        - Transport auth failure  -> HTTP 401/403 with a `{success:false}` body
+        - JSON-RPC protocol error -> HTTP 200 with an `error` envelope
+        - Tool business failure   -> HTTP 200 with `result.isError = true`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/RpcRequest'
+                - type: array
+                  items: { $ref: '#/components/schemas/RpcRequest' }
+      responses:
+        '200':
+          description: JSON-RPC response (single object or batch array)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/RpcResponse'
+                  - type: array
+                    items: { $ref: '#/components/schemas/RpcResponse' }
+        '202':
+          description: Accepted — batch containing only notifications, no response body
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: MCP endpoint disabled (MCP_ENABLED is not true)
+        '405':
+          description: Method not allowed (only POST and OPTIONS are supported)
+        '413':
+          description: Request body exceeds the 1MiB limit
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    get:
+      tags: [Account]
+      summary: Not supported — this MCP endpoint does not offer an SSE stream
+      description: |
+        Stateless mode does not provide a Server-Sent Events stream, so GET
+        returns 405. Clients should treat the server as request/response only.
+      responses:
+        '405':
+          description: "Method Not Allowed (Allow: POST, OPTIONS)"
   /api/admin/tokens:
     get:
       tags: [Admin]
@@ -357,6 +418,87 @@ components:
           type: array
           items: { type: string }
           description: Origin/Referer hostname allow-list for import requests.
+    RpcRequest:
+      type: object
+      required: [jsonrpc, method]
+      description: A JSON-RPC 2.0 request. `id` omitted or null makes it a notification.
+      properties:
+        jsonrpc: { type: string, enum: ['2.0'] }
+        id:
+          nullable: true
+          description: String, number, or null (notification).
+          oneOf:
+            - type: string
+            - type: number
+        method:
+          type: string
+          description: |
+            One of initialize / notifications/initialized / ping / tools/list /
+            tools/call. Unknown methods return -32601.
+        params:
+          type: object
+          description: Method-specific parameters.
+    RpcResponse:
+      type: object
+      required: [jsonrpc]
+      description: |
+        Exactly one of `result` / `error` is present. JSON-RPC protocol errors
+        are returned with HTTP 200.
+      properties:
+        jsonrpc: { type: string, enum: ['2.0'] }
+        id:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: number
+        result:
+          type: object
+          description: Present on success.
+        error:
+          type: object
+          description: Present on protocol error.
+          properties:
+            code:
+              type: integer
+              description: '-32700 / -32600 / -32601 / -32602 / -32603'
+            message: { type: string }
+    McpTool:
+      type: object
+      required: [name, description, inputSchema]
+      description: A tool advertised by `tools/list` (already filtered by token scopes).
+      properties:
+        name: { type: string, example: kvault_list_files }
+        description: '{ type: string }'
+        inputSchema:
+          type: object
+          description: JSON Schema (simple subset) describing the tool arguments.
+    McpToolResult:
+      type: object
+      required: [content]
+      description: |
+        Result of `tools/call`. Business failures set isError=true and are
+        still returned with HTTP 200.
+      properties:
+        content:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [text] }
+              text:
+                type: string
+                description: A JSON string with the tool output.
+        isError: { type: boolean }
+    Error:
+      type: object
+      description: Standard error envelope. MCP tool failures additionally use result.isError.
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
   responses:
     Unauthorized:
       description: Missing/invalid token
@@ -383,6 +525,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exceeded (RATE_LIMITED); see the Retry-After header.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     AdminAuthNotConfigured:
       description: |
         Admin API fails closed: no admin credentials are configured. Set
@@ -390,12 +537,3 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-    Error:
-      type: object
-      properties:
-        success: { type: boolean, example: false }
-        error:
-          type: object
-          properties:
-            code: { type: string }
-            message: { type: string }

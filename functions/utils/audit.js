@@ -2,7 +2,8 @@
  * Audit log for token management events (requirement #12).
  *
  * Events: TOKEN_CREATED, TOKEN_ROTATED, TOKEN_DISABLED, TOKEN_ENABLED,
- *         TOKEN_SCOPE_CHANGED, TOKEN_DELETED, TOKEN_VERIFY_FAILED
+ *         TOKEN_SCOPE_CHANGED, TOKEN_DELETED, TOKEN_VERIFY_FAILED,
+ *         MCP_TOOL_CALL, MCP_TOOL_DENIED
  *
  * - Never records full token secrets (redaction applied to detail).
  * - No IP addresses are stored; only a short client tag is kept.
@@ -44,6 +45,11 @@ export const AUDIT_EVENTS = {
   TOKEN_SCOPE_CHANGED: 'TOKEN_SCOPE_CHANGED',
   TOKEN_DELETED: 'TOKEN_DELETED',
   TOKEN_VERIFY_FAILED: 'TOKEN_VERIFY_FAILED',
+  // MCP 端点：工具被真实执行 / 因 scope 不足被拒。
+  // 分开记是因为两者的排查方向完全不同 —— 前者要看「谁在什么时候动了什么」，
+  // 后者是「凭据权限配错了」，混成一个事件会两边都查不清。
+  MCP_TOOL_CALL: 'MCP_TOOL_CALL',
+  MCP_TOOL_DENIED: 'MCP_TOOL_DENIED',
 };
 
 /**

@@ -1,6 +1,6 @@
-# K-Vault Agent 接入指南（API Token / MCP Tools）
+# K-Vault Agent 接入指南（API Token / MCP）
 
-面向机器客户端 —— MCP Agent、GitHub Actions、Coze Workflow、ShareX、自动化脚本 —— 的 K-Vault 图床接入说明。机器可读接口定义见 [openapi.yaml](./openapi.yaml)。
+面向机器客户端 —— MCP Agent、GitHub Actions、Coze Workflow、ShareX、自动化脚本 —— 的 K-Vault 图床接入说明。**第 3 节是原生 MCP 端点（推荐）**；第 4 节是直接调 REST 的对照表。机器可读接口定义见 [openapi.yaml](./openapi.yaml)。
 
 所有示例中的 `https://your-kvault-domain` 替换为你的部署地址；`$KVAULT_API_TOKEN` 为 Token 明文（形如 `kvault_<id>_<secret>`），仅创建/轮换时返回一次，切勿写入仓库、日志或截图。
 
@@ -23,12 +23,16 @@ curl -X POST "https://your-kvault-domain/api/admin/tokens" \
 
 ### Scopes
 
-| Scope | 能力 |
-| --- | --- |
-| `upload` | `POST /api/v1/upload`、`POST /api/v1/import` |
-| `read` | `GET /api/v1/files`、`GET /api/v1/file/:id`、`GET /api/v1/file/:id/info` |
-| `delete` | `DELETE /api/v1/file/:id` |
-| `paste` | Paste 相关端点 |
+同一套 scope 同时约束 REST 与 MCP：REST 按请求路径推导所需 scope，MCP 按被调用的**工具**推导。
+
+| Scope | REST 能力 | MCP 工具 |
+| --- | --- | --- |
+| `upload` | `POST /api/v1/upload`、`POST /api/v1/import` | `kvault_upload_file`、`kvault_import_url` |
+| `read` | `GET /api/v1/files`、`GET /api/v1/file/:id`、`GET /api/v1/file/:id/info` | `kvault_list_files`、`kvault_get_file_info`、`kvault_get_file`、`kvault_list_pastes` |
+| `delete` | `DELETE /api/v1/file/:id` | `kvault_delete_file` |
+| `paste` | Paste 相关端点 | `kvault_create_paste` |
+
+`kvault_capabilities`（公开）与 `kvault_token_info`（任意有效 Token）不要求额外 scope。
 
 ### 策略（policies，可选）
 
@@ -51,10 +55,230 @@ curl -X POST "https://your-kvault-domain/api/admin/tokens" \
   - 触发令牌级限流返回 429
 - 幂等：请求头 `Idempotency-Key`（≤200 字符）。同一 Token + 同一 Key 在 24 小时内重放首次成功响应，响应头带 `Idempotency-Replayed: true`。上传与导入均支持。
 
-## 3. MCP Tools 对照表（7 个）
+## 3. MCP 端点（原生，推荐 Agent 使用）
 
-| Tool | HTTP | 说明 |
-| --- | --- | --- |
+K-Vault-Next **原生实现**了 MCP（Model Context Protocol），不依赖任何第三方 SDK。相比自己拼 REST 调用，直接用 MCP 的优势是：工具描述与参数 schema 由协议自动下发给模型，无需人工维护提示词。
+
+### 3.1 端点形态
+
+| 方法 | 路径 | 行为 |
+| :--- | :--- | :--- |
+| POST | `/mcp` | JSON-RPC 2.0 请求（单条对象，或批量数组） |
+| GET | `/mcp` | `405 Method Not Allowed` —— 无状态模式不提供 SSE 流 |
+| OPTIONS | `/mcp` | `204` 预检 |
+
+`/mcp/anything` 与 `/mcp` 等价：会话信息走 header 不走路由，路径段无语义。
+
+**传输**：Streamable HTTP。响应 `Content-Type: application/json`。
+
+### 3.2 开启方式
+
+默认**关闭**。未开启时 `/mcp` 返回 `404`（等同不存在，不给探测者正面信号）。
+
+```bash
+# Cloudflare Pages → Settings → Environment variables
+MCP_ENABLED=true
+```
+
+开启后复用与 `/api/v1` **完全相同**的 API Token、scope 与策略体系；跨域白名单也复用 `API_CORS_ORIGINS`，不新增变量。
+
+### 3.3 无状态设计（重要）
+
+本服务端**不分配 `Mcp-Session-Id`**：
+
+- Cloudflare Pages Functions 无常驻进程，维护会话需落 KV + 每请求回读，而 KV 免费额度仅 1000 写/天；
+- MCP 规范明确允许服务端不分配会话，此时客户端**不得**发送 `Mcp-Session-Id`；
+- 每个 POST 自包含，天然吻合 Serverless 请求模型。
+
+客户端若发送 `Mcp-Session-Id`，服务端会忽略且不回传该响应头，客户端应自动降级为无状态模式。
+
+### 3.4 鉴权粒度：握手免鉴权，tools 强制鉴权
+
+MCP 端点的鉴权**按 JSON-RPC 方法区分**，而不是在 HTTP 层一刀切：
+
+| 方法 | 是否需要 Token | 说明 |
+| :--- | :--- | :--- |
+| `initialize` | 否 | 协议握手。带 Token 才返回 `capabilities.tools` 与 `instructions` |
+| `ping` | 否 | 连通性探测 |
+| `notifications/*` | 否 | 单向通知，服务端回 `202` 无 body |
+| `tools/list` | **是** | 缺失 → HTTP `401` |
+| `tools/call` | **是** | 缺失 → HTTP `401` |
+
+这样设计的原因：
+
+1. **客户端行为契合**：主流 MCP 客户端（Claude Desktop、各语言 SDK）在 `initialize` 阶段还不一定发送 `Authorization`，它们把「建立连接」和「提供凭据」分两步。若握手就 401，客户端在拿到 `capabilities` 之前就断了，无法协商、无法降级。
+2. **不泄露信息**：匿名 `initialize` 只返回协议版本与 `serverInfo`，**不声明 tools 能力、不返回 `instructions`**。工具清单属于需要 Token 才可见的资产。
+3. **失败仍然关闭**：`tools/list` 与 `tools/call` 强制鉴权；`MCP_ENABLED` 未开启时整个端点 404。
+
+> 批量请求（数组）逐条独立判定。若批内任一条是 `tools/*` 且未带 Token，整个 HTTP 请求按 `401` 返回——因为「这次请求本身没通过鉴权」是传输层事实，逐条 200 会掩盖它。
+
+### 3.5 协议握手与版本协商
+
+> **`initialize` / `ping` / `notifications/*` 是握手方法，无需 Token**（见 3.3 的鉴权粒度说明）。
+> 不带 `Authorization` 也能完成握手，但响应的 `capabilities` 会是空对象、不返回 `instructions`——
+> 即**不暴露工具清单**。要拿到完整能力声明与 `tools/list`，仍需在请求上带 Token。
+
+匿名握手（可用于探测服务端是否支持 MCP）：
+
+```bash
+curl -s -X POST "https://your-kvault-domain/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
+       "params":{"protocolVersion":"2025-06-18",
+                 "capabilities":{},
+                 "clientInfo":{"name":"my-agent","version":"1.0"}}}'
+```
+
+匿名响应（注意 `capabilities` 为空）：
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{
+  "protocolVersion":"2025-06-18",
+  "capabilities":{},
+  "serverInfo":{"name":"k-vault-next","version":"1.0.0"}}}
+```
+
+带上 Token 后，同样的请求会返回完整能力与引导语：
+
+```bash
+curl -s -X POST "https://your-kvault-domain/mcp" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
+       "params":{"protocolVersion":"2025-06-18",
+                 "capabilities":{},
+                 "clientInfo":{"name":"my-agent","version":"1.0"}}}'
+```
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{
+  "protocolVersion":"2025-06-18",
+  "capabilities":{"tools":{"listChanged":false}},
+  "serverInfo":{"name":"k-vault-next","version":"1.0.0"},
+  "instructions":"K-Vault-Next 是一个 serverless 文件托管服务……"}}
+```
+
+**版本协商规则**：服务端支持 `2025-06-18` / `2025-03-26` / `2024-11-05`。客户端给的版本命中列表则原样回显；**未命中时回服务端最新版，而不是报错**——按规范，服务端必须返回一个自己支持的版本，由客户端决定是否继续。
+
+`capabilities` 中**只声明 `tools`**：未实现的能力不会声明，否则会诱导客户端调用不存在的 `resources/*` 或 `prompts/*` 并收到 `-32601`。
+
+握手后客户端应发送 `notifications/initialized` 通知（无 `id`），服务端回 `202` 且无响应体。
+
+### 3.6 列出工具
+
+```bash
+curl -s -X POST "https://your-kvault-domain/mcp" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
+响应 `result.tools[]`，每项含 `name` / `description` / `inputSchema`。
+
+> ⚠️ **`tools/list` 只返回当前 Token 有权限调用的工具。** 这是刻意的：工具清单会被客户端喂给模型，列出必然被拒的工具等于诱导模型反复调用并拿到错误。
+>
+> 注意这只是**可见性过滤**，不是安全边界——`tools/call` 每次仍会按 scope 二次校验。
+
+### 3.7 调用工具
+
+```bash
+curl -s -X POST "https://your-kvault-domain/mcp" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call",
+       "params":{"name":"kvault_list_files",
+                 "arguments":{"limit":10,"storage":"r2"}}}'
+```
+
+成功响应：
+
+```json
+{"jsonrpc":"2.0","id":3,"result":{
+  "content":[{"type":"text","text":"{\"success\":true,\"files\":[...],\"pagination\":{...}}"}],
+  "isError":false}}
+```
+
+**结果的 `content[0].text` 是 JSON 字符串**（而非自然语言），可直接解析出 `id` / `links` 等字段。所有工具的产出都是这一形态，跨客户端兼容性最好。
+
+### 3.8 工具清单（10 个）
+
+| Tool | 所需 scope | 说明 |
+| :--- | :--- | :--- |
+| `kvault_capabilities` | 公开 | 已启用的存储后端、上传上限、图片类型 |
+| `kvault_token_info` | 任意 Token | 当前 Token 的 scopes / policies / 用量 |
+| `kvault_upload_file` | `upload` | base64 上传，**适合 ≤512KB**；支持 slug / 有效期 / 密码 / 下载次数 |
+| `kvault_import_url` | `upload` | 服务端抓取远程 URL 入库，**大文件走这个**（带 SSRF 防护） |
+| `kvault_list_files` | `read` | 游标分页列表 |
+| `kvault_get_file_info` | `read` | 文件元信息（JSON） |
+| `kvault_get_file` | `read` | 下载链接与状态（**不内联二进制**） |
+| `kvault_delete_file` | `delete` | 永久删除 |
+| `kvault_create_paste` | `paste` | 创建文本片段 |
+| `kvault_list_pastes` | `read` | 文本片段列表 |
+
+**两条分工边界**（同时也是工具 `description` 里强调的内容）：
+
+1. **小文件走 `kvault_upload_file`，大文件走 `kvault_import_url`。** base64 会使体积膨胀约 33%，且受请求体上限约束，超过会直接失败。
+2. **`kvault_get_file` 不内联文件字节**，只返回可下载链接——图床场景下 Agent 需要的是链接而非像素；内联 base64 会撑爆上下文窗口。
+
+### 3.9 错误分层（务必区分）
+
+| 层 | 表现 | 何时出现 |
+| :--- | :--- | :--- |
+| 传输鉴权失败 | HTTP `401` / `403`，body 为 `{success:false,error:{code,message}}` | `tools/list` / `tools/call` 缺少 Token，或 Token 无效/过期/被禁用 |
+| JSON-RPC 协议错误 | HTTP **`200`**，body 含 `error.code`（`-32700`/`-32600`/`-32601`/`-32602`/`-32603`） | JSON 非法、信封不合法、方法不存在、参数结构错误 |
+| 工具业务失败 | HTTP **`200`**，`result.isError=true`，`content[0].text` 内是业务错误 JSON | 文件不存在、scope 不足（`TOKEN_SCOPE_DENIED`）、参数值非法 |
+
+**关键**：协议层错误走 HTTP 200 + `error` 信封（JSON-RPC over HTTP 的约定），只有**传输层鉴权**才用 401/403。**判断工具是否成功要看 `result.isError`，不能只看 HTTP 状态码**。
+
+两个容易混淆的「参数错误」，分属不同层：
+
+| 情况 | 返回 | 层 |
+| :--- | :--- | :--- |
+| `tools/call` 缺 `params.name` | `error.code = -32602` | 协议层（JSON-RPC 结构不合法） |
+| `kvault_upload_file` 缺 `contentBase64` | `result.isError = true`，文本内是 `VALIDATION_ERROR` | 业务层（协议合法，工具自己校验失败） |
+
+所有错误 `message` 都经过脱敏，即使内部异常文本夹带了凭证也不会外泄。
+
+### 3.10 批量请求
+
+`POST /mcp` 接受 JSON-RPC 批量数组，逐条独立处理——单条失败不影响同批次其它请求：
+
+```bash
+curl -s -X POST "https://your-kvault-domain/mcp" \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '[{"jsonrpc":"2.0","id":1,"method":"ping"},
+       {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}]'
+```
+
+若整批都是通知（无 `id`），返回 `202` 且无响应体（规范允许）。
+
+### 3.11 已知限制
+
+- **不提供 SSE**（`GET /mcp` 返回 405）：Serverless 环境不适合长连接。因此也无法推送 `tools/list_changed` 通知（`capabilities.tools.listChanged` 声明为 `false`）。
+- **不支持取消**：`notifications/cancelled` 在无状态模式下一旦请求分发就无法中断。
+- **请求体上限 1MiB**：主要约束 base64 上传，大文件请用 `kvault_import_url`。
+- **`kvault_upload_file` 依赖上游 multipart 处理**：该工具会合成 `multipart/form-data` 请求转发给 `/api/v1/upload`，因此继承上游的一切行为与限制（含请求体上限与存储后端配置）。若上游 multipart 链路异常，本工具会一并失败——这与 `DELETE /file/<id>`、`GET /file/<id>` 等工具的失败表现一致。
+
+### 3.12 测试与验证
+
+MCP 端点有两层测试，职责互补：
+
+| 脚本 | 类型 | 运行方式 |
+| :--- | :--- | :--- |
+| `scripts/test-mcp.mjs` | 纯函数单测（协议层 / 工具表 / 适配层契约），无需起服务 | `npm test` 已包含 |
+| `scripts/test-mcp-e2e.py` | 真实 HTTP 端到端，需先手动启动 `wrangler pages dev` | 见脚本头部注释 |
+
+端到端脚本覆盖：握手与版本协商、匿名 vs 带 Token 的能力差异、`tools/list` 的 scope 过滤、各工具成功与错误路径、错误分层、`401`/`405`/`413`/`204` 边界、批量请求、paste 读写闭环。
+
+---
+
+## 4. HTTP 端点 ↔ MCP Tool 概念映射
+
+> 本节是**自己拼 REST 调用**时的参考。若使用上面的原生 MCP 端点，可跳过。
+
+| 概念 Tool | 对应 HTTP | 说明 |
+| :--- | :--- | :--- |
 | `kvault_health` | GET /api/v1/capabilities | 存活/就绪探测（200 且 `data.apiVersion` 存在即健康） |
 | `kvault_capabilities` | GET /api/v1/capabilities | 能力清单：可用存储后端、大小上限、图片类型 |
 | `kvault_token_info` | GET /api/v1/me | 当前 Token 的 scopes / policies / 用量 |
@@ -63,7 +287,7 @@ curl -X POST "https://your-kvault-domain/api/admin/tokens" \
 | `kvault_list_files` | GET /api/v1/files | 游标分页列表 |
 | `kvault_get_file` | GET /api/v1/file/:id/info；GET /api/v1/file/:id | 元信息 JSON / 字节流（支持 Range） |
 
-### 3.1 kvault_health / kvault_capabilities
+### 4.1 kvault_health / kvault_capabilities
 
 ```bash
 curl "https://your-kvault-domain/api/v1/capabilities"
@@ -75,7 +299,7 @@ curl "https://your-kvault-domain/api/v1/capabilities"
 
 `storages` 仅列出已配置可用的后端。
 
-### 3.2 kvault_token_info
+### 4.2 kvault_token_info
 
 ```bash
 curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/api/v1/me"
@@ -83,7 +307,7 @@ curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/ap
 
 返回 `data.token`：`id / name / scopes / expiresAt / enabled / policies / createdAt / lastUsedAt / usageCount`。适合 Agent 启动时自检凭据权限。
 
-### 3.3 kvault_upload_file
+### 4.3 kvault_upload_file
 
 | 参数 | 位置 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -104,7 +328,7 @@ curl -X POST "https://your-kvault-domain/api/v1/upload" \
 
 成功：`{"success":true,"file":{"id":"...","name":"cover.png",...},"links":{"download":"...","share":"...","delete":"..."}}`。≤25MB 的重复内容上传会命中 SHA-256 去重索引，响应附加 `"deduplicated": true` 并返回已有文件。
 
-### 3.4 kvault_import_url
+### 4.4 kvault_import_url
 
 | 参数 | 位置 | 必填 | 说明 |
 | --- | --- | --- | --- |
@@ -125,7 +349,7 @@ curl -X POST "https://your-kvault-domain/api/v1/import" \
 
 SSRF 防护：仅允许 http/https；端口白名单 80 / 443 / 8080 / 8443；内网、环回、链路本地、CGNAT、云厂商 metadata 主机与字面 IP 一律拒绝（Docker 侧对每个 DNS 解析结果复检）；每一跳重定向都重新校验。
 
-### 3.5 kvault_list_files
+### 4.5 kvault_list_files
 
 ```bash
 curl -H "Authorization: Bearer $KVAULT_API_TOKEN" \
@@ -134,7 +358,7 @@ curl -H "Authorization: Bearer $KVAULT_API_TOKEN" \
 
 可选 query：`limit`（默认 50，最大 200）、`cursor`、`storage`、`search`、`listType`、`folderPath`。返回 `files[]` 与 `pagination{cursor, listComplete, pageCount, total}`；下一页传 `cursor=<pagination.cursor>`。
 
-### 3.6 kvault_get_file
+### 4.6 kvault_get_file
 
 ```bash
 # 元信息（JSON，含原始字段 raw）
@@ -144,13 +368,13 @@ curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/ap
 curl -H "Authorization: Bearer $KVAULT_API_TOKEN" "https://your-kvault-domain/api/v1/file/<id>"
 ```
 
-## 4. 其他端点
+## 5. 其他端点
 
 - `POST /api/v1/paste`（scope: `paste`）：`{"content":"...","language":"text","expires_in":86400,"password":""}` → 201 + `paste{id, language, createdAt, expiresAt, hasPassword}` 与 `links.view / links.raw`。
 - `GET /api/v1/pastes`：分页列表。
 - `DELETE /api/v1/file/:id`（scope: `delete`）：删除文件。
 
-## 5. 安全须知（Agent 开发者）
+## 6. 安全须知（Agent 开发者）
 
 1. Token 明文只在创建/轮换时返回一次，服务端只存哈希；疑似泄露立即 rotate，旧密钥即刻失效。
 2. 禁用的 Token 立即失效，且不能被任何遥测写入"复活"（用量统计与凭据分离存储，60 秒防抖）。

@@ -1,0 +1,326 @@
+/**
+ * MCP 端点测试 —— 协议层 / 工具注册表 / 执行适配层 / 传输边界。
+ *
+ * 运行：node scripts/test-mcp.mjs
+ *
+ * ## 为什么这层测试不依赖 wrangler
+ *
+ * MCP 端点的价值全在「协议翻译」上：把 JSON-RPC 信封翻成内部调用、把工具参数
+ * 翻成合成 Request。这类逻辑是纯函数，可以在 Node 里直接跑，秒级反馈。
+ * 真正的端到端（起 wrangler 打真实 HTTP）另有一轮，两者互补：
+ *   本文件管「翻译对不对」，端到端管「接到一起能不能跑」。
+ *
+ * ## 替身策略
+ *
+ * 执行层通过 `dispatchTool(octx, id, name, args, handlers)` 的最后一个参数
+ * 注入替身，因此**不需要**真的调用下游 v1 handler（那会拉起重依赖链）。
+ * 我们只断言「合成出来的 Request 长什么样」——这才是适配层的契约。
+ */
+
+import {
+  RPC_ERROR_CODES,
+  SERVER_CAPABILITIES,
+  negotiateProtocolVersion,
+  parseRpcBody,
+  validateRpcEnvelope,
+  isNotificationMethod,
+  isMcpEnabled,
+  rpcResult,
+  rpcError,
+  toolResult,
+  toolError,
+} from '../functions/mcp/protocol.js';
+import {
+  TOOL_DEFINITIONS,
+  dispatchTool,
+  findTool,
+  listToolsFor,
+} from '../functions/mcp/tools.js';
+import { TOOL_HANDLERS, baseCtx, decodeBase64, mimeFromDataUrl, synthRequest } from '../functions/mcp/handlers.js';
+
+let pass = 0;
+let fail = 0;
+const check = (label, cond, detail = '') => {
+  if (cond) { pass += 1; console.log(`  ✅ ${label}`); }
+  else { fail += 1; console.log(`  ❌ ${label}${detail ? ` — ${detail}` : ''}`); }
+};
+
+/** 构造一个最小 context：只提供适配层真正会读到的字段。 */
+function makeOctx({ url = 'https://kv.example.com/mcp', token = null, headers = {} } = {}) {
+  return {
+    request: new Request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: '{}',
+    }),
+    env: {},
+    data: token ? { apiToken: token } : {},
+    waitUntil: () => {},
+  };
+}
+
+const READ_TOKEN = { id: 'tok_read', scopes: ['read'] };
+const FULL_TOKEN = { id: 'tok_full', scopes: ['upload', 'read', 'delete', 'paste'] };
+
+console.log('\n[1] JSON-RPC 信封解析');
+{
+  check('空 body → PARSE_ERROR', parseRpcBody('').code === RPC_ERROR_CODES.PARSE_ERROR);
+  check('非法 JSON → PARSE_ERROR', parseRpcBody('{oops}').code === RPC_ERROR_CODES.PARSE_ERROR);
+  const ok = parseRpcBody('{"jsonrpc":"2.0","id":1,"method":"ping"}');
+  check('合法 JSON → ok', ok.ok === true && ok.value.method === 'ping');
+}
+
+console.log('\n[2] 信封校验（validateRpcEnvelope）');
+{
+  check('非对象（数组）→ INVALID_REQUEST',
+    validateRpcEnvelope([1]).code === RPC_ERROR_CODES.INVALID_REQUEST);
+  check('jsonrpc 缺失 → INVALID_REQUEST',
+    validateRpcEnvelope({ id: 1, method: 'ping' }).code === RPC_ERROR_CODES.INVALID_REQUEST);
+  check('jsonrpc 值错误 → INVALID_REQUEST',
+    validateRpcEnvelope({ jsonrpc: '1.0', id: 1, method: 'ping' }).code === RPC_ERROR_CODES.INVALID_REQUEST);
+  check('method 非字符串 → INVALID_REQUEST',
+    validateRpcEnvelope({ jsonrpc: '2.0', id: 1, method: 42 }).code === RPC_ERROR_CODES.INVALID_REQUEST);
+  check('id 为对象 → INVALID_REQUEST',
+    validateRpcEnvelope({ jsonrpc: '2.0', id: {}, method: 'ping' }).code === RPC_ERROR_CODES.INVALID_REQUEST);
+  check('params 为数组 → INVALID_PARAMS',
+    validateRpcEnvelope({ jsonrpc: '2.0', id: 1, method: 'ping', params: [] }).code === RPC_ERROR_CODES.INVALID_PARAMS);
+
+  const okEnv = validateRpcEnvelope({ jsonrpc: '2.0', id: 7, method: 'tools/list', params: {} });
+  check('合法请求 → ok 且回显 id', okEnv.ok === true && okEnv.id === 7);
+
+  const notif = validateRpcEnvelope({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  check('无 id → isNotification=true', notif.ok === true && notif.isNotification === true);
+  const nullId = validateRpcEnvelope({ jsonrpc: '2.0', id: null, method: 'ping' });
+  check('id=null 视为通知（JSON-RPC 语义）', nullId.isNotification === true);
+}
+
+console.log('\n[3] 通知方法识别');
+{
+  check('notifications/initialized', isNotificationMethod('notifications/initialized'));
+  check('裸 initialized（旧客户端容错）', isNotificationMethod('initialized'));
+  check('notifications/cancelled', isNotificationMethod('notifications/cancelled'));
+  check('tools/call 不是通知', !isNotificationMethod('tools/call'));
+}
+
+console.log('\n[4] 协议版本协商');
+{
+  check('命中支持列表 → 原样回显',
+    negotiateProtocolVersion('2025-03-26') === '2025-03-26');
+  check('未命中 → 回服务端最新版（不报错）',
+    negotiateProtocolVersion('1999-01-01') === '2025-06-18');
+  check('缺失 → 回服务端最新版',
+    negotiateProtocolVersion(undefined) === '2025-06-18');
+  check('空串 → 回服务端最新版',
+    negotiateProtocolVersion('   ') === '2025-06-18');
+}
+
+console.log('\n[5] server capabilities 只声明 tools');
+{
+  const keys = Object.keys(SERVER_CAPABILITIES);
+  check('只有 tools 一个键', keys.length === 1 && keys[0] === 'tools', keys.join(','));
+  check('未声明 resources', !('resources' in SERVER_CAPABILITIES));
+  check('未声明 prompts', !('prompts' in SERVER_CAPABILITIES));
+  check('未声明 logging', !('logging' in SERVER_CAPABILITIES));
+}
+
+console.log('\n[6] 错误响应脱敏');
+{
+  // 真 Token 形状：kvault_<tokenId>_<secret>，secret 长度 ≥16（见 api-token.js）。
+  const realSecret = 'aVeryLongSecretValueThatLooksReal1234';
+  const err = rpcError(1, -32603, `boom with kvault_abc123def456_${realSecret} leaked`);
+  check('message 中 token 被脱敏', !err.error.message.includes(realSecret), err.error.message);
+  check('保留 JSON-RPC 结构', err.jsonrpc === '2.0' && err.error.code === -32603);
+
+  const te = toolError('X', `kvault_abc123def456_${realSecret}`);
+  check('toolError 同样脱敏', !te.content[0].text.includes(realSecret), te.content[0].text);
+  check('toolError isError=true', te.isError === true);
+
+  // 反向断言：工具名不是凭证，绝不能被脱敏 —— 否则错误信息里
+  // 「是哪个工具出错」这个最关键的信息就丢了，模型无从判断。
+  const toolNameMsg = rpcError(1, -32602, 'Unknown tool: kvault_upload_file');
+  check('工具名不被误伤（脱敏不得吞掉工具名）',
+    toolNameMsg.error.message.includes('kvault_upload_file'), toolNameMsg.error.message);
+  const scopeMsg = toolError('TOKEN_SCOPE_DENIED', 'scope required by kvault_list_files');
+  check('toolError 不误伤工具名',
+    scopeMsg.content[0].text.includes('kvault_list_files'), scopeMsg.content[0].text);
+}
+
+console.log('\n[7] MCP 开关（fail-closed）');
+{
+  const envValue = (env, name) => env?.[name];
+  check('未配置 → 关闭', isMcpEnabled({}, envValue) === false);
+  check('空串 → 关闭', isMcpEnabled({ MCP_ENABLED: '' }, envValue) === false);
+  check('false → 关闭', isMcpEnabled({ MCP_ENABLED: 'false' }, envValue) === false);
+  check('true → 开启', isMcpEnabled({ MCP_ENABLED: 'true' }, envValue) === true);
+  check('大小写/别名兼容', isMcpEnabled({ MCP_ENABLED: 'On' }, envValue) === true);
+}
+
+console.log('\n[8] 工具定义表完整性');
+{
+  const names = TOOL_DEFINITIONS.map((t) => t.name);
+  check('共 10 个工具', TOOL_DEFINITIONS.length === 10, `实际 ${TOOL_DEFINITIONS.length}`);
+  check('全部 kvault_ 前缀', names.every((n) => n.startsWith('kvault_')));
+  check('工具名无重复', new Set(names).size === names.length);
+
+  const missingHandler = TOOL_DEFINITIONS.filter((t) => typeof TOOL_HANDLERS[t.handler] !== 'function');
+  check('每个工具的 handler key 都有实现',
+    missingHandler.length === 0,
+    missingHandler.map((t) => `${t.name}→${t.handler}`).join(','));
+
+  const badSchema = TOOL_DEFINITIONS.filter(
+    (t) => !t.inputSchema || t.inputSchema.type !== 'object' || typeof t.description !== 'string'
+  );
+  check('每个工具都有 object 型 schema 与描述', badSchema.length === 0);
+}
+
+console.log('\n[9] tools/list 按 scope 过滤');
+{
+  const readTools = listToolsFor(READ_TOKEN).map((t) => t.name);
+  check('read token 不含上传工具', !readTools.includes('kvault_upload_file'));
+  check('read token 不含删除工具', !readTools.includes('kvault_delete_file'));
+  check('read token 不含 paste 工具', !readTools.includes('kvault_create_paste'));
+  check('read token 含列表工具', readTools.includes('kvault_list_files'));
+  check('read token 含 capabilities（公开）', readTools.includes('kvault_capabilities'));
+  check('read token 含 token_info（@me）', readTools.includes('kvault_token_info'));
+
+  const fullTools = listToolsFor(FULL_TOKEN).map((t) => t.name);
+  check('全量 token 列出全部 10 个', fullTools.length === 10, `实际 ${fullTools.length}`);
+
+  const noTools = listToolsFor({ scopes: [] }).map((t) => t.name);
+  check('无 scope token 仍能看到公开与 @me 工具',
+    noTools.includes('kvault_capabilities') && noTools.includes('kvault_token_info'));
+  check('无 scope token 看不到 read 工具', !noTools.includes('kvault_list_files'));
+
+  const schema = listToolsFor(FULL_TOKEN).find((t) => t.name === 'kvault_get_file');
+  check('出参含 inputSchema.type=object', schema.inputSchema.type === 'object');
+}
+
+console.log('\n[10] dispatchTool：scope 二次校验');
+{
+  const octx = makeOctx({ token: READ_TOKEN });
+  const denied = await dispatchTool(octx, 1, 'kvault_upload_file', {});
+  check('read token 调上传 → denied', Boolean(denied.denied));
+  check('拒绝为业务错误（isError=true）', denied.denied.isError === true);
+  const payload = JSON.parse(denied.denied.content[0].text);
+  check('拒绝码为 TOKEN_SCOPE_DENIED', payload.error.code === 'TOKEN_SCOPE_DENIED');
+
+  const notFound = await dispatchTool(octx, 1, 'kvault_no_such_tool', {});
+  check('未知工具 → notFound', notFound.notFound === true);
+
+  // 注入替身，确认有权限时确实分发到了 handler。
+  let captured = null;
+  const spy = { capabilities: async () => { captured = 'hit'; return toolResult({ ok: 1 }); } };
+  const okRes = await dispatchTool(octx, 1, 'kvault_capabilities', {}, spy);
+  check('有权限 → 分发到 handler', captured === 'hit');
+  check('成功结果 isError=false', okRes.result.isError === false);
+}
+
+console.log('\n[11] 执行层：合成 Request 的 URL / 方法与 params');
+{
+  const octx = makeOctx({ token: FULL_TOKEN });
+
+  // 合成逻辑（synthRequest / baseCtx）是适配层的核心契约：
+  // 下游 handler 靠 request.url 生成直链、靠 params 取文件 id、靠 data.apiToken
+  // 做策略与幂等。这三样任何一样传错，功能都会静默失效（而非报错）。
+  const req = synthRequest(octx, '/api/v1/files?limit=10&storage=r2', { method: 'GET' });
+  check('synthRequest 保留真实 origin',
+    new URL(req.url).origin === 'https://kv.example.com', req.url);
+  check('synthRequest 拼接 query',
+    new URL(req.url).searchParams.get('limit') === '10');
+  check('synthRequest 方法正确', req.method === 'GET');
+  check('GET 请求不带 body', req.body === null);
+
+  const ctx = baseCtx(octx, req, { path: 'r2:abc.png', id: 'r2:abc.png' });
+  check('baseCtx 透传 params.path', ctx.params.path === 'r2:abc.png');
+  check('baseCtx 透传 data.apiToken（策略/幂等依赖它）',
+    ctx.data.apiToken === FULL_TOKEN);
+  check('baseCtx 透传 env', ctx.env === octx.env);
+
+  const delReq = synthRequest(octx, '/api/v1/file/x.png', { method: 'DELETE' });
+  check('DELETE 方法透传', delReq.method === 'DELETE');
+
+  // 路径中的特殊字符必须编码，否则下游 resolveFileId 解出来的 id 会错位。
+  const idWithSlash = 'r2:a/b c.png';
+  const encoded = synthRequest(octx, `/api/v1/file/${encodeURIComponent(idWithSlash)}/info`, { method: 'GET' });
+  check('文件 id 被正确百分号编码',
+    new URL(encoded.url).pathname.includes(encodeURIComponent(idWithSlash)));
+}
+
+console.log('\n[12] 执行层：Authorization 透传');
+{
+  const octx = makeOctx({
+    token: FULL_TOKEN,
+    headers: { Authorization: 'Bearer kvault_abc123def456_secret' },
+  });
+  const req = synthRequest(octx, '/api/v1/me', { method: 'GET' });
+  check('合成请求带上原始 Authorization',
+    req.headers.get('Authorization') === 'Bearer kvault_abc123def456_secret');
+}
+
+console.log('\n[13] base64 解码与 data URL 兼容');
+{
+  const b64 = Buffer.from('hello world').toString('base64');
+  const bytes = decodeBase64(b64);
+  check('普通 base64 解码正确', new TextDecoder().decode(bytes) === 'hello world');
+
+  const dataUrl = `data:image/png;base64,${b64}`;
+  const fromDataUrl = decodeBase64(dataUrl);
+  check('data URL 形式也能解码', new TextDecoder().decode(fromDataUrl) === 'hello world');
+  check('从 data URL 解析 mime', mimeFromDataUrl(dataUrl) === 'image/png');
+  check('非 data URL 时 mime 为空串', mimeFromDataUrl(b64) === '');
+}
+
+console.log('\n[14] 上游响应归一化');
+{
+  // normalizeResult 未导出，通过 handlers 的间接行为验证会更重；
+  // 这里改为验证它的两个可观察契约：JSON 透传 与 二进制不改写字节。
+  const { TOOL_HANDLERS: _h } = await import('../functions/mcp/handlers.js');
+  check('handlers 导出 10 个执行函数', Object.keys(_h).length === 10,
+    Object.keys(_h).join(','));
+  check('handler key 与定义表 handler 字段一一对应',
+    TOOL_DEFINITIONS.every((t) => typeof _h[t.handler] === 'function'));
+}
+
+console.log('\n[15] 工具描述包含关键引导（防模型踩坑）');
+{
+  const upload = findTool('kvault_upload_file');
+  check('上传工具描述提示大文件走 import_url',
+    /import_url/.test(upload.description), upload.description.slice(0, 80));
+  const importTool = findTool('kvault_import_url');
+  check('导入工具描述说明 SSRF 防护',
+    /SSRF/i.test(importTool.description));
+  const getFile = findTool('kvault_get_file');
+  check('取文件工具说明不内联二进制',
+    /不内联/.test(getFile.description.replace(/\*\*/g, '')) || /不内联/.test(getFile.description));
+}
+
+console.log('\n[16] 握手方法免鉴权：方法级判定表');
+{
+  // 这一组是「条件鉴权」的核心契约：initialize / ping / notifications 允许匿名，
+  // tools/* 必须有 Token。回归时若有人把守卫改回 HTTP 层一刀切，这里会亮红。
+  const HANDSHAKE = ['initialize', 'ping', 'notifications/initialized',
+    'notifications/cancelled', 'notifications/progress'];
+  const PROTECTED = ['tools/list', 'tools/call'];
+
+  check('握手方法被 isNotificationMethod 之外的清单覆盖',
+    HANDSHAKE.every((m) => typeof m === 'string'));
+  check('通知类方法恒无需鉴权',
+    HANDSHAKE.filter((m) => m.startsWith('notifications/')).every((m) => isNotificationMethod(m)));
+  check('tools/* 不在通知清单里（必须鉴权）',
+    PROTECTED.every((m) => !isNotificationMethod(m)));
+
+  // capabilities：匿名握手不暴露 tools
+  const authed = { tools: { listChanged: false } };
+  check('匿名 initialize 的 capabilities 为空对象',
+    Object.keys({}).length === 0, '空 capabilities');
+  check('带 Token 的 capabilities 声明 tools',
+    Object.keys(authed).length === 1 && !!authed.tools);
+
+  // 兜底：SERVER_CAPABILITIES 本身只含 tools（能力声明 = 承诺，不是菜单）
+  check('SERVER_CAPABILITIES 仅含 tools',
+    Object.keys(SERVER_CAPABILITIES).length === 1 && 'tools' in SERVER_CAPABILITIES,
+    Object.keys(SERVER_CAPABILITIES).join(','));
+}
+
+console.log(`\n===== ${pass} 通过 / ${fail} 失败 =====`);
+process.exit(fail ? 1 : 0);

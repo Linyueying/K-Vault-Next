@@ -88,6 +88,21 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 | `functions/api/manage/` | 文件与目录管理、分享管理、运行时配置 |
 | `functions/api/admin/` | API Token 管理、用量监控 |
 | `functions/api/v1/` | 对外 API v1（Token 鉴权、scope、策略） |
+| `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，零 SDK 依赖） |
+
+### 2.1 MCP 端点：传输与鉴权分层
+
+`functions/mcp/` 原生实现了 MCP，**不引入任何运行时依赖**——`protocol.js` 手写 JSON-RPC 2.0 信封，`tools.js` 声明工具，`handlers.js` 把工具调用翻译成对 `api/v1` handler 的内部调用（合成 Request + 透传 context），因此策略、幂等、去重、审计全部继承，不存在第二份业务实现。
+
+三处关键设计：
+
+- **无状态**：不分配 `Mcp-Session-Id`。Pages Functions 无常驻进程，维护会话需落 KV 并每请求回读；MCP 规范明确允许服务端不分配会话。代价是不提供 SSE（`GET /mcp` → 405）与取消通知，收益是零额外存储开销且天然吻合 Serverless 模型。
+- **鉴权分三层，且粒度按方法而非按连接**：L1（`mcp/_middleware.js`）校验 Token 有效性并注入 `context.data.apiToken` → L2 per-token 限流 → L3（`tools.js`）按**工具**声明的 scope 二次校验。MCP 是单一入口，工具名在 POST body 里，HTTP 层无从推导所需 scope，因此不能照搬 v1 的「按路径推 scope」。
+- **握手方法免鉴权**：`initialize` / `ping` / `notifications/*` 不要求 Token，`tools/list` 与 `tools/call` 强制鉴权。之所以不在 HTTP 层一刀切，是因为主流 MCP 客户端在 `initialize` 阶段尚未发送 `Authorization`，握手即 401 会让客户端在拿到 `capabilities` 之前就断开。为保证不泄露信息，匿名 `initialize` 返回的 `capabilities` 为空对象且不含 `instructions`——工具清单只在带 Token 时才可见。实现上中间件**不解析 body**（读流会消费掉 `request.body`），而是「有 Token 就校验注入、无 Token 则裸放行不注入」，由路由层按 method 决定是否拒绝。
+- **错误分三层**：传输鉴权失败走 HTTP 401/403；JSON-RPC 协议错误走 HTTP **200** + `error` 信封（JSON-RPC over HTTP 的约定）；工具业务失败走 HTTP **200** + `result.isError=true`。因此**判断工具是否成功必须看 `result.isError`，不能只看状态码**。
+
+端点默认关闭（`MCP_ENABLED`），未开启时返回 404 —— 与「管理面 fail-closed」同一思路：新增网络面不因「部署时忘了配」而自动敞开。
+| `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，零 SDK 依赖） |
 | `functions/api/chunked-upload/` | 分片上传 init / chunk / complete |
 | `functions/api/share-info.js` | 分享页只读信息（公开） |
 | `functions/api/status.js` | 后端连通性与配置状态 |
