@@ -40,6 +40,7 @@
  * @module api-token-d1
  */
 
+import { changedCount } from './d1-result.js';
 import { ensureSchema } from './schema.js';
 
 /** D1 是否可用（绑定名 DB）。 */
@@ -50,6 +51,9 @@ function isD1Enabled(env) {
 function now() {
   return Date.now();
 }
+
+// 受影响行数一律走 d1-result —— D1 把它放在 meta.changes，写成 res.changes
+// 会恒得 0，把「更新成功」误判成「没这行」（详见该模块头注释）。
 
 /** 解析 JSON 列，坏数据一律当空处理（不抛，避免一条脏行拖垮整个列表）。 */
 function parseJsonColumn(raw, fallback = null) {
@@ -254,7 +258,7 @@ export async function updateTokenRecord(env, tokenId, patch = {}) {
     const res = await env.DB.prepare(
       `UPDATE api_tokens SET ${assignments.join(', ')} WHERE token_id = ?`
     ).bind(...values).run();
-    return { ok: true, updated: Number(res?.changes) || 0 };
+    return { ok: true, updated: changedCount(res) };
   } catch (error) {
     console.warn('D1 updateTokenRecord failed:', error?.message || error);
     return { ok: false, error: error?.message };
@@ -313,7 +317,7 @@ export async function deleteTokenRecord(env, tokenId) {
   try {
     const res = await env.DB.prepare('DELETE FROM api_tokens WHERE token_id = ?')
       .bind(String(tokenId)).run();
-    const deleted = Number(res?.changes) || 0;
+    const deleted = changedCount(res);
 
     // 只有真的删掉了凭据才顺手清遥测；若凭据本就不存在，不要误删孤儿行
     // （理论不存在，但保持"以凭据为准"的单一事实来源更稳）。
@@ -417,7 +421,7 @@ export async function touchTokenStat(env, tokenId, entry = {}) {
       minInterval
     ).run();
 
-    const written = (Number(res?.changes) || 0) > 0;
+    const written = changedCount(res) > 0;
     return { ok: true, written, skipped: !written };
   } catch (error) {
     console.warn('D1 touchTokenStat failed:', error?.message || error);

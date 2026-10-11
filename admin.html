@@ -5358,7 +5358,7 @@ const __kvApp = Vue.createApp({
            否则后台刷新的成功/失败会稀释「我的操作已同步」的语义 */
         const res = await fetch('/api/manage/list?' + p, { credentials: 'include' });
         const r = await res.json();
-        if (!res.ok) throw new Error((r && r.error) || `列表获取失败（HTTP ${res.status}）`);
+        if (!res.ok) throw new Error(KVault.errorMessage(r, `列表获取失败（HTTP ${res.status}）`));
         const arr = (r.keys || []).map(x => ({
           ...x,
           selected: false,
@@ -5810,7 +5810,7 @@ const __kvApp = Vue.createApp({
             body: JSON.stringify({ path })
           });
           const d = await res.json();
-          if (!res.ok || !d.success) throw new Error(d.error || '创建失败');
+          if (!res.ok || !d.success) throw new Error(KVault.errorMessage(d, '创建失败'));
           return d;
         }, '新建目录', { settle: 'evidence' });
         this.showToast('目录已创建', 'success');
@@ -5888,7 +5888,7 @@ const __kvApp = Vue.createApp({
             body: JSON.stringify({ sourcePath: source, targetPath: target })
           });
           const d = await res.json();
-          if (!res.ok || !d.success) throw new Error(d.error || '重命名失败');
+          if (!res.ok || !d.success) throw new Error(KVault.errorMessage(d, '重命名失败'));
           return d;
         }, '重命名目录', { settle: 'evidence' });
         this.showToast('目录已重命名', 'success');
@@ -5985,7 +5985,7 @@ const __kvApp = Vue.createApp({
             method: 'DELETE', credentials: 'include'
           });
           const d = await res.json();
-          if (!res.ok || !d.success) throw new Error(d.error || '删除失败');
+          if (!res.ok || !d.success) throw new Error(KVault.errorMessage(d, '删除失败'));
           return d;
         }, '删除目录', { settle: 'evidence' });
         const moved = Number(r.clearedFiles || 0);
@@ -6068,7 +6068,7 @@ const __kvApp = Vue.createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path })
         }).then(r => r.json());
-        if (!r.success) throw new Error(r.error || '创建失败');
+        if (!r.success) throw new Error(KVault.errorMessage(r, '创建失败'));
         this.moveTarget = path;
         await this.moveTo(this.moveFiles, path);
         this.moveVisible = false;
@@ -6097,7 +6097,7 @@ const __kvApp = Vue.createApp({
         body: JSON.stringify({ ids, files: payload, targetFolderPath: target })
       }).then(r => r.json());
 
-      if (!r.success) throw new Error(r.error || '移动失败');
+      if (!r.success) throw new Error(KVault.errorMessage(r, '移动失败'));
       if (!r.moved) throw new Error('没有移动任何文件');
 
       this.showToast(`已移动 ${r.moved} 个文件到 ${target || '根目录'}`, 'success');
@@ -6178,7 +6178,7 @@ const __kvApp = Vue.createApp({
       try {
         const r = await fetch('/api/manage/delete/' + encodeURIComponent(rec.name), { credentials: 'include' })
           .then(r => r.json());
-        if (!r.success) throw new Error(r.error || '删除失败');
+        if (!r.success) throw new Error(KVault.errorMessage(r, '删除失败'));
       } catch (e) {
         // 服务端失败：回滚 UI，避免「看起来删了其实还在」
         this._restoreDeleted([{ item: rec.item, index: rec.index }]);
@@ -6278,7 +6278,7 @@ const __kvApp = Vue.createApp({
           '/api/manage/editName/' + encodeURIComponent(item.name) + '?newName=' + encodeURIComponent(val),
           { credentials: 'include' }
         ).then(r => r.json());
-        if (!r.success) throw new Error(r.error || '重命名失败');
+        if (!r.success) throw new Error(KVault.errorMessage(r, '重命名失败'));
         item.metadata.fileName = val;
         this.showToast('重命名成功', 'success');
       } catch (e) {
@@ -6399,7 +6399,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/manage/settings', { credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '读取设置失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '读取设置失败'));
         this.applyAirdropView(data);
       } catch (e) {
         this.showToast(e.message || '读取隔空投送设置失败', 'error');
@@ -6456,7 +6456,7 @@ const __kvApp = Vue.createApp({
           })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '保存失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存失败'));
         this.applyAirdropView(data);
         this.showToast('隔空投送设置已保存', 'success');
       } catch (e) {
@@ -6471,7 +6471,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/manage/settings?group=airdrop', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '恢复默认失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '恢复默认失败'));
         this.applyAirdropView(data);
         this.showToast('已恢复为环境变量基线', 'success');
       } catch (e) {
@@ -6490,7 +6490,7 @@ const __kvApp = Vue.createApp({
           cache: 'no-store'
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '读取统计失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '读取统计失败'));
         this.airdropStats = data.stats || null;
         // 统计与节点探测彼此独立：统计失败时后端仍会返回 backend / config，
         // 这里照常应用 —— 避免把「统计读不到」误显示成「没有中转节点」。
@@ -6515,7 +6515,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/manage/airdrop-stats', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '清空失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '清空失败'));
         this.showToast('使用记录已清空', 'success');
         await this.loadAirdropStats();
       } catch (e) {
@@ -6556,7 +6556,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/manage/settings', { credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '读取设置失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '读取设置失败'));
         this.applySettingsView(data);
       } catch (e) {
         this.showToast(e.message || '读取设置失败', 'error');
@@ -6693,7 +6693,7 @@ const __kvApp = Vue.createApp({
           })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '保存失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存失败'));
         this.applySettingsView(data);
         this.showToast(
           this.storageForm.writeKvLegacy
@@ -6721,13 +6721,13 @@ const __kvApp = Vue.createApp({
         // 全量 DELETE 会把没保存过的那组也无谓地"重置"一遍。
         const res = await fetch('/api/manage/settings?group=guest', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '重置失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '重置失败'));
         this.applySettingsView(data);
 
         if (this.storageSource === 'kv') {
           const res2 = await fetch('/api/manage/settings?group=storage', { method: 'DELETE', credentials: 'include' });
           const data2 = await res2.json();
-          if (!res2.ok) throw new Error(data2.error || '重置存储设置失败');
+          if (!res2.ok) throw new Error(KVault.errorMessage(data2, '重置存储设置失败'));
           this.applySettingsView(data2);
         }
 
@@ -6799,7 +6799,7 @@ const __kvApp = Vue.createApp({
           })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '保存失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存失败'));
         this.applySettingsView(data);
         this.showToast(
           this.webdavForm.enabled ? 'WebDAV 服务端已开启，立即生效' : 'WebDAV 服务端已关闭',
@@ -6823,7 +6823,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/manage/settings?group=webdav', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '重置失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '重置失败'));
         this.applySettingsView(data);
         this.showToast('已恢复为环境变量配置', 'success');
       } catch (e) {
@@ -6894,7 +6894,7 @@ const __kvApp = Vue.createApp({
           })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '保存失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存失败'));
         this.applySettingsView(data);
         this.showToast(
           this.mcpForm.enabled ? 'MCP 已开启，立即生效' : 'MCP 已关闭',
@@ -6918,7 +6918,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/manage/settings?group=mcp', { method: 'DELETE', credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '重置失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '重置失败'));
         this.applySettingsView(data);
         this.showToast('已恢复为环境变量配置', 'success');
       } catch (e) {
@@ -6951,7 +6951,7 @@ const __kvApp = Vue.createApp({
           })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '保存失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存失败'));
         this.applySettingsView(data);
         this.showToast('网站信息已保存，立即生效', 'success');
         this.closeBrandingPanel();
@@ -6976,7 +6976,7 @@ const __kvApp = Vue.createApp({
           credentials: 'include'
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '恢复失败');
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '恢复失败'));
         this.applySettingsView(data);
         this.showToast('已恢复为默认网站信息', 'success');
         this.closeBrandingPanel();
@@ -7017,7 +7017,7 @@ const __kvApp = Vue.createApp({
       try {
         const res = await fetch('/api/admin/tokens', { credentials: 'include' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        if (!res.ok || !data.success) throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         this.tokens = Array.isArray(data.tokens) ? data.tokens : [];
       } catch (e) {
         this.showToast('读取 Token 列表失败：' + (e.message || ''), 'error');
@@ -7089,7 +7089,7 @@ const __kvApp = Vue.createApp({
             body: JSON.stringify(payload)
           });
           const data = await res.json().catch(() => ({}));
-          if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+          if (!res.ok || !data.success) throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
           this.showToast('已保存 ' + this.tokenEditingId, 'success');
           this.resetTokenForm();
         } else {
@@ -7101,7 +7101,7 @@ const __kvApp = Vue.createApp({
             body: JSON.stringify(payload)
           });
           const data = await res.json().catch(() => ({}));
-          if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+          if (!res.ok || !data.success) throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
           this.tokenSecret = { token: String(data.token || ''), mode: 'create' };
           this.showToast('Token 已创建，请立即保存密钥', 'success');
           this.resetTokenForm();
@@ -7122,7 +7122,7 @@ const __kvApp = Vue.createApp({
           body: JSON.stringify({ enabled: !token.enabled })
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        if (!res.ok || !data.success) throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         token.enabled = !token.enabled;
         this.showToast(token.id + (token.enabled ? ' 已启用' : ' 已禁用'), 'success');
       } catch (e) {
@@ -7143,7 +7143,7 @@ const __kvApp = Vue.createApp({
           credentials: 'include'
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        if (!res.ok || !data.success) throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         this.tokenSecret = { token: String(data.token || ''), mode: 'rotate' };
         this.showToast('已轮换，请立即保存新密钥', 'success');
         await this.loadTokens();
@@ -7164,7 +7164,7 @@ const __kvApp = Vue.createApp({
           credentials: 'include'
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+        if (!res.ok || !data.success) throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         this.tokens = this.tokens.filter(t => t.id !== token.id);
         if (this.tokenEditingId === token.id) this.resetTokenForm();
         this.showToast('已删除 ' + token.id, 'success');
@@ -7223,7 +7223,7 @@ const __kvApp = Vue.createApp({
         }
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
-          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+          throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         }
         this.shares = Array.isArray(data.shares) ? data.shares : [];
         this.shareStats = data.stats || null;
@@ -7258,7 +7258,7 @@ const __kvApp = Vue.createApp({
         }
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
-          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+          throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         }
         // 后端按目录实时统计，因此这里的 fileCount 永远是当前真实成员数 —— 分享管理同步更新。
         this.shareBundles = Array.isArray(data.bundles) ? data.bundles : [];
@@ -7307,7 +7307,7 @@ const __kvApp = Vue.createApp({
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
-          throw new Error(data.message || data.error || ('HTTP ' + res.status));
+          throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         }
         this.showToast('已取消分享', 'success');
         this.shareBundles = this.shareBundles.filter((item) => item.slug !== b.slug);
@@ -7669,7 +7669,7 @@ const __kvApp = Vue.createApp({
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data.success === false) {
-          throw new Error(data.message || data.error || ('HTTP ' + res.status));
+          throw new Error(KVault.errorMessage(data, 'HTTP ' + res.status));
         }
         this.showToast('已取消分享', 'success');
         // 本地剔除，避免整表重拉

@@ -259,8 +259,9 @@ console.log('[6] 端到端：建短链 → 校验 → 换短链 → 旧短链释
   //    而这种失败是静默的（UPDATE 不报错），断言才会发现。
   const changed = await base.DB.prepare('UPDATE files SET share_slug = ? WHERE id = ?')
     .bind('second', 'one.png').run();
+  // ⚠️ 读 meta.changes —— 真实 D1 顶层没有 changes（替身也已对齐）。
   check('[6] 换短链更新到 1 行（确认用的是裸 ID）',
-    Number(changed.changes) === 1, `changes=${changed.changes}`);
+    Number(changed.meta.changes) === 1, `changes=${changed.meta.changes}`);
   check('[6] 新短链可用', (await findShareSlugOwner(env, 'second')) === 'r2:one.png');
   check('[6] ★ 旧短链已释放（可被他人使用）',
     (await findShareSlugOwner(env, 'first')) === '', 'first 仍被占用');

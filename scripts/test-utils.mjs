@@ -60,8 +60,11 @@ export function wrapAsD1(db) {
     },
     async run() {
       const info = db.prepare(sql).run(...params);
-      // D1 的 changes 同时出现在顶层与 meta 里，两者都给，覆盖不同读取习惯
-      return { changes: info.changes, meta: { changes: info.changes } };
+      // ⚠️ 只给 meta.changes —— 真实 D1 的顶层**没有** changes。
+      //    这里若顺手再塞一个顶层 changes，生产代码写成 `res.changes` 也能过测试，
+      //    而这正是曾经真实发生过的 bug（更新成功被判成"没这行"）。
+      //    替身必须比现实更严格，不能更宽容。
+      return { success: true, meta: { changes: info.changes } };
     },
   });
   return { prepare: (sql) => wrap(sql) };

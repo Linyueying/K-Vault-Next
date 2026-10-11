@@ -465,7 +465,7 @@ setTimeout(function () {
             credentials: "include"
           });
           const data = await res.json();
-          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          if (!res.ok || !data.ok) throw new Error(KVault.errorMessage(data, "HTTP " + res.status));
           this.items = reset ? (data.items || []) : this.items.concat(data.items || []);
           this.total = Number(data.total || 0);
           this.cursor = data.cursor || null;
@@ -497,7 +497,7 @@ setTimeout(function () {
             body: JSON.stringify(body)
           });
           const data = await res.json();
-          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          if (!res.ok || !data.ok) throw new Error(KVault.errorMessage(data, "HTTP " + res.status));
 
           const paste = data.paste || {};
           this.form.content = "";
@@ -552,7 +552,7 @@ setTimeout(function () {
             this.viewError = password ? "密码不正确，请重试。" : "";
             return;
           }
-          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          if (!res.ok || !data.ok) throw new Error(KVault.errorMessage(data, "HTTP " + res.status));
           this.viewPaste = data.paste || null;
           this.viewNeedsPassword = false;
           this.viewError = "";
@@ -593,7 +593,7 @@ setTimeout(function () {
             credentials: "include"
           });
           const data = await res.json();
-          if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+          if (!res.ok || !data.ok) throw new Error(KVault.errorMessage(data, "HTTP " + res.status));
           this.items = this.items.filter((it) => it.id !== id);
           this.total = Math.max(0, this.total - 1);
           if (this.viewId === id) this.closeView();

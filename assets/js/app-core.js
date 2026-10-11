@@ -124,6 +124,30 @@
     return Promise.resolve(fallbackCopy(value));
   }
 
+  /**
+   * 从 API 失败载荷里取出**可读**的错误文本。
+   *
+   * 服务端的失败形状是 `{success:false, error:{code, message}}` —— `error` 是
+   * **对象**而不是字符串。直接 `new Error(data.error)` 会被 String() 成
+   * "[object Object]"，用户只看到「提交失败：[object Object]」，真实原因
+   * （比如"短链已被占用"）全丢了，而且对象一旦进了 Error 就再也拿不回来。
+   *
+   * 取值优先级：error.message → error.code → 顶层 message → 兜底文案。
+   */
+  function errorMessage(payload, fallback) {
+    var fallbackText = fallback || "请求失败";
+    if (!payload || typeof payload !== "object") return fallbackText;
+
+    var err = payload.error;
+    if (typeof err === "string" && err) return err;
+    if (err && typeof err === "object") {
+      if (typeof err.message === "string" && err.message) return err.message;
+      if (typeof err.code === "string" && err.code) return err.code;
+    }
+    if (typeof payload.message === "string" && payload.message) return payload.message;
+    return fallbackText;
+  }
+
   /* ------------------------------------------------------------------ *
    * 带凭据的 JSON 请求
    *   统一 credentials:'include'、统一错误抛出、统一 401 语义
@@ -155,7 +179,7 @@
       var parse = ct.indexOf("application/json") > -1 ? res.json() : res.text();
       return parse.then(function (data) {
         if (!res.ok) {
-          var msg = data && data.error ? data.error : "请求失败（" + res.status + "）";
+          var msg = errorMessage(data, "请求失败（" + res.status + "）");
           var err = new Error(msg);
           err.status = res.status;
           err.data = data;
@@ -937,6 +961,7 @@
     copy: copy,
     copyText: copy, // 别名
     fetchJSON: fetchJSON,
+    errorMessage: errorMessage,
     escapeHtml: escapeHtml,
     debounce: debounce,
     glassInit: glassInit,

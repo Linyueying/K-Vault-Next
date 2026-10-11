@@ -59,9 +59,10 @@ function d1Mock(db, sizeAfter) {
     async all() { return { results: db.prepare(sql).all(...params) }; },
     async run() {
       const info = db.prepare(sql).run(...params);
+      // 真实 D1 只在 meta.changes 里给行数（顶层没有 changes）——
+      // 替身必须严格照做，否则生产代码误读也测不出来。
       return {
         success: true,
-        changes: info.changes,
         meta: { changes: info.changes, size_after: sizeAfter, rows_read: 1, rows_written: 0 },
       };
     },

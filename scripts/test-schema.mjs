@@ -56,7 +56,8 @@ function wrapAsD1(db) {
     async all() { return { results: db.prepare(sql).all(...params) }; },
     async run() {
       const info = db.prepare(sql).run(...params);
-      return { changes: info.changes, meta: { changes: info.changes } };
+      // 真实 D1 只在 meta.changes 里给行数；替身补顶层 changes 会掩盖误读 bug。
+      return { success: true, meta: { changes: info.changes } };
     },
   });
   return { prepare: (sql) => wrap(sql) };

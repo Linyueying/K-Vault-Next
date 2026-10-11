@@ -28,6 +28,7 @@
  * @module paste-d1
  */
 
+import { changedCount } from './d1-result.js';
 import { ensureSchema } from './schema.js';
 
 /** D1 是否可用（绑定名 DB）。 */
@@ -184,7 +185,7 @@ export async function deletePasteRecord(env, pasteId) {
   try {
     const res = await env.DB.prepare('DELETE FROM pastes WHERE paste_id = ?')
       .bind(String(pasteId)).run();
-    return { ok: true, deleted: Number(res?.changes) || 0 };
+    return { ok: true, deleted: changedCount(res) };
   } catch (error) {
     console.warn('D1 deletePasteRecord failed:', error?.message || error);
     return { ok: false, error: error?.message };
@@ -208,7 +209,7 @@ export async function purgeExpiredPastes(env) {
     const res = await env.DB.prepare(
       'DELETE FROM pastes WHERE expires_at > 0 AND expires_at <= ?'
     ).bind(now()).run();
-    return { ok: true, deleted: Number(res?.changes) || 0 };
+    return { ok: true, deleted: changedCount(res) };
   } catch (error) {
     console.warn('D1 purgeExpiredPastes failed:', error?.message || error);
     return { ok: false, error: error?.message };

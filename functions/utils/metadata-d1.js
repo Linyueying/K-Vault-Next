@@ -1,3 +1,4 @@
+import { changedCount } from './d1-result.js';
 import { ensureSchema } from './schema.js';
 import { inferFileType } from './file-type.js';
 
@@ -771,7 +772,7 @@ export async function updateFileMetadataFields(env, id, patch = {}) {
     const res = await env.DB.prepare(
       `UPDATE files SET ${assignments.join(', ')} WHERE id = ?`
     ).bind(...values).run();
-    return { ok: true, updated: Number(res?.changes) || 0 };
+    return { ok: true, updated: changedCount(res) };
   } catch (error) {
     console.warn('D1 updateFileMetadataFields failed:', error?.message || error);
     return { ok: false, error: error?.message };
@@ -1049,12 +1050,4 @@ export async function clearFolderPath(env, path, recursive = false) {
 /** 转义 LIKE 模式中的特殊字符（% _ \），配合 ESCAPE '\\' 使用。 */
 function escapeLike(value) {
   return String(value).replace(/[\\%_]/g, (ch) => '\\' + ch);
-}
-
-/** 从 D1 run() 结果中取出受影响行数（兼容 meta.changes / changes 两种形状）。 */
-function changedCount(res) {
-  if (!res) return 0;
-  if (res.meta && typeof res.meta.changes === 'number') return res.meta.changes;
-  if (typeof res.changes === 'number') return res.changes;
-  return 0;
 }
