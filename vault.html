@@ -280,6 +280,10 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
 .muted{color:var(--text-muted)}
 .hr{height:1px;background:var(--glass-border-ice);margin:14px 0;border:0}
 .hint{font-size:.72rem;color:var(--text-muted);line-height:1.55}
+/* 主密码强度提示配色 */
+.field-help.ok{color:var(--c-success)}
+.field-help.warn{color:var(--c-warn)}
+.field-help.danger{color:var(--c-danger-strong)}
 
 /* 响应式：窄屏折叠为单列，侧栏变横向 chips，列表与详情上下堆叠 */
 @media (max-width:1080px){
@@ -349,6 +353,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
       <div class="field">
         <label>主密码</label>
         <input class="input" type="password" v-model="masterPassword" autocomplete="new-password" placeholder="至少 8 位" @keyup.enter="setupVault">
+        <div class="field-help" v-if="masterPassword" :class="strengthAdviceClass(masterPassword)">{{ strengthAdviceText(masterPassword) }}</div>
       </div>
       <div class="field">
         <label>确认主密码</label>
@@ -368,12 +373,19 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
       <div class="card-desc">已检测到加密的密码库，请输入主密码解锁。</div>
       <div class="field">
         <label>主密码</label>
-        <input class="input" type="password" v-model="masterPassword" autocomplete="current-password" placeholder="输入主密码" @keyup.enter="unlock">
+        <input class="input" type="password" v-model="masterPassword" autocomplete="current-password" placeholder="输入主密码"
+               :disabled="unlockLockedSeconds > 0" @keyup.enter="unlock">
       </div>
-      <div class="gate-error" style="text-align:left">{{ lockError }}</div>
-      <button class="btn btn--primary btn--block" :disabled="busy" style="margin-top:8px" @click="unlock">
-        <i class="fas fa-unlock" v-if="!busy"></i><i class="fas fa-circle-notch fa-spin" v-else></i>{{ busy ? '解锁中…' : '解锁' }}
+      <div class="gate-error" style="text-align:left" v-if="unlockLockedSeconds > 0">
+        <i class="fas fa-hourglass-half"></i> 尝试过于频繁，请 {{ formatDuration(unlockLockedSeconds * 1000) }}后再试。
+      </div>
+      <div class="gate-error" style="text-align:left" v-else>{{ lockError }}</div>
+      <button class="btn btn--primary btn--block" :disabled="busy || unlockLockedSeconds > 0" style="margin-top:8px" @click="unlock">
+        <i class="fas fa-unlock" v-if="!busy && unlockLockedSeconds === 0"></i><i class="fas fa-circle-notch fa-spin" v-else-if="busy"></i><i class="fas fa-hourglass-half" v-else></i>{{ busy ? '解锁中…' : (unlockLockedSeconds > 0 ? '已锁定' : '解锁') }}
       </button>
+      <div class="hint" style="margin-top:10px" v-if="unlockGuard.fails > 0 && unlockLockedSeconds === 0">
+        <i class="fas fa-triangle-exclamation"></i> 已连续失败 {{ unlockGuard.fails }} 次，剩余 {{ unlockFailsLeft }} 次尝试后进入冷却。
+      </div>
       <div class="hint" style="margin-top:12px">密码库位置：{{ pasteId ? '云端已同步' : '仅本地' }} · {{ envelope && envelope.meta ? (envelope.meta.itemCount||0) : 0 }} 条记录</div>
     </section>
 
@@ -966,7 +978,9 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
         </div>
         <div class="hr"></div>
         <div class="card-title" style="font-size:.85rem"><i class="fas fa-key"></i>修改主密码</div>
-        <div class="field" style="margin-top:10px"><label>新主密码</label><input class="input" type="password" v-model="newMaster" autocomplete="new-password" placeholder="至少 8 位"></div>
+        <div class="field" style="margin-top:10px"><label>新主密码</label><input class="input" type="password" v-model="newMaster" autocomplete="new-password" placeholder="至少 8 位">
+          <div class="field-help" v-if="newMaster" :class="strengthAdviceClass(newMaster)">{{ strengthAdviceText(newMaster) }}</div>
+        </div>
         <div class="field"><label>确认新主密码</label><input class="input" type="password" v-model="newMaster2" autocomplete="new-password"></div>
         <div class="gate-error" style="text-align:left">{{ settingsError }}</div>
         <div style="display:flex;gap:8px;margin-top:8px">
@@ -1013,6 +1027,12 @@ setTimeout(function () {
   var LS_SETTINGS = "kvault.vault.uiSettings";
   var LS_ICONS = "kvault.vault.iconCache";
   var ICON_ERR_TTL = 24 * 3600 * 1000; // 网站图标加载失败后 24h 内不再重试
+
+  // 主密码尝试限流：前 UNLOCK_FREE_ATTEMPTS 次失败不冷却，之后指数退避（封顶 15 分钟）
+  var LS_UNLOCK_GUARD = "kvault.vault.unlockGuard";
+  var UNLOCK_FREE_ATTEMPTS = 5;
+  var UNLOCK_BACKOFF_BASE_MS = 30 * 1000;
+  var UNLOCK_BACKOFF_CAP_MS = 15 * 60 * 1000;
 
   var TYPE_LIST = [
     { key: "login", label: "登录", icon: "fa-key" },
@@ -1094,6 +1114,10 @@ setTimeout(function () {
 
         // 网站图标缓存：ok[host]=true 已加载，err[host]=时间戳 已失败（TTL 内不再重试）
         iconCache: { ok: {}, err: {} },
+
+        // 主密码尝试限流状态（持久化，刷新/重开页面不可绕过）
+        nowTs: Date.now(),
+        unlockGuard: { fails: 0, lockUntil: 0 },
 
         // 弹窗
         showGenerator: false,
@@ -1178,6 +1202,15 @@ setTimeout(function () {
         var code = this.totpMap["__draft__"];
         return "预览：" + (code && code.code ? code.code : "…") + "（" + cfg.digits + " 位 / " + cfg.period + "s）";
       },
+      /* 主密码限流：剩余冷却秒数 / 冷却前剩余尝试次数 */
+      unlockLockedSeconds: function () {
+        var left = Math.ceil((this.unlockGuard.lockUntil - this.nowTs) / 1000);
+        return left > 0 ? left : 0;
+      },
+      unlockFailsLeft: function () {
+        var n = UNLOCK_FREE_ATTEMPTS - this.unlockGuard.fails;
+        return n > 0 ? n : 0;
+      },
       syncText: function () {
         return { idle: "已同步", syncing: "同步中…", synced: "刚刚同步", failed: "同步失败（本地已保存）" }[this.syncState] || "";
       },
@@ -1215,6 +1248,7 @@ setTimeout(function () {
       this._enqueueSave = KVault.debounce(function () { self._runSave(); }, 1200);
       this.restoreUi();
       this.restoreIconCache();
+      this.restoreUnlockGuard();
       this.init();
       setInterval(function () { self.tick(); }, 1000);
       ["mousemove", "keydown", "click", "touchstart"].forEach(function (ev) {
@@ -1516,6 +1550,51 @@ setTimeout(function () {
       },
 
       /* ---------------- 主密码 ---------------- */
+      /* 主密码尝试限流：失败累计 -> 指数退避冷却；状态持久化，刷新不可绕过 */
+      unlockBackoffMs: function (fails) {
+        if (fails < UNLOCK_FREE_ATTEMPTS) return 0;
+        var step = Math.min(fails - UNLOCK_FREE_ATTEMPTS, 20); // 防止指数溢出
+        return Math.min(UNLOCK_BACKOFF_CAP_MS, UNLOCK_BACKOFF_BASE_MS * Math.pow(2, step));
+      },
+      restoreUnlockGuard: function () {
+        try {
+          var s = JSON.parse(localStorage.getItem(LS_UNLOCK_GUARD) || "{}");
+          if (s && typeof s === "object") {
+            this.unlockGuard.fails = Math.max(0, Number(s.fails) || 0);
+            this.unlockGuard.lockUntil = Math.max(0, Number(s.lockUntil) || 0);
+          }
+        } catch (e) {}
+      },
+      persistUnlockGuard: function () {
+        try { localStorage.setItem(LS_UNLOCK_GUARD, JSON.stringify(this.unlockGuard)); } catch (e) {}
+      },
+      resetUnlockGuard: function () {
+        this.unlockGuard.fails = 0;
+        this.unlockGuard.lockUntil = 0;
+        this.persistUnlockGuard();
+      },
+      /** 毫秒 -> 「X 分 Y 秒」/「Z 秒」 */
+      formatDuration: function (ms) {
+        var total = Math.max(0, Math.ceil(Number(ms) / 1000));
+        var m = Math.floor(total / 60);
+        var s = total % 60;
+        if (m > 0) return m + " 分 " + (s > 0 ? s + " 秒" : "");
+        return s + " 秒";
+      },
+      /** 设置/修改主密码时的强度提示文案 */
+      strengthAdviceText: function (pw) {
+        if (!pw) return "";
+        var lv = READ.estimateStrength(pw);
+        if (lv >= 4) return "强度：强";
+        if (lv === 3) return "强度：良好";
+        if (lv === 2) return "强度：一般 —— 再长一些或增加字符种类会更安全。";
+        return "强度：弱 —— 建议至少 12 位，混合大小写字母、数字与符号。";
+      },
+      strengthAdviceClass: function (pw) {
+        if (!pw) return "";
+        var lv = READ.estimateStrength(pw);
+        return lv >= 3 ? "ok" : (lv === 2 ? "warn" : "danger");
+      },
       setupVault: async function () {
         this.lockError = "";
         if (String(this.masterPassword).length < 8) { this.lockError = "主密码至少 8 位。"; return; }
@@ -1526,6 +1605,7 @@ setTimeout(function () {
           var sealed = await READ.sealVault(doc, this.masterPassword, READ.KDF_ITERATIONS);
           this.key = sealed.key; this.kdf = sealed.kdf; this.envelope = sealed.envelope; this.doc = doc;
           this.writeLocalEnvelope(sealed.envelope);
+          this.resetUnlockGuard();
           this.phase = "unlocked";
           this.masterPassword = ""; this.masterPassword2 = "";
           this.afterUnlock();
@@ -1537,16 +1617,27 @@ setTimeout(function () {
       },
       unlock: async function () {
         this.lockError = "";
+        if (this.unlockLockedSeconds > 0) {
+          this.lockError = "尝试过于频繁，请 " + this.formatDuration(this.unlockLockedSeconds * 1000) + "后再试。";
+          return;
+        }
         if (!this.masterPassword) { this.lockError = "请输入主密码。"; return; }
         this.busy = true;
         try {
           var opened = await READ.openVault(this.masterPassword, this.envelope);
           this.key = opened.key; this.kdf = opened.kdf; this.doc = normalizeDoc(opened.doc);
+          this.resetUnlockGuard();
           this.phase = "unlocked";
           this.masterPassword = "";
           this.afterUnlock();
         } catch (e) {
-          this.lockError = "解锁失败：主密码错误或数据已损坏。";
+          this.unlockGuard.fails += 1;
+          var wait = this.unlockBackoffMs(this.unlockGuard.fails);
+          if (wait > 0) this.unlockGuard.lockUntil = Date.now() + wait;
+          this.persistUnlockGuard();
+          this.lockError = wait > 0
+            ? "解锁失败：主密码错误或数据已损坏。已连续失败 " + this.unlockGuard.fails + " 次，请等待 " + this.formatDuration(wait) + "后再试。"
+            : "解锁失败：主密码错误或数据已损坏。（剩余 " + this.unlockFailsLeft + " 次尝试）";
         } finally { this.busy = false; }
       },
       afterUnlock: function () {
@@ -1706,12 +1797,10 @@ setTimeout(function () {
         this.markDirty();
       },
 
-      /* ---------------- 验证码 ---------------- */
+      /* ---------------- 定时 ---------------- */
       tick: function () {
-        if (this.phase === "unlocked") {
-          this.tickTotp();
-          this.resetAutoLockThrottled && this.resetAutoLockThrottled();
-        }
+        this.nowTs = Date.now();               // 供锁定倒计时 / 同步点等计时显示
+        if (this.phase === "unlocked") this.tickTotp();
       },
       tickTotp: async function () {
         if (!this.doc) return;

@@ -118,7 +118,7 @@ Upstream is a general-purpose file host with **both Cloudflare Pages and Docker*
 | Home / upload | `/` | Drag-and-drop, paste and batch upload; upload-from-URL; chunked upload; smart routing; upload folder tree; upload history; direct / Markdown / HTML / BBCode link formats; per-item share config |
 | Admin | `/admin/files` | File and folder management, favourites, rename, batch move/delete, KV & R2 usage monitoring, API token management, share management, runtime settings |
 | Share | `/share.html` | Landing page for `/s/:slug`; preview and download, password gate, expiry reasons |
-| Password vault | `/vault.html` | Login / card / identity / note manager; zero-knowledge local encryption (PBKDF2 + AES-GCM), password generator, TOTP, local security check, website icons, folders, trash, import/export. Old `/paste.html` redirects here |
+| Password vault | `/vault.html` | Login / card / identity / note manager; zero-knowledge local encryption (PBKDF2 + AES-GCM), password generator, TOTP, local security check, website icons, folders, trash, import/export. Master-password unlock is rate-limited (exponential backoff after 5 failures, persisted so a reload cannot bypass it). Old `/paste.html` redirects here |
 | Gallery | `/gallery.html` | Image browsing, search, batch copy / download / delete |
 | Preview | `/preview.html` | Multi-format preview; password-protected files prompt for a password |
 | WebDAV | `/webdav.html` | WebDAV upload and upload-from-URL |
