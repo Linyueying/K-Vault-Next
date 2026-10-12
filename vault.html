@@ -165,7 +165,14 @@ html[data-theme="dark"] .vault-item.active{background:rgba(var(--primary-rgb),.1
 .vi-icon{
   width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
   background:rgba(var(--primary-rgb),.12);color:var(--primary);font-size:.9rem;flex-shrink:0;
+  position:relative;overflow:hidden;
 }
+/* 网站图标：叠在类型图标之上，加载完成才淡入；失败则整体移除、回退类型图标 */
+.vi-icon .vi-fav{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  background:#fff;padding:3px;opacity:0;transition:opacity .22s var(--ease-fluid);
+}
+.vi-icon .vi-fav.loaded{opacity:1}
 .vi-main{min-width:0;flex:1}
 .vi-title{font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vi-sub{font-size:.72rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -177,7 +184,13 @@ html[data-theme="dark"] .vault-item.active{background:rgba(var(--primary-rgb),.1
 .detail-icon{
   width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:1.05rem;flex-shrink:0;
+  position:relative;overflow:hidden;
 }
+.detail-icon .detail-fav{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  background:#fff;padding:5px;opacity:0;transition:opacity .22s var(--ease-fluid);
+}
+.detail-icon .detail-fav.loaded{opacity:1}
 .detail-name{font-weight:800;font-size:1.06rem;line-height:1.3}
 .detail-sub{font-size:.74rem;color:var(--text-muted)}
 .detail-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
@@ -450,7 +463,12 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
         <div v-if="filterType==='totp'" class="vault-items">
           <div v-if="!totpItems.length" class="empty-state empty-state--sm"><i class="fas fa-clock-rotate-left"></i><div>没有绑定 TOTP 的登录项。</div></div>
           <div v-for="it in totpItems" :key="'t'+it.id" class="totp-card">
-            <div class="vi-icon"><i class="fas fa-shield-halved"></i></div>
+            <div class="vi-icon">
+              <i class="fas fa-shield-halved"></i>
+              <img v-if="itemIcon(it)" class="vi-fav" :class="{loaded: isIconLoaded(itemHost(it))}"
+                   :src="itemIcon(it)" alt="" loading="lazy" decoding="async"
+                   @load="onIconLoad(it)" @error="onIconError(it)">
+            </div>
             <div class="vi-main">
               <div class="vi-title">{{ it.name }}</div>
               <div class="totp-code">{{ formatTotp(totpMap[it.id] && totpMap[it.id].code) }}</div>
@@ -469,7 +487,12 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
         <div v-else-if="visibleItems.length" class="vault-items">
           <button class="vault-item" v-for="it in visibleItems" :key="it.id"
                   :class="{active:selectedId===it.id}" @click="openItem(it)">
-            <div class="vi-icon"><i class="fas" :class="typeIcon(it.type)"></i></div>
+            <div class="vi-icon">
+              <i class="fas" :class="typeIcon(it.type)"></i>
+              <img v-if="itemIcon(it)" class="vi-fav" :class="{loaded: isIconLoaded(itemHost(it))}"
+                   :src="itemIcon(it)" alt="" loading="lazy" decoding="async"
+                   @load="onIconLoad(it)" @error="onIconError(it)">
+            </div>
             <div class="vi-main">
               <div class="vi-title">{{ it.name || '（无名称）' }}</div>
               <div class="vi-sub">{{ subtitle(it) }}</div>
@@ -622,7 +645,12 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
         <!-- 详情 -->
         <div v-else-if="selected">
           <div class="detail-head">
-            <div class="detail-icon"><i class="fas" :class="typeIcon(selected.type)"></i></div>
+            <div class="detail-icon">
+              <i class="fas" :class="typeIcon(selected.type)"></i>
+              <img v-if="itemIcon(selected)" class="detail-fav" :class="{loaded: isIconLoaded(itemHost(selected))}"
+                   :src="itemIcon(selected)" alt="" loading="lazy" decoding="async"
+                   @load="onIconLoad(selected)" @error="onIconError(selected)">
+            </div>
             <div>
               <div class="detail-name">{{ selected.name || '（无名称）' }}</div>
               <div class="detail-sub">
@@ -932,6 +960,10 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
             <option :value="60">60 秒</option>
           </select>
         </div>
+        <div class="settings-row">
+          <div><div style="font-weight:700;font-size:.85rem">显示网站图标</div><div class="hint">为含网址的登录项加载站点图标，便于识别（请求直接发往目标网站）</div></div>
+          <label class="switch"><input type="checkbox" v-model="doc.settings.showFavicons" @change="onSettingsChange"><span class="switch__track"></span><span class="switch__thumb"></span></label>
+        </div>
         <div class="hr"></div>
         <div class="card-title" style="font-size:.85rem"><i class="fas fa-key"></i>修改主密码</div>
         <div class="field" style="margin-top:10px"><label>新主密码</label><input class="input" type="password" v-model="newMaster" autocomplete="new-password" placeholder="至少 8 位"></div>
@@ -979,6 +1011,8 @@ setTimeout(function () {
   var LS_PASTE_ID = "kvault.vault.pasteId";
   var LS_ENVELOPE = "kvault.vault.envelope";
   var LS_SETTINGS = "kvault.vault.uiSettings";
+  var LS_ICONS = "kvault.vault.iconCache";
+  var ICON_ERR_TTL = 24 * 3600 * 1000; // 网站图标加载失败后 24h 内不再重试
 
   var TYPE_LIST = [
     { key: "login", label: "登录", icon: "fa-key" },
@@ -1057,6 +1091,9 @@ setTimeout(function () {
         // 验证码
         totpMap: {},
         ringLen: 2 * Math.PI * 14,
+
+        // 网站图标缓存：ok[host]=true 已加载，err[host]=时间戳 已失败（TTL 内不再重试）
+        iconCache: { ok: {}, err: {} },
 
         // 弹窗
         showGenerator: false,
@@ -1177,6 +1214,7 @@ setTimeout(function () {
       var self = this;
       this._enqueueSave = KVault.debounce(function () { self._runSave(); }, 1200);
       this.restoreUi();
+      this.restoreIconCache();
       this.init();
       setInterval(function () { self.tick(); }, 1000);
       ["mousemove", "keydown", "click", "touchstart"].forEach(function (ev) {
@@ -1255,6 +1293,67 @@ setTimeout(function () {
         if (f.type === "boolean") return f.value ? "已勾选" : "未勾选";
         if (f.type === "hidden") return this.isRevealed("cf:" + f.id) ? f.value : this.maskSecret(f.value);
         return f.value;
+      },
+
+      /* -------- 网站图标（favicon）识别 -------- */
+      /** 从网址解析主机名；未带协议的自动补 https:// */
+      hostFromUri: function (uri) {
+        var raw = String(uri || "").trim();
+        if (!raw) return "";
+        try {
+          var normalized = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
+          return new URL(normalized).hostname || "";
+        } catch (e) { return ""; }
+      },
+      /** 取条目首个有效网址的主机名（仅登录类） */
+      itemHost: function (it) {
+        if (!it || it.type !== "login" || !it.login) return "";
+        var uris = it.login.uris || [];
+        for (var i = 0; i < uris.length; i += 1) {
+          var h = this.hostFromUri(uris[i] && uris[i].uri);
+          if (h) return h;
+        }
+        return "";
+      },
+      /**
+       * 站点图标地址。直接取目标站点自身的 /favicon.ico——不经过任何第三方图标服务，
+       * 既避免泄露到外部（CSP 的 img-src 已放行 https:），也能在受限网络下工作。
+       * 返回空串表示不显示（功能关闭 / 无网址 / 已知失败且在 TTL 内）。
+       */
+      itemIcon: function (it) {
+        if (!this.doc || this.doc.settings.showFavicons === false) return "";
+        var host = this.itemHost(it);
+        if (!host) return "";
+        var failedAt = this.iconCache.err[host];
+        if (failedAt && Date.now() - failedAt < ICON_ERR_TTL) return "";
+        return "https://" + host + "/favicon.ico";
+      },
+      isIconLoaded: function (host) { return Boolean(host) && this.iconCache.ok[host] === true; },
+      onIconLoad: function (it) {
+        var host = this.itemHost(it);
+        if (!host) return;
+        this.iconCache.ok[host] = true;
+        delete this.iconCache.err[host];
+        this.persistIconCache();
+      },
+      onIconError: function (it) {
+        var host = this.itemHost(it);
+        if (!host) return;
+        delete this.iconCache.ok[host];
+        this.iconCache.err[host] = Date.now();
+        this.persistIconCache();
+      },
+      restoreIconCache: function () {
+        try {
+          var s = JSON.parse(localStorage.getItem(LS_ICONS) || "{}");
+          if (s && typeof s === "object") {
+            this.iconCache.ok = s.ok || {};
+            this.iconCache.err = s.err || {};
+          }
+        } catch (e) {}
+      },
+      persistIconCache: function () {
+        try { localStorage.setItem(LS_ICONS, JSON.stringify(this.iconCache)); } catch (e) {}
       },
       formatTotp: function (code) { if (!code) return "------"; return code.length === 6 ? code.slice(0, 3) + " " + code.slice(3) : code; },
       ringOffset: function (id) {
@@ -1756,7 +1855,7 @@ setTimeout(function () {
       vaultId: READ.uuid(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      settings: { autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5 },
+      settings: { autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: true },
       folders: [],
       items: [],
       deleted: []
@@ -1769,7 +1868,7 @@ setTimeout(function () {
     doc.vaultId = doc.vaultId || READ.uuid();
     doc.createdAt = num(doc.createdAt) || Date.now();
     doc.updatedAt = num(doc.updatedAt) || Date.now();
-    doc.settings = Object.assign({ autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5 }, doc.settings || {});
+    doc.settings = Object.assign({ autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: true }, doc.settings || {});
     doc.folders = Array.isArray(doc.folders) ? doc.folders : [];
     doc.items = Array.isArray(doc.items) ? doc.items : [];
     doc.deleted = Array.isArray(doc.deleted) ? doc.deleted : [];

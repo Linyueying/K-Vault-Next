@@ -39,7 +39,7 @@ Upstream is a general-purpose file host with **both Cloudflare Pages and Docker*
 | Deployment | Cloudflare Pages **+ single Docker image** | **Cloudflare Pages only** |
 | Runtime dependencies | `@sentry/tracing`, `@cloudflare/pages-plugin-sentry`, … | **none** (only `wrangler` as a dev dependency) |
 | Telemetry | Sentry built in, disabled via `disable_telemetry` | **no telemetry code at all** |
-| Pages | 6 | **8** (adds `/paste.html` and `/share.html`) |
+| Pages | 6 | **9** (adds `/vault.html` and `/share.html`; `/paste.html` now redirects) |
 | Frontend CSS | written per page | **`design-system.css` as the single source of truth** + Apple HIG motion system |
 | Variable naming | two spellings per setting; docs suggested "set both" | **unified read layer, any spelling works, set it once** |
 | Changing config | edit variables → redeploy | three groups are **editable in the dashboard, written to KV, live immediately** |
@@ -71,7 +71,7 @@ Upstream is a general-purpose file host with **both Cloudflare Pages and Docker*
 | Chunked upload | R2 native multipart; per-file ceiling raised from 100MB to **10GB**; staging target (`auto` / `r2` / `kv`) switchable in the dashboard |
 | Routing | `functions/file/[[path]].js` handles arbitrary-depth file paths |
 | Sharing | `/s/:slug` → `/share.html?s=:slug` landing page; expiry / password / download-count limit / custom slug, settable from both UI and API; a "share management" panel in the dashboard |
-| Text paste | new `/paste.html` plus a `paste` scope, with language tagging, expiry and password |
+| Password vault | new `/vault.html` (replaces the old text-paste page, which now redirects): login / card / identity / note management, zero-knowledge client-side encryption, password generator, TOTP, security check, website icons, import/export |
 | Admin dashboard | folder tree, favourites, rename, batch move, KV/R2 usage monitoring, token policies (`allowedStorages`, `folderPrefix`, `rateLimit`, …) |
 | Upload scheduling | a "storage node" drawer on the home page: smart routing (files over a threshold switch backends) plus optional parallel uploads (Telegram pool and chunk pool kept separate) |
 | Security | fail-closed admin surface, unified rate limiting, login brute-force protection, stack-trace redaction, SSRF guard on URL imports, vendored third-party assets |
@@ -118,7 +118,7 @@ Upstream is a general-purpose file host with **both Cloudflare Pages and Docker*
 | Home / upload | `/` | Drag-and-drop, paste and batch upload; upload-from-URL; chunked upload; smart routing; upload folder tree; upload history; direct / Markdown / HTML / BBCode link formats; per-item share config |
 | Admin | `/admin/files` | File and folder management, favourites, rename, batch move/delete, KV & R2 usage monitoring, API token management, share management, runtime settings |
 | Share | `/share.html` | Landing page for `/s/:slug`; preview and download, password gate, expiry reasons |
-| Text paste | `/paste.html` | Create / list / view / delete pastes, with expiry and password |
+| Password vault | `/vault.html` | Login / card / identity / note manager; zero-knowledge local encryption (PBKDF2 + AES-GCM), password generator, TOTP, local security check, website icons, folders, trash, import/export. Old `/paste.html` redirects here |
 | Gallery | `/gallery.html` | Image browsing, search, batch copy / download / delete |
 | Preview | `/preview.html` | Multi-format preview; password-protected files prompt for a password |
 | WebDAV | `/webdav.html` | WebDAV upload and upload-from-URL |
@@ -431,8 +431,9 @@ Cloudflare Pages has **no build step** — the repository root _is_ the site roo
 - the 8 HTML files in the root — they are the URLs themselves (e.g. `/index.html`, `/admin.html`; `/admin/*` falls back to `admin.html` via `functions/admin/[[path]].js`)
 
 ```text
-├── index.html admin.html paste.html gallery.html      # page entrypoints (root = site root, do not move)
+├── index.html admin.html vault.html gallery.html      # page entrypoints (root = site root, do not move)
 ├── preview.html webdav.html login.html share.html
+├── paste.html                           # legacy text-paste entry, now redirects to vault.html
 ├── assets/                              # static assets (CSS / JS / images / vendored libs)
 │   ├── css/                             # design-system.css (single source of truth)
 │   │                                    # theme.css / index.css / mobile-refactor.css

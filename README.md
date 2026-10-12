@@ -99,12 +99,15 @@ node scripts/kvault-upload.mjs share r2:r2_123_abc.png --action revoke  # 取消
 - **预览不计次** —— 只有点「下载」才消耗次数，爬虫和预览不背锅
 - **失效原因明确** —— 过期 / 次数用尽 / 密码错，各给各的提示，不甩一句「链接无效」
 
-### 文本粘贴 —— 分享代码和文本的另一条路
+### 密码库 —— 本地加密的账号密码管理
 
-- `/paste.html` 创建 / 列表 / 查看 / 删除 Paste
-- 带语言标记
-- 支持有效期与访问密码
-- 独立的 `paste` scope，可单独授权给某个 Token
+- `/vault.html` 管理**登录 / 银行卡 / 身份 / 安全笔记**四类条目；原 `/paste.html` 已改为跳转到此页
+- **零知识加密**：主密码经 PBKDF2 派生密钥，整库在浏览器本地用 AES-GCM 加密后才落盘；主密码与密钥从不保存或上传
+- **密码生成器**（密码 / 口令短语 / PIN）、**TOTP 两步验证码**（前端 HMAC-SHA1）、**密码安全检查**（弱密码 / 重复使用，纯本地）
+- **网站图标识别**：自动取条目网址的站点图标，便于快速辨认；加载失败回退类型图标
+- 文件夹与收藏、回收站、搜索与排序、自定义字段、密码历史、自动锁定
+- 导入导出：K-Vault 原生 JSON、Bitwarden JSON / CSV
+- 存储**复用现有粘贴后端**（后端零改动）：整库密文作为一条记录保存，`language` 标记为 `kvault-vault-v1`；独立的 `paste` scope 仍可用于 Token 授权
 
 ### 隔空投送（Airdrop）—— 传完即焚的临时通道
 
@@ -426,8 +429,9 @@ KVAULT_ENDPOINT=https://your-kvault-domain KVAULT_TOKEN=kvault_xxx_yyy \
 Cloudflare Pages **没有构建步骤**，仓库根目录即站点根目录。以下两个目录**不要移动**：`functions/`（Pages Functions 硬约定）与根目录的 8 个 HTML（它们就是线上 URL）。
 
 ```text
-├── index.html admin.html paste.html gallery.html      # 页面入口（根即站点根，勿移动）
+├── index.html admin.html vault.html gallery.html      # 页面入口（根即站点根，勿移动）
 ├── preview.html webdav.html login.html share.html
+├── paste.html                           # 旧「文本粘贴」入口，现重定向到 vault.html
 ├── assets/                              # 静态资源（CSS / JS / 图片 / 第三方库）
 │   ├── css/                             # design-system.css（全站唯一事实来源）
 │   ├── js/                              # app-core.js（共享层，必须先于页面脚本）
@@ -520,7 +524,7 @@ npm run check
 | 部署形态 | Cloudflare Pages **+ Docker 单镜像** | **仅 Cloudflare Pages** |
 | 运行时依赖 | Sentry 等 | **零运行时依赖** |
 | 遥测 | 内置 Sentry，`disable_telemetry` 关闭 | **无任何遥测代码** |
-| 页面数量 | 6 个 | **8 个**（新增 `/paste.html`、`/share.html`） |
+| 页面数量 | 6 个 | **9 个**（新增 `/vault.html` 密码库、`/share.html`；`/paste.html` 改为重定向） |
 | 前端样式 | 各页面各写一份 | **`design-system.css` 单一事实来源** |
 | 环境变量写法 | 大小写两套名字，建议「两个都写上」 | **统一读取层，填一次即可** |
 | 改配置 | 改环境变量 → 重新部署 | 高频配置**后台可改，即时生效** |
