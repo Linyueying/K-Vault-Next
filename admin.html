@@ -1814,12 +1814,12 @@ html[data-perf="low"] .dock{transition:none}
         <button :class="{active: viewMode==='grid'}" @click="setView('grid','back')" title="平铺视图"><i class="fas fa-grip"></i></button>
         <button :class="{active: viewMode==='list'}" @click="setView('list','forward')" title="详细视图"><i class="fas fa-list"></i></button>
       </div>
-      <!-- 原工具箱的「文本粘贴 / 导出链接」迁入此处。
+      <!-- 原工具箱的「密码库 / 导出链接」迁入此处。
            放搜索行而非第二层工具栏：那两个是轻量工具，与视图切换同级更合适；
            且 .toolbar-top 本身 flex-wrap:wrap，窄屏会自动折行 ——
            第二层 .toolbar-tools 已排满目录操作，再塞两个必然溢出。 -->
-      <button class="tool-btn" @click="handleTool('paste')" title="打开文本粘贴工具">
-        <i class="fas fa-paste"></i><span>粘贴</span>
+      <button class="tool-btn" @click="handleTool('paste')" title="打开密码库">
+        <i class="fas fa-shield-halved"></i><span>密码库</span>
       </button>
       <button class="tool-btn" @click="handleTool('export')" title="导出已加载的全部链接为 links.txt">
         <i class="fas fa-file-export"></i><span>导出</span>
@@ -6366,7 +6366,7 @@ const __kvApp = Vue.createApp({
     handleTool(c) {
       this.openMenu = null;
       if (c === 'paste') {
-        window.open('/paste.html', '_blank', 'noopener');
+        window.open('/vault.html', '_blank', 'noopener');
       } else if (c === 'export') {
         if (!this.files.length) { this.showToast('没有可导出的链接', 'info'); return; }
         const t = this.files.map(f => this.baseURL + '/file/' + f.name).join('\n');
