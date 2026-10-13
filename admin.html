@@ -1168,6 +1168,14 @@ Apple 风格动效 · 应用层（首屏错峰入场）
    dock 自身也已改造为不依赖视口高度（top:100dvh + translateY，见 .dock），
    这里是第二道保险。 */
 .view-stage.is-locking{min-height:var(--stage-lock-h,0px)}
+/* 解锁沉降：锁高移除时若新内容更矮，把 min-height 从旧锁定高度渐变到
+   新内容高度（340ms rAF 逐帧，见 unlockStageHeight）—— scrollHeight
+   逐帧收缩，越界的 scrollTop 每帧只被 clamp 一小步，整页缓动滑到
+   合法位置；直接抹掉 min-height 会让页面"弹回顶上"。
+   is-settling 必须自带 min-height：is-locking 移除后规则不能断。
+   值由 JS rAF 写入 --stage-lock-h，不经 CSS transition（未注册自定义
+   属性的值变化不触发过渡插值）。 */
+.view-stage.is-settling{min-height:var(--stage-lock-h,0px)}
 
 
 
@@ -2048,7 +2056,7 @@ html[data-perf="low"] .dock{transition:none}
     <section class="content-area">
 
       <!-- ===== 视图转场舞台：目录进出 ⇄ 网格/列表 的方向感知非线性切换 ===== -->
-      <div class="view-stage" ref="viewStage" :class="{'is-locking': stageLocking}">
+      <div class="view-stage" ref="viewStage" :class="{'is-locking': stageLocking, 'is-settling': stageSettling}">
 
       <!-- 网格视图 -->
       <!-- 视图分支 key = 视图模式 + navSeq（导航序号，见 data 注释）：
@@ -4307,6 +4315,11 @@ const __kvApp = Vue.createApp({
     /* 视图切换锁高：true 时 .view-stage 带 min-height（值由 --stage-lock-h
        提供）。见 lockStageHeight 的说明。 */
     stageLocking: false,
+    /* 解锁沉降：锁高移除时若新内容更矮，把 min-height 从旧锁定高度渐变到
+       新内容高度（见 unlockStageHeight 与 .view-stage.is-settling）。
+       必须走响应式绑定：手动 classList.add 会被 patchClass 冲掉
+       （同 is-booted 的坑，见其注释）。 */
+    stageSettling: false,
 
     /* ===== 板块分页（dock 导航） =====
        activeSection 是唯一真源；URL 路径 /admin/<section> 与之双向同步
@@ -5352,10 +5365,16 @@ const __kvApp = Vue.createApp({
        那一帧舞台高度会塌陷 —— min-height 正是把这一帧吞掉，保证页面
        scrollHeight 与 window.innerHeight 全程恒定，fixed dock 零重排。
        释放时机：等过渡走完（0.52s，覆盖 0.46s 入场），期间若内容已长回
-       原高度则提前释放，不留多余空白。 */
+       原高度则提前释放，不留多余空白。
+       解锁时若新内容矮于一屏，scrollHeight 骤减会把 scrollTop clamp 回
+       顶部（"点进文件夹页面被弹回顶上"）—— 由 unlockStageHeight 把锁定
+       高度渐变到新内容高度（is-settling），整页缓动滑到合法位置，零突变。 */
     lockStageHeight() {
       const el = this.$refs.viewStage;
       if (!el) return;
+      /* 新锁高开始：取消可能仍在跑的沉降动画（快速连续导航的竞态防护） */
+      if (this._stageSettleRaf) { cancelAnimationFrame(this._stageSettleRaf); this._stageSettleRaf = 0; }
+      this.stageSettling = false;
       const h = el.getBoundingClientRect().height;
       if (!h) return;
       this._stageLockH = Math.round(h);
@@ -5368,8 +5387,75 @@ const __kvApp = Vue.createApp({
       if (this._stageLockTimer) { clearTimeout(this._stageLockTimer); this._stageLockTimer = null; }
       const el = this.$refs.viewStage;
       this.stageLocking = false;
+      const lockH = this._stageLockH;
       this._stageLockH = 0;
-      if (el) el.style.removeProperty('--stage-lock-h');
+      if (!el) return;
+      /* 新内容比旧内容矮时，不能把 min-height 直接抹掉 —— scrollHeight 会在
+         一帧内骤减，越界的 scrollTop 被浏览器 clamp 瞬移，用户视角就是
+         「点进文件夹后页面被弹回顶上」（转场先保持、解锁瞬间突跳）。
+         改为把锁定高度渐变到新内容的实际高度：min-height 逐帧收缩 →
+         scrollHeight 逐帧收缩 → scrollTop 每帧只被 clamp 一小步，
+         整页持续缓动滑到合法位置，零突变。新内容更高 / 等高时无此过程，
+         直接移除即可。 */
+      /* 量新内容的自然高度：不能用量子元素 rect —— .view-stage 是 flex
+         column + align-items:stretch，锁定期子项被拉伸到锁定高度，量出来
+         还是旧高度（实测 list 被拉伸到 1184，误判"没变矮"→ 直接移除 →
+         clamp 突跳）。临时把锁定高度摘掉、同步 reflow 量 stage 自身高度
+         再恢复：同一同步块内无重绘，用户无感。 */
+      const yKeep = window.scrollY;
+      el.style.setProperty('--stage-lock-h', '0px');
+      void el.offsetHeight;
+      const hNatural = Math.round(el.getBoundingClientRect().height);
+      el.style.setProperty('--stage-lock-h', lockH + 'px');
+      /* 坑中坑：强制 reflow（offsetHeight）时 Chromium 会顺手把越界的
+         scrollTop clamp 掉 —— 这才是「点进文件夹被弹回顶上」的真正元凶。
+         clamp 单向不恢复，若不补回，下面 y0 读到的已是 0，settle 插值
+         0→0 全程无感，min-height 渐变得再平滑也救不回位置。scrollHeight
+         已随 lockH 同步复原，scrollTo 合法；同一同步块内无渲染，用户无感。 */
+      if (window.scrollY !== yKeep) window.scrollTo(0, yKeep);
+      if (hNatural && hNatural < lockH) {
+        /* min-height 与 scrollY 并行双动画（JS rAF 驱动，smoothstep 缓动）：
+           min-height 逐帧收缩 → scrollHeight 每帧只减一小步；
+           scrollY 同步逐帧插值到合法位置，主动覆盖 clamp 的被动突跳
+           （只收 min-height 的话，scrollHeight 余量耗尽后 clamp 会集中在
+           曲线加速段几帧内完成，实测每帧 ~120px）。 */
+        this.stageSettling = true;
+        /* dur=600ms：min-height 总距可达 ~1000px（1184→185），smoothstep
+           峰值斜率 1.5×平均，340ms 折算峰值帧跌幅 ~72px 仍有跳感；拉长到
+           600ms 稀释到 ~40px/帧，低于突变感知阈值。总时长仍压在 1s 内
+           （锁 520 + settle 600），移动端可接受。 */
+        const from = lockH, to = hNatural, dur = 600;
+        const y0 = window.scrollY;
+        const newSH = document.documentElement.scrollHeight - lockH + hNatural;
+        const y1 = Math.max(0, newSH - window.innerHeight);
+        const t0 = performance.now();
+        if (this._stageSettleRaf) cancelAnimationFrame(this._stageSettleRaf);
+        const tick = (now) => {
+          const p = Math.min(1, (now - t0) / dur);
+          /* smoothstep（3p²−2p³）：导数峰值仅 1.5×平均，帧跌幅平滑；
+             ease-in-out cubic 中段导数达 3×，实测单帧 115px 仍有跳感 */
+          const e = p * p * (3 - 2 * p);
+          el.style.setProperty('--stage-lock-h', Math.round(from + (to - from) * e) + 'px');
+          /* 仅当旧位置在新内容下越界（y0 > y1）才收敛；位置合法时
+             （典型：用户停在顶部 sy=0）settle 无权移动它 —— 曾在此处
+             无差别插值 0→maxScroll，把用户从顶部拉向底部（实测 41px）。
+             安全性：min-height 单调收缩 → maxScroll 逐帧递减，
+             y0 ≤ y1 可证全程 y(e) ≤ maxScroll(e)，永不被 clamp */
+          if (y0 > y1) {
+            const y = Math.round(y0 + (y1 - y0) * e);
+            if (y !== window.scrollY) window.scrollTo(0, y);
+          }
+          if (p < 1) { this._stageSettleRaf = requestAnimationFrame(tick); }
+          else {
+            this._stageSettleRaf = 0;
+            this.stageSettling = false;
+            el.style.removeProperty('--stage-lock-h');
+          }
+        };
+        this._stageSettleRaf = requestAnimationFrame(tick);
+        return;
+      }
+      el.style.removeProperty('--stage-lock-h');
     },
 
     /* ================= 同步状态点 ================= */
@@ -8375,6 +8461,8 @@ const __kvApp = Vue.createApp({
     }
     try { if (this._dockUnsubVp) this._dockUnsubVp(); } catch (e) {}
     if (this._stageLockTimer) { clearTimeout(this._stageLockTimer); this._stageLockTimer = null; }
+    if (this._stageSettleRaf) { cancelAnimationFrame(this._stageSettleRaf); this._stageSettleRaf = 0; }
+    this.stageSettling = false;
     try {
       if (this._schemeHandler) {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);
