@@ -165,7 +165,7 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
    选中态由下方的 .view-toggle__thumb 胶囊滑块承担（对齐 index .dock__indicator），
    按钮自身不再画实心块，只负责图标变色 —— 与 index 底栏 dock 的处理一致。 */
 .view-toggle{position:relative;--vt-pad:3px;--vt-gap:3px;display:inline-flex;padding:var(--vt-pad);gap:var(--vt-gap);border-radius:var(--r-pill);border:1px solid var(--glass-border);background:var(--glass-surface);flex-shrink:0}
-.view-toggle button{position:relative;z-index:1;width:40px;height:32px;border:none;background:transparent;color:var(--text-muted);border-radius:var(--r-pill);cursor:pointer;font-size:.76rem;transition:background .28s var(--ease-apple),color .28s var(--ease-apple),box-shadow .28s var(--ease-apple),transform .14s var(--ease-press);display:inline-flex;align-items:center;justify-content:center;}
+.view-toggle button{position:relative;z-index:1;width:30px;height:30px;border:none;background:transparent;color:var(--text-muted);border-radius:50%;cursor:pointer;font-size:.76rem;transition:background .28s var(--ease-apple),color .28s var(--ease-apple),box-shadow .28s var(--ease-apple),transform .14s var(--ease-press);display:inline-flex;align-items:center;justify-content:center;}
 .view-toggle button:hover{color:var(--primary)}
 .view-toggle button:active{transform:scale(.92)}
 .view-toggle button.active{background:transparent;color:var(--primary-dark);box-shadow:none}
@@ -256,35 +256,21 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .tool-btn i:first-child{font-size:var(--fs-sm)}
 .tool-btn .caret{font-size:.55rem;opacity:.6;transition:transform .34s var(--ease-spring)}
 .tool-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
-/* 主操作（新建文件夹）：唯一实心按钮，避免「一排都是实心」导致没有重点 */
-.tool-btn.primary{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border-color:transparent;box-shadow:0 4px var(--sp-3) rgba(var(--primary-rgb),.28)}
-.tool-btn.primary:hover{color:#fff;box-shadow:0 6px 18px rgba(var(--primary-rgb),.34);transform:translateY(-2px)}
 .tool-btn.danger:hover{border-color:var(--c-danger-strong);color:var(--c-danger-strong);background:var(--c-danger-soft)}
-/* 图标型按钮：搜索与筛选去掉文字后，统一收成与工具栏控件同高的正方形。
-   **必须写在 .tool-btn 之后** —— 同为单类选择器、优先级相同，靠后定义者胜；
-   写在前面的话 padding:7px 14px 会把正方形重新撑回胶囊。 */
-.search-toggle,.filter-trigger{width:36px;height:36px;padding:0;justify-content:center;flex:0 0 auto}
-/* 筛选的生效条数徽标改叠加到右上角：留在文档流里会把正方形按钮重新撑宽 */
-.filter-trigger .badge-count{position:absolute;top:-4px;right:-4px}
-/* 目录操作组：与「筛选」同排，靠左聚拢 */
-.dir-actions{display:inline-flex;align-items:center;gap:var(--sp-1);flex-wrap:wrap}
-/* 小屏把文字收进图标，只保留「新建文件夹」的文字，其余靠 title 提示。
-   收起文字后**统一成正圆**（34×34、居中、等距）—— 此前只是把 padding 收窄，
-   于是按钮呈现为「宽高不等的椭圆」，宽度还随图标本身的宽窄漂移，
-   一排图标排下来参差不齐，这正是工具栏显得"乱"的直接来源。 */
-@media (max-width:680px){
-  /* 目录操作只剩「新建文件夹」一个主操作，移动端把它也收成图标按钮：
-     「图标 + 文字」的胶囊在这一排放不下，收进去后整排只剩「+ / 筛选 / 统计」，
-     工具栏才能从三行压到两行。保留蓝色实心 —— 颜色是它区别于普通图标
-     的唯一标记（文字藏起来了，靠 title 提示）。 */
-  .dir-actions{gap:8px;flex-wrap:nowrap}
-  .dir-actions .tool-btn.primary{width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto}
-  .dir-actions .tool-btn.primary span{display:none}
-  /* 搜索行里的「密码库 / 导出」同样收起文字。必须用直系选择器 ——
-     上面 .dir-actions 是后代选择器，作用域到不了 .toolbar-top 内的按钮。 */
-  .toolbar-top > .tool-btn{width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto}
-  .toolbar-top > .tool-btn span{display:none}
+/* 工具栏里的图标型按钮（搜索 / 新建文件夹 / 筛选）统一为**正圆**，不再用胶囊。
+   三个尺寸属性必须一起写 —— width / height / min-height：
+   只写 height 的话，(pointer:coarse) 里的 .tool-btn{min-height:44px} 仍会把
+   它们撑高，出来是「宽 36 / 高 44」的竖椭圆，这正是「看着不是圆」的根源。
+   .dir-actions 用后代选择器一并纳入 —— 于是桌面端也不再是「图标 + 文字」的胶囊。
+   **必须写在 .tool-btn 之后**：同为单类选择器、优先级相同，靠后定义者胜。 */
+.search-toggle,.filter-trigger,.dir-actions .tool-btn{
+  width:36px;height:36px;min-height:36px;padding:0;justify-content:center;
+  flex:0 0 auto;border-radius:50%
 }
+/* 筛选的生效条数徽标叠加到右上角：留在文档流里会把正圆按钮重新撑宽 */
+.filter-trigger .badge-count{position:absolute;top:-4px;right:-4px}
+/* 目录操作组：靠左聚拢 */
+.dir-actions{display:inline-flex;align-items:center;gap:var(--sp-1);flex-wrap:nowrap}
 /* 下拉面板：transform-origin 决定「从触发点长出来」的方向感 */
 .dropdown-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:190px;z-index:999;padding:6px;border-radius:var(--r-md);background:var(--glass-elevated);backdrop-filter:blur(28px) saturate(1.8);-webkit-backdrop-filter:blur(28px) saturate(1.8);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-elevated);transform-origin:top left;}
 .dropdown-panel.right{left:auto;right:0;transform-origin:top right}
@@ -1289,8 +1275,15 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .panel-actions{gap:6px}
   .page-btn{min-width:44px;height:44px}
   .view-toggle{padding:4px}
-  .view-toggle button{width:54px;height:44px}
+  .view-toggle button{width:44px;height:44px;border-radius:50%}
   .tool-btn{min-height:44px;padding:0 16px}
+  /* 触摸设备上图标型按钮直接给 44×44 正圆（HIG 的触屏建议尺寸）。
+     必须写在上面 .tool-btn 那行**之后** —— 宽度本来就是固定的，
+     高度若被 44px 的 min-height 单方面撑开，出来就是竖椭圆。
+     窄屏再被 680px 的媒体查询覆盖为 34×34。 */
+  .search-toggle,.filter-trigger,.dir-actions .tool-btn{
+    width:44px;height:44px;min-height:44px;padding:0;justify-content:center;border-radius:50%
+  }
   .seg__opt,.filter-pill{min-height:44px}
   .filter-select{padding-block:12px}
   .dropdown-item{min-height:44px}
@@ -1303,6 +1296,18 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .row-actions,.card-actions{gap:6px}
   .check{width:28px;height:28px}
   .move-item{padding:12px 11px}
+}
+/* 窄屏：图标按钮再收一档到 34×34 正圆。
+   **必须放在 (pointer:coarse) 之后** —— 手机同时命中「触摸」与「窄屏」两个
+   媒体查询，上面那块给的是 44×44（触屏建议尺寸），只有靠后定义才收得回来。
+   （这条原先写在文件前面的另一个 680px 块里，被上面的 44px 覆盖了，
+     于是实际渲染成「宽 34 / 高 44」的竖椭圆。）
+   width / height / min-height 三个要一起写：只改 height 会被 min-height 压住。 */
+@media (max-width:680px){
+  .dir-actions{gap:8px;flex-wrap:nowrap}
+  .search-toggle,.filter-trigger,.dir-actions .tool-btn{
+    width:34px;height:34px;min-height:34px;padding:0;justify-content:center;border-radius:50%
+  }
 }
 
 /* =========================================================
@@ -1367,10 +1372,10 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .search-box{padding:5px 11px;min-width:0;height:34px}
   .search-box input{font-size:.82rem}
   .search-box>i{font-size:.78rem}
-  /* 视图切换：pointer:coarse 里被撑到 54x44 的按钮在这里收回，
+  /* 视图切换：pointer:coarse 里被撑到 44×44 的按钮在这里收回，
      改用伪元素保留 44px 热区（视觉小、可点区域不缩水，符合 HIG）。 */
   .view-toggle{padding:2px;gap:2px}
-  .view-toggle button{position:relative;width:38px;height:30px;font-size:.72rem}
+  .view-toggle button{position:relative;width:30px;height:30px;font-size:.72rem;border-radius:50%}
   .view-toggle button::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
   /* 这一排只剩「新建图标 / 筛选 / 同步点」三个小件，靠右收尾即可 ——
      统计移除后这里已没有需要伸缩的长文本，不必再参与伸展。 */
@@ -1801,10 +1806,10 @@ html[data-perf="low"] .dock{transition:none}
       <!-- 必须用绝对路径：本页走 /admin/<section> 分区路由（goSection 里 pushState），
            href="./" 会被解析成 /admin/，点了等于没走。 -->
       <!-- 只留图标：与「主题 / 登出」同规格的圆形按钮，三个并排收在标题右侧。
-           原先带文字的胶囊比一个圆形按钮宽约 100px，正是它把整组操作
-           挤出第一行、甩到标题下方的直接原因。 -->
-      <a href="/" class="icon-round" title="回到首页上传文件" aria-label="上传中心">
-        <i class="fas fa-cloud-arrow-up"></i>
+           用房子而非云朵 —— 它的实际行为是「回首页」，云朵图标会让人
+           以为这里能直接上传。 -->
+      <a href="/" class="icon-round" title="返回首页" aria-label="返回首页">
+        <i class="fas fa-house"></i>
       </a>
       <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
         <span class="status-pulse" :class="{'is-settling': statusChecking}"></span>
@@ -1870,9 +1875,12 @@ html[data-perf="low"] .dock{transition:none}
              · 多选仍可用 —— 桌面端**右键**文件卡片、触屏端**长按**卡片即可进入
              · 刷新在列表空态另有一个按钮，平时用浏览器刷新即可 -->
       <div class="dir-actions">
-        <button class="tool-btn primary" @click="createFolder" title="在当前目录下新建文件夹">
+        <!-- 只有一个图标、不加实心底色：它是这一排的普通一员，
+             用蓝色实心会把它抬成「主操作」，在一排图标里反而突出得没有道理。
+             形状由 .search-toggle/.filter-trigger/.dir-actions .tool-btn 的统一规则
+             收成正圆（见样式区）。 -->
+        <button class="tool-btn" @click="createFolder" title="在当前目录下新建文件夹" aria-label="新建文件夹">
           <i class="fas fa-folder-plus"></i>
-          <span>新建文件夹</span>
         </button>
       </div>
 
