@@ -1157,6 +1157,12 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
      旧视图以极短淡出离场，随后新视图入场做高度 FLIP。 */
   transition: opacity 0.12s linear;
   will-change: opacity;
+  /* 与 .view-forward/back-leave-active 一致：离场即脱离文档流。
+     缺了这条，一旦 fade 离场元素本身占位（如它曾是带 liquid-card 的
+     独立分支），入场内容会被挤到下方、离场元素移除时又跳回 ——  MotionService
+     不可见，但用户截图里就是「列表先堆在下面、再突然弹上去」。
+     现在 fade 已基本退场（空态并入视图分支，切目录零转场），留作兜底。 */
+  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
 }
 .view-fade-enter-from { opacity: 0; }
 .view-fade-leave-to   { opacity: 0; }

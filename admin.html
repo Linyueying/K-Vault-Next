@@ -444,6 +444,10 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .folder-crumb-sep{font-size:.55rem;color:var(--text-muted);opacity:.7;flex:none}
 /* 卡片网格 */
 .vault-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:var(--sp-3)}
+/* 空态并入 grid/list 分支内部后（切目录零转场，见视图分支注释）：
+   网格里的空态必须横跨整行，否则只占 178px 的一列、缩在左上角。
+   列表分支是 flex 列，空态自然撑满，无需规则。 */
+.vault-grid>.empty-state{grid-column:1/-1}
 /* 注意：卡片不能设 overflow:hidden —— 它会把「更多操作」弹出菜单整块裁掉。
    圆角裁剪改由 .card-thumb 自己负责。 */
 /* 默认不带 backdrop-filter：卡片数量 = 列表长度，每张都模糊等于每帧重算 N 层，
@@ -2047,16 +2051,18 @@ html[data-perf="low"] .dock{transition:none}
       <div class="view-stage" ref="viewStage" :class="{'is-locking': stageLocking}">
 
       <!-- 网格视图 -->
-      <!-- 视图分支 key 固定为 'grid' / 'list' / 'empty'，不随 folderPath 变化：
-           切目录时同一分支 key 不变，分支不重挂载，卡片仅按 :key 原地更新，
-           因此切目录没有任何进出场动画 / 高度 FLIP / 位移 —— 彻底消除
-           「切目录抽搐」（下方拉伸 + 整页抖动 + 滚动条闪现）。
+      <!-- 视图分支 key 只随 viewMode 变化（'grid' / 'list'），**与目录、数据量无关**：
+           空态（empty-state）并入各分支内部，与卡片同 key 空间。因此切目录
+           （含「空目录 → 非空目录」）时同一分支 key 不变、分支不重挂载，
+           卡片与空态按 :key 原地更新 —— 零转场、零位移、零高度 FLIP，
+           彻底消除「切目录抽搐」与「空态离场把新列表挤下又跳回」的堆叠跳动。
+           只有 grid ⇄ list 的视图切换才换 key，走方向感知转场（view-forward/back），
+           由 setView() 触发；入场错峰由 .view-*-enter-active > * 的 paneItemIn 负责。
            首屏错峰入场仍由 #app:not(.is-booted) 门控的 riseIn 负责
-           （is-booted 在挂载即触发、稳定关闭，不会重播）。
-           网格 ⇄ 列表的方向感知转场（view-forward/back）仍由 setView() 触发
-           外层转场；切到空目录时外层用无方向 view-fade 淡入。 -->
+           （is-booted 在挂载即触发、稳定关闭，不会重播）。 -->
       <transition :name="viewTransition">
-      <div v-if="viewMode==='grid' && pageEntries.length" class="vault-grid" key="grid">
+      <div v-if="viewMode==='grid'" class="vault-grid" key="grid">
+        <template v-if="pageEntries.length">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-card"
              :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name, 'is-deleting': deletingNames.indexOf(item.name)>-1, 'is-restoring': restoringNames.indexOf(item.name)>-1}"
@@ -2160,10 +2166,28 @@ html[data-perf="low"] .dock{transition:none}
           </div>
           </template>
         </div>
+        </template>
+        <!-- 空态 / 加载中 / 失败重试：并入分支内部，与卡片同 key 空间 ——
+             切目录（含空目录 ⇄ 非空目录）不换分支、零转场；见上方注释。 -->
+        <div v-else class="liquid-card empty-state">
+          <template v-if="loadError">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>加载失败：{{ loadError }}</span>
+            <button class="btn btn--primary" @click="refresh">
+              <i class="fas fa-rotate"></i> 重试
+            </button>
+          </template>
+          <template v-else>
+            <div class="spinner-ring" v-if="folderLoading || loadingMore"></div>
+            <i class="fas fa-folder-open" v-else></i>
+            <span>{{ (folderLoading || loadingMore) ? '正在加载文件...' : '当前目录下没有符合条件的文件' }}</span>
+          </template>
+        </div>
       </div>
 
       <!-- 列表视图 -->
-      <div v-else-if="viewMode==='list' && pageEntries.length" class="vault-list" key="list">
+      <div v-else class="vault-list" key="list">
+        <template v-if="pageEntries.length">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-row"
              :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, 'menu-open': openMenu==='row:'+item.name, 'is-deleting': deletingNames.indexOf(item.name)>-1, 'is-restoring': restoringNames.indexOf(item.name)>-1}"
@@ -2246,22 +2270,22 @@ html[data-perf="low"] .dock{transition:none}
             </div>
           </template>
         </div>
-      </div>
-
-      <!-- 空状态 / 加载中 / 失败重试 -->
-      <div v-else class="liquid-card empty-state" :key="'empty'">
-        <template v-if="loadError">
-          <i class="fas fa-triangle-exclamation"></i>
-          <span>加载失败：{{ loadError }}</span>
-          <button class="btn btn--primary" @click="refresh">
-            <i class="fas fa-rotate"></i> 重试
-          </button>
         </template>
-        <template v-else>
-          <div class="spinner-ring" v-if="folderLoading || loadingMore"></div>
-          <i class="fas fa-folder-open" v-else></i>
-          <span>{{ (folderLoading || loadingMore) ? '正在加载文件...' : '当前目录下没有符合条件的文件' }}</span>
-        </template>
+        <!-- 空态 / 加载中 / 失败重试：同网格分支，并入分支内部保证切目录零转场 -->
+        <div v-else class="liquid-card empty-state">
+          <template v-if="loadError">
+            <i class="fas fa-triangle-exclamation"></i>
+            <span>加载失败：{{ loadError }}</span>
+            <button class="btn btn--primary" @click="refresh">
+              <i class="fas fa-rotate"></i> 重试
+            </button>
+          </template>
+          <template v-else>
+            <div class="spinner-ring" v-if="folderLoading || loadingMore"></div>
+            <i class="fas fa-folder-open" v-else></i>
+            <span>{{ (folderLoading || loadingMore) ? '正在加载文件...' : '当前目录下没有符合条件的文件' }}</span>
+          </template>
+        </div>
       </div>
       </transition>
       </div><!-- /.view-stage -->
@@ -5631,11 +5655,13 @@ const __kvApp = Vue.createApp({
     selectFolder(path) {
       const next = this.normalizeFolderPath(path);
       if (next === this.folderPath) return;
-      /* 目录切换不再走「整体重挂载 + 高度 FLIP」转场 —— 那套会让容器在 0.4s 内
-         拉伸、并带动整页布局抖动（下方内容抽搐、上方界面也抖）。
-         内容改由模板里的 <transition-group name="card"> 做卡片级淡入淡出，
-         容器随内容自然更新，平滑无抽搐。切到空目录时外层仍用无方向
-         view-fade 淡入（见模板的视图分支）。 */
+      /* 目录切换零转场：视图分支的 key 只随 viewMode 变化，空态已并入分支内部
+         （见模板视图分支注释）—— 切目录时同一分支不重挂载，卡片与空态按 :key
+         原地更新，没有进出场动画、没有高度 FLIP、没有位移。
+         早年那套「整体重挂载 + 高度 FLIP」会让容器在 0.4s 内拉伸、带动整页
+         抖动（下方内容抽搐、上方界面也抖），已彻底移除。
+         下面这行是防御性兜底：万一将来分支 key 再次与目录挂钩，淡入也比
+         方向感知的整列滑入更温和；正常情况下它不会触发任何转场。 */
       this.viewTransition = 'view-fade';
       this.openMenu = null;
       this.folderPath = next;
