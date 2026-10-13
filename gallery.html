@@ -1062,7 +1062,7 @@
       >
         <img
           class="photo-img"
-          :src="'/file/' + img.name"
+          :src="thumbOf(img)"
           :alt="img.metadata?.fileName || img.name"
           loading="lazy"
           @error="handleImageError($event, img)"
@@ -1557,7 +1557,20 @@
           }
         },
 
+        thumbOf(img) {
+          /* 走共享层：/file/<key> → /thumb/<key>。缩略图缺失或文件受保护时，
+             服务端会 302 回原图，因此这里不需要额外的回退分支。 */
+          return KVault.thumbUrl('/file/' + img.name);
+        },
+
         handleImageError(event, img) {
+          /* 一次降级：先退回原图（老文件还没有缩略图）；
+             原图也失败（文件真的没了）才落到占位图。 */
+          if (img && !img._thumbFallback) {
+            img._thumbFallback = true;
+            event.target.src = '/file/' + img.name;
+            return;
+          }
           event.target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23eef4fb" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%2394a3b8" font-size="10">加载失败</text></svg>';
         },
 

@@ -1147,6 +1147,11 @@
         if (raw.startsWith("http")) return raw;
         return `${this.baseURL}${raw}`;
       },
+      /* 缩略图地址：在直链基础上换成 /thumb（走共享层，跨页唯一实现）。
+         缩略图缺失或文件受保护时服务端会 302 回原图，故这里无需回退分支。 */
+      getThumbUrl(item) {
+        return KVault.thumbUrl(this.getCleanFileUrl(item));
+      },
       isImageFile(filename) { return /\.(jpe?g|png|webp|gif|svg|bmp|avif|ico)$/i.test(filename || ""); },
       /* 图标 / 分类按扩展名查表。队列里每张卡片每渲染一次就要走一遍这几个
          includes —— 100 个任务 × 每帧一次的话是每秒上千次数组扫描，故按扩展名
@@ -2678,6 +2683,32 @@
         this.applyShareResult(uploadedObj, data[0]);
         this.uploadedFiles.unshift(uploadedObj);
         this.addToHistory(uploadedObj, mode);
+        this.submitThumbnail(item.file, src);
+      },
+      /* ===== 缩略图提交 =====
+         上传成功后，用浏览器把原图压成一张小图，再单独 PUT 给后端
+         （为什么不是随上传表单一起提交：直传与分片是两条独立落库路径，
+         只有「拿到 fileKey 后再传一次」能让它们共用同一段代码）。
+         纯增强：刻意不 await、不把异常抛给调用方 —— 失败只是这次没有缩略图，
+         列表里会 302 回原图，绝不能因此影响上传本身的成败。 */
+      async submitThumbnail(file, src) {
+        try {
+          const KV = window.KVault;
+          if (!KV || typeof KV.makeThumbnail !== "function") return;
+          const key = String(src || "").replace(/^\/?file\//, "");
+          if (!file || !key) return;
+          const thumb = await KV.makeThumbnail(file);
+          if (!thumb || !thumb.blob) return;
+          const res = await fetch(`${this.baseURL}/api/thumb/${encodeURIComponent(key)}`, {
+            method: "PUT",
+            headers: { "Content-Type": thumb.type || "image/webp" },
+            body: thumb.blob,
+            credentials: "include",
+          });
+          if (!res.ok) console.warn("thumbnail upload skipped:", res.status);
+        } catch (error) {
+          console.warn("thumbnail upload failed:", error && error.message);
+        }
       },
       extractDoneChunks(initData) {
         if (!initData || typeof initData !== "object") return [];
@@ -2966,6 +2997,7 @@
         this.applyShareResult(uploadedObj, completeData);
         this.uploadedFiles.unshift(uploadedObj);
         this.addToHistory(uploadedObj, mode);
+        this.submitThumbnail(item.file, completeData.src);
       },
       /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
       retryUpload(file, fromScratch = false) {
@@ -4192,7 +4224,16 @@
         setTimeout(() => URL.revokeObjectURL(a.href), 1200);
         this.showToast(`已导出 ${list.length} 条记录`, "success");
       },
-      handleHistoryImgError(e, item) { item._imgError = true; this.$forceUpdate(); },
+      /* 一次降级：缩略图失败先退回原图；原图也失败才隐藏图片、退到文件图标。 */
+      handleThumbError(e, item) {
+        if (item && !item._thumbFallback) {
+          item._thumbFallback = true;
+          e.target.src = this.getCleanFileUrl(item);
+          return;
+        }
+        if (item) item._imgError = true;
+        this.$forceUpdate();
+      },
 
       /* ===== Auth ===== */
       async checkAuth() {

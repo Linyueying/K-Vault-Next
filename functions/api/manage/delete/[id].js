@@ -14,6 +14,7 @@ import {
   deriveIndexId,
 } from '../../../utils/file-record.js';
 import { cleanupShareSlugMapping } from '../../../utils/share-options.js';
+import { deleteThumb } from '../../../utils/thumb-store.js';
 
 // 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
 function getRecordWithKey(env, fileId) {
@@ -264,6 +265,7 @@ function jsonResponse(body, status = 200) {
  *   2. share_slug 反向映射（复用 utils/share-options.js，判归属后才删）
  *   3. idxt: 索引键（新增，避免索引残留导致列表出现"幽灵条目"）
  *   4. dlc: 下载计数键（新增）
+ *   5. 缩略图附属对象（thumb:<kvKey> / thumb/<kvKey>，见 utils/thumb-store.js）
  *
  * ⚠️ D1 侧的删除**不受回滚模式开关影响**：删除是"记录不该再存在"，
  * 不是"要不要多写一份副本"。开关只管写入冗余，管不着删除。
@@ -271,6 +273,11 @@ function jsonResponse(body, status = 200) {
  */
 async function cleanupRecordArtifacts(env, metadata = {}, kvKey = '') {
   await cleanupShareSlugMapping(env, metadata, kvKey);
+
+  // 缩略图附属对象：它的 key 由 kvKey 纯派生、不在任何元数据里留痕，
+  // 因此**只能在这里显式删除** —— 漏掉就是永久泄漏
+  // （KV 不会自己回收，R2 也没有针对它的生命周期规则）。
+  await deleteThumb(env, kvKey);
 
   // D1 主源：用裸 ID 删（kvKey 带存储前缀，当主键会删 0 行且不报错）。
   if (env?.DB && typeof env.DB.prepare === 'function') {

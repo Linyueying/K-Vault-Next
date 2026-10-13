@@ -117,6 +117,7 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 | `functions/api/upload-from-url.js` | URL 转存（带 SSRF 防护） |
 | `functions/api/telegram/webhook.js` | Telegram Webhook 回链 |
 | `functions/file/[[path]].js` | 文件直链（多层路径、密码） |
+| `functions/thumb/[[path]].js` | 图片缩略图（独立于文件直链；命中返回 webp，否则 302 回退原图） |
 | `functions/file-info/[[path]].js` | 文件元信息 |
 | `functions/s/[slug].js` | 短分享链 → 302 到 `/share.html` |
 | `functions/utils/` | 存储适配器与公共工具 |
@@ -145,6 +146,30 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 ### 4. 存储后端
 
 Telegram（默认）、Cloudflare R2、S3 兼容、Discord、HuggingFace、WebDAV、GitHub，共七种，通过同一个上传入口切换。指定后端未配置时回落 Telegram；**变量缺失不会静默降级到其他后端**，而是直接报错。
+
+### 5. 图片缩略图（附属对象）
+
+Workers 运行时不带图像库，服务端转码需付费能力，因此缩略图由**浏览器在上传时生成**（canvas → webp），上传成功后再 `PUT /api/thumb/<fileKey>` 单独提交。
+
+关键在于它**不是元数据的一部分**：附属对象的 key 由原文件 key 纯派生（KV `thumb:<fileKey>` / R2 `thumb/<fileKey>`），所以
+
+- 不需要 `schema.js` 迁移，也不给 `files` 表加列 → 存量文件零影响
+- 上传 / 改名 / 移动 / 分享等既有路径**全部零改动**（`upload.js`、`chunked-upload/complete.js` 都没碰）
+- 只有三处需要关心它：写入（`functions/api/thumb/`）、读取（`functions/thumb/`）、删除级联（`manage/delete`）
+
+读取端点的回退语义是**唯一入口**：除了「有缩略图且文件可公开访问」，其余情况一律 `302` 到 `/file/<fileKey>`（含 query 透传），因此前端只需把 `src` 换成 `/thumb/<key>`，不必写 `@error` 兜底；受分享密码 / 限次保护的文件不会被一张小图绕过。
+
+缩略图存放位置由 `config:thumb` 的 `backend` 决定，**KV / D1 / R2 三选一、显式指定、不做自动降级**：
+
+| 后端 | 位置 | 取舍 |
+| :--- | :--- | :--- |
+| **KV**（默认） | `thumb:<fileKey>` | 所有部署都可用（`img_url` 是必需绑定），但写额度最紧（免费 1k 写/天） |
+| **D1** | `file_thumbs` 表（**独立表**，不给 files 加列，避免 `SELECT *` 把 BLOB 一起拉出） | 写额度大 100 倍（免费 100k 行/天），代价是读走单 primary、延迟略高于边缘 |
+| **R2** | `thumb/<fileKey>` | 读写都在边缘、额度最大，图片量大时首选 |
+
+未绑定的后端不可选 —— 后台下拉项由 `/api/manage/settings` 下发的 `thumb.available` 渲染，判据与运行时**同一个函数**，不会出现「后台说能用、运行时说 no-backend」。删除文件时三个后端都会清理（backend 被改过时旧副本会残留，只删当前那个等于制造永久孤儿）。
+
+后台可在「系统设置 → 图片缩略图」在线调整，即时生效。
 
 ---
 

@@ -40,6 +40,10 @@ BANNED_JS = [
      '手写 execCommand("copy")（改用 KVault.copy）'),
     (re.compile(r'fa-triangle-exclamation[\'"]\s*:\s*[\'"]\s*fa-triangle-exclamation'),
      '手写 toast 图标映射（改用 KVault.toastIcon）'),
+    # 缩略图地址必须走 KVault.thumbUrl：页面里直接拼 '/thumb/' 会让
+    # 「/file/ → /thumb/ 且保留 query」这条规则在各页各写一遍，必然漂移。
+    (re.compile(r'''['"`]/thumb/'''),
+     '页面内硬编码 /thumb/ 路径（改用 KVault.thumbUrl 走共享层）'),
 ]
 
 # ------------------------------------------------- B. 期望的样式表加载顺序

@@ -139,6 +139,7 @@ node scripts/kvault-upload.mjs share r2:r2_123_abc.png --action revoke  # 取消
 
 ### 还有这些
 
+- **图片缩略图** —— 上传时浏览器把图片压成一张小图（canvas → webp）单独存下，画廊 / 后台 / 结果列表改用缩略图加载；**缺失或文件受分享保护时自动 302 回退原图**，对存量文件零影响。可存 **KV（默认）/ D1 / R2**，后台按实际绑定只列出可用的后端
 - **图片画廊** `/gallery.html` —— 浏览、搜索、批量复制直链 / 下载 / 删除
 - **多格式预览** `/preview.html` —— 加密文件会弹密码框
 - **WebDAV 服务端** `/webdav.html` —— 把本站挂载成网络硬盘（详见下文）
@@ -206,6 +207,7 @@ Cloudflare Pages Functions（`functions/`），**无 Node 服务器、无 Docker
 | `functions/api/telegram/webhook.js` | Telegram Webhook 回链 |
 | `functions/api/upload-from-url.js` | URL 转存（带 SSRF 防护） |
 | `functions/file/[[path]].js` | 文件直链（**任意层级路径**、密码） |
+| `functions/thumb/[[path]].js` | 图片缩略图（缺失 / 受分享保护时 302 回退原图） |
 | `functions/dav/[[path]].js` | WebDAV 服务端 |
 | `functions/s/[slug].js` | 分享短链 → 302 到落地页 |
 | `functions/utils/` | 存储适配器与公共工具 |

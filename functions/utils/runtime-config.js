@@ -79,8 +79,17 @@ export const WEBDAV_CONFIG_KEY = 'config:webdav';
  */
 export const MCP_CONFIG_KEY = 'config:mcp';
 
+/**
+ * 图片缩略图配置。
+ *
+ * 存 `{ enabled, maxEdge, quality, backend }`。缩略图是**纯增强**能力：
+ * 生成或读取失败一律回退原图，不产生任何功能性依赖，因此默认开启。
+ * 附属对象的键名约定见 utils/thumb-store.js。
+ */
+export const THUMB_CONFIG_KEY = 'config:thumb';
+
 /** 所有配置组的名字，供后台设置接口遍历 */
-export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav', 'mcp'];
+export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav', 'mcp', 'thumb'];
 
 const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
@@ -127,6 +136,31 @@ export const WEBDAV_BACKENDS = ['telegram', 'r2', 's3', 'discord', 'huggingface'
 // 任意 Agent，默认必须收窄开放面，由管理员在后台显式开启
 // （与 guest.enabled / DEFAULT_WEBDAV_ENABLED 同源）。
 export const DEFAULT_MCP_ENABLED = false;
+
+// ── 图片缩略图默认值 ────────────────────────────────────────
+// 默认**开启**，与 guest.enabled / webdav.enabled / mcp.enabled 的「默认关闭」
+// 刻意相反：那三者新增的是**网络面**（须 fail-closed），而缩略图只是同一份
+// 内容的小尺寸替代，既不扩大暴露面，失败也只是回退原图。
+export const DEFAULT_THUMB_ENABLED = true;
+// 缩略图最长边（像素）。400 对列表卡片足够，成品通常 < 40KB。
+export const DEFAULT_THUMB_MAX_EDGE = 400;
+// webp 质量。0.72 是「肉眼无损、体积合适」的经验拐点。
+export const DEFAULT_THUMB_QUALITY = 0.72;
+// 默认后端 **kv**：KV 是唯一「所有部署必然绑定」的存储（img_url 必需），
+// 所以默认值永远可用，用户不必先配别的东西才能用上缩略图。
+// 想省 KV 写额度的部署可显式切到 d1 / r2（后台可改，即时生效）。
+export const DEFAULT_THUMB_BACKEND = 'kv';
+/**
+ * 缩略图允许的后端取值 —— 三者平级，由用户显式指定，**不做自动降级**。
+ *
+ *   kv   默认；所有部署都有，但 KV 写额度最紧（免费 1k 写/天）
+ *   d1   写额度大 100 倍（免费 100k 行/天），代价是读走单 primary、延迟高于边缘
+ *   r2   对象存储，读在边缘、写额度最大，适合图片量大的部署
+ *
+ * 未绑定的后端一律不可选 —— 后台按实际可用性渲染下拉项（见 settings.js
+ * 下发的 `thumb.available`）。
+ */
+export const THUMB_BACKENDS = ['kv', 'd1', 'r2'];
 
 /**
  * MCP 工具白名单 —— 这里**必须**与 functions/mcp/tools.js 的
@@ -404,6 +438,18 @@ const GROUPS = {
       disabledTools: []
     }),
     normalize: (raw, base) => normalizeMcpConfig(raw, base)
+  },
+  thumb: {
+    key: THUMB_CONFIG_KEY,
+    // 环境变量基线。enabled 缺省 true（显式写 'false' 才关），与 airdrop
+    // 组的「缺省开启」同源；理由见 DEFAULT_THUMB_ENABLED 上方注释。
+    fromEnv: (env) => ({
+      enabled: toBool(env?.THUMB_ENABLED, DEFAULT_THUMB_ENABLED),
+      maxEdge: normalizeThumbMaxEdge(env?.THUMB_MAX_EDGE, DEFAULT_THUMB_MAX_EDGE),
+      quality: normalizeThumbQuality(env?.THUMB_QUALITY, DEFAULT_THUMB_QUALITY),
+      backend: normalizeThumbBackend(env?.THUMB_BACKEND)
+    }),
+    normalize: (raw, base) => normalizeThumbConfig(raw, base)
   }
 };
 
@@ -598,6 +644,65 @@ export function normalizeMcpConfig(raw, fallback) {
 }
 
 /**
+ * 归一化缩略图后端取值。
+ *
+ * 未知取值一律回落到**默认值 kv**（而不是报错）：后台面板写脏一个值不该让
+ * 整站缩略图失效，而 KV 是唯一必然可用的后端，回落到它最安全。
+ * 注意：早期版本出现过的 `auto` 也会因不在白名单内而被归一成 `kv`。
+ *
+ * @param {unknown} raw
+ * @returns {'kv' | 'd1' | 'r2'}
+ */
+export function normalizeThumbBackend(raw) {
+  const value = String(raw ?? '').trim().toLowerCase();
+  return THUMB_BACKENDS.includes(value) ? value : DEFAULT_THUMB_BACKEND;
+}
+
+/**
+ * 归一化缩略图最长边。
+ *
+ * 夹逼到 [64, 2048]：下界保证缩略图并非毫无意义的糊图，上界防止
+ * 误填天文数字导致「缩略图比原图还大」。非法值回落 fallback。
+ */
+function normalizeThumbMaxEdge(raw, fallback) {
+  const num = Math.round(Number(raw));
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  return Math.min(Math.max(num, 64), 2048);
+}
+
+/**
+ * 归一化 webp 质量，夹逼到 [0.1, 1]。
+ * 0.1 以下画质已无意义；1 表示无损编码（体积大但可用）。
+ */
+function normalizeThumbQuality(raw, fallback) {
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  return Math.min(Math.max(num, 0.1), 1);
+}
+
+/**
+ * 归一化一份缩略图配置，保证字段类型与取值范围可控。
+ *
+ * @param {unknown} raw
+ * @param {object} [fallback]
+ */
+export function normalizeThumbConfig(raw, fallback) {
+  const base = fallback || {
+    enabled: DEFAULT_THUMB_ENABLED,
+    maxEdge: DEFAULT_THUMB_MAX_EDGE,
+    quality: DEFAULT_THUMB_QUALITY,
+    backend: DEFAULT_THUMB_BACKEND
+  };
+  if (!raw || typeof raw !== 'object') return { ...base };
+  return {
+    enabled: toBool(raw.enabled, base.enabled),
+    maxEdge: normalizeThumbMaxEdge(raw.maxEdge, base.maxEdge),
+    quality: normalizeThumbQuality(raw.quality, base.quality),
+    backend: normalizeThumbBackend(raw.backend ?? base.backend)
+  };
+}
+
+/**
  * 归一化 MCP 工具禁用清单。
  *
  * @param {unknown} raw         - 待归一化的值
@@ -637,6 +742,23 @@ export function readMcpConfigFromEnv(env) {
  */
 export async function getMcpConfig(env) {
   return getRuntimeConfig(env, 'mcp');
+}
+
+/** 从环境变量读取缩略图配置（部署期基线） */
+export function readThumbConfigFromEnv(env) {
+  return GROUPS.thumb.fromEnv(env);
+}
+
+/**
+ * 读取缩略图配置（KV 覆盖 > 环境变量基线）。
+ *
+ * 与 airdrop / webdav / mcp 不同，这里**可以**吃 getRuntimeConfig 的
+ * 30 秒进程内缓存：缩略图开关不需要「每请求回源」级别的实时性 ——
+ * 关掉它最坏的结果是多显示一段时间的缩略图，不涉及任何放行/拒绝判定。
+ * 缓存同时把上传路径上的配置读取开销摊到接近于零。
+ */
+export async function getThumbConfig(env) {
+  return getRuntimeConfig(env, 'thumb');
 }
 
 /*

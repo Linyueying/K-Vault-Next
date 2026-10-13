@@ -868,7 +868,7 @@
                   <i class="fas fa-check"></i>
                 </span>
                 <!-- 图片直接上缩略图：读文件名挑图是反人类的 -->
-                <img v-if="isImage(f)" class="bitem__thumb" :src="fileStreamUrl(f)" :alt="f.fileName" loading="lazy" />
+                <img v-if="isImage(f)" class="bitem__thumb" :src="thumbOf(f)" :alt="f.fileName" loading="lazy" @error="onThumbError($event, f)" />
                 <span v-else class="bitem__icon" :class="toneOf(f)"><i :class="iconOf(f)"></i></span>
                 <span class="bitem__main">
                   <span class="bitem__name" :title="f.fileName" v-text="f.fileName"></span>
@@ -916,7 +916,7 @@
             <ul class="bgrid" v-else>
               <li v-for="f in filteredFiles" :key="f.fileUrl || f.fileName"
                   class="bcell" :class="[toneOf(f), { 'is-picked': f.selected }]">
-                <img v-if="isImage(f)" class="bcell__pic" :src="fileStreamUrl(f)" :alt="f.fileName" loading="lazy" />
+                <img v-if="isImage(f)" class="bcell__pic" :src="thumbOf(f)" :alt="f.fileName" loading="lazy" @error="onThumbError($event, f)" />
                 <div v-else class="bcell__ph"><i :class="iconOf(f)"></i></div>
                 <span class="check bcell__check" :class="{ on: f.selected }" @click.stop="togglePick(f)">
                   <i class="fas fa-check"></i>
@@ -1823,6 +1823,24 @@ setTimeout(function () {
           url += (url.indexOf('?') === -1 ? '?' : '&') + 'password=' + encodeURIComponent(this.passwordValue);
         }
         return url;
+      },
+
+      /**
+       * 缩略图地址：在流地址基础上把 /file/ 换成 /thumb/，并**保留 query**
+       * （密码随 302 透传给 /file/，受保护的文件因此仍走原本的鉴权）。
+       * 缩略图缺失时服务端 302 回原图，所以这里不需要回退分支。
+       */
+      thumbOf: function (file) {
+        return KVault.thumbUrl(this.fileStreamUrl(file));
+      },
+
+      /** 一次降级：缩略图失败先退回原图流地址（含 password）。 */
+      onThumbError: function (event, file) {
+        if (!event || !event.target || !file) return;
+        if (!file._thumbFallback) {
+          file._thumbFallback = true;
+          event.target.src = this.fileStreamUrl(file);
+        }
       },
 
       /** 单品下载地址：文件流地址 + dl=1（file 路由据此切 attachment 并计数）。 */

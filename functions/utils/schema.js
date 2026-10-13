@@ -424,6 +424,33 @@ const M0012_AIRDROP_STATS_DETAIL = [
  * guard 目前支持：
  *   { type: 'column', table, column }  —— 列不存在才执行
  */
+// ============================================================================
+// Migration 0013 — 图片缩略图（附属表）
+// ============================================================================
+
+/**
+ * 缩略图刻意用**独立表**，而不是给 files 加一列。
+ *
+ * 原因：files 表存在 `SELECT *` 的调用点（如 listSharedRecords / listFileRecords），
+ * 一旦把 BLOB 挂在 files 上，这些查询就会把每行的缩略图字节一并读出来、
+ * 跨网络传回来 —— 分享总览列 100 个文件就是几 MB 的无谓流量。
+ * 独立表让「读元数据」与「读缩略图」彻底解耦，互不牵连。
+ *
+ * id 用**完整 fileKey**（如 `r2:r2_17xx.png`），与 /thumb/<fileKey> 的入参
+ * 直接对应，不做裸 ID 转换，少一层可能出错的映射。
+ *
+ * 与 KV / R2 两个后端的关系：三者是**平级的可选存储位置**，同一时刻只有
+ * 一个在写（由 config:thumb 的 backend 决定），删除时三者都会清理一遍。
+ */
+const M0013_FILE_THUMBS = [
+  `CREATE TABLE IF NOT EXISTS file_thumbs (
+  id            TEXT    PRIMARY KEY,
+  thumb         BLOB    NOT NULL,
+  content_type  TEXT,
+  updated_at    INTEGER
+)`,
+];
+
 export const MIGRATIONS = [
   { id: '0001_files', statements: M0001_FILES },
   {
@@ -470,6 +497,8 @@ export const MIGRATIONS = [
     guard: { type: 'column', table: 'airdrop_stats', column: 'sender_ip' },
     statements: M0012_AIRDROP_STATS_DETAIL,
   },
+  // 纯 CREATE TABLE IF NOT EXISTS，天然幂等，不需要 guard
+  { id: '0013_file_thumbs', statements: M0013_FILE_THUMBS },
 ];
 
 // ============================================================================

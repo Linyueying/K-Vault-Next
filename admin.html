@@ -2089,8 +2089,8 @@ html[data-perf="low"] .dock{transition:none}
           <span v-if="item.selected" class="card-picked" aria-hidden="true"><i class="fas fa-check"></i></span>
 
           <div class="card-thumb" @click="onCardTap(item, () => openPreview(item))">
-            <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
-                 :alt="item.metadata.fileName || item.name">
+            <img v-if="type(item.name)==='image'" :src="thumbOf(item)" loading="lazy" decoding="async"
+                 :alt="item.metadata.fileName || item.name" @error="onThumbError($event, item)">
             <i v-else :class="icon(item.name)"></i>
             <span class="card-badge">{{ typeLabelOf(item.name) }}</span>
           </div>
@@ -2178,8 +2178,8 @@ html[data-perf="low"] .dock{transition:none}
                下载并入「…」菜单。选中态靠 .vault-row.selected 描边表示。 -->
           <template v-else>
             <div class="row-thumb" @click="onCardTap(item, () => openPreview(item))">
-              <img v-if="type(item.name)==='image'" :src="'/file/'+item.name" loading="lazy" decoding="async"
-                   :alt="item.metadata.fileName || item.name">
+              <img v-if="type(item.name)==='image'" :src="thumbOf(item)" loading="lazy" decoding="async"
+                   :alt="item.metadata.fileName || item.name" @error="onThumbError($event, item)">
               <i v-else :class="icon(item.name)"></i>
             </div>
             <div class="row-info" @click="onCardTap(item)">
@@ -2871,6 +2871,97 @@ html[data-perf="low"] .dock{transition:none}
           </div>
         </div>
 
+      </template>
+    </section>
+
+    <!-- ===== 图片缩略图 ===== -->
+    <section class="liquid-card panel-inline">
+      <h2 class="dialog-title">
+        <i class="fas fa-image"></i>
+        <span>图片缩略图</span>
+        <q-tip>
+          上传图片时由浏览器生成一张小图（canvas → webp）并单独存下，画廊 / 文件列表改用缩略图加载，
+          显著减少流量与首屏时间。<strong>纯增强</strong>：缩略图缺失或文件受分享保护时一律 302 回退原图，对存量文件零影响。
+          <br>
+          <span class="dialog-hint">改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。</span>
+        </q-tip>
+      </h2>
+
+      <div class="token-section" v-if="thumbLoading">
+        <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取缩略图设置...</div>
+      </div>
+
+      <template v-else>
+        <div class="token-section">
+          <div class="token-section-head">
+            <h3 class="token-section-title">
+              <i class="fas fa-sliders"></i>
+              <span>生成参数</span>
+            </h3>
+            <span class="badge-env" v-if="thumbSource === 'kv'">KV 覆盖中</span>
+            <span class="badge-env" v-else>来自环境变量</span>
+          </div>
+
+          <div class="set-group">
+            <div class="settings-switch-row">
+              <div class="settings-switch-text">
+                <strong>启用缩略图
+                  <q-tip>关闭后不再生成新的缩略图；已有缩略图仍会显示，列表不会因此回退原图。</q-tip>
+                </strong>
+              </div>
+              <label class="switch">
+                <input type="checkbox" v-model="thumbForm.enabled" role="switch"
+                       :aria-checked="String(thumbForm.enabled)" />
+                <span class="switch__track"></span>
+                <span class="switch__thumb"></span>
+              </label>
+            </div>
+
+            <div class="token-field">
+              <label>最长边（像素）
+                <q-tip>缩略图的最大边长，范围 64 ~ 2048。列表卡片用 400 足够，成品通常小于 40KB。</q-tip>
+              </label>
+              <input class="token-input" type="number" min="64" max="2048" v-model.number="thumbForm.maxEdge">
+            </div>
+
+            <div class="token-field">
+              <label>质量
+                <q-tip>webp 编码质量，范围 0.1 ~ 1。0.72 是「肉眼无损、体积合适」的常用值。</q-tip>
+              </label>
+              <input class="token-input" type="number" min="0.1" max="1" step="0.01" v-model.number="thumbForm.quality">
+            </div>
+
+            <div class="token-field">
+              <label>存储后端
+                <q-tip>
+                  缩略图存在哪里。<strong>KV</strong>（默认）所有部署都可用，但写额度最紧（免费 1k 写/天）；
+                  <strong>D1</strong> 写额度大 100 倍，代价是读走单 primary、延迟略高；
+                  <strong>R2</strong> 读写都在边缘、额度最大，图片量大时首选。
+                  未绑定的后端不会出现在这里。
+                </q-tip>
+              </label>
+              <select class="token-select" v-model="thumbForm.backend">
+                <option v-for="b in thumbBackends" :key="b.value" :value="b.value">{{ b.label }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-note">
+            <i class="fas fa-circle-info"></i>
+            <span>环境变量基线：最长边 {{ thumbEnvBaseline.maxEdge }} · 质量 {{ thumbEnvBaseline.quality }} · 后端 {{ thumbEnvBaseline.backend }}</span>
+          </div>
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
+              <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-save'"></i>
+              <span>保存缩略图设置</span>
+            </button>
+            <button class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
+              <i class="fas fa-rotate-left"></i>
+              <span>恢复默认</span>
+            </button>
+          </div>
+        </div>
       </template>
     </section>
 
@@ -4405,6 +4496,16 @@ const __kvApp = Vue.createApp({
     mcpTools: [],
     mcpAddrCopied: false,
 
+    /* ---------- 图片缩略图 ---------- */
+    thumbLoading: false,
+    thumbSaving: false,
+    /* 配置来源：kv = 已在后台保存过；env = 取自环境变量 */
+    thumbSource: 'env',
+    thumbEnvBaseline: { enabled: true, maxEdge: 400, quality: 0.72, backend: 'kv' },
+    thumbForm: { enabled: true, maxEdge: 400, quality: 0.72, backend: 'kv' },
+    /* 可选后端：由接口按**实际绑定**下发（未绑定的不进这个列表，也就选不到） */
+    thumbBackends: [{ value: 'kv', label: 'KV 存储（默认）' }],
+
     /* ---------- 隔空投送（Beta）：访客使用权限 + 使用情况 ---------- */
     airdropLoading: false,
     airdropSaving: false,
@@ -4895,6 +4996,20 @@ const __kvApp = Vue.createApp({
            : t === 'video' ? 'fas fa-file-video'
            : t === 'audio' ? 'fas fa-file-audio'
            : 'fas fa-file';
+    },
+    /* 缩略图地址：/file/<key> → /thumb/<key>（走共享层，避免各页各造一份）。
+       缩略图缺失或文件受保护时，服务端会 302 回原图，故这里无需回退分支。 */
+    thumbOf(item) {
+      if (!item || !item.name) return '';
+      return KVault.thumbUrl('/file/' + item.name);
+    },
+    /* 一次降级：缩略图失败先退回原图，原图也失败就交给浏览器自身的破图表现。 */
+    onThumbError(event, item) {
+      if (!event || !event.target || !item) return;
+      if (!item._thumbFallback) {
+        item._thumbFallback = true;
+        event.target.src = '/file/' + item.name;
+      }
     },
     /* 交给共享层：与全站其它页面同一份实现，避免各页漂移 */
     formatSize(b) {
@@ -5648,6 +5763,7 @@ const __kvApp = Vue.createApp({
         this.loadSettings();
       } else if (name === 'system') {
         this.loadSettings();
+        this.loadThumbSettings();
         this.tokenSecret = null;
         this.resetTokenForm();
         this.loadTokens();
@@ -6925,6 +7041,100 @@ const __kvApp = Vue.createApp({
         this.showToast(e.message || '重置失败', 'error');
       } finally {
         this.mcpSaving = false;
+      }
+    },
+
+    /* ================= 图片缩略图 ================= */
+    async loadThumbSettings() {
+      this.thumbLoading = true;
+      try {
+        const res = await fetch('/api/manage/settings', { credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '读取缩略图设置失败'));
+        this.applyThumbView(data);
+      } catch (e) {
+        this.showToast(e.message || '读取缩略图设置失败', 'error');
+      } finally {
+        this.thumbLoading = false;
+      }
+    },
+
+    applyThumbView(data) {
+      const t = (data && data.thumb) || {};
+      this.thumbSource = t.source || this.thumbSource;
+      this.thumbForm = {
+        /* 缺省 true，判据用 !== false —— 老配置里没有该字段时也应显示为"开" */
+        enabled: t.enabled !== false,
+        maxEdge: Number(t.maxEdge) || 400,
+        quality: Number(t.quality) || 0.72,
+        backend: t.backend || 'kv'
+      };
+
+      /* 下拉项按接口下发的「实际可用后端」渲染。
+         若当前配置的后端已不可用（比如 R2 被解绑），仍把它列出来并标注，
+         否则 select 会因为没有对应 option 而显示空白，用户看不出问题在哪。 */
+      const labels = { kv: 'KV 存储（默认）', d1: 'D1 数据库', r2: 'R2 对象存储' };
+      const available = Array.isArray(t.available) && t.available.length ? t.available : ['kv'];
+      const options = available.map((value) => ({ value, label: labels[value] || value }));
+      if (this.thumbForm.backend && !available.includes(this.thumbForm.backend)) {
+        options.unshift({
+          value: this.thumbForm.backend,
+          label: `${labels[this.thumbForm.backend] || this.thumbForm.backend}（未配置，不可用）`
+        });
+      }
+      this.thumbBackends = options;
+
+      if (data && data.thumbEnvBaseline) this.thumbEnvBaseline = data.thumbEnvBaseline;
+    },
+
+    async saveThumbSettings() {
+      const edge = Number(this.thumbForm.maxEdge);
+      const quality = Number(this.thumbForm.quality);
+      if (!Number.isInteger(edge) || edge < 64 || edge > 2048) {
+        this.showToast('最长边需为 64 ~ 2048 之间的整数', 'error'); return;
+      }
+      if (!Number.isFinite(quality) || quality < 0.1 || quality > 1) {
+        this.showToast('质量需为 0.1 ~ 1 之间的数值', 'error'); return;
+      }
+
+      this.thumbSaving = true;
+      try {
+        const res = await fetch('/api/manage/settings', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            thumb: {
+              enabled: this.thumbForm.enabled,
+              maxEdge: edge,
+              quality,
+              backend: this.thumbForm.backend
+            }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存失败'));
+        this.applyThumbView(data);
+        this.showToast('缩略图设置已保存', 'success');
+      } catch (e) {
+        this.showToast(e.message || '保存失败', 'error');
+      } finally {
+        this.thumbSaving = false;
+      }
+    },
+
+    async resetThumbSettings() {
+      this.thumbSaving = true;
+      try {
+        const res = await fetch('/api/manage/settings?group=thumb', { method: 'DELETE', credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '恢复默认失败'));
+        this.applyThumbView(data);
+        this.showToast('已恢复为环境变量基线', 'success');
+      } catch (e) {
+        this.showToast(e.message || '恢复默认失败', 'error');
+      } finally {
+        this.thumbSaving = false;
       }
     },
 

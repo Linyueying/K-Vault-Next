@@ -190,7 +190,7 @@
                    改为纯 v-if + CSS animation：挂载即播，不需要 Vue 钩子。 -->
               <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
               <span class="row__thumb">
-                <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getCleanFileUrl(file)" alt="" loading="lazy" decoding="async" @error="file._imgError = true" />
+                <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getThumbUrl(file)" alt="" loading="lazy" decoding="async" @error="handleThumbError($event, file)" />
                 <i v-else :class="getFileIcon(getDisplayName(file))"></i>
               </span>
               <div class="row__main">
@@ -564,7 +564,7 @@
                   <div class="hist-card" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }" @click="historyPreview(item)">
                     <input type="checkbox" class="hist-card__check" v-model="item.selected" @click.stop />
                     <div class="hist-card__thumb">
-                      <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getCleanFileUrl(item)" @error="handleHistoryImgError($event, item)" />
+                      <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getThumbUrl(item)" @error="handleThumbError($event, item)" />
                       <i v-else :class="getFileIcon(getDisplayName(item))"></i>
                     </div>
                     <div class="hist-card__name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
@@ -588,7 +588,7 @@
                   <div class="row hist-row" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }">
                     <input type="checkbox" v-model="item.selected" style="accent-color: var(--primary); cursor: pointer; flex-shrink: 0;" />
                     <div class="row__thumb" @click="historyPreview(item)">
-                      <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getCleanFileUrl(item)" @error="handleHistoryImgError($event, item)" />
+                      <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getThumbUrl(item)" @error="handleThumbError($event, item)" />
                       <i v-else :class="getFileIcon(getDisplayName(item))"></i>
                     </div>
                     <div class="row__main">

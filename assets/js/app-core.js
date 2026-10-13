@@ -605,6 +605,116 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * 缩略图
+   *   服务端不做图片转码（Workers 没有图像库，付费方案也违背本项目的
+   *   「零依赖 / 白嫖免费额度」定位），所以缩略图统一由**浏览器**在上传时
+   *   用 canvas 生成，再单独 PUT 给后端。见 functions/utils/thumb-store.js。
+   *   两个能力都收敛在共享层：跨页唯一实现，避免各页各造一份。
+   * ------------------------------------------------------------------ */
+
+  /* webp 编码支持探测（老 Safari 的 canvas 只能编 jpeg）。
+     结果缓存，避免每张图都建一次 canvas 反复探测。 */
+  var _webpSupport = null;
+  function supportsWebp() {
+    if (_webpSupport !== null) return _webpSupport;
+    try {
+      var canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      _webpSupport = canvas.toDataURL("image/webp").indexOf("data:image/webp") === 0;
+    } catch (e) {
+      _webpSupport = false;
+    }
+    return _webpSupport;
+  }
+
+  /**
+   * 由本地 File 生成一张缩略图。
+   *
+   * 全程「能压就压，压不动就返回 null」——任何一步失败，代价只是这次上传的
+   * 图片没有缩略图（列表里回退原图），绝不影响上传主流程。因此本函数
+   * **永远不会 reject**。
+   *
+   * @param {File} file
+   * @param {{maxEdge?: number, quality?: number, minBytes?: number}} [opts]
+   * @returns {Promise<null | {blob: Blob, type: string, width: number, height: number}>}
+   */
+  function makeThumbnail(file, opts) {
+    var options = opts || {};
+    var maxEdge = Math.min(Math.max(Math.round(Number(options.maxEdge) || 400), 64), 2048);
+    var quality = Math.min(Math.max(Number(options.quality) || 0.72, 0.1), 1);
+    var minBytes = Number(options.minBytes) || 40 * 1024;
+
+    return new Promise(function (resolve) {
+      /* 只处理位图：SVG 是矢量，缩放无意义；GIF 缩放会丢动画。 */
+      if (!file || !file.type || file.type.indexOf("image/") !== 0) return resolve(null);
+      if (/^image\/(svg\+xml|gif)$/i.test(file.type)) return resolve(null);
+      /* 本来就不大的图不值得再压：生成物有可能反而更大 */
+      if (file.size && file.size < minBytes) return resolve(null);
+      if (typeof createImageBitmap !== "function" || typeof document === "undefined") {
+        return resolve(null);
+      }
+
+      createImageBitmap(file)
+        .then(function (bitmap) {
+          try {
+            var w = bitmap.width;
+            var h = bitmap.height;
+            var scale = Math.min(1, maxEdge / Math.max(w || 1, h || 1));
+            /* 原图本来就在目标尺寸内 → 不生成（否则是"缩略图比原图还大"） */
+            if (!w || !h || scale >= 1) {
+              if (bitmap.close) bitmap.close();
+              return resolve(null);
+            }
+            var tw = Math.max(1, Math.round(w * scale));
+            var th = Math.max(1, Math.round(h * scale));
+
+            var canvas = document.createElement("canvas");
+            canvas.width = tw;
+            canvas.height = th;
+            var ctx = canvas.getContext("2d");
+            if (!ctx) {
+              if (bitmap.close) bitmap.close();
+              return resolve(null);
+            }
+            ctx.drawImage(bitmap, 0, 0, tw, th);
+            if (bitmap.close) bitmap.close();
+
+            if (typeof canvas.toBlob !== "function") return resolve(null);
+            var mime = supportsWebp() ? "image/webp" : "image/jpeg";
+            canvas.toBlob(function (blob) {
+              if (!blob) return resolve(null);
+              /* 压完反而更大：那还不如就用原图 */
+              if (file.size && blob.size >= file.size) return resolve(null);
+              resolve({ blob: blob, type: mime, width: tw, height: th });
+            }, mime, quality);
+          } catch (e) {
+            resolve(null);
+          }
+        })
+        .catch(function () { resolve(null); });
+    });
+  }
+
+  /**
+   * 把原文件直链换成缩略图地址：`/file/<key>…` → `/thumb/<key>…`
+   *
+   * 缩略图端点在「没有缩略图 / 文件受分享保护」时会 302 回原文件，
+   * 因此调用方**不需要**再写 @error 兜底 —— 直接换 src 即可。
+   * 非本站的 /file/ 链接、以及已经是 /thumb/ 的地址，原样返回。
+   *
+   * @param {string} src
+   * @returns {string}
+   */
+  function thumbUrl(src) {
+    var value = String(src == null ? "" : src);
+    if (!value) return value;
+    if (value.indexOf("/thumb/") !== -1) return value;   /* 已是缩略图地址 */
+    if (value.indexOf("/file/") === -1) return value;    /* 外部链接，不动 */
+    return value.replace(/\/file\//, "/thumb/");
+  }
+
+  /* ------------------------------------------------------------------ *
    * 液态玻璃增强层（glassfx）
    *   加载 vendored @ /assets/vendor/glassfx/index.js —— 它挂一次共享 SVG 折射滤镜
    *   (#glassfx-refract)、并启动一个委托的指针监听，为每个 .glass 元素写入
@@ -964,6 +1074,9 @@
     errorMessage: errorMessage,
     escapeHtml: escapeHtml,
     debounce: debounce,
+    // 缩略图：浏览器端生成 + 直链→缩略图地址（服务端见 functions/thumb/）
+    makeThumbnail: makeThumbnail,
+    thumbUrl: thumbUrl,
     glassInit: glassInit,
     revealOnScroll: revealOnScroll,
     createSyncTracker: createSyncTracker,

@@ -29,11 +29,14 @@ import {
     readAirdropConfigFromEnv,
     readWebdavServerConfigFromEnv,
     readMcpConfigFromEnv,
+    readThumbConfigFromEnv,
     WEBDAV_BACKENDS,
+    THUMB_BACKENDS,
     MAX_AIRDROP_STATS_RETENTION,
     MCP_TOOL_IDS,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
+import { availableThumbBackends } from '../../utils/thumb-store.js';
 
 const MAX_FILE_SIZE_LIMIT = 100 * 1024 * 1024; // 与直传上限对齐，避免设出无意义的巨值
 const MAX_DAILY_LIMIT = 10000;
@@ -50,7 +53,7 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload, storage, branding, airdrop, webdav, mcp] = await Promise.all([
+    const [guest, cors, upload, storage, branding, airdrop, webdav, mcp, thumb] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
         getRuntimeConfig(env, 'upload'),
@@ -58,7 +61,8 @@ async function buildView(env) {
         getRuntimeConfig(env, 'branding'),
         getRuntimeConfig(env, 'airdrop'),
         getRuntimeConfig(env, 'webdav'),
-        getRuntimeConfig(env, 'mcp')
+        getRuntimeConfig(env, 'mcp'),
+        getRuntimeConfig(env, 'thumb')
     ]);
 
     return {
@@ -121,6 +125,21 @@ async function buildView(env) {
             })),
             source: mcp.source
         },
+        // 图片缩略图：纯增强能力，缺省开启（判据用 `!== false`，
+        // 否则老配置里没有该字段时会把"默认开"显示成"关"）。
+        //
+        // `available` 是**该部署实际可用**的后端列表 —— 后台据此只渲染
+        // 「配得上的」下拉项，从源头上避免用户选到一个运行时写不进去的后端。
+        // 判据与 thumb-store 内部完全同源（同一个函数），不会出现
+        // 「后台说能用、运行时说 no-backend」的错配。
+        thumb: {
+            enabled: thumb.enabled !== false,
+            maxEdge: thumb.maxEdge,
+            quality: thumb.quality,
+            backend: thumb.backend || 'kv',
+            source: thumb.source,
+            available: availableThumbBackends(env)
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
         // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
@@ -146,6 +165,8 @@ async function buildView(env) {
             const base = readMcpConfigFromEnv(env);
             return { enabled: base.enabled === true };
         })(),
+        // 缩略图的环境变量基线（THUMB_*，缺省 enabled=true / 400 / 0.72 / auto）
+        thumbEnvBaseline: readThumbConfigFromEnv(env),
         hasKvBinding: Boolean(env?.img_url),
         // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
         hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
@@ -408,6 +429,67 @@ function validateMcp(input) {
     return { ok: true, value };
 }
 
+/**
+ * 校验缩略图配置。
+ *
+ *   · enabled 必须是真布尔值。
+ *   · maxEdge 夹在 64 ~ 2048：下界避免糊图，上界避免"缩略图比原图还大"。
+ *   · quality 落在 0.1 ~ 1。
+ *   · backend 必须在 THUMB_BACKENDS 白名单内（kv / d1 / r2），**且该后端在本
+ *     部署上确实已绑定**。后者不是多余的：后台下拉项虽然已经按可用性渲染，
+ *     但 API 是可以被直接调用的；放行一个没绑定的后端就会存下一份「后台显示
+ *     已配置、运行时却写不进去」的假配置 —— 这正是本项目一贯要避免的东西
+ *     （参见 .env.example 里 MCP 那段「避免出现配了却不生效的假配置项」）。
+ *
+ * 与 normalizeThumbConfig 的宽严差异是有意的：归一化面向"可能被手改过的 KV"，
+ * 校验面向"正在提交的请求"，后者理应更严。
+ *
+ * @param {unknown} input
+ * @param {any} env - 用于判定该部署实际可用的后端
+ */
+export function validateThumb(input, env) {
+    if (!input || typeof input !== 'object') return { error: 'thumb 必须是对象。' };
+
+    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+        return { error: 'thumb.enabled 必须是布尔值（true / false）。' };
+    }
+    if (input.maxEdge !== undefined) {
+        const edge = Number(input.maxEdge);
+        if (!Number.isInteger(edge) || edge < 64 || edge > 2048) {
+            return { error: '缩略图最长边需为 64 ~ 2048 之间的整数。' };
+        }
+    }
+    if (input.quality !== undefined) {
+        const quality = Number(input.quality);
+        if (!Number.isFinite(quality) || quality < 0.1 || quality > 1) {
+            return { error: '缩略图质量需为 0.1 ~ 1 之间的数值。' };
+        }
+    }
+    if (input.backend !== undefined) {
+        const backend = String(input.backend).trim().toLowerCase();
+        if (!THUMB_BACKENDS.includes(backend)) {
+            return { error: `thumb.backend 必须是 ${THUMB_BACKENDS.join(' / ')} 之一。` };
+        }
+        const available = availableThumbBackends(env);
+        if (!available.includes(backend)) {
+            const names = { kv: 'KV', d1: 'D1', r2: 'R2' };
+            const usable = available.map((item) => names[item] || item).join(' / ') || '（无）';
+            return {
+                error: `当前部署没有绑定 ${names[backend] || backend}，无法把缩略图存到那里。可选：${usable}。`
+            };
+        }
+    }
+
+    // 显式回填落库值：类型收敛 + maxEdge 取整 + backend 转小写。
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.maxEdge !== undefined) value.maxEdge = Math.round(Number(input.maxEdge));
+    if (input.quality !== undefined) value.quality = Number(input.quality);
+    if (input.backend !== undefined) value.backend = String(input.backend).trim().toLowerCase();
+
+    return { ok: true, value };
+}
+
 export async function onRequestGet(context) {
     const { env } = context;
     try {
@@ -436,9 +518,10 @@ export async function onRequestPost(context) {
     const airdropInput = body?.airdrop;
     const webdavInput = body?.webdav;
     const mcpInput = body?.mcp;
+    const thumbInput = body?.thumb;
 
-    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput && !mcpInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav / mcp）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput && !mcpInput && !thumbInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav / mcp / thumb）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -451,6 +534,7 @@ export async function onRequestPost(context) {
     if (airdropInput) checks.push(['airdrop', validateAirdrop(airdropInput), airdropInput]);
     if (webdavInput) checks.push(['webdav', validateWebdavServer(webdavInput), webdavInput]);
     if (mcpInput) checks.push(['mcp', validateMcp(mcpInput), mcpInput]);
+    if (thumbInput) checks.push(['thumb', validateThumb(thumbInput, env), thumbInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);
