@@ -1374,7 +1374,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .toolbar-card{padding:9px 11px;gap:8px;margin-bottom:10px;border-radius:var(--r-lg);flex-direction:row;flex-wrap:wrap;align-items:center}
   /* 搜索框 / 视图切换 / 工具按钮**统一 34px 高**：此前三者分别是 34 / 30 / 32，
      同一行里高低参差，是"乱"最直观的来源。 */
-  .toolbar-top{gap:8px;flex-wrap:nowrap}
+  /* 搜索 + 视图切换**靠左**：必须覆盖桌面端为合并面包屑加的 justify-content:flex-end。
+     桌面端 crumbs 在行首、图标贴右没有问题；但窄屏面包屑独占整行后，这一行再让
+     两个小图标贴住右端，行首会空出约 100px（375px 实测）——「左空右挤」正是
+     移动端失衡感的来源。恢复左端起始，中间空隙由 flex:1 1 0 的容器吞掉。 */
+  .toolbar-top{gap:8px;flex-wrap:nowrap;justify-content:flex-start}
   .search-box{padding:5px 11px;min-width:0;height:34px}
   .search-box input{font-size:.82rem}
   .search-box>i{font-size:.78rem}
