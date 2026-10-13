@@ -241,15 +241,24 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .tool-btn.danger:hover{border-color:var(--c-danger-strong);color:var(--c-danger-strong);background:var(--c-danger-soft)}
 /* 目录操作组：与「筛选」同排，靠左聚拢；与右侧统计之间用间距分开 */
 .dir-actions{display:inline-flex;align-items:center;gap:var(--sp-1);flex-wrap:wrap}
-/* 小屏把文字收进图标，只保留「新建文件夹」的文字，其余靠 title 提示 */
+/* 小屏把文字收进图标，只保留「新建文件夹」的文字，其余靠 title 提示。
+   收起文字后**统一成正圆**（34×34、居中、等距）—— 此前只是把 padding 收窄，
+   于是按钮呈现为「宽高不等的椭圆」，宽度还随图标本身的宽窄漂移，
+   一排图标排下来参差不齐，这正是工具栏显得"乱"的直接来源。 */
 @media (max-width:680px){
-  .dir-actions{gap:2px;flex-wrap:nowrap}
+  .dir-actions{gap:8px;flex-wrap:nowrap}
   .dir-actions .tool-btn span{display:none}
   .dir-actions .tool-btn.primary span{display:inline}
-  /* 搜索行里的「粘贴 / 导出」同样收起文字。必须用直系选择器 ——
-     上面 .dir-actions 是后代选择器，作用域到不了 .toolbar-top 内的按钮。
-     收起文字后两个按钮各约 32px，搜索行折行也不会溢出。 */
-  .toolbar-top > .tool-btn{padding:5px 10px;min-height:32px;flex:none}
+  /* 无文字的图标按钮：正圆取代椭圆 */
+  .dir-actions .tool-btn:not(.primary){
+    width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto;
+  }
+  /* 「新建文件夹」是这一排唯一的主操作，与后面的图标组拉开 5px，
+     让「动作 | 工具」两段一眼可分 */
+  .dir-actions .tool-btn.primary{margin-right:5px}
+  /* 搜索行里的「密码库 / 导出」同样收起文字。必须用直系选择器 ——
+     上面 .dir-actions 是后代选择器，作用域到不了 .toolbar-top 内的按钮。 */
+  .toolbar-top > .tool-btn{width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto}
   .toolbar-top > .tool-btn span{display:none}
 }
 /* 下拉面板：transform-origin 决定「从触发点长出来」的方向感 */
@@ -1332,10 +1341,11 @@ html[data-perf="low"] .ambient-orb{animation:none}
      原先工具栏卡片在小屏上要占掉约 370px（搜索 54 + 筛选/统计 68 + 工具箱 201 + 间距），
      叠加其上的目录面板与面包屑后，首屏一张文件卡都露不出来。
      这里逐层收紧：搜索框、统计行、工具箱一律降高，目标把工具栏压到 ~200px 以内。 */
-  .toolbar-card{padding:9px 11px;gap:7px;margin-bottom:10px;border-radius:var(--r-lg)}
-  .toolbar-top{gap:7px;flex-wrap:nowrap}
-  /* 搜索框：去掉上下多余留白，输入区压到 34px 高 */
-  .search-box{padding:5px 11px;min-width:0;min-height:34px}
+  .toolbar-card{padding:9px 11px;gap:8px;margin-bottom:10px;border-radius:var(--r-lg)}
+  /* 搜索框 / 视图切换 / 工具按钮**统一 34px 高**：此前三者分别是 34 / 30 / 32，
+     同一行里高低参差，是"乱"最直观的来源。 */
+  .toolbar-top{gap:8px;flex-wrap:nowrap}
+  .search-box{padding:5px 11px;min-width:0;height:34px}
   .search-box input{font-size:.82rem}
   .search-box>i{font-size:.78rem}
   /* 视图切换：pointer:coarse 里被撑到 54x44 的按钮在这里收回，
@@ -1347,7 +1357,7 @@ html[data-perf="low"] .ambient-orb{animation:none}
      overflow-x:hidden 裁掉。换行后「筛选」始终跟在目录操作后面，
      对 360px 这类更窄屏也稳。 */
   .toolbar-tools{gap:6px;flex-wrap:wrap;align-items:center}
-  .tool-btn{padding:5px 10px;font-size:.72rem;min-height:32px}
+  .tool-btn{padding:5px 11px;font-size:.72rem;height:34px}
   /* 统计独占一行右对齐。min-width:0 是关键：flex 子项默认 min-width:auto，
      会以 nowrap 内容的宽度为下限，即使父级允许收缩也把「筛选」顶出去。 */
   .tool-stat{flex:1 0 100%;min-width:0;margin-left:0;text-align:right;font-size:.68rem;
@@ -1361,7 +1371,21 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .card-thumb{height:118px}
   .card-body{padding:var(--sp-2) var(--sp-3)}
   .row-actions{flex-wrap:nowrap}
-  .lightbox-bar .fname{max-width:60vw}
+  /* 灯箱底栏：改为「文件名一行 + 两个等宽按钮一行」。
+     此前是单行 flex + flex-wrap，窄屏折行后按钮被 justify-content:center
+     推到中间，于是「下载」孤零零居中、整个容器被撑成一个夸张的大药丸。
+     改 grid 后按钮等宽对齐，容器也回到正常圆角与留白。 */
+  .lightbox-bar{
+    display:grid;grid-template-columns:1fr 1fr;
+    gap:8px 10px;padding:10px 12px 12px;
+    width:min(92vw,420px);border-radius:var(--r-lg);
+    justify-items:stretch;align-items:center;
+  }
+  .lightbox-bar .fname{
+    grid-column:1 / -1;max-width:none;text-align:center;
+    font-size:.76rem;color:rgba(255,255,255,.82);
+  }
+  .lightbox-bar .btn{width:100%}
   .kv-ops-grid{grid-template-columns:repeat(2,1fr)}
   /* 工具箱的紧凑化规则已上移到本媒体查询开头（与 .toolbar-card 相邻），此处不再重复 */
   .filter-sheet{grid-template-columns:1fr;padding:var(--sp-3);gap:11px}
@@ -1767,7 +1791,9 @@ html[data-perf="low"] .dock{transition:none}
     </div>
 
     <div class="top-actions">
-      <a href="./" class="btn btn--sm">
+      <!-- 必须用绝对路径：本页走 /admin/<section> 分区路由（goSection 里 pushState），
+           href="./" 会被解析成 /admin/，点了等于没走。 -->
+      <a href="/" class="btn btn--sm" title="回到首页上传文件">
         <i class="fas fa-cloud-arrow-up"></i>
         <span>上传中心</span>
       </a>
@@ -1803,7 +1829,7 @@ html[data-perf="low"] .dock{transition:none}
     <div class="toolbar-top">
       <div class="search-box">
         <i class="fas fa-magnifying-glass"></i>
-        <input type="text" v-model="search" placeholder="搜索文件名或存储键..." @input="currentPage=1">
+        <input type="text" v-model="search" placeholder="搜索文件名…" @input="currentPage=1">
         <i class="fas fa-circle-xmark search-clear" v-if="search" @click="search='';currentPage=1"></i>
       </div>
       <!-- 视图切换：方向感知（网格 ⇄ 列表），选中态用胶囊滑块回弹跟进。
@@ -1848,14 +1874,17 @@ html[data-perf="low"] .dock{transition:none}
           <i class="fas fa-trash"></i>
           <span>删除</span>
         </button>
+        <button class="tool-btn" @click="refresh" :disabled="folderLoading" title="刷新目录">
+          <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
+        </button>
         <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
-             点击查看「延迟为何不可避免」 -->
+             点击查看「延迟为何不可避免」。
+             位置刻意放在这一排的**末尾**：idle 时它是 opacity:0 + visibility:hidden，
+             **保留占位**（见 design-system.css 的说明 —— 这样出现/消失时旁边元素不跳动）。
+             夹在中间时，这份占位会把两侧图标间距撑宽，整排看起来就不匀了。 -->
         <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
                 @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
           <span class="sync-dot" :class="syncDotClass"></span>
-        </button>
-        <button class="tool-btn" @click="refresh" :disabled="folderLoading" title="刷新目录">
-          <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
         </button>
       </div>
 
