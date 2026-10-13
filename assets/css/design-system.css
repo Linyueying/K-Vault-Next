@@ -1138,36 +1138,29 @@ html[data-theme="dark"] .toast.info { color: var(--primary-light); }
 .view-forward-enter-active > *:nth-child(n + 5),
 .view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
 
-/* 无方向「淡出淡入」转场：目录切换专用（out-in 模式）。
-   out-in 保证同一时刻只有一个视图在 DOM 中——旧视图先淡出离场，
-   新视图再入场，二者绝不会叠在一起（彻底消除用户截图里的重叠闪屏）。
-   高度变化由 admin.html 的 _switchFolder（锁高）+ onViewEnter（FLIP）平滑：
-   切换前锁定 .view-stage 高度 → 新视图入场量出真实高度 → 0.4s 过渡到新高度。
-   关键点：入场内容（opacity）刻意延迟 0.4s 再淡入，等容器高度过渡结束，
-   这样「容器长高」与「内容显形」两件事错开，绝不会出现边涨边显的抽搐。 */
+/* 无方向「淡出淡入」转场：已停用（留作兜底）。
+   目录切换（进入/退出文件夹）现由 selectFolder 驱动 .view-forward/back
+   方向感知转场（key 绑定 navSeq），fade 不再被任何 JS 路径设置；
+   早年它承担的「目录切换」语义与 _switchFolder 高度 FLIP 一并移除
+   （FLIP 正是切目录整页抖动的根源）。保留定义：万一将来需要一次
+   「无方向、极短淡入」的换场，直接设 viewTransition='view-fade' 即可，
+    absolute 离场规则与 forward/back 一致，不会引入堆叠跳动。 */
 .view-fade-enter-active {
-  /* 原带 0.4s 延迟，是为等 admin.html 的高度 FLIP（0.4s）走完再显形。
-     高度 FLIP 已删除（那正是切目录抽搐的根源），延迟却留了下来 ——
-     结果新视图会空白 0.4s 再突然出现。改为立即淡入。 */
   transition: opacity 0.22s var(--ease-apple);
   will-change: opacity;
 }
 .view-fade-leave-active {
-  /* out-in 下每次只有一个视图在 DOM，无需 absolute 也绝不会重叠；
-     旧视图以极短淡出离场，随后新视图入场做高度 FLIP。 */
   transition: opacity 0.12s linear;
   will-change: opacity;
   /* 与 .view-forward/back-leave-active 一致：离场即脱离文档流。
      缺了这条，一旦 fade 离场元素本身占位（如它曾是带 liquid-card 的
      独立分支），入场内容会被挤到下方、离场元素移除时又跳回 ——  MotionService
-     不可见，但用户截图里就是「列表先堆在下面、再突然弹上去」。
-     现在 fade 已基本退场（空态并入视图分支，切目录零转场），留作兜底。 */
+     不可见，但用户截图里就是「列表先堆在下面、再突然弹上去」。 */
   position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
 }
 .view-fade-enter-from { opacity: 0; }
 .view-fade-leave-to   { opacity: 0; }
-/* 淡入转场不做逐格错峰：目录切换是「同一批视图换内容」，
-   逐格 riseIn 会让首帧出现大片空白，故整块淡入即可。 */
+/* 淡入转场不做逐格错峰：整块淡入即可，逐格动画只属于方向感知的 forward/back。 */
 .view-fade-enter-active > *,
 .view-fade-leave-active > *,
 .view-fade-enter-active .vault-card,

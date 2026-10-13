@@ -2047,21 +2047,27 @@ html[data-perf="low"] .dock{transition:none}
     <!-- 内容区 -->
     <section class="content-area">
 
-      <!-- ===== 视图转场舞台：网格 ⇄ 列表 的方向感知非线性切换 ===== -->
+      <!-- ===== 视图转场舞台：目录进出 ⇄ 网格/列表 的方向感知非线性切换 ===== -->
       <div class="view-stage" ref="viewStage" :class="{'is-locking': stageLocking}">
 
       <!-- 网格视图 -->
-      <!-- 视图分支 key 只随 viewMode 变化（'grid' / 'list'），**与目录、数据量无关**：
-           空态（empty-state）并入各分支内部，与卡片同 key 空间。因此切目录
-           （含「空目录 → 非空目录」）时同一分支 key 不变、分支不重挂载，
-           卡片与空态按 :key 原地更新 —— 零转场、零位移、零高度 FLIP，
-           彻底消除「切目录抽搐」与「空态离场把新列表挤下又跳回」的堆叠跳动。
-           只有 grid ⇄ list 的视图切换才换 key，走方向感知转场（view-forward/back），
-           由 setView() 触发；入场错峰由 .view-*-enter-active > * 的 paneItemIn 负责。
+      <!-- 视图分支 key = 视图模式 + navSeq（导航序号，见 data 注释）：
+           · 切目录（selectFolder 进入/退出、deleteFolderAt 删当前目录回父级）时
+             navSeq++ → key 变 → 分支重挂载，走方向感知转场：进入子目录用
+             view-forward（新目录从右侧推入、旧目录向左退出），返回用 view-back，
+             缓动均为 cubic-bezier 非线性曲线（--ease-fluid/--ease-apple/--ease-press），
+             入场逐格错峰由 .view-*-enter-active > * 的 paneItemIn 负责。
+           · 空态（empty-state）在分支内部，与卡片同 key 空间：空目录 ⇄ 非空目录
+             切换也走同一套转场，离场视图 position:absolute 脱流（见 CSS 注释），
+             不会把入场内容挤下 —— 早年「空态独立分支 + 缺 absolute」的堆叠跳动
+             已从结构上消除。
+           · 翻页 / 搜索 / 筛选 / 排序 / 重命名当前目录：navSeq 不变 → key 不变
+             → 分支不重挂载，零转场、零高度 FLIP。
+           · grid ⇄ list 视图切换换分支，由 setView() 设方向触发同一套转场。
            首屏错峰入场仍由 #app:not(.is-booted) 门控的 riseIn 负责
            （is-booted 在挂载即触发、稳定关闭，不会重播）。 -->
       <transition :name="viewTransition">
-      <div v-if="viewMode==='grid'" class="vault-grid" key="grid">
+      <div v-if="viewMode==='grid'" class="vault-grid" :key="'grid:' + navSeq">
         <template v-if="pageEntries.length">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-card"
@@ -2185,8 +2191,8 @@ html[data-perf="low"] .dock{transition:none}
         </div>
       </div>
 
-      <!-- 列表视图 -->
-      <div v-else class="vault-list" key="list">
+      <!-- 列表视图（key 规则同网格分支：模式 + navSeq） -->
+      <div v-else class="vault-list" :key="'list:' + navSeq">
         <template v-if="pageEntries.length">
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-row"
@@ -4312,6 +4318,12 @@ const __kvApp = Vue.createApp({
     /* ===== 动效状态 ===== */
     booted: false,
     viewTransition: 'view-forward',
+    /* 导航序号：只在「真实目录导航」时 +1（进入子目录、返回上级/根目录、
+       删除当前目录回父级），编进视图分支 key（'grid:'+navSeq / 'list:'+navSeq）
+       驱动 <transition> 换 key 重挂载 → 触发方向感知转场。
+       翻页 / 搜索 / 筛选 / 排序 / 重命名当前目录都不动它 —— 分支 key 不变，
+       分支不重挂载，内容按 :key 原地更新，零转场、零位移。 */
+    navSeq: 0,
     statusChecking: false,
 
     /* ===== 同步状态点（黄=同步中 / 绿=已同步 / 红=失败）=====
@@ -5655,14 +5667,19 @@ const __kvApp = Vue.createApp({
     selectFolder(path) {
       const next = this.normalizeFolderPath(path);
       if (next === this.folderPath) return;
-      /* 目录切换零转场：视图分支的 key 只随 viewMode 变化，空态已并入分支内部
-         （见模板视图分支注释）—— 切目录时同一分支不重挂载，卡片与空态按 :key
-         原地更新，没有进出场动画、没有高度 FLIP、没有位移。
-         早年那套「整体重挂载 + 高度 FLIP」会让容器在 0.4s 内拉伸、带动整页
-         抖动（下方内容抽搐、上方界面也抖），已彻底移除。
-         下面这行是防御性兜底：万一将来分支 key 再次与目录挂钩，淡入也比
-         方向感知的整列滑入更温和；正常情况下它不会触发任何转场。 */
-      this.viewTransition = 'view-fade';
+      /* 方向感知转场：进入子目录（路径深度增加）→ view-forward，新目录从右侧
+         推入、旧目录向左退出；返回上级/根目录（深度减少）→ view-back，方向相反。
+         复用视图切换那套 .view-forward/back（design-system.css）：非线性
+         cubic-bezier 缓动 + 逐格 paneItemIn 错峰入场，不再有早年「整体重挂载 +
+         高度 FLIP」的整页抖动。navSeq++ 编进分支 key 触发 <transition>；
+         lockStageHeight 把舞台锁在切换前高度 0.52s，兜住离场视图 absolute
+         脱流造成的高度塌陷，保证转场期间 scrollHeight / innerHeight 恒定、
+         fixed dock 零重排（机理同 setView，见 lockStageHeight 注释）。 */
+      const curDepth = this.folderPath.split('/').filter(Boolean).length;
+      const nextDepth = next.split('/').filter(Boolean).length;
+      this.viewTransition = nextDepth > curDepth ? 'view-forward' : 'view-back';
+      this.lockStageHeight();
+      this.navSeq++;
       this.openMenu = null;
       this.folderPath = next;
       this.currentPage = 1;
@@ -6129,6 +6146,12 @@ const __kvApp = Vue.createApp({
       /* 仅当当前路径正处于被删目录内时才跳回父目录 —— 行内删除一个
          「非当前」目录时不该把右侧内容切走（工具栏删当前目录 → 行为不变） */
       if (this.folderPath === target || this.folderPath.startsWith(prefix)) {
+        /* 删的正是当前目录（或其祖先）→ 跳回父级：一次真实的「退出」导航，
+           播 view-back 并计入导航序号（分支换 key 触发转场），锁高理由同
+           selectFolder / setView。 */
+        this.viewTransition = 'view-back';
+        this.lockStageHeight();
+        this.navSeq++;
         this.folderPath = parent;
         this.currentPage = 1;
         try { localStorage.setItem('adminFolderPath', parent); } catch (e) {}
