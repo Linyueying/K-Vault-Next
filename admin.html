@@ -113,6 +113,17 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 .brand-text-wrap h1{font-size:var(--fs-xl);font-weight:800;letter-spacing:-.02em;background:linear-gradient(135deg,var(--text-main) 30%,var(--primary));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
 .brand-text-wrap span{font-size:.75rem;font-weight:600;color:var(--text-muted);display:block;margin-top:-2px}
 .top-actions,.toolbar-tools,.token-row-top{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+/* 与搜索行并排时不参与伸展：宽度由内容决定，稳定地收在右侧 */
+.toolbar-tools{flex:0 0 auto}
+/* 顶栏操作组禁止换行：顶栏是 space-between 的两端布局，一旦操作组换行，
+   「上传 / 主题 / 登出」会被整组甩到标题下方另起一行 —— 上面是品牌、
+   下面孤零零一排按钮，左密右空，这正是顶栏显得不均衡的来源。
+   （上传按钮去掉文字后，一行放得下的余量是够的。） */
+.top-actions{flex-wrap:nowrap;flex:0 0 auto}
+/* 品牌区允许收缩：极窄屏（320px）下先截断副标题，也好过把操作组挤出第一行 */
+.brand-box{min-width:0}
+.brand-text-wrap{min-width:0}
+.brand-text-wrap span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status-cluster{display:inline-flex;align-items:center;gap:2px;padding:6px 10px;border-radius:var(--r-pill);background:var(--glass-surface);border:1px solid var(--glass-border-ice);box-shadow:var(--shadow-soft);cursor:pointer;transition:var(--transition);}
 .status-cluster:hover{border-color:var(--primary);transform:translateY(-1px)}
 .status-cluster:active{transform:scale(.96);transition-duration:.1s}
@@ -128,9 +139,21 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
 /* =========================================================
 工具栏：搜索 → 筛选 + 工具条 → 统计
 ========================================================= */
-.toolbar-card{padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-4);display:flex;flex-direction:column;gap:10px;overflow:visible;z-index:10}
-.toolbar-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.search-box{flex:1;min-width:200px;display:flex;align-items:center;gap:var(--sp-2);padding:9px var(--sp-4);border-radius:var(--r-pill);background:var(--glass-subtle);border:1px solid var(--glass-border-ice);transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);}
+/* 桌面端：搜索行与操作行**并排成一行**（原先上下各占一行）。
+   .toolbar-top 吃掉剩余宽度（搜索框在里面 flex:1），.toolbar-tools 靠右收尾；
+   窄屏在下方媒体查询里恢复竖排，元素多时自动折行。 */
+.toolbar-card{padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-4);display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:var(--sp-2) 10px;overflow:visible;z-index:10}
+/* nowrap：搜索收起为图标后，这一行只剩「搜索 + 视图切换」（左）与
+   「新建 / 筛选 / 同步点」（右），任何视口都放得下，不允许再折行。
+   换行只应发生在筛选抽屉/生效条件展开时 —— 它们自带 flex:1 0 100%。
+   flex-basis 用 0（而非 auto）：auto 会让「搜索展开」时工具栏以输入框的
+   内容宽度为基准，挤不下就把右半排推去第二行；0 则让它始终由剩余空间
+   决定宽度，展开输入框也只是自身收缩，行数不变。 */
+.toolbar-top{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;flex:1 1 0;min-width:0}
+/* 展开态的搜索框：flex:1 吃掉 toolbar-top 的剩余宽度。
+   min-width:0（而非原来的 200px）—— 它现在是可伸缩的浮层式控件，
+   固定下限会在窄屏把同一行的视图切换顶出去。 */
+.search-box{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:var(--sp-2);padding:9px var(--sp-4);border-radius:var(--r-pill);background:var(--glass-subtle);border:1px solid var(--glass-border-ice);transition:border-color var(--dur-base) var(--ease-apple),box-shadow var(--dur-base) var(--ease-apple);}
 .search-box:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.12)}
 .search-box>i{color:var(--text-muted);font-size:var(--fs-sm);flex-shrink:0}
 .search-box input{flex:1;min-width:0;border:none;background:transparent;outline:none;color:var(--text-main);font-size:var(--fs-md);font-family:inherit}
@@ -196,13 +219,11 @@ html[data-theme="dark"] .view-toggle__thumb{
     0 6px 16px -4px rgba(0,0,0,.5),
     0 0 0 1px rgba(56,189,248,.12);
 }
-.tool-stat{margin-left:auto;font-size:.78rem;font-weight:600;color:var(--text-muted);white-space:nowrap}
-.tool-stat strong{color:var(--primary-text);font-family:'JetBrains Mono',monospace}
 /* 筛选触发器 + 徽标 */
 .filter-trigger{position:relative}
 .badge-count{min-width:17px;height:17px;padding:0 5px;border-radius:var(--r-pill);background:var(--primary);color:#fff;font-size:.66rem;font-weight:800;display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;animation:pop .28s var(--ease-apple) backwards;}
 /* 生效条件 chips */
-.active-filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.active-filters{display:flex;align-items:center;gap:7px;flex-wrap:wrap;flex:1 0 100%}
 .active-filters .af-label{font-size:.75rem;font-weight:700;color:var(--text-muted)}
 .filter-pill{display:inline-flex;align-items:center;gap:6px;padding:var(--sp-1) 10px;border-radius:var(--r-pill);border:1px solid rgba(var(--primary-rgb),.32);background:rgba(var(--primary-rgb),.08);color:var(--primary-text);font-family:inherit;font-size:var(--fs-xs);font-weight:700;cursor:pointer;transition:transform .3s var(--ease-spring),background .3s var(--ease-apple),border-color .3s var(--ease-apple);}
 .filter-pill i{font-size:.66rem;opacity:.75;transition:opacity var(--dur-fast)}
@@ -212,7 +233,7 @@ html[data-theme="dark"] .view-toggle__thumb{
 .filter-pill.clear-all{border-color:transparent;background:transparent;color:var(--text-muted);padding:var(--sp-1) 6px}
 .filter-pill.clear-all:hover{color:var(--c-danger);background:rgba(244,63,94,.08)}
 /* 筛选抽屉：进场走 expo-out + 轻微上浮，而不是硬切 */
-.filter-sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--sp-3);margin-top:2px;padding:var(--sp-3);border-radius:var(--r-md);background:rgba(var(--primary-rgb),.045);border:1px solid var(--glass-border-ice);animation:dropIn .34s var(--ease-fluid) backwards;}
+.filter-sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--sp-3);margin-top:2px;padding:var(--sp-3);border-radius:var(--r-md);background:rgba(var(--primary-rgb),.045);border:1px solid var(--glass-border-ice);animation:dropIn .34s var(--ease-fluid) backwards;flex:1 0 100%;}
 html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .filter-field{display:flex;flex-direction:column;gap:7px;min-width:0}
 .filter-field>label{font-size:.75rem;font-weight:800;color:var(--text-muted);letter-spacing:.02em;padding-left:2px}
@@ -239,23 +260,26 @@ html[data-theme="dark"] .filter-sheet{background:rgba(255,255,255,.035)}
 .tool-btn.primary{background:linear-gradient(135deg,var(--primary),var(--primary-dark));color:#fff;border-color:transparent;box-shadow:0 4px var(--sp-3) rgba(var(--primary-rgb),.28)}
 .tool-btn.primary:hover{color:#fff;box-shadow:0 6px 18px rgba(var(--primary-rgb),.34);transform:translateY(-2px)}
 .tool-btn.danger:hover{border-color:var(--c-danger-strong);color:var(--c-danger-strong);background:var(--c-danger-soft)}
-/* 目录操作组：与「筛选」同排，靠左聚拢；与右侧统计之间用间距分开 */
+/* 图标型按钮：搜索与筛选去掉文字后，统一收成与工具栏控件同高的正方形。
+   **必须写在 .tool-btn 之后** —— 同为单类选择器、优先级相同，靠后定义者胜；
+   写在前面的话 padding:7px 14px 会把正方形重新撑回胶囊。 */
+.search-toggle,.filter-trigger{width:36px;height:36px;padding:0;justify-content:center;flex:0 0 auto}
+/* 筛选的生效条数徽标改叠加到右上角：留在文档流里会把正方形按钮重新撑宽 */
+.filter-trigger .badge-count{position:absolute;top:-4px;right:-4px}
+/* 目录操作组：与「筛选」同排，靠左聚拢 */
 .dir-actions{display:inline-flex;align-items:center;gap:var(--sp-1);flex-wrap:wrap}
 /* 小屏把文字收进图标，只保留「新建文件夹」的文字，其余靠 title 提示。
    收起文字后**统一成正圆**（34×34、居中、等距）—— 此前只是把 padding 收窄，
    于是按钮呈现为「宽高不等的椭圆」，宽度还随图标本身的宽窄漂移，
    一排图标排下来参差不齐，这正是工具栏显得"乱"的直接来源。 */
 @media (max-width:680px){
+  /* 目录操作只剩「新建文件夹」一个主操作，移动端把它也收成图标按钮：
+     「图标 + 文字」的胶囊在这一排放不下，收进去后整排只剩「+ / 筛选 / 统计」，
+     工具栏才能从三行压到两行。保留蓝色实心 —— 颜色是它区别于普通图标
+     的唯一标记（文字藏起来了，靠 title 提示）。 */
   .dir-actions{gap:8px;flex-wrap:nowrap}
-  .dir-actions .tool-btn span{display:none}
-  .dir-actions .tool-btn.primary span{display:inline}
-  /* 无文字的图标按钮：正圆取代椭圆 */
-  .dir-actions .tool-btn:not(.primary){
-    width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto;
-  }
-  /* 「新建文件夹」是这一排唯一的主操作，与后面的图标组拉开 5px，
-     让「动作 | 工具」两段一眼可分 */
-  .dir-actions .tool-btn.primary{margin-right:5px}
+  .dir-actions .tool-btn.primary{width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto}
+  .dir-actions .tool-btn.primary span{display:none}
   /* 搜索行里的「密码库 / 导出」同样收起文字。必须用直系选择器 ——
      上面 .dir-actions 是后代选择器，作用域到不了 .toolbar-top 内的按钮。 */
   .toolbar-top > .tool-btn{width:34px;height:34px;padding:0;justify-content:center;flex:0 0 auto}
@@ -1314,13 +1338,6 @@ html[data-perf="low"] .ambient-orb{animation:none}
                 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .folder-crumb:first-of-type{flex:0 0 auto}
   .folder-crumb-sep{flex:0 0 auto}
-  /* 统计「N 项」与路径都改成可收缩 + 省略号：
-     窄屏下目录名常常长到撑满整行，把统计顶出胶囊之外；而统计文案由
-     pageData / paginationTotal 拼出，也可能长过目录名。两边都能收缩才不会互相挤爆
-     （实测任一固定宽度都会在 320-360px 下越界）。收缩时路径优先让位，
-     因为统计是纯数字、截断即失真，路径截断只丢尾部层级。 */
-  .crumbs-bar .tool-stat{flex:0 1 auto;min-width:0;font-size:.66rem;padding-left:6px;
-                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* .spacer 是基线布局里的伸缩件，窄屏改用 flex 排序收口，这里让它退出 */
   .crumbs-bar .spacer{display:none}
   .crumbs-bar .folder-crumb:not(:first-of-type){flex:1 1 auto;min-width:20px}
@@ -1336,12 +1353,14 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .status-cluster{display:none}
   .toolbar-tools{gap:6px}
   .tool-btn{padding:6px 11px;font-size:var(--fs-xs)}
-  .tool-stat{width:100%;margin-left:0;text-align:right}
   /* ===== 移动端工具栏紧凑化 =====
      原先工具栏卡片在小屏上要占掉约 370px（搜索 54 + 筛选/统计 68 + 工具箱 201 + 间距），
      叠加其上的目录面板与面包屑后，首屏一张文件卡都露不出来。
      这里逐层收紧：搜索框、统计行、工具箱一律降高，目标把工具栏压到 ~200px 以内。 */
-  .toolbar-card{padding:9px 11px;gap:8px;margin-bottom:10px;border-radius:var(--r-lg)}
+  /* 窄屏同样保持单行：搜索已收成一个图标、统计已移除，左侧「搜索 + 视图切换」
+     与右侧「新建 / 筛选 / 同步点」在 360px 上也放得下（实测约 221px / 368px 可用）。
+     wrap 仍然保留 —— 筛选抽屉（flex:1 0 100%）展开时要靠它换到第二行。 */
+  .toolbar-card{padding:9px 11px;gap:8px;margin-bottom:10px;border-radius:var(--r-lg);flex-direction:row;flex-wrap:wrap;align-items:center}
   /* 搜索框 / 视图切换 / 工具按钮**统一 34px 高**：此前三者分别是 34 / 30 / 32，
      同一行里高低参差，是"乱"最直观的来源。 */
   .toolbar-top{gap:8px;flex-wrap:nowrap}
@@ -1353,19 +1372,12 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .view-toggle{padding:2px;gap:2px}
   .view-toggle button{position:relative;width:38px;height:30px;font-size:.72rem}
   .view-toggle button::after{content:'';position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
-  /* 允许换行：原先 nowrap 会把「筛选」挤出卡片右边缘，再被 body 的
-     overflow-x:hidden 裁掉。换行后「筛选」始终跟在目录操作后面，
-     对 360px 这类更窄屏也稳。 */
-  .toolbar-tools{gap:6px;flex-wrap:wrap;align-items:center}
+  /* 这一排只剩「新建图标 / 筛选 / 同步点」三个小件，靠右收尾即可 ——
+     统计移除后这里已没有需要伸缩的长文本，不必再参与伸展。 */
+  .toolbar-tools{gap:6px;flex-wrap:nowrap;align-items:center;flex:0 0 auto}
   .tool-btn{padding:5px 11px;font-size:.72rem;height:34px}
-  /* 统计独占一行右对齐。min-width:0 是关键：flex 子项默认 min-width:auto，
-     会以 nowrap 内容的宽度为下限，即使父级允许收缩也把「筛选」顶出去。 */
-  .tool-stat{flex:1 0 100%;min-width:0;margin-left:0;text-align:right;font-size:.68rem;
-             white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* 筛选不参与收缩，避免被压成图标残片 */
-  .filter-trigger{flex:0 0 auto;min-width:0}
-  /* 「选择」同理：它是多选模式的唯一入口，被压没了功能就废了 */
-  .select-trigger{flex:0 0 auto;min-width:0}
+  /* 图标型按钮在窄屏同样收成 34×34 正方形（写在 .tool-btn 之后才能覆盖它的 padding） */
+  .search-toggle,.filter-trigger{width:34px;height:34px;padding:0;justify-content:center}
   /* 工具箱：标签与首行标题合并成一行，条目降高、收紧间距 */
   .vault-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
   .card-thumb{height:118px}
@@ -1411,13 +1423,8 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .dock-act span{display:none}
   .batch-dock{padding:var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3)}
   .toast__action{padding:5px 10px}
-  /* 360px 下再收紧一档，并让「筛选」退化为纯图标（配 title 提示），
-     确保第一行永远放得下，不会出现裁切。 */
+  /* 360px 下再收紧一档 */
   .tool-btn{padding:5px 8px}
-  /* 「选择」与「筛选」同为工具栏的次要入口，360px 下一起退化为纯图标（靠 title 提示），
-     保证第一行永远放得下，不会出现裁切。 */
-  .filter-trigger span:not(.badge-count),
-  .select-trigger span{display:none}
 }
 
 /* =========================================================
@@ -1793,9 +1800,11 @@ html[data-perf="low"] .dock{transition:none}
     <div class="top-actions">
       <!-- 必须用绝对路径：本页走 /admin/<section> 分区路由（goSection 里 pushState），
            href="./" 会被解析成 /admin/，点了等于没走。 -->
-      <a href="/" class="btn btn--sm" title="回到首页上传文件">
+      <!-- 只留图标：与「主题 / 登出」同规格的圆形按钮，三个并排收在标题右侧。
+           原先带文字的胶囊比一个圆形按钮宽约 100px，正是它把整组操作
+           挤出第一行、甩到标题下方的直接原因。 -->
+      <a href="/" class="icon-round" title="回到首页上传文件" aria-label="上传中心">
         <i class="fas fa-cloud-arrow-up"></i>
-        <span>上传中心</span>
       </a>
       <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
         <span class="status-pulse" :class="{'is-settling': statusChecking}"></span>
@@ -1825,11 +1834,18 @@ html[data-perf="low"] .dock{transition:none}
 
   <!-- ===== 工具栏（搜索 / 视图切换 / 目录操作 / 筛选） ===== -->
   <section class="liquid-card toolbar-card">
-    <!-- 第一层：搜索 + 视图切换 -->
+    <!-- 搜索默认收成一个图标：常驻的宽输入框是这一行里唯一的「大件」，
+         收掉它工具栏才压得进一行。点击展开、失焦即收（有搜索词时保持展开，
+         否则筛选条件被藏起来、用户会看不懂列表为何变少）。 -->
     <div class="toolbar-top">
-      <div class="search-box">
+      <button v-if="!searchOpen" class="tool-btn search-toggle" @click="openSearch"
+              title="搜索文件名" aria-label="搜索">
         <i class="fas fa-magnifying-glass"></i>
-        <input type="text" v-model="search" placeholder="搜索文件名…" @input="currentPage=1">
+      </button>
+      <div v-else class="search-box">
+        <i class="fas fa-magnifying-glass"></i>
+        <input ref="searchInput" type="text" v-model="search" placeholder="搜索文件名…"
+               @input="currentPage=1" @keydown.esc="closeSearch" @blur="onSearchBlur">
         <i class="fas fa-circle-xmark search-clear" v-if="search" @click="search='';currentPage=1"></i>
       </div>
       <!-- 视图切换：方向感知（网格 ⇄ 列表），选中态用胶囊滑块回弹跟进。
@@ -1840,16 +1856,6 @@ html[data-perf="low"] .dock{transition:none}
         <button :class="{active: viewMode==='grid'}" @click="setView('grid','back')" title="平铺视图"><i class="fas fa-grip"></i></button>
         <button :class="{active: viewMode==='list'}" @click="setView('list','forward')" title="详细视图"><i class="fas fa-list"></i></button>
       </div>
-      <!-- 原工具箱的「密码库 / 导出链接」迁入此处。
-           放搜索行而非第二层工具栏：那两个是轻量工具，与视图切换同级更合适；
-           且 .toolbar-top 本身 flex-wrap:wrap，窄屏会自动折行 ——
-           第二层 .toolbar-tools 已排满目录操作，再塞两个必然溢出。 -->
-      <button class="tool-btn" @click="handleTool('paste')" title="打开密码库">
-        <i class="fas fa-shield-halved"></i><span>密码库</span>
-      </button>
-      <button class="tool-btn" @click="handleTool('export')" title="导出已加载的全部链接为 links.txt">
-        <i class="fas fa-file-export"></i><span>导出</span>
-      </button>
     </div>
 
     <!-- 第二层：目录操作 + 筛选入口 + 统计 -->
@@ -1857,57 +1863,37 @@ html[data-perf="low"] .dock{transition:none}
       <!-- 目录操作组：操作对象是「当前目录」（folderPath 为空即根目录）。
            原先这些按钮挂在左侧目录树面板上，面板移除后迁到这里，
            与新目录的建立/改名/删除/分享入口保持同一位置。 -->
+      <!-- 目录操作只留主操作「新建文件夹」。
+           重命名 / 分享 / 删除当前文件夹 / 刷新 / 选择 已按需求从工具栏删除：
+             · 重命名与删除在左侧目录树的文件夹行上各有一份入口
+               （handleRenameFolderNode / handleDeleteFolderNode）
+             · 多选仍可用 —— 桌面端**右键**文件卡片、触屏端**长按**卡片即可进入
+             · 刷新在列表空态另有一个按钮，平时用浏览器刷新即可 -->
       <div class="dir-actions">
         <button class="tool-btn primary" @click="createFolder" title="在当前目录下新建文件夹">
           <i class="fas fa-folder-plus"></i>
           <span>新建文件夹</span>
         </button>
-        <button class="tool-btn" @click="renameFolder" :disabled="!folderPath" title="重命名当前文件夹">
-          <i class="fas fa-pen"></i>
-          <span>重命名</span>
-        </button>
-        <button class="tool-btn" @click="shareCurrentFolder" title="分享当前文件夹（实时同步内容）">
-          <i class="fas fa-share-nodes"></i>
-          <span>分享</span>
-        </button>
-        <button class="tool-btn danger" @click="deleteFolder" :disabled="!folderPath" title="删除当前文件夹">
-          <i class="fas fa-trash"></i>
-          <span>删除</span>
-        </button>
-        <button class="tool-btn" @click="refresh" :disabled="folderLoading" title="刷新目录">
-          <i class="fas fa-rotate" :class="{'fa-spin':folderLoading}"></i>
-        </button>
-        <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
-             点击查看「延迟为何不可避免」。
-             位置刻意放在这一排的**末尾**：idle 时它是 opacity:0 + visibility:hidden，
-             **保留占位**（见 design-system.css 的说明 —— 这样出现/消失时旁边元素不跳动）。
-             夹在中间时，这份占位会把两侧图标间距撑宽，整排看起来就不匀了。 -->
-        <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
-                @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
-          <span class="sync-dot" :class="syncDotClass"></span>
-        </button>
       </div>
 
-      <!-- 多选入口：勾选框移除后，长按是触屏的进入方式；
-           桌面端鼠标没有「长按」语义，必须留一个显式按钮，否则多选功能等于消失。
-           进入后按钮变成「完成」，同时左下角批量操作条浮现。 -->
-      <button class="tool-btn select-trigger" :class="{active: longPressActive}"
-              @click="toggleSelectionMode" :title="longPressActive ? '退出多选' : '进入多选（也可长按文件卡片）'">
-        <i :class="longPressActive ? 'fas fa-check' : 'fas fa-check-double'"></i>
-        <span>{{ longPressActive ? '完成' : '选择' }}</span>
-      </button>
-
+      <!-- 筛选：文字去掉，收成与「搜索」同规格的图标按钮。
+           生效条数以徽标叠加在右上角（绝对定位，不参与按钮宽度）；
+           展开状态由 .active 的配色表达，故不再需要 caret 箭头。 -->
       <button class="tool-btn filter-trigger" :class="{active: filterSheetOpen}"
-              @click.stop="filterSheetOpen = !filterSheetOpen">
+              @click.stop="filterSheetOpen = !filterSheetOpen" title="筛选" aria-label="筛选">
         <i class="fas fa-sliders"></i>
-        <span>筛选</span>
         <span class="badge-count" v-if="activeFilterCount" :key="activeFilterCount">{{ activeFilterCount }}</span>
-        <i class="fas fa-chevron-down caret" :style="{transform: filterSheetOpen ? 'rotate(180deg)' : 'none'}"></i>
       </button>
 
-      <span class="tool-stat">
-        总记录 <strong>{{ total }}</strong> · 已加载 <strong>{{ files.length }}</strong> · 当前目录 <strong>{{ entriesTotal }}</strong> 项
-      </span>
+      <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
+           点击查看「延迟为何不可避免」。
+           固定收在这一排末尾：idle 时它是 opacity:0 + visibility:hidden，但**保留占位**
+           （见 design-system.css —— 为了出现/消失时旁边元素不跳动），
+           若夹在一排按钮中间，这份占位会把两侧间距撑宽、整排看起来不匀。 -->
+      <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
+              @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
+        <span class="sync-dot" :class="syncDotClass"></span>
+      </button>
     </div>
 
     <!-- 筛选抽屉 -->
@@ -1994,12 +1980,12 @@ html[data-perf="low"] .dock{transition:none}
     </div>
     </transition>
 
-    <!-- 生效条件回显 -->
-    <transition-group name="pop" tag="div" class="active-filters" v-if="activeFilterCount || search">
+    <!-- 生效条件回显。
+         搜索词**不在**这里回显：它已经显示在搜索框里（旁边还有清除按钮），
+         再放一个 chip 属于重复信息，且会把工具栏挤成第二行。
+         这里只回显「筛选抽屉」里设置的条件 —— 抽屉收起后它们没有别的可见处。 -->
+    <transition-group name="pop" tag="div" class="active-filters" v-if="activeFilterCount">
       <span class="af-label" key="af-label">已启用</span>
-      <button class="filter-pill" v-if="search" key="af-search" @click="search='';currentPage=1">
-        <i class="fas fa-magnifying-glass"></i>{{ search }}<i class="fas fa-xmark"></i>
-      </button>
       <button class="filter-pill" v-if="fileType!=='all'" key="af-type" @click="setType('all')">
         <i :class="typeIcon"></i>{{ typeLabel }}<i class="fas fa-xmark"></i>
       </button>
@@ -2036,9 +2022,6 @@ html[data-perf="low"] .dock{transition:none}
           <span class="folder-crumb" @click="selectFolder(c.path)">{{ c.name }}</span>
         </template>
         <span class="spacer"></span>
-        <span class="tool-stat no-margin">
-          <strong>{{ currentFolders.length }}</strong> 个文件夹 · <strong>{{ sorted.length }}</strong> 个文件
-        </span>
       </div>
 
       <!-- ===== 视图转场舞台：网格 ⇄ 列表 的方向感知非线性切换 ===== -->
@@ -4305,6 +4288,8 @@ const __kvApp = Vue.createApp({
     loadError: '',
 
     search: '', currentPage: 1, pageSize: 24,
+    /* 搜索框是否展开：默认收起为一个图标（工具栏要压成一行） */
+    searchOpen: false,
     sort: 'dateDesc', filter: 'all', fileType: 'all', storage: 'all', viewMode: 'grid',
 
     folderPath: '', folderLoading: false,
@@ -6503,30 +6488,25 @@ const __kvApp = Vue.createApp({
       else if (c === 'bundle') this.openBundleShare();
     },
 
-    /* 文件板块工具栏的两个轻量动作。
-       工具箱移除后只保留这两个就地动作 —— 原先的 kvUsage / settings /
-       tokens / branding / shares 等分支只是「跳板块」的旧入口垫片，
-       现在各板块已由 dock 直达；status 改由设置板块的按钮直接调
-       checkStatus()，不再经过这里。 */
-    handleTool(c) {
-      this.openMenu = null;
-      if (c === 'paste') {
-        window.open('/vault.html', '_blank', 'noopener');
-      } else if (c === 'export') {
-        if (!this.files.length) { this.showToast('没有可导出的链接', 'info'); return; }
-        const t = this.files.map(f => this.baseURL + '/file/' + f.name).join('\n');
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([t], { type: 'text/plain;charset=utf-8' }));
-        a.download = 'links.txt';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          URL.revokeObjectURL(a.href);
-          if (a.parentNode) a.parentNode.removeChild(a);
-        }, 1200);
-        this.showToast(`已导出 ${this.files.length} 条链接`, 'success');
-      }
+    /* 搜索栏：默认收成一个图标，点击才展开输入框。
+       工具栏要压成一行，而常驻的宽输入框是这一行里唯一的「大件」，收掉它才排得开。
+       收起规则：失焦且没有搜索词 → 收回；有词则保持展开 —— 否则筛选条件被藏起来，
+       用户会看不懂列表为何变少。Esc 按「取消搜索」处理（清空 + 收回），
+       避免留下一份看不见的筛选条件。 */
+    openSearch() {
+      this.searchOpen = true;
+      this.$nextTick(() => {
+        const el = this.$refs.searchInput;
+        if (el) el.focus();
+      });
+    },
+    closeSearch() {
+      this.search = '';
+      this.currentPage = 1;
+      this.searchOpen = false;
+    },
+    onSearchBlur() {
+      if (!this.search) this.searchOpen = false;
     },
 
     /* ================= 上传设置（访客上传） =================
