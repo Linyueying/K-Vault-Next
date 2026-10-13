@@ -143,13 +143,16 @@ html[data-theme="dark"] .brand-logo-wrap{background:linear-gradient(135deg,rgba(
    .toolbar-top 吃掉剩余宽度（搜索框在里面 flex:1），.toolbar-tools 靠右收尾；
    窄屏在下方媒体查询里恢复竖排，元素多时自动折行。 */
 .toolbar-card{padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-4);display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:var(--sp-2) 10px;overflow:visible;z-index:10}
-/* nowrap：搜索收起为图标后，这一行只剩「搜索 + 视图切换」（左）与
+/* nowrap：搜索收起为图标后，这一行只剩「面包屑 + 搜索 + 视图切换」（左）与
    「新建 / 筛选 / 同步点」（右），任何视口都放得下，不允许再折行。
    换行只应发生在筛选抽屉/生效条件展开时 —— 它们自带 flex:1 0 100%。
    flex-basis 用 0（而非 auto）：auto 会让「搜索展开」时工具栏以输入框的
    内容宽度为基准，挤不下就把右半排推去第二行；0 则让它始终由剩余空间
-   决定宽度，展开输入框也只是自身收缩，行数不变。 */
-.toolbar-top{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;flex:1 1 0;min-width:0}
+   决定宽度，展开输入框也只是自身收缩，行数不变。
+   justify-content:flex-end：面包屑合并进行后，搜索收起时本容器只剩两个
+   小图标，右对齐才能让它们贴住 .toolbar-tools，而不是孤悬在面包屑旁边；
+   搜索展开时 .search-box（flex:1）填满容器，该属性不产生影响。 */
+.toolbar-top{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;flex:1 1 0;min-width:0;justify-content:flex-end}
 /* 展开态的搜索框：flex:1 吃掉 toolbar-top 的剩余宽度。
    min-width:0（而非原来的 200px）—— 它现在是可伸缩的浮层式控件，
    固定下限会在窄屏把同一行的视图切换顶出去。 */
@@ -426,15 +429,19 @@ html[data-theme="dark"] .folder-tree-row.active{background:linear-gradient(135de
 .folder-tree-empty i{font-size:1.4rem;opacity:.4}
 /* 内容区 */
 .content-area{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0}
-.crumbs-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;flex-wrap:wrap}
-.crumbs-bar>i.fa-location-arrow{color:var(--primary);font-size:var(--fs-sm);margin-right:2px}
+/* 面包屑（已合并进 .toolbar-card 行首）：桌面端 flex:0 1 auto 可收缩，
+   被展开的搜索框挤压时内部逐级截断；工具组由 .toolbar-top 的
+   justify-content:flex-end 收在右缘。窄屏（≤680）降级为整行，见下方媒体查询。 */
+.toolbar-crumbs{display:flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;flex-wrap:nowrap;overflow:hidden}
+.toolbar-crumbs>i.fa-location-arrow{color:var(--primary);font-size:var(--fs-sm);margin-right:2px;flex:none}
+/* 合并后 breadcrumb 与工具组同卡：crumb 过长时允许截断，避免把右侧工具组挤出卡片 */
+.toolbar-crumbs .folder-crumb{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 面包屑：悬停上浮 + 按压回缩（对齐 index .breadcrumb__item） */
 .folder-crumb{cursor:pointer;color:var(--primary-dark);padding:var(--sp-1) 9px;border-radius:var(--r-xs);transition:background var(--dur-fast),transform .15s var(--ease-spring);font-size:.82rem;font-weight:600;display:inline-flex;align-items:center;gap:5px}
 html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 .folder-crumb:hover{background:rgba(var(--primary-rgb),.16);transform:translateY(-1px)}
 .folder-crumb:active{transform:scale(.94)}
-.folder-crumb-sep{font-size:.55rem;color:var(--text-muted);opacity:.7}
-.crumbs-bar .spacer{margin-left:auto}
+.folder-crumb-sep{font-size:.55rem;color:var(--text-muted);opacity:.7;flex:none}
 /* 卡片网格 */
 .vault-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:var(--sp-3)}
 /* 注意：卡片不能设 overflow:hidden —— 它会把「更多操作」弹出菜单整块裁掉。
@@ -1099,8 +1106,7 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 ========================================================= */
 #app:not(.is-booted) .micro-topbar   {animation:riseInSm .5s var(--ease-fluid) .02s backwards;}
 #app:not(.is-booted) .toolbar-card   {animation:riseIn .62s var(--ease-fluid) .06s backwards;}
-/* 修正：原写作 .crumb-bar，与实际类名 .crumbs-bar 不匹配，该动画从未生效 */
-#app:not(.is-booted) .crumbs-bar     {animation:riseInSm .44s var(--ease-fluid) .1s backwards;}
+/* 面包屑已合并进 .toolbar-card，其入场由上面 .toolbar-card 的 riseIn 统一覆盖 */
 #app:not(.is-booted) .brand-box      {animation:riseInSm .5s var(--ease-fluid) .04s backwards;}
 #app:not(.is-booted) .top-actions > *{animation:riseInSm .5s var(--ease-fluid) backwards;}
 #app:not(.is-booted) .top-actions > *:nth-child(1){animation-delay:.06s;}
@@ -1164,7 +1170,7 @@ Apple 风格动效 · 应用层（首屏错峰入场）
 
 
 .summary,.settings-list,.tree-panel,.list--card,.menu,
-.toolbar-card,.folders-panel,.crumbs-bar,.liquid-card,
+.toolbar-card,.folders-panel,.liquid-card,
 .kv-usage-block,.token-row{
   transition:background-color .45s var(--ease-apple),
              border-color .45s var(--ease-apple),
@@ -1337,15 +1343,15 @@ html[data-perf="low"] .ambient-orb{animation:none}
   .folder-tree-count{font-size:.62rem;padding:0 5px}
   .folder-tree-empty{padding:14px var(--sp-2);font-size:.74rem;gap:6px}
   .folder-tree-empty i{font-size:1.1rem}
-  /* 面包屑：单行 34px，长路径省略号，不再换行堆高 */
-  .crumbs-bar{padding:6px 11px;gap:5px;flex-wrap:nowrap;overflow:hidden}
+  /* 面包屑（合并后）：窄屏降级为整行，工具组折到第二行 —— 与合并前
+     「工具栏卡 + 独立面包屑卡」的双卡视觉一致，只是少一层卡片间距。
+     单行不换行，长路径省略号。 */
+  .toolbar-crumbs{flex:1 0 100%;gap:5px;flex-wrap:nowrap;overflow:hidden}
   .folder-crumb{padding:3px 7px;font-size:.74rem;gap:4px;min-width:0;
                 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .folder-crumb:first-of-type{flex:0 0 auto}
   .folder-crumb-sep{flex:0 0 auto}
-  /* .spacer 是基线布局里的伸缩件，窄屏改用 flex 排序收口，这里让它退出 */
-  .crumbs-bar .spacer{display:none}
-  .crumbs-bar .folder-crumb:not(:first-of-type){flex:1 1 auto;min-width:20px}
+  .toolbar-crumbs .folder-crumb:not(:first-of-type){flex:1 1 auto;min-width:20px}
   #app{
     padding:
       calc(var(--sp-3) + env(safe-area-inset-top,0px))
@@ -1837,8 +1843,22 @@ html[data-perf="low"] .dock{transition:none}
   <!-- ① 文件浏览：工具栏 + 文件列表（面包屑 / 网格 / 列表 / 分页） -->
   <section class="section" data-section="files" v-show="activeSection==='files'">
 
-  <!-- ===== 工具栏（搜索 / 视图切换 / 目录操作 / 筛选） ===== -->
+  <!-- ===== 工具栏（面包屑 + 搜索 / 视图切换 / 目录操作 / 筛选，合为一体） ===== -->
   <section class="liquid-card toolbar-card">
+    <!-- 面包屑：由独立卡片合并进行。桌面端位居行首，flex:0 1 auto 可收缩，
+         空间被搜索框挤占时内部逐级截断；工具组沿右缘收尾。
+         窄屏（≤680）在媒体查询里降级为整行，工具组折至第二行。 -->
+    <div class="toolbar-crumbs">
+      <i class="fas fa-location-arrow"></i>
+      <span class="folder-crumb" @click="selectFolder('')">
+        <i class="fas fa-house crumb-home"></i> 根目录
+      </span>
+      <template v-for="(c, i) in crumbs" :key="c.path">
+        <i class="fas fa-chevron-right folder-crumb-sep"></i>
+        <span class="folder-crumb" @click="selectFolder(c.path)">{{ c.name }}</span>
+      </template>
+    </div>
+
     <!-- 搜索默认收成一个图标：常驻的宽输入框是这一行里唯一的「大件」，
          收掉它工具栏才压得进一行。点击展开、失焦即收（有搜索词时保持展开，
          否则筛选条件被藏起来、用户会看不懂列表为何变少）。 -->
@@ -2018,19 +2038,6 @@ html[data-perf="low"] .dock{transition:none}
 
     <!-- 内容区 -->
     <section class="content-area">
-
-      <!-- 面包屑 -->
-      <div class="liquid-card crumbs-bar">
-        <i class="fas fa-location-arrow"></i>
-        <span class="folder-crumb" @click="selectFolder('')">
-          <i class="fas fa-house crumb-home"></i> 根目录
-        </span>
-        <template v-for="(c, i) in crumbs" :key="c.path">
-          <i class="fas fa-chevron-right folder-crumb-sep"></i>
-          <span class="folder-crumb" @click="selectFolder(c.path)">{{ c.name }}</span>
-        </template>
-        <span class="spacer"></span>
-      </div>
 
       <!-- ===== 视图转场舞台：网格 ⇄ 列表 的方向感知非线性切换 ===== -->
       <div class="view-stage" ref="viewStage" :class="{'is-locking': stageLocking}">
