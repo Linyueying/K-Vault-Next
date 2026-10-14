@@ -329,19 +329,58 @@ export async function sendTelegramUploadNotice(
   }
 }
 
+/**
+ * 缺少签名密钥时的统一错误说明，供各调用点复用。
+ *
+ * 刻意**不**在日志或响应里回显候选环境变量的实际值，只说明「缺哪个」。
+ */
+export const SIGNED_LINK_SECRET_MISSING_MESSAGE =
+  'Telegram 签名直链未启用：未配置 FILE_URL_SECRET（或 TG_BOT_TOKEN）。' +
+  '为避免生成可被伪造的直链，本次请求已按 fail-closed 处理。';
+
+/**
+ * 列出可用于签名 / 验签 Telegram 直链的密钥。
+ *
+ * ## 这里曾经有过两个硬编码兜底常量
+ *
+ * 旧实现在环境变量之外额外塞了 `"k-vault-default-secret"` 与
+ * `"tgbed-default-secret"`，注释写着「保留历史链接可用」。问题是：
+ *
+ *   本仓库是**公开仓库**，且整个仓库就是 Pages 的部署目录 —— 这两个字符串
+ *   既在 GitHub 上公开，也随部署产物分发给每一个访客。
+ *
+ * 于是 `parseSignedTelegramFileId()` 的「任一候选密钥匹配即通过」变成了
+ * **任何人都能离线算出合法签名**：不知道真实密钥照样能伪造任意 `tgs_` 直链，
+ * 指向任意 Telegram file_id 并带上自己编造的文件名与 MIME。
+ *
+ * 结论：签名密钥没有「安全的默认值」这种东西。现在只认环境变量，
+ * 一个都没配就返回空数组，由调用方 fail-closed。
+ *
+ * @param {object} env
+ * @returns {string[]} 候选密钥；未配置任何密钥时为空数组（不是默认值）
+ */
 function getFileLinkSecrets(env) {
   const candidates = [
     // envValue 已覆盖 FILE_URL_SECRET 的兼容名 TG_FILE_URL_SECRET
     envValue(env, 'FILE_URL_SECRET'),
     envValue(env, 'TG_BOT_TOKEN'),
-    "k-vault-default-secret",
-    // Legacy fallback keeps previously signed links valid.
-    "tgbed-default-secret",
   ];
 
   return [...new Set(candidates
     .map((item) => (item == null ? "" : String(item).trim()))
     .filter(Boolean))];
+}
+
+/**
+ * 是否具备签发 / 校验签名直链的能力。
+ *
+ * 给调用方一个便宜的前置判断，避免先生成半截产物再失败。
+ *
+ * @param {object} env
+ * @returns {boolean}
+ */
+export function hasTelegramSigningSecret(env) {
+  return getFileLinkSecrets(env).length > 0;
 }
 
 function truncateFileName(fileName, limit = 180) {
@@ -368,6 +407,19 @@ export async function createSignedTelegramFileId(
   };
   const payload = base64UrlEncode(JSON.stringify(payloadObj));
   const [primarySecret] = getFileLinkSecrets(env);
+
+  // Fail closed：没有配置密钥就**不签发**，返回 null 交由调用方报错。
+  //
+  // 回退到内置常量等于把密钥写进公开仓库（见 getFileLinkSecrets 的说明），
+  // 这里宁可让上传失败、也不能发出一条任何人都能伪造的直链。
+  if (!primarySecret) {
+    console.error(
+      'createSignedTelegramFileId: no signing secret configured; refusing to sign. ' +
+      'Set FILE_URL_SECRET (or TG_BOT_TOKEN) to enable signed Telegram links.'
+    );
+    return null;
+  }
+
   const signature = await signPayload(payload, primarySecret);
   return `tgs_${payload}.${signature}.${ext}`;
 }
@@ -383,6 +435,16 @@ export async function parseSignedTelegramFileId(id, env) {
   const signature = match[2];
   const extFromSuffix = sanitizeFileExtension(match[3] || "bin");
   const secrets = getFileLinkSecrets(env);
+
+  // Fail closed：没有配置任何密钥时，任何 `tgs_` 直链都不予认可。
+  // 空候选列表会让下面的循环自然判否，这里显式早退只为留一条排障日志。
+  if (!secrets.length) {
+    console.error(
+      'parseSignedTelegramFileId: no signing secret configured; rejecting all signed links.'
+    );
+    return null;
+  }
+
   let isValid = false;
 
   for (const secret of secrets) {

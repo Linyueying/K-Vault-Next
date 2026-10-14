@@ -30,6 +30,7 @@ import {
   jsonResponse
 } from '../../utils/airdrop.js';
 import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
+import { normalizePathname } from '../../utils/path-normalize.js';
 
 const CLOSED_STATUSES = ['cancelled', 'expired', 'failed'];
 
@@ -190,7 +191,10 @@ async function readCloudSource(request, env, maxBytes) {
 
   const selfOrigin = new URL(request.url).origin;
   const target = new URL(String(body.url || ''), selfOrigin);
-  if (target.origin !== selfOrigin || !target.pathname.startsWith('/file/')) {
+  // 与路由行为对齐：Pages 对路径大小写不敏感，`/FILE/x` 同样命中 /file 处理器。
+  // 这里先规范化再比较，避免把合法的本站直链误判成外站。
+  const targetPath = normalizePathname(target.pathname).toLowerCase();
+  if (target.origin !== selfOrigin || !targetPath.startsWith('/file/')) {
     throw new Error('只能选取本站已上传的文件。');
   }
 

@@ -13,6 +13,7 @@ import {
   sendTelegramUploadNotice,
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
+  SIGNED_LINK_SECRET_MISSING_MESSAGE,
 } from '../../utils/telegram.js';
 import { apiError, apiSuccess } from '../../utils/api-v1.js';
 import { checkUploadPolicy } from '../../utils/policy-enforce.js';
@@ -234,9 +235,22 @@ async function uploadToTelegramStorage(env, { bytes, mime, fileName, extension, 
   }
 
   const messageId = data?.result?.message_id;
-  const directId = shouldUseSignedTelegramLinks(env)
-    ? await createSignedTelegramFileId({ fileId: telegramFileId, fileExtension: extension, fileName, mimeType: mime, fileSize, messageId }, env)
-    : `${telegramFileId}.${extension}`;
+  let directId = `${telegramFileId}.${extension}`;
+  if (shouldUseSignedTelegramLinks(env)) {
+    const signedId = await createSignedTelegramFileId(
+      { fileId: telegramFileId, fileExtension: extension, fileName, mimeType: mime, fileSize, messageId },
+      env
+    );
+    // fail-closed：没有配置签名密钥时拒绝生成，而不是退化成「人人都可伪造」的内置常量
+    if (!signedId) {
+      throw new ImportError(
+        'SIGNED_LINK_SECRET_NOT_CONFIGURED',
+        SIGNED_LINK_SECRET_MISSING_MESSAGE,
+        503
+      );
+    }
+    directId = signedId;
+  }
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
     // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读

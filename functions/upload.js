@@ -17,6 +17,7 @@ import {
   sendTelegramUploadNotice,
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
+  SIGNED_LINK_SECRET_MISSING_MESSAGE,
 } from "./utils/telegram.js";
 import {
   applyShareOptions,
@@ -820,7 +821,8 @@ async function buildTelegramDirectId(
   if (!shouldUseSignedTelegramLinks(env)) {
     return `${fileId}.${fileExtension}`;
   }
-  return createSignedTelegramFileId(
+
+  const signedId = await createSignedTelegramFileId(
     {
       fileId,
       fileExtension,
@@ -831,4 +833,13 @@ async function buildTelegramDirectId(
     },
     env
   );
+
+  // createSignedTelegramFileId 在未配置 FILE_URL_SECRET / TG_BOT_TOKEN 时
+  // 返回 null（fail-closed，不再回退到内置常量密钥）。此时必须中断，
+  // 否则会把 `null` 当成直链 ID 写进 KV 元数据。
+  if (!signedId) {
+    throw new Error(SIGNED_LINK_SECRET_MISSING_MESSAGE);
+  }
+
+  return signedId;
 }

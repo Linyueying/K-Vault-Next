@@ -11,6 +11,7 @@ import {
   sendTelegramUploadNotice,
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
+  SIGNED_LINK_SECRET_MISSING_MESSAGE,
 } from '../../utils/telegram.js';
 import { putRecordIndex } from '../../utils/file-record.js';
 
@@ -112,19 +113,32 @@ export async function onRequestPost(context) {
   }
 
   const useSigned = shouldUseSignedTelegramLinks(env);
-  const directId = useSigned
-    ? await createSignedTelegramFileId(
+  let directId = `${media.fileId}.${media.fileExtension}`;
+  if (useSigned) {
+    const signedId = await createSignedTelegramFileId(
+      {
+        fileId: media.fileId,
+        fileExtension: media.fileExtension,
+        fileName: media.fileName,
+        mimeType: media.mimeType,
+        fileSize: media.fileSize,
+        messageId: media.messageId,
+      },
+      env
+    );
+    // fail-closed：密钥缺失时不签发，避免任何人可用内置常量伪造直链
+    if (!signedId) {
+      return jsonResponse(
         {
-          fileId: media.fileId,
-          fileExtension: media.fileExtension,
-          fileName: media.fileName,
-          mimeType: media.mimeType,
-          fileSize: media.fileSize,
-          messageId: media.messageId,
+          ok: false,
+          error: 'SIGNED_LINK_SECRET_NOT_CONFIGURED',
+          message: SIGNED_LINK_SECRET_MISSING_MESSAGE,
         },
-        env
-      )
-    : `${media.fileId}.${media.fileExtension}`;
+        503
+      );
+    }
+    directId = signedId;
+  }
 
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
     const telegramKvKey = `${media.fileId}.${media.fileExtension}`;

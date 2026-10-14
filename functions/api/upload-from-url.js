@@ -13,6 +13,7 @@ import {
   sendTelegramUploadNotice,
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
+  SIGNED_LINK_SECRET_MISSING_MESSAGE,
 } from "../utils/telegram.js";
 import { checkAuthentication, isAuthRequired } from "../utils/auth.js";
 import { checkGuestUpload, incrementGuestCount } from "../utils/guest.js";
@@ -671,6 +672,17 @@ async function processTelegramSuccess(responseData, fileName, fileExtension, mim
 
   const directId = await buildTelegramDirectId(fileId, fileExtension, fileName, mimeType, fileSize, messageId, env);
 
+  // fail-closed：没有签名密钥就不给直链，返回明确错误而不是 `null`。
+  if (!directId) {
+    return jsonResponse(
+      {
+        error: SIGNED_LINK_SECRET_MISSING_MESSAGE,
+        code: "SIGNED_LINK_SECRET_NOT_CONFIGURED",
+      },
+      503
+    );
+  }
+
   if (env.img_url && shouldWriteTelegramMetadata(env)) {
     const telegramKvKey = `${fileId}.${fileExtension}`;
     // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
@@ -996,7 +1008,9 @@ async function buildTelegramDirectId(fileId, fileExtension, fileName, mimeType, 
   if (!shouldUseSignedTelegramLinks(env)) {
     return `${fileId}.${fileExtension}`;
   }
-  return createSignedTelegramFileId(
+  // 未配置密钥时 createSignedTelegramFileId 返回 null（fail-closed），
+  // 这里原样传回，由调用点判定并给出明确错误，避免把 `null` 当成直链 ID。
+  return await createSignedTelegramFileId(
     {
       fileId,
       fileExtension,
