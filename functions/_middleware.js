@@ -76,36 +76,26 @@ const BLOCKED_PREFIXES = [
 /**
  * 判断是否命中拦截名单。
  *
- * 同时比对原始 pathname 与解码后的 pathname：`/%77rangler.toml` 这类
- * 百分号编码绕写在 Pages 上会被还原，这里提前一步覆盖掉。
+ * 比对的是**候选集合**而不是单条路径：原始值、逐层百分号解码后的值、
+ * 各自再叠加去尾斜杠 / 去尾随空白点，全部参与匹配。攻击者可以任选一种
+ * 形态投递，漏掉任何一种就是绕过。
  *
  * @param {Request} request
  * @returns {boolean}
  */
 function isBlocked(request) {
-  let pathname = '';
+  let pathname = '/';
   try {
     pathname = new URL(request.url).pathname || '/';
   } catch {
     return false;
   }
 
-  const candidates = new Set([pathname]);
-  try {
-    candidates.add(decodeURIComponent(pathname));
-  } catch {
-    // 非法编码：只用原始值判断
-  }
-
-  for (const raw of candidates) {
-    // 去掉尾斜杠（`/package.json/` 与 `/package.json` 同义）
-    const normalized = String(raw || '/').replace(/\/+$/, '') || '/';
-    const lower = normalized.toLowerCase();
-
-    if (BLOCKED_EXACT.has(lower)) return true;
+  for (const candidate of collectNormalizedCandidates(pathname)) {
+    if (BLOCKED_EXACT.has(candidate)) return true;
     for (const prefix of BLOCKED_PREFIXES) {
       // 前缀一律以 / 结尾，因此只可能是目录边界，不会误伤 /scriptsfiles 这类同前缀路径
-      if (lower.startsWith(prefix)) return true;
+      if (candidate.startsWith(prefix)) return true;
     }
   }
 
@@ -114,6 +104,11 @@ function isBlocked(request) {
 
 import { resolveCorsHeaders } from './utils/cors.js';
 import { fixedWindowRateLimit, getClientIp } from './utils/ratelimit.js';
+import { previewAccessGuard } from './utils/auth.js';
+import {
+  collectNormalizedCandidates,
+  normalizePathname,
+} from './utils/path-normalize.js';
 
 /**
  * 全站安全响应头。
@@ -180,13 +175,19 @@ const SECURITY_HEADERS = {
 
 /** 需要限流的路径：API、文件流与上传入口。静态页面不在此列。 */
 function needsRateLimit(request) {
+  // 同样先规范化：`//api/v1/files` 只要绕开这里就等于绕开了全站限流。
   let path = '/';
   try {
     path = new URL(request.url).pathname || '/';
   } catch {
     return false;
   }
-  return path.startsWith('/api/') || path.startsWith('/file/') || path === '/upload';
+  const normalized = normalizePathname(path).toLowerCase();
+  return (
+    normalized.startsWith('/api/') ||
+    normalized.startsWith('/file/') ||
+    normalized === '/upload'
+  );
 }
 
 const LOCAL_WINDOW_MS = 60 * 1000;
@@ -217,6 +218,12 @@ function localRateLimit(ip) {
 }
 
 export async function onRequest(context) {
+  // 预览部署门禁必须排在**最前面**：它要在静态资源回落、业务中间件、
+  // 甚至是下面的静态文件黑名单之前生效，否则 `/wrangler.toml` 之类的
+  // 404 会先返回，等于承认「这个站在这个域名上存在」。
+  const previewDenied = previewAccessGuard(context.request, context.env);
+  if (previewDenied) return previewDenied;
+
   if (isBlocked(context.request)) {
     return new Response('Not Found', {
       status: 404,

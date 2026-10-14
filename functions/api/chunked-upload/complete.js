@@ -97,6 +97,7 @@ import {
   sendTelegramUploadNotice,
   shouldUseSignedTelegramLinks,
   shouldWriteTelegramMetadata,
+  SIGNED_LINK_SECRET_MISSING_MESSAGE,
 } from '../../utils/telegram.js';
 import { applyShareOptions, buildShareSummary, hasShareOptions } from '../../utils/share-options.js';
 import {
@@ -645,6 +646,16 @@ export async function onRequestPost(context) {
           taskData.telegramMessageId,
           env
         );
+        // 未配置密钥时返回 null（fail-closed），必须在写元数据之前拦掉
+        if (!responseFileKey) {
+          return jsonResponse(
+            {
+              error: SIGNED_LINK_SECRET_MISSING_MESSAGE,
+              code: "SIGNED_LINK_SECRET_NOT_CONFIGURED",
+            },
+            503
+          );
+        }
         extraMetadata.signedLink = shouldUseSignedTelegramLinks(env);
         extraMetadata.telegramFileId = result.fileId;
         telegramNoticePayload = {

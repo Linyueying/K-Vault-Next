@@ -7,18 +7,45 @@ import {
 import { apiError } from '../../utils/api-v1.js';
 import { handleApiPreflight, resolveCorsHeaders } from '../../utils/cors.js';
 import { writeAuditLog, AUDIT_EVENTS } from '../../utils/audit.js';
+import { normalizePathname } from '../../utils/path-normalize.js';
 
 // Low-write mode (MINIMIZE_KV_WRITES=true): token validation still reads KV,
 // but usage stats are persisted at most once per hour.
 const MINIMIZED_USAGE_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 
+/**
+ * 把请求路径压成「判定用」形态：规范化 + 小写 + 去尾斜杠。
+ *
+ * 小写这一步是**安全必需的**，不是美化。Pages 的路由匹配大小写不敏感：
+ * `/API/V1/files`、`/Api/V1/files` 都会命中 `functions/api/v1/files.js`。
+ * 但 `pathname.startsWith('/api/v1')` 是大小写敏感的 —— 大写变体匹配不上前缀，
+ * 于是走进 `return ''`（无需鉴权）分支，请求就带着没有校验过的身份直接抵达处理器。
+ *
+ * 修法只有一种：判定所用的字符串必须与路由所用的字符串同构。这里统一先小写。
+ *
+ * @param {Request} request
+ * @returns {string}
+ */
+function authPathname(request) {
+  let raw = '/';
+  try {
+    raw = new URL(request.url).pathname || '/';
+  } catch {
+    return '/';
+  }
+  return normalizePathname(raw).replace(/\/+$/, '').toLowerCase() || '/';
+}
+
 function resolveRequiredScope(request) {
-  const pathname = new URL(request.url).pathname.replace(/\/+$/, '');
+  const pathname = authPathname(request);
   const method = String(request.method || 'GET').toUpperCase();
   const isReadMethod = method === 'GET' || method === 'HEAD';
 
   const base = '/api/v1';
-  if (!pathname.startsWith(base)) return '';
+  // Fail closed：本中间件只挂在 /api/v1/** 下，理论上不存在不以 /api/v1
+  // 开头的请求。真到了这里说明路由/命名发生了变化，此时要求一个有效 Token
+  // 远比放行安全 —— 与文件末尾「Unknown routes fail closed」是同一条原则。
+  if (!pathname.startsWith(base)) return '@me';
   const subPath = pathname.slice(base.length) || '/';
 
   // Public, no bearer required:

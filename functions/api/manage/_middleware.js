@@ -5,6 +5,7 @@ import {
 import { apiError } from '../../utils/api-v1.js';
 import { redactSecrets } from '../../utils/redact.js';
 import { getClientIp, fixedWindowRateLimit } from '../../utils/ratelimit.js';
+import { normalizePathname } from '../../utils/path-normalize.js';
 
 /**
  * The login entry helper deliberately stays reachable while logged out.
@@ -16,7 +17,13 @@ const LOGIN_HELPER_PATH = '/api/manage/login';
 
 function isLoginHelper(request) {
   try {
-    const pathname = new URL(request.url).pathname.replace(/\/+$/, '');
+    // 规范化 + 小写：与路由的大小写不敏感行为一致。
+    // 不这么做时 `/API/manage/login` 会被判成「非助手路径」从而要求鉴权 ——
+    // 那是安全方向的偏差（过于严格），但会让登录恢复流程在不同写法下表现
+    // 不一致，这里一并对齐。
+    const pathname = normalizePathname(new URL(request.url).pathname)
+      .replace(/\/+$/, '')
+      .toLowerCase();
     return pathname === LOGIN_HELPER_PATH;
   } catch {
     return false;
