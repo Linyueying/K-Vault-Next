@@ -762,7 +762,7 @@
            遮罩层级、dialog 过渡、点击遮罩关闭等行为全部沿用同一套实现。 -->
       <airdrop-panel
         :visible="airdropVisible"
-        :is-guest="isGuest"
+        :is-guest="!isAuthenticated"
         :capability="airdropCapability"
         :default-node="storageMode"
         :base-url="baseURL"

@@ -555,6 +555,14 @@
         /* 用户在后端能力下发完成前就点了隔空投送：记下来，
            checkAuth 拿到真实能力后自动补开，避免"点了没反应/误报未开启" */
         pendingAirdropOpen: false,
+        /* 能力是否**真的**收到了后端答复。用来区分两种 enabled:false：
+             · 还没答复（或答复里没有 airdrop 字段）——「未知」，不该下结论；
+             · 答复明确 enabled:false    ——「确实不可用」，才去分辨是功能关了
+               还是没配中转节点。
+           少了这一位，就只能拿 nodes 是否为空反推，而「没下发」与「没配置」
+           在数据上长得一模一样 —— 未登录扫码误报「没有可用储存节点」就是
+           这么来的（空气泡）。 */
+        airdropCapabilityLoaded: false,
         airdropCapability: {
           enabled: false,
           guestAllowed: false,
@@ -4241,8 +4249,13 @@
         try {
           const res = await fetch("/api/auth/check", { credentials: "include" });
           const data = await res.json();
-          // 隔空投送能力：无论后面走哪个分支（含访客早退），都要先落到 data 上
-          if (data.airdrop) this.airdropCapability = data.airdrop;
+          // 隔空投送能力：无论后面走哪个分支（含访客早退），都要先落到 data 上。
+          // 未登录时后端也会下发一份「收端够用」的最小能力（见 auth/check.js），
+          // 否则扫码接收会被入口误判成"没有中转节点"。
+          if (data.airdrop) {
+            this.airdropCapability = data.airdrop;
+            this.airdropCapabilityLoaded = true;
+          }
           if (data.authRequired && !data.authenticated) {
             if (data.guestUpload && data.guestUpload.enabled) {
               this.isGuest = true;
@@ -4290,7 +4303,13 @@
          （且排在 markBooted() 之后 —— 首屏在它返回前就已可点）。
          于是"页面刚加载就点隔空投送"会命中初始值，误报"未开启"。
          这里把"还在探测"与"确实不可用"区分开：前者提示稍候并自动重试，
-         后者才是真的报错。 */
+         后者才是真的报错。
+
+         ⚠️ 同理，`airdropCapabilityLoaded` 也不能省：只有**收到过**后端
+         明确答复，nodes 为空才能解释成"没配中转节点"。答复里没有 airdrop
+         字段（旧后端 / 探测异常）时 nodes 同样是空数组，但那是"未知"，
+         拿它去报"缺少可用储存节点"会把人指向完全错误的方向 —— 未登录
+         扫码接收时曾出现这一误报。 */
       openAirdrop() {
         if (!this.airdropCapability.enabled) {
           // 能力尚未下发：不是"不可用"，只是还没问完后端 —— 等它回来再判
@@ -4299,8 +4318,14 @@
             this.pendingAirdropOpen = true;
             return;
           }
+          // 已问完后端但没拿到能力：状态未知，不要替后端下结论
+          if (!this.airdropCapabilityLoaded) {
+            this.showToast("隔空投送状态获取失败，请刷新页面重试", "error");
+            return;
+          }
           // 已确认不可用：给出准确的两种原因，而不是笼统一句
-          const backendDown = !this.airdropCapability.nodes || this.airdropCapability.nodes.length === 0;
+          const nodes = this.airdropCapability.nodes;
+          const backendDown = !Array.isArray(nodes) || nodes.length === 0;
           this.showToast(
             backendDown
               ? "缺少可用的中转存储节点（需绑定 R2 或配置 Telegram）"

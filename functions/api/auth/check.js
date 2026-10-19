@@ -62,15 +62,32 @@ export async function onRequestGet(context) {
 
     // 未登录响应只留「能不能进」的判定依据。
     //
-    // `guestUpload`（访客配额）与 `airdrop`（中转节点、单文件上限、房间 TTL）
-    // 都是站点级的运营参数。它们挂在**登录检查**这个必然对匿名开放、也无法
-    // 关闭的入口上，等于给任意路过的人递一张你家 dashboard 的复印件——单个
-    // 字段不致命，合起来正好是「这个站开了什么、上限多少」的完整侧写。
-    // 前端只消费 `authenticated` / `authRequired`，移除不影响任何页面。
+    // `guestUpload`（访客配额）与 `airdrop` 里的房间 TTL / 每日限额 / 单文件
+    // 上限，都是站点级的运营参数。它们挂在**登录检查**这个必然对匿名开放、
+    // 也无法关闭的入口上，等于给任意路过的人递一张你家 dashboard 的复印件。
+    //
+    // 但 airdrop 的 `enabled` 不属于运营参数，它是**入口可用性**：访客凭连接码
+    // 接收投送是本功能的核心用法（收端门禁见 utils/airdrop.js 的
+    // checkAirdropReceiveAccess），扫码落到 index 页后前端必须先知道
+    // 「此刻能不能用」，否则只能拿默认值 false 去猜。此前这里把 airdrop 整个
+    // 移除，于是未登录扫码时 capability 停在初始的 `{enabled:false, nodes:[]}`，
+    // 入口把「能力未知」误判成「没有中转节点」——表象正是
+    // 「未登录用户扫码接收，提示没有可用储存节点」，而房间与节点其实都好着。
+    //
+    // 折中：只下发**收端够用**的最小能力（开关 + 两个访客权限位 + 节点清单），
+    // 这些字段匿名侧本来就能通过 create/join 的错误码探测出来；房间 TTL、
+    // dailyLimit、maxFileSize 等运营参数继续隐藏 —— 只有发端用得上，
+    // 合起来才是「这个站怎么配的」的完整侧写。
     if (!authResult.authenticated) {
       return jsonResponse({
         authenticated: false,
         authRequired: true,
+        airdrop: {
+          enabled: airdrop.enabled,
+          guestAllowed: airdrop.guestAllowed,
+          guestReceiveAllowed: airdrop.guestReceiveAllowed,
+          nodes: airdrop.nodes,
+        },
       });
     }
 
