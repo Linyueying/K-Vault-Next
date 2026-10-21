@@ -1425,10 +1425,13 @@
           <span class="ad-beta">BETA</span>
         </div>
         <div class="ad-head__spacer"></div>
-        <!-- 提示音开关：默认开，偏好存 localStorage（见 AdSound） -->
+        <!-- 提示音开关：默认开，偏好存 localStorage（见 AdSound）。
+             图标只能用字体子集里有的：本项目打包的是裁剪版 FontAwesome，
+             fa-bell / fa-volume-* 都不在其中（渲染出来是一个空白按钮）。 -->
         <button class="btn btn--ghost btn--icon" @click="toggleSound"
-                :title="soundOn ? '关闭提示音' : '打开提示音'" :aria-pressed="soundOn">
-          <i class="fas" :class="soundOn ? 'fa-bell' : 'fa-bell-slash'"></i>
+                :title="soundOn ? '关闭提示音' : '打开提示音'"
+                :aria-label="soundOn ? '关闭提示音' : '打开提示音'" :aria-pressed="soundOn">
+          <i class="fas" :class="soundOn ? 'fa-music' : 'fa-ban'"></i>
         </button>
         <!-- 房间倒计时：到点房间即失效、两端停止轮询。剩余不足 1 分钟转警示色。 -->
         <span class="ad-countdown" v-if="showCountdown"
