@@ -991,6 +991,223 @@ html[data-theme='dark'] .ad-digit {
   color: var(--text-muted);
 }
 
+/* ── 打磨增强：连接脉冲 / 复制反馈 / 扫描取景框 / 文件行 ─────────────
+   这里集中放置后加的观感增强，规则与上文一致：
+     · 结构性变化走 transition + 状态 class；
+     · 循环/一次性效果才用 @keyframes；
+     · 只动 transform / opacity / 阴影，不碰布局属性。 */
+
+/* 连接成功的双环涟漪。⚠️ linkPulse 这个状态位存在了很久却一直没有任何
+   CSS 对应它 —— 脉冲从来没播出过（与 adPop 缺关键帧是同型静默失效）。
+   收端 join 成功、发端看到对方接入时各播一次。 */
+.ad-flow.is-pulse .ad-flow__ring::before,
+.ad-flow.is-pulse .ad-flow__ring::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(var(--primary-rgb), 0.55);
+  animation: adLinkRipple 1.5s var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+.ad-flow.is-pulse .ad-flow__ring::after {
+  animation-delay: 0.18s;
+}
+
+@keyframes adLinkRipple {
+  0% { opacity: 0.9; transform: scale(0.9); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+
+/* 脉冲期间卡片整体亮一下主色描边，和涟漪同节拍 */
+.ad-flow.is-pulse {
+  border-color: rgba(var(--primary-rgb), 0.5);
+  box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
+  transition: border-color var(--dur-slow) var(--ease-apple),
+              box-shadow var(--dur-slow) var(--ease-apple);
+}
+
+/* 失败态：卡片与环一起转红，比单独一行红字更"收束" */
+.ad-flow.is-failed {
+  border-color: rgba(225, 29, 72, 0.35);
+}
+
+.ad-flow.is-failed .ad-ring__val {
+  stroke: var(--c-danger);
+}
+
+/* 传输中给进度环加一圈微光：读数在动的事实一眼可见 */
+.ad-flow__ring.is-live .ad-ring__val {
+  filter: drop-shadow(0 0 3px rgba(var(--primary-rgb), 0.55));
+}
+
+/* 完成时腿部的图标弹跳一下，事件感落在"哪一段完成了"上 */
+.ad-flow__leg.is-done .ad-flow__leg-icon {
+  animation: adPop 0.3s var(--ease-spring) backwards;
+}
+
+/* 二维码：hover 微微抬起，明示"可点（复制）"；复制成功整块短暂转成功色。
+   ⚠️ wrap 自身的 transform 被 adBreath 呼吸动画占着（动画帧优先级高于
+   transition），所以 hover 的位移只能落在内层 .ad-qr 上。 */
+.ad-qr-wrap {
+  cursor: pointer;
+  transition: border-color var(--dur-base) var(--ease-apple);
+}
+
+.ad-qr {
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+
+.ad-qr-wrap:hover .ad-qr {
+  transform: scale(1.03);
+}
+
+.ad-qr-wrap:active .ad-qr {
+  transform: scale(0.98);
+}
+
+.ad-qr-wrap.is-copied {
+  border-color: rgba(16, 185, 129, 0.55);
+}
+
+/* 复制成功的浮起气泡：就地反馈，不需要打断性 toast 也能确认 */
+.ad-qr-copied {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  color: #fff;
+  background: var(--c-success);
+  box-shadow: 0 6px 16px -6px rgba(16, 185, 129, 0.6);
+  animation: adPop 0.24s var(--ease-spring) backwards;
+  pointer-events: none;
+}
+
+.btn.is-copied {
+  color: var(--c-success);
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+/* 连接码数字格 hover 轻浮：让"可以点码复制"这件事有手感 */
+.ad-digit {
+  cursor: copy;
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+
+.ad-digit:hover {
+  transform: translateY(-2px);
+}
+
+/* 扫码取景框：四角描边 + 一条往复扫线，替代裸 video。
+   四角用八条定位渐变画（每角横竖各一条），不需要额外 DOM。 */
+.ad-scanbox {
+  position: relative;
+  width: 100%;
+  max-width: 280px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #000;
+}
+
+.ad-scanbox video {
+  display: block;
+  width: 100%;
+}
+
+.ad-scanbox::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(to right, var(--primary) 2.5px, transparent 2.5px) left 0 top 0 / 18px 18px,
+    linear-gradient(to bottom, var(--primary) 2.5px, transparent 2.5px) left 0 top 0 / 18px 18px,
+    linear-gradient(to left, var(--primary) 2.5px, transparent 2.5px) right 0 top 0 / 18px 18px,
+    linear-gradient(to bottom, var(--primary) 2.5px, transparent 2.5px) right 0 top 0 / 18px 18px,
+    linear-gradient(to right, var(--primary) 2.5px, transparent 2.5px) left 0 bottom 0 / 18px 18px,
+    linear-gradient(to top, var(--primary) 2.5px, transparent 2.5px) left 0 bottom 0 / 18px 18px,
+    linear-gradient(to left, var(--primary) 2.5px, transparent 2.5px) right 0 bottom 0 / 18px 18px,
+    linear-gradient(to top, var(--primary) 2.5px, transparent 2.5px) right 0 bottom 0 / 18px 18px;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 扫线做成 22% 高的光带：translateY 的百分比相对自身高度，
+   因此取景框高随摄像头画面变化时，扫程始终覆盖全框，不写死像素。 */
+.ad-scanbox::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 22%;
+  border-radius: 3px;
+  background: linear-gradient(to bottom,
+    transparent,
+    rgba(var(--primary-rgb), 0.3) 38%,
+    rgba(var(--primary-rgb), 0.85) 50%,
+    rgba(var(--primary-rgb), 0.3) 62%,
+    transparent);
+  animation: adScanLine 1.9s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes adScanLine {
+  0%, 100% { transform: translateY(-10%); }
+  50% { transform: translateY(455%); }
+}
+
+/* 文件行逐个入场（--i 由模板按序号注入） */
+.ad-file {
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/* 收端「正在接收的这一行」点亮 */
+.ad-file.is-live {
+  border-color: rgba(var(--primary-rgb), 0.4);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.ad-file.is-done {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.ad-file.is-done .ad-file__icon {
+  color: var(--c-success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+/* 细颗粒文件图标：类型分色（色板全部取自本文件既有用色，不新造色值） */
+.ad-file__icon.is-image { color: #7c5cf0; background: rgba(139, 92, 246, 0.12); }
+.ad-file__icon.is-video { color: #0284c7; background: rgba(2, 132, 199, 0.1); }
+.ad-file__icon.is-audio { color: #0d9488; background: rgba(16, 185, 129, 0.1); }
+.ad-file__icon.is-pdf { color: var(--c-danger); background: rgba(225, 29, 72, 0.1); }
+.ad-file__icon.is-archive { color: var(--c-warn); background: rgba(245, 158, 11, 0.12); }
+.ad-file__icon.is-code { color: #0d9488; background: rgba(16, 185, 129, 0.1); }
+.ad-file__icon.is-doc { color: #0284c7; background: rgba(2, 132, 199, 0.1); }
+.ad-file__icon.is-sheet { color: var(--c-success); background: rgba(16, 185, 129, 0.1); }
+.ad-file__icon.is-slide { color: var(--c-warn); background: rgba(245, 158, 11, 0.12); }
+
+/* 发送按钮：hover 轻浮 + 主按钮阴影加深，保持可按压感 */
+.ad-btn--send:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px -8px rgba(var(--primary-rgb), 0.6);
+}
+
+/* 节点选择卡键盘可达性：焦点环 */
+.ad-node-pick:focus-visible,
+.ad-btn:focus-visible,
+.ad-role:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.55);
+  outline-offset: 2px;
+}
+
 /* ── 响应式 ────────────────────────────────────────────── */
 @media (max-width: 520px) {
   .ad-modal {

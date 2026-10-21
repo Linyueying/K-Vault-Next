@@ -104,6 +104,91 @@
     return (v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)) + ' ' + units[i];
   }
 
+  /* ============================================================================
+     提示音（零资源的 WebAudio 合成）
+     ----------------------------------------------------------------------------
+     这个功能卖的是"传送的观感"，音效是观感的另一半：连接、传完、收完都是
+     关键跃迁点，只有视觉没有听觉，事件感会弱一截。
+
+     实现约束：
+       · 零资源 —— 不引入音频文件，全部由振荡器现场合成（正弦 + 包络）；
+       · 零打扰 —— 峰值 0.07、单组最长 ~0.6s，不循环、不残留；
+       · 自动播放策略要求 AudioContext 在用户手势里 resume，所以 unlock()
+         挂在「我要发送 / 我要接收 / 连接 / 扫码」这些点击上；没解锁过就
+         静默跳过，绝不让音频错误打断业务流；
+       · 可关 —— 面板头部有铃铛开关，偏好存 localStorage，默认开。
+     ========================================================================== */
+  const AdSound = (() => {
+    let ctx = null;
+    let enabled = true;
+
+    try {
+      enabled = localStorage.getItem('kvault.airdrop.sound') !== '0';
+    } catch (e) { /* 隐私模式读不了就当开 */ }
+
+    /** 必须在用户手势里调用；幂等。返回是否有音频能力 */
+    function unlock() {
+      if (typeof window === 'undefined') return false;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      try {
+        if (!ctx) ctx = new AC();
+        if (ctx.state === 'suspended') ctx.resume();
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    /** 单音：正弦 + 快速起音、指数衰减尾巴。peak 统一压低，永远克制 */
+    function tone(freq, at, dur) {
+      const t0 = ctx.currentTime + at;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(0.07, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
+    }
+
+    const PATTERNS = {
+      // 连接成功：上行两音（像"碰一下接上了"）
+      link: [[659.25, 0, 0.10], [880.00, 0.09, 0.18]],
+      // 发端整批上传完成：上行三音
+      sent: [[523.25, 0, 0.09], [659.25, 0.08, 0.09], [783.99, 0.16, 0.20]],
+      // 收端全部落地：清脆的"叮"（类 AirDrop）
+      done: [[987.77, 0, 0.11], [1318.51, 0.11, 0.30]],
+      // 开始接收：轻上行
+      recv: [[392.00, 0, 0.07], [523.25, 0.07, 0.12]],
+      // 扫码命中：一声短哔
+      scan: [[880.00, 0, 0.07]],
+      // 失败：下行两音，短而不刺耳
+      error: [[311.13, 0, 0.14], [233.08, 0.13, 0.22]]
+    };
+
+    function play(name) {
+      if (!enabled || !ctx || ctx.state !== 'running') return;
+      const pattern = PATTERNS[name];
+      if (!pattern) return;
+      try {
+        for (const [f, at, dur] of pattern) tone(f, at, dur);
+      } catch (e) { /* 播放失败静默 */ }
+    }
+
+    function setEnabled(next) {
+      enabled = Boolean(next);
+      try { localStorage.setItem('kvault.airdrop.sound', enabled ? '1' : '0'); } catch (e) { /* 忽略 */ }
+      if (enabled) unlock();
+    }
+
+    return { unlock, play, setEnabled, get enabled() { return enabled; } };
+  })();
+
   /** 从 Content-Disposition 里取文件名（兜底用，正常情况下服务端已写好） */
   function fileNameFromHeader(header) {
     const raw = String(header || '');
@@ -177,7 +262,9 @@
         pendingCode: '',
         fileInputKey: 0,
         doneCount: 0,
-        linkPulse: false
+        linkPulse: false,
+        soundOn: AdSound.enabled,
+        copiedTick: false, // 复制连接码后的短暂"已复制"反馈（~2s）
       };
     },
 
@@ -525,6 +612,8 @@
         this.busy = false;
         this.leaving = false;
         this.pausedByIdle = false;
+        clearTimeout(this.copyTickTimer);
+        this.copiedTick = false;
         this.lastActivityAt = 0;
         this.activityKey = '';
         this.fileInputKey += 1;
@@ -541,6 +630,7 @@
 
       // ── 发端 ──────────────────────────────────────────
       async chooseSend() {
+        AdSound.unlock(); // 手势内解锁音频上下文（浏览器自动播放策略）
         if (!this.maySend) {
           this.notice = '当前身份不能发起投送，请登录后重试。';
           this.noticeTone = 'warn';
@@ -585,6 +675,7 @@
 
       // ── 收端 ──────────────────────────────────────────
       chooseRecv() {
+        AdSound.unlock(); // 手势内解锁音频上下文
         if (!this.mayReceive) {
           this.notice = '当前未开放访客接收投送，请登录后重试。';
           this.noticeTone = 'warn';
@@ -607,6 +698,7 @@
       },
 
       async joinRoom() {
+        AdSound.unlock(); // 点「连接」也是手势，补一次解锁（自动跳进来的场景）
         const code = String(this.joinCode || '').trim().toUpperCase();
         if (!/^[A-Z0-9]{8}$/.test(code)) {
           this.notice = '连接码为 8 位字母数字组合。';
@@ -651,10 +743,18 @@
       playLinkPulse() {
         this.linkPulse = true;
         this.notice = '';
+        AdSound.play('link');
         setTimeout(() => { this.linkPulse = false; }, 1600);
       },
 
+      toggleSound() {
+        AdSound.setEnabled(!this.soundOn);
+        this.soundOn = AdSound.enabled;
+        if (this.soundOn) AdSound.play('scan'); // 打开瞬间给个极轻反馈
+      },
+
       async startScan() {
+        AdSound.unlock(); // 点「扫码」同样是手势
         if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
           this.notice = '当前浏览器不支持页面内扫码，请用系统相机扫描二维码（扫码后会直接打开本页并自动填好连接码）。';
           this.noticeTone = 'info';
@@ -686,6 +786,7 @@
               if (/^[A-Za-z0-9]{8}$/.test(code)) {
                 this.joinCode = code.toUpperCase();
                 this.stopScan();
+                AdSound.play('scan'); // 命中反馈：摄像头里"扫到了"
                 this.joinRoom();
               }
             } catch (e) {
@@ -925,6 +1026,7 @@
 
       failWith(message) {
         this.stopPolling();
+        AdSound.play('error');
         this.errorMsg = message;
         this.phase = 'failed';
         this.notice = message;
@@ -934,6 +1036,7 @@
 
       onFinished() {
         this.notice = '';
+        AdSound.play('done');
         this.toast('隔空投送已完成', 'success');
       },
 
@@ -1093,6 +1196,7 @@
           }
           this.uploadProgress = 1;
           this.phase = 'staged';
+          AdSound.play('sent');
           this.toast('已上传到存储节点，等待对方接收', 'success');
         } catch (e) {
           this.failWith(e && e.message ? e.message : '发送失败。');
@@ -1159,6 +1263,7 @@
           return;
         }
         this.phase = 'downloading';
+        AdSound.play('recv');
         this.downloadProgress = 0;
         this.receivedBytes = 0;
         this.doneCount = 0;
@@ -1271,10 +1376,40 @@
       async copyCode() {
         try {
           await navigator.clipboard.writeText(this.code);
+          this.copiedTick = true;
+          AdSound.play('scan');
           this.toast('连接码已复制', 'success');
+          // 反馈停留 2s 后还原；copyTickTimer 用于连点时重置节拍
+          clearTimeout(this.copyTickTimer);
+          this.copyTickTimer = setTimeout(() => { this.copiedTick = false; }, 2000);
         } catch (e) {
           this.toast('复制失败，请手动记下连接码', 'error');
         }
+      },
+
+      /** 按文件名 / MIME 挑一个细颗粒图标，而不是清一色 fa-file-lines */
+      fileIcon(f) {
+        const name = String(f && f.name || '').toLowerCase();
+        const type = String(f && f.type || '').toLowerCase();
+        const ext = (name.match(/\.([a-z0-9]+)$/) || [])[1] || '';
+        if (type.startsWith('image/')) return { icon: 'fa-file-image', cls: 'is-image' };
+        if (type.startsWith('video/')) return { icon: 'fa-file-video', cls: 'is-video' };
+        if (type.startsWith('audio/')) return { icon: 'fa-file-audio', cls: 'is-audio' };
+        if (type === 'application/pdf' || ext === 'pdf') return { icon: 'fa-file-pdf', cls: 'is-pdf' };
+        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return { icon: 'fa-file-zipper', cls: 'is-archive' };
+        if (['js', 'mjs', 'ts', 'py', 'java', 'go', 'rs', 'html', 'css', 'json', 'sh'].includes(ext)) return { icon: 'fa-file-code', cls: 'is-code' };
+        if (['doc', 'docx', 'md', 'txt'].includes(ext)) return { icon: 'fa-file-word', cls: 'is-doc' };
+        if (['xls', 'xlsx', 'csv'].includes(ext)) return { icon: 'fa-file-excel', cls: 'is-sheet' };
+        if (['ppt', 'pptx'].includes(ext)) return { icon: 'fa-file-powerpoint', cls: 'is-slide' };
+        return { icon: 'fa-file-lines', cls: '' };
+      },
+
+      /** 连接码输入：强制大写 + 滤掉非法字符，手机软键盘不再帮倒忙 */
+      onCodeInput(e) {
+        this.joinCode = String(e.target.value || '')
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '')
+          .slice(0, 8);
       }
     },
 
@@ -1290,6 +1425,11 @@
           <span class="ad-beta">BETA</span>
         </div>
         <div class="ad-head__spacer"></div>
+        <!-- 提示音开关：默认开，偏好存 localStorage（见 AdSound） -->
+        <button class="btn btn--ghost btn--icon" @click="toggleSound"
+                :title="soundOn ? '关闭提示音' : '打开提示音'" :aria-pressed="soundOn">
+          <i class="fas" :class="soundOn ? 'fa-bell' : 'fa-bell-slash'"></i>
+        </button>
         <!-- 房间倒计时：到点房间即失效、两端停止轮询。剩余不足 1 分钟转警示色。 -->
         <span class="ad-countdown" v-if="showCountdown"
               :class="{ 'is-urgent': expiresUrgent }"
@@ -1327,7 +1467,8 @@
         </div>
 
         <!-- 传送指示：环形读数 + 上传/下载两条腿 -->
-        <div class="ad-flow" v-if="stageVisible">
+        <div class="ad-flow" v-if="stageVisible"
+             :class="{ 'is-pulse': linkPulse, 'is-failed': phase === 'failed' }">
           <div class="ad-flow__ring" :class="{ 'is-done': phase === 'done', 'is-live': transferring }">
             <svg class="ad-ring" viewBox="0 0 62 62" :style="{ '--ad-p': ringProgress }">
               <circle class="ad-ring__bg" cx="31" cy="31" r="26"></circle>
@@ -1362,22 +1503,25 @@
 
         <!-- 发端：二维码 + 连接码 -->
         <div class="ad-code" v-if="role === 'send' && phase === 'waiting'">
-          <div class="ad-qr-wrap">
+          <div class="ad-qr-wrap" :class="{ 'is-copied': copiedTick }">
             <div class="ad-qr" v-html="qrSvg" @click="copyCode" title="点击复制连接码"></div>
+            <span class="ad-qr-copied" v-if="copiedTick"><i class="fas fa-check"></i> 已复制</span>
           </div>
           <div class="ad-digits">
             <span class="ad-digit" v-for="(d, i) in digits" :key="i"
                   :style="{ 'animation-delay': (i * 0.045) + 's' }">{{ d }}</span>
           </div>
-          <button class="btn btn--sm" @click="copyCode">
-            <i class="fas fa-copy"></i><span>复制连接码</span>
+          <button class="btn btn--sm" :class="{ 'is-copied': copiedTick }" @click="copyCode">
+            <i class="fas" :class="copiedTick ? 'fa-check' : 'fa-copy'"></i>
+            <span>{{ copiedTick ? '已复制' : '复制连接码' }}</span>
           </button>
         </div>
 
         <!-- 收端：输入连接码 / 扫码 -->
         <div class="ad-join" v-if="role === 'recv' && phase === 'joining'">
-          <input class="ad-code-input" v-model="joinCode" maxlength="8" placeholder="8 位连接码"
-                 @keyup.enter="joinRoom" aria-label="连接码" />
+          <input class="ad-code-input" :value="joinCode" maxlength="8" placeholder="8 位连接码"
+                 @input="onCodeInput" @keyup.enter="joinRoom" aria-label="连接码"
+                 autocapitalize="characters" autocomplete="off" spellcheck="false" inputmode="text" />
           <div class="ad-actions">
             <button class="ad-btn ad-btn--primary" @click="joinRoom" :disabled="busy">
               <i class="fas fa-link"></i><span>连接</span>
@@ -1386,8 +1530,9 @@
               <i class="fas fa-magnifying-glass"></i><span>{{ scanning ? '扫描中…' : '扫码' }}</span>
             </button>
           </div>
-          <video v-show="scanning" ref="scanVideo" muted playsinline
-                 style="width:100%;max-width:280px;border-radius:var(--r-md);background:#000"></video>
+          <div class="ad-scanbox" v-show="scanning">
+            <video ref="scanVideo" muted playsinline></video>
+          </div>
           <button class="ad-back" @click="backToChoose">
             <i class="fas fa-chevron-left"></i><span>返回重新选择</span>
           </button>
@@ -1414,7 +1559,8 @@
           <div class="ad-nodes__label">中转节点</div>
           <div class="ad-nodes__row">
             <button class="ad-node-pick" v-for="n in nodeList" :key="n.key"
-                    :class="{ 'is-on': selectedNode === n.key }" @click="selectedNode = n.key">
+                    :class="{ 'is-on': selectedNode === n.key }" :aria-pressed="selectedNode === n.key"
+                    @click="selectedNode = n.key">
               <i class="fas" :class="n.key === 'r2' ? 'fa-cloud' : 'fa-paper-plane'"></i>
               <span>{{ n.label }}</span>
               <small>≤ {{ formatSizeLabel(n.maxBytes) }}</small>
@@ -1439,8 +1585,8 @@
             <span v-if="totalSelectedSize">{{ formatSizeLabel(totalSelectedSize) }}</span>
           </div>
           <div class="ad-files__list">
-            <div class="ad-file" v-for="(f, i) in selectedFiles" :key="i">
-              <span class="ad-file__icon"><i class="fas fa-file-lines"></i></span>
+            <div class="ad-file" v-for="(f, i) in selectedFiles" :key="i" :style="{ '--i': i }">
+              <span class="ad-file__icon" :class="fileIcon(f).cls"><i class="fas" :class="fileIcon(f).icon"></i></span>
               <span class="ad-file__meta">
                 <span class="ad-file__name">{{ f.name }}</span>
                 <span class="ad-file__size">{{ formatSizeLabel(f.size) }} · 来自{{ f.kind === 'local' ? '本地' : '云端' }}</span>
@@ -1468,11 +1614,17 @@
             <span v-if="session.totalSize">{{ formatSizeLabel(session.totalSize) }}</span>
           </div>
           <div class="ad-files__list">
-            <div class="ad-file" v-for="(f, i) in session.files" :key="i">
-              <span class="ad-file__icon"><i class="fas" :class="(phase === 'done' || f.status === 'downloaded') ? 'fa-circle-check' : 'fa-file-lines'" :style="(phase === 'done' || f.status === 'downloaded') ? 'color:var(--c-success)' : ''"></i></span>
+            <div class="ad-file" v-for="(f, i) in session.files" :key="i" :style="{ '--i': i }"
+                 :class="{ 'is-live': phase === 'downloading' && i === doneCount, 'is-done': phase === 'done' || f.status === 'downloaded' }">
+              <span class="ad-file__icon" :class="fileIcon(f).cls">
+                <i class="fas" :class="(phase === 'done' || f.status === 'downloaded') ? 'fa-circle-check' : fileIcon(f).icon"></i>
+              </span>
               <span class="ad-file__meta">
                 <span class="ad-file__name">{{ f.name }}</span>
-                <span class="ad-file__size">{{ formatSizeLabel(f.size) }}</span>
+                <span class="ad-file__size">
+                  {{ formatSizeLabel(f.size) }}
+                  <template v-if="phase === 'downloading' && i === doneCount"> · 接收中…</template>
+                </span>
               </span>
             </div>
           </div>
