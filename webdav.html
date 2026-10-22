@@ -15,6 +15,8 @@
     <script src="/assets/js/theme.js?v=20260305"></script>
     <script src="/assets/js/app-core.js"></script>
     <style>
+      [hidden] { display: none !important; }
+
       body {
         background: var(--bg-gradient);
         background-attachment: scroll;
@@ -28,7 +30,7 @@
       .access-shell {
         position: relative;
         z-index: 2;
-        max-width: 1020px;
+        max-width: 720px;
         margin: 0 auto;
         padding: 18px var(--sp-5) 48px;
       }
@@ -57,12 +59,12 @@
       .access-nav { display: flex; align-items: center; gap: 2px; }
       .access-nav a {
         padding: 7px 11px;
-        white-space: nowrap;
         border-radius: var(--r-pill);
         color: var(--text-sub);
         font-size: var(--fs-sm);
         font-weight: 600;
         text-decoration: none;
+        white-space: nowrap;
         transition: var(--transition);
       }
       .access-nav a:hover { color: var(--primary-dark); background: rgba(var(--primary-rgb), 0.07); }
@@ -82,142 +84,50 @@
         justify-content: space-between;
         gap: var(--sp-4);
         flex-wrap: wrap;
-        padding: clamp(36px, 6vw, 56px) 0 22px;
+        padding: 34px 0 18px;
         animation: riseIn 0.5s var(--ease-fluid) 0.04s backwards;
       }
-      .access-head h1 { font-size: clamp(1.8rem, 3.4vw, 2.4rem); line-height: 1.15; letter-spacing: -0.035em; font-weight: 800; }
-      .access-head p { margin-top: 8px; color: var(--text-muted); font-size: var(--fs-md); }
+      .access-head h1 { font-size: clamp(2rem, 4vw, 2.5rem); line-height: 1.1; letter-spacing: -0.04em; font-weight: 700; }
+      .access-head p { margin-top: 6px; color: var(--ui-secondary); font-size: var(--fs-md); }
       .access-tabs {
         display: inline-flex;
-        gap: 3px;
-        padding: 4px;
-        border-radius: var(--r-pill);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-soft);
+        gap: 2px;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--ui-fill);
       }
       .access-tab {
         display: inline-flex;
         align-items: center;
-        gap: 7px;
-        padding: 8px 16px;
+        justify-content: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 15px;
         border: none;
-        border-radius: var(--r-pill);
+        border-radius: 7px;
         background: transparent;
-        color: var(--text-sub);
+        color: var(--ui-label);
         font-family: inherit;
-        font-size: var(--fs-sm);
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 600;
         cursor: pointer;
-        transition: var(--transition);
+        transition: background-color 0.16s ease, box-shadow 0.16s ease;
         -webkit-tap-highlight-color: transparent;
       }
-      .access-tab:hover { color: var(--primary); }
-      .access-tab.is-active { color: #fff; background: var(--primary); box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.28); }
+      .access-tab.is-active { background: var(--ui-group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 
       .access-panel { display: none; }
-      .access-panel.is-active { display: block; animation: riseIn 0.4s var(--ease-fluid) backwards; }
-
-      .svc-bar {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-        padding: 12px 16px;
-        border-radius: var(--r-md);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-soft);
-      }
-      .svc-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--text-muted); }
-      .svc-bar.is-ok .svc-dot { background: var(--c-success); }
-      .svc-bar.is-off .svc-dot { background: var(--c-danger); }
-      .svc-bar__text { font-size: var(--fs-md); font-weight: 700; }
-      .svc-bar__meta { color: var(--text-muted); font-size: var(--fs-sm); }
-      .svc-bar__actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-      .svc-link {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 6px 10px;
-        border-radius: var(--r-pill);
-        color: var(--text-sub);
-        font-size: var(--fs-xs);
-        font-weight: 600;
-        text-decoration: none;
-        transition: var(--transition);
-      }
-      .svc-link:hover { color: var(--primary); background: rgba(var(--primary-rgb), 0.07); }
-      .svc-icon-btn {
-        width: var(--h-ctrl-sm); height: var(--h-ctrl-sm);
-        border: 1px solid transparent; border-radius: var(--r-pill);
-        background: transparent; color: var(--text-muted);
-        cursor: pointer; transition: var(--transition);
-      }
-      .svc-icon-btn:hover { color: var(--primary); border-color: var(--glass-border-ice); background: var(--glass-surface); }
-
-      .access-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); align-items: start; }
-      .access-card {
-        border-radius: var(--r-lg);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-soft);
-        overflow: hidden;
-      }
-      .access-card--wide { grid-column: 1 / -1; }
-      .access-card__head {
-        display: flex; align-items: center; gap: 8px;
-        padding: 15px 18px 0;
-      }
-      .access-card__head i { color: var(--primary); font-size: 0.9rem; }
-      .access-card__head h2 { font-size: var(--fs-md); font-weight: 700; }
-      .access-card__note { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
-      .access-card__body { padding: 14px 18px 18px; }
-
-      .conn-list { display: flex; flex-direction: column; }
-      .conn-row {
-        display: grid;
-        grid-template-columns: 72px minmax(0, 1fr) auto;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 0;
-        border-bottom: 1px dashed var(--glass-border-ice);
-      }
-      .conn-row:last-child { border-bottom: none; }
-      .conn-row__label { color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; }
-      .conn-row__value {
-        min-width: 0;
-        font-family: var(--font-mono);
-        font-size: var(--fs-sm);
-        color: var(--text-main);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .conn-row__value.is-muted { font-family: var(--font-sans); color: var(--text-muted); }
-      .copy-btn {
-        display: inline-flex; align-items: center; gap: 5px;
-        height: 28px; padding: 0 9px;
-        border: 1px solid var(--glass-border-ice);
-        border-radius: var(--r-pill);
-        background: var(--glass-subtle);
-        color: var(--text-sub);
-        font-family: inherit; font-size: var(--fs-xs); font-weight: 600;
-        cursor: pointer; transition: var(--transition);
-      }
-      .copy-btn:hover { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.4); }
-      .copy-btn.is-done { color: var(--c-success-text); border-color: rgba(16, 185, 129, 0.4); }
-
-      .access-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
-      .access-hint { margin-top: 12px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.6; }
-      .access-hint code { font-family: var(--font-mono); color: var(--text-sub); }
+      .access-panel.is-active { display: block; animation: riseIn 0.36s var(--ease-fluid) backwards; }
+      .access-panel .ui-group { margin-top: 4px; }
+      .access-panel .ui-actions { margin-top: 12px; }
 
       .seg-tabs {
         display: flex;
         gap: 2px;
-        padding: 3px;
+        padding: 2px;
         margin-bottom: 14px;
-        border-radius: var(--r-sm);
-        background: rgba(var(--primary-rgb), 0.05);
-        border: 1px solid var(--glass-border-ice);
+        border-radius: 9px;
+        background: var(--ui-fill);
         overflow-x: auto;
         scrollbar-width: none;
       }
@@ -225,138 +135,109 @@
       .seg-tab {
         flex: 1;
         min-width: max-content;
-        padding: 7px 10px;
+        height: 32px;
+        padding: 0 10px;
         border: none;
-        border-radius: 9px;
+        border-radius: 7px;
         background: transparent;
-        color: var(--text-sub);
+        color: var(--ui-label);
         font-family: inherit;
-        font-size: var(--fs-xs);
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 600;
         cursor: pointer;
-        transition: var(--transition);
+        transition: background-color 0.16s ease, box-shadow 0.16s ease;
       }
-      .seg-tab:hover { color: var(--primary); }
-      .seg-tab.is-active { color: var(--text-main); background: var(--glass-elevated); box-shadow: var(--shadow-sm); }
+      .seg-tab.is-active { background: var(--ui-group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 
       .guide { display: none; }
       .guide.is-active { display: block; }
-      .guide ol { margin: 0; padding-left: 18px; color: var(--text-sub); font-size: var(--fs-md); line-height: 1.8; }
-      .guide li::marker { color: var(--primary); font-weight: 700; }
-      .guide code { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-main); background: rgba(var(--primary-rgb), 0.08); padding: 1px 5px; border-radius: 5px; }
+      .guide ol { margin: 0; padding-left: 18px; color: var(--text-sub); font-size: 14px; line-height: 1.8; }
+      .guide li::marker { color: var(--ui-blue); font-weight: 700; }
+      .guide code {
+        padding: 1px 5px;
+        border-radius: 5px;
+        background: var(--ui-fill);
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
 
       .code-block {
         position: relative;
         margin-top: 12px;
-        border-radius: var(--r-md);
+        border-radius: 12px;
         background: #0b1220;
-        border: 1px solid rgba(148, 163, 184, 0.2);
         overflow: hidden;
       }
       html[data-theme="dark"] .code-block { background: #060b14; }
-      .code-block code {
-        color: inherit;
-        background: transparent;
-        padding: 0;
-        border-radius: 0;
-        font-family: inherit;
-        font-size: inherit;
-      }
       .code-block pre {
         margin: 0;
-        padding: 14px 52px 14px 15px;
+        padding: 13px 50px 13px 14px;
         overflow-x: auto;
         color: #dbeafe;
         font-family: var(--font-mono);
-        font-size: 0.76rem;
+        font-size: 12px;
         line-height: 1.7;
-        white-space: pre;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: normal;
       }
-      .code-block .copy-btn {
+      .code-block code { color: inherit; background: transparent; padding: 0; font: inherit; }
+      .code-block .ui-copy {
         position: absolute;
-        top: 8px; right: 8px;
-        height: 26px;
-        border-color: rgba(148, 163, 184, 0.28);
-        background: rgba(255, 255, 255, 0.08);
+        top: 8px;
+        right: 8px;
+        background: rgba(255, 255, 255, 0.1);
         color: #cbd5e1;
       }
-      .code-block .copy-btn:hover { color: #fff; border-color: rgba(148, 163, 184, 0.5); }
+      .code-block .ui-copy.is-done { color: var(--ui-green); }
 
-      .probe-form { display: flex; gap: 8px; flex-wrap: wrap; }
-      .probe-form .input { flex: 1; min-width: 140px; }
-      .probe-result { margin-top: 10px; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.6; word-break: break-word; }
-      .probe-result.is-ok { color: var(--c-success-text); }
-      .probe-result.is-bad { color: var(--c-danger); }
-
-      .mini-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+      .mini-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
       .mini-chip {
-        display: inline-flex; align-items: center; gap: 5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         padding: 5px 9px;
         border-radius: var(--r-pill);
-        background: rgba(var(--primary-rgb), 0.06);
-        border: 1px solid var(--glass-border-ice);
+        background: var(--ui-group);
         color: var(--text-sub);
-        font-size: var(--fs-xs);
+        font-size: 11px;
         font-weight: 600;
       }
 
-      .login-banner {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: 10px; flex-wrap: wrap;
-        margin-top: var(--sp-3);
-        padding: 12px 16px;
-        border-radius: var(--r-md);
-        background: rgba(245, 158, 11, 0.12);
-        border: 1px solid rgba(245, 158, 11, 0.35);
-        color: var(--text-sub);
-        font-size: var(--fs-sm);
-      }
-      .login-banner a { color: var(--primary); font-weight: 700; text-decoration: none; }
-      .login-banner[hidden] { display: none; }
-
-      details.access-details {
-        margin-top: 14px;
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-        line-height: 1.7;
-      }
-      details.access-details summary { cursor: pointer; font-weight: 600; color: var(--text-sub); }
-      details.access-details p { margin-top: 6px; }
+      .login-note { color: var(--ui-secondary); }
+      .login-note a { color: var(--ui-blue); }
 
       .access-footer {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: var(--sp-3); flex-wrap: wrap;
-        margin-top: var(--sp-6);
-        padding-top: var(--sp-5);
-        border-top: 1px solid var(--glass-border-ice);
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--sp-3);
+        flex-wrap: wrap;
+        margin-top: 28px;
+        padding-top: 18px;
+        border-top: 1px solid var(--ui-separator);
+        color: var(--ui-secondary);
+        font-size: 12px;
       }
       .access-footer a { color: var(--text-sub); text-decoration: none; }
-      .access-footer a:hover { color: var(--primary); }
+      .access-footer a:hover { color: var(--ui-blue); }
 
-      @media (max-width: 860px) {
-        .access-grid { grid-template-columns: 1fr; }
-        .access-card--wide { grid-column: auto; }
-      }
-      @media (max-width: 600px) {
+      @media (max-width: 640px) {
         .access-shell { padding: 12px var(--sp-3) 36px; }
-        .code-block pre { font-size: 0.68rem; }
         .access-brand { flex: 0 0 auto; }
         .access-brand__logo { width: 34px; height: 34px; }
         .access-brand__text strong { font-size: var(--fs-md); max-width: 90px; }
         .access-nav { gap: 0; }
         .access-nav a { padding: 6px 7px; font-size: var(--fs-xs); }
         .access-nav__home, .access-nav__admin { display: none; }
-        .access-head { padding-top: 30px; }
+        .access-head { padding-top: 28px; align-items: stretch; }
+        .access-head h1 { font-size: 2rem; }
         .access-tabs { width: 100%; }
-        .access-tab { flex: 1; justify-content: center; }
-        .conn-row { grid-template-columns: 1fr auto; gap: 4px 10px; }
-        .conn-row__label { grid-column: 1 / -1; }
-        .conn-row__value { white-space: normal; word-break: break-all; }
+        .access-tab { flex: 1; }
+        .code-block pre { font-size: 11px; }
+        .ui-row code.ui-row__value { max-width: 48%; }
       }
     </style>
-    <link rel="stylesheet" href="/assets/css/mobile-refactor.css" />
   </head>
   <body>
     <div class="ambient-glow">
@@ -389,8 +270,8 @@
       <main>
         <div class="access-head">
           <div>
-            <h1>接入你的工作流</h1>
-            <p>挂载成磁盘，或让 AI 直接读写。</p>
+            <h1>接入</h1>
+            <p>挂成磁盘，或交给 AI。</p>
           </div>
           <div class="access-tabs" role="tablist" aria-label="接入方式">
             <button class="access-tab is-active" type="button" role="tab" aria-selected="true" data-tab="webdav">
@@ -404,205 +285,208 @@
 
         <!-- WebDAV -->
         <section class="access-panel is-active" id="panel-webdav" role="tabpanel">
-          <div class="svc-bar" id="davBar">
-            <span class="svc-dot"></span>
-            <span class="svc-bar__text" id="davStatus">检测中</span>
-            <span class="svc-bar__meta" id="davMeta"></span>
-            <div class="svc-bar__actions">
-              <button class="svc-icon-btn" type="button" id="davRefresh" title="刷新状态" aria-label="刷新状态">
-                <i class="fas fa-rotate"></i>
-              </button>
-              <a class="svc-link" href="/admin/access"><i class="fas fa-sliders"></i>设置</a>
+          <div class="ui-group ui-group--icons">
+            <div class="ui-row">
+              <span class="ui-row__icon"><i class="fas fa-hard-drive"></i></span>
+              <span class="ui-row__body">
+                <span class="ui-row__title">WebDAV</span>
+                <span class="ui-row__sub" id="davMeta">检测中</span>
+              </span>
+              <span class="ui-badge" id="davBadge">检测中</span>
+            </div>
+            <div class="ui-row">
+              <span class="ui-row__label">地址</span>
+              <code class="ui-row__value" id="davUrl">/dav</code>
+              <button class="ui-copy" type="button" data-copy="davUrl" aria-label="复制地址"><i class="fas fa-copy"></i></button>
+            </div>
+            <div class="ui-row">
+              <span class="ui-row__label">用户名</span>
+              <span class="ui-row__value" id="davUser">登录后可见</span>
+              <button class="ui-copy" type="button" data-copy="davUser" aria-label="复制用户名"><i class="fas fa-copy"></i></button>
+            </div>
+            <div class="ui-row">
+              <span class="ui-row__label">密码</span>
+              <span class="ui-row__value" id="davPass">在后台设置</span>
+              <a href="/admin/access" aria-label="后台修改密码" style="text-decoration:none"><i class="fas fa-chevron-right ui-chevron"></i></a>
             </div>
           </div>
 
-          <div class="login-banner" id="davLogin" hidden>
-            <span>登录后可查看用户名并复制完整连接信息。</span>
-            <a id="davLoginLink" href="./login.html?redirect=%2Fwebdav.html">去登录</a>
+          <div class="ui-actions">
+            <button class="ui-btn" type="button" data-open-sheet="dav-test"><i class="fas fa-satellite-dish"></i>测试连接</button>
+            <button class="ui-btn ui-btn--secondary" type="button" data-open-sheet="dav-guide"><i class="fas fa-list-check"></i>挂载步骤</button>
           </div>
 
-          <div class="access-grid">
-            <article class="access-card">
-              <div class="access-card__head">
-                <i class="fas fa-link"></i>
-                <h2>连接信息</h2>
-              </div>
-              <div class="access-card__body">
-                <div class="conn-list">
-                  <div class="conn-row">
-                    <span class="conn-row__label">地址</span>
-                    <span class="conn-row__value" id="davUrl">/dav</span>
-                    <button class="copy-btn" type="button" data-copy="davUrl"><i class="fas fa-copy"></i>复制</button>
-                  </div>
-                  <div class="conn-row">
-                    <span class="conn-row__label">用户名</span>
-                    <span class="conn-row__value is-muted" id="davUser">登录后可见</span>
-                    <button class="copy-btn" type="button" data-copy="davUser"><i class="fas fa-copy"></i>复制</button>
-                  </div>
-                  <div class="conn-row">
-                    <span class="conn-row__label">密码</span>
-                    <span class="conn-row__value is-muted" id="davPass">在后台设置</span>
-                    <a class="copy-btn" href="/admin/access"><i class="fas fa-key"></i>查看</a>
-                  </div>
-                </div>
-                <div class="access-actions">
-                  <button class="btn btn--primary btn--sm" type="button" id="copyAll"><i class="fas fa-copy"></i>复制地址与账号</button>
-                </div>
-                <p class="access-hint">客户端通常需要明文保存密码。建议单独设置一个密码，并始终在 HTTPS 下使用。</p>
-              </div>
-            </article>
-
-            <article class="access-card">
-              <div class="access-card__head">
-                <i class="fas fa-satellite-dish"></i>
-                <h2>连接自检</h2>
-              </div>
-              <div class="access-card__body">
-                <div class="probe-form">
-                  <input class="input" id="probeUser" type="text" placeholder="用户名" autocomplete="off" />
-                  <input class="input" id="probePass" type="password" placeholder="密码" autocomplete="new-password" />
-                  <button class="btn btn--primary" type="button" id="probeBtn"><i class="fas fa-plug-circle-check"></i>测试</button>
-                </div>
-                <p class="probe-result" id="probeResult">填入账号密码，验证服务端是否可达。</p>
-              </div>
-            </article>
-
-            <article class="access-card access-card--wide">
-              <div class="access-card__head">
-                <i class="fas fa-list-check"></i>
-                <h2>挂载方式</h2>
-                <span class="access-card__note">按平台选择</span>
-              </div>
-              <div class="access-card__body">
-                <div class="seg-tabs" role="tablist" aria-label="操作系统">
-                  <button class="seg-tab is-active" type="button" data-guide="win">Windows</button>
-                  <button class="seg-tab" type="button" data-guide="mac">macOS</button>
-                  <button class="seg-tab" type="button" data-guide="mobile">手机</button>
-                  <button class="seg-tab" type="button" data-guide="cli">命令行</button>
-                </div>
-
-                <div class="guide is-active" id="guide-win">
-                  <ol>
-                    <li>此电脑 → 映射网络驱动器。</li>
-                    <li>地址填 <code id="winPath">\\host@SSL\dav</code>，勾选「使用其他凭据」。</li>
-                    <li>输入上方用户名与密码。</li>
-                  </ol>
-                  <div class="code-block">
-                    <pre><code id="winCmd">net use Z: \\host@SSL\dav /user:用户名 密码</code></pre>
-                    <button class="copy-btn" type="button" data-copy="winCmd"><i class="fas fa-copy"></i></button>
-                  </div>
-                </div>
-
-                <div class="guide" id="guide-mac">
-                  <ol>
-                    <li>Finder 按 <code>⌘K</code>，打开「连接服务器」。</li>
-                    <li>地址填 <code id="macPath">https://host/dav</code>。</li>
-                    <li>选择「注册用户」，输入用户名与密码。</li>
-                  </ol>
-                </div>
-
-                <div class="guide" id="guide-mobile">
-                  <ol>
-                    <li>安装支持 WebDAV 的文件管理器：Documents、Solid Explorer、Material Files 等。</li>
-                    <li>新建连接 → 选 WebDAV → 填入上方地址、用户名与密码。</li>
-                  </ol>
-                </div>
-
-                <div class="guide" id="guide-cli">
-                  <ol>
-                    <li>列目录：</li>
-                  </ol>
-                  <div class="code-block">
-                    <pre><code id="curlCmd">curl -u 用户名:密码 -X PROPFIND https://host/dav/ -H "Depth: 1"</code></pre>
-                    <button class="copy-btn" type="button" data-copy="curlCmd"><i class="fas fa-copy"></i></button>
-                  </div>
-                  <p class="access-hint">rclone：<code>rclone config</code> → 选 <code>webdav</code> → URL 填服务地址。</p>
-                </div>
-              </div>
-            </article>
-          </div>
+          <p class="ui-note login-note" id="davLogin" hidden>登录后可查看用户名与完整连接信息。<a id="davLoginLink" href="./login.html?redirect=%2Fwebdav.html">去登录</a></p>
+          <p class="ui-note">客户端通常需要明文保存密码，建议单独设置，并始终走 HTTPS。</p>
         </section>
 
         <!-- MCP -->
         <section class="access-panel" id="panel-mcp" role="tabpanel">
-          <div class="svc-bar" id="mcpBar">
-            <span class="svc-dot"></span>
-            <span class="svc-bar__text" id="mcpStatus">检测中</span>
-            <span class="svc-bar__meta">Streamable HTTP</span>
-            <div class="svc-bar__actions">
-              <button class="svc-icon-btn" type="button" id="mcpRefresh" title="刷新状态" aria-label="刷新状态">
-                <i class="fas fa-rotate"></i>
-              </button>
-              <a class="svc-link" href="/admin/access"><i class="fas fa-sliders"></i>设置</a>
+          <div class="ui-group ui-group--icons">
+            <div class="ui-row">
+              <span class="ui-row__icon is-purple"><i class="fas fa-robot"></i></span>
+              <span class="ui-row__body">
+                <span class="ui-row__title">MCP</span>
+                <span class="ui-row__sub">Streamable HTTP</span>
+              </span>
+              <span class="ui-badge" id="mcpBadge">检测中</span>
+            </div>
+            <div class="ui-row">
+              <span class="ui-row__label">地址</span>
+              <code class="ui-row__value" id="mcpUrl">/mcp</code>
+              <button class="ui-copy" type="button" data-copy="mcpUrl" aria-label="复制地址"><i class="fas fa-copy"></i></button>
+            </div>
+            <div class="ui-row">
+              <span class="ui-row__label">鉴权</span>
+              <span class="ui-row__value">Bearer Token</span>
+              <a href="/admin/access" aria-label="创建 Token" style="text-decoration:none"><i class="fas fa-chevron-right ui-chevron"></i></a>
             </div>
           </div>
 
-          <div class="access-grid">
-            <article class="access-card">
-              <div class="access-card__head">
-                <i class="fas fa-plug"></i>
-                <h2>端点</h2>
-              </div>
-              <div class="access-card__body">
-                <div class="conn-list">
-                  <div class="conn-row">
-                    <span class="conn-row__label">地址</span>
-                    <span class="conn-row__value" id="mcpUrl">/mcp</span>
-                    <button class="copy-btn" type="button" data-copy="mcpUrl"><i class="fas fa-copy"></i>复制</button>
-                  </div>
-                  <div class="conn-row">
-                    <span class="conn-row__label">传输</span>
-                    <span class="conn-row__value is-muted">Streamable HTTP</span>
-                  </div>
-                  <div class="conn-row">
-                    <span class="conn-row__label">鉴权</span>
-                    <span class="conn-row__value is-muted">Bearer API Token</span>
-                    <a class="copy-btn" href="/admin/access"><i class="fas fa-key"></i>创建</a>
-                  </div>
-                </div>
-                <p class="access-hint">Token 只在创建时显示一次。MCP 工具还受后台「可用工具」开关约束。</p>
-              </div>
-            </article>
+          <div class="ui-actions">
+            <button class="ui-btn" type="button" data-open-sheet="mcp-test"><i class="fas fa-satellite-dish"></i>测试 Token</button>
+            <button class="ui-btn ui-btn--secondary" type="button" data-open-sheet="mcp-clients"><i class="fas fa-code"></i>客户端配置</button>
+          </div>
 
-            <article class="access-card">
-              <div class="access-card__head">
-                <i class="fas fa-satellite-dish"></i>
-                <h2>Token 自检</h2>
-              </div>
-              <div class="access-card__body">
-                <div class="probe-form">
-                  <input class="input" id="mcpToken" type="password" placeholder="kvault_..." autocomplete="off" />
-                  <button class="btn btn--primary" type="button" id="mcpTest"><i class="fas fa-satellite-dish"></i>测试</button>
-                </div>
-                <p class="probe-result" id="mcpTestResult">填入 API Token，验证能否列出工具。</p>
-              </div>
-            </article>
+          <p class="ui-note">Token 只在创建时显示一次；工具还受后台的可用工具开关约束。</p>
+        </section>
+      </main>
 
-            <article class="access-card access-card--wide">
-              <div class="access-card__head">
-                <i class="fas fa-code"></i>
-                <h2>客户端配置</h2>
-                <span class="access-card__note">替换 Token 后使用</span>
-              </div>
-              <div class="access-card__body">
-                <div class="seg-tabs" role="tablist" aria-label="MCP 客户端">
-                  <button class="seg-tab is-active" type="button" data-mcp="claude">Claude Code</button>
-                  <button class="seg-tab" type="button" data-mcp="cursor">Cursor</button>
-                  <button class="seg-tab" type="button" data-mcp="codex">Codex</button>
-                  <button class="seg-tab" type="button" data-mcp="curl">cURL</button>
-                </div>
+      <footer class="access-footer">
+        <span>K-Vault-NEXT · 接入</span>
+        <span><a href="./upload.html">上传</a> · <a href="./gallery.html">图床</a> · <a href="/admin/access">后台接入设置</a></span>
+      </footer>
+    </div>
 
-                <div class="guide is-active" id="mcp-claude">
-                  <div class="code-block">
-                    <pre><code data-mcp-code="claude">claude mcp add --transport http kvault __BASE__/mcp --header "Authorization: Bearer kvault_xxx"</code></pre>
-                    <button class="copy-btn" type="button" data-copy="mcpCodeClaude"><i class="fas fa-copy"></i></button>
-                  </div>
-                </div>
+    <div class="ui-sheet-mask is-hidden" id="sheetMask"></div>
 
-                <div class="guide" id="mcp-cursor">
-                  <p class="access-hint" style="margin-top:0">写入 <code>~/.cursor/mcp.json</code>：</p>
-                  <div class="code-block">
-                    <pre><code data-mcp-code="cursor">{
+    <!-- WebDAV 测试 -->
+    <section class="ui-sheet is-hidden" id="sheet-dav-test" role="dialog" aria-modal="true" aria-label="测试 WebDAV">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>测试连接</h2>
+        <button class="ui-sheet__close" type="button" data-close-sheet aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+        <div class="ui-group">
+          <div class="ui-field">
+            <label class="ui-field__label" for="probeUser">用户名</label>
+            <input id="probeUser" type="text" placeholder="用户名" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="ui-field">
+            <label class="ui-field__label" for="probePass">密码</label>
+            <input id="probePass" type="password" placeholder="密码" autocomplete="new-password" />
+          </div>
+        </div>
+        <div class="ui-actions">
+          <button class="ui-btn" type="button" id="probeBtn"><i class="fas fa-plug-circle-check"></i>测试</button>
+        </div>
+        <p class="ui-note" id="probeResult">填入账号密码，验证服务端是否可达。</p>
+      </div>
+    </section>
+
+    <!-- WebDAV 挂载步骤 -->
+    <section class="ui-sheet is-hidden" id="sheet-dav-guide" role="dialog" aria-modal="true" aria-label="挂载步骤">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>挂载步骤</h2>
+        <button class="ui-sheet__close" type="button" data-close-sheet aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+        <div class="seg-tabs" role="tablist" aria-label="操作系统">
+          <button class="seg-tab is-active" type="button" data-guide="win">Windows</button>
+          <button class="seg-tab" type="button" data-guide="mac">macOS</button>
+          <button class="seg-tab" type="button" data-guide="mobile">手机</button>
+          <button class="seg-tab" type="button" data-guide="cli">命令行</button>
+        </div>
+
+        <div class="guide is-active" id="guide-win">
+          <ol>
+            <li>此电脑 → 映射网络驱动器。</li>
+            <li>地址填 <code id="winPath">\\host@SSL\dav</code>，勾选「使用其他凭据」。</li>
+            <li>输入用户名与密码。</li>
+          </ol>
+          <div class="code-block">
+            <pre><code id="winCmd">net use Z: \\host@SSL\dav /user:用户名 密码</code></pre>
+            <button class="ui-copy" type="button" data-copy="winCmd" aria-label="复制"><i class="fas fa-copy"></i></button>
+          </div>
+        </div>
+
+        <div class="guide" id="guide-mac">
+          <ol>
+            <li>Finder 按 <code>⌘K</code>，打开「连接服务器」。</li>
+            <li>地址填 <code id="macPath">https://host/dav</code>。</li>
+            <li>选择「注册用户」，输入用户名与密码。</li>
+          </ol>
+        </div>
+
+        <div class="guide" id="guide-mobile">
+          <ol>
+            <li>安装支持 WebDAV 的文件管理器：Documents、Solid Explorer、Material Files 等。</li>
+            <li>新建连接 → 选 WebDAV → 填入上方地址与账号。</li>
+          </ol>
+        </div>
+
+        <div class="guide" id="guide-cli">
+          <ol>
+            <li>列目录：</li>
+          </ol>
+          <div class="code-block">
+            <pre><code id="curlCmd">curl -u 用户名:密码 -X PROPFIND https://host/dav/ -H "Depth: 1"</code></pre>
+            <button class="ui-copy" type="button" data-copy="curlCmd" aria-label="复制"><i class="fas fa-copy"></i></button>
+          </div>
+          <p class="ui-note">rclone：<code>rclone config</code> → 选 <code>webdav</code> → URL 填服务地址。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- MCP Token 测试 -->
+    <section class="ui-sheet is-hidden" id="sheet-mcp-test" role="dialog" aria-modal="true" aria-label="测试 Token">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>测试 Token</h2>
+        <button class="ui-sheet__close" type="button" data-close-sheet aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+        <div class="ui-group">
+          <div class="ui-field">
+            <label class="ui-field__label" for="mcpToken">Token</label>
+            <input id="mcpToken" type="password" placeholder="kvault_..." autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+        <div class="ui-actions">
+          <button class="ui-btn" type="button" id="mcpTest"><i class="fas fa-satellite-dish"></i>测试</button>
+        </div>
+        <p class="ui-note" id="mcpTestResult">填入 API Token，验证能否列出工具。</p>
+      </div>
+    </section>
+
+    <!-- MCP 客户端配置 -->
+    <section class="ui-sheet is-hidden" id="sheet-mcp-clients" role="dialog" aria-modal="true" aria-label="客户端配置">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>客户端配置</h2>
+        <button class="ui-sheet__close" type="button" data-close-sheet aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+        <div class="seg-tabs" role="tablist" aria-label="MCP 客户端">
+          <button class="seg-tab is-active" type="button" data-client="claude">Claude Code</button>
+          <button class="seg-tab" type="button" data-client="cursor">Cursor</button>
+          <button class="seg-tab" type="button" data-client="codex">Codex</button>
+          <button class="seg-tab" type="button" data-client="curl">cURL</button>
+        </div>
+
+        <div class="guide is-active" id="client-claude">
+          <div class="code-block">
+            <pre><code data-mcp-code="claude">claude mcp add --transport http kvault __BASE__/mcp --header "Authorization: Bearer kvault_xxx"</code></pre>
+            <button class="ui-copy" type="button" data-copy="mcpCodeClaude" aria-label="复制"><i class="fas fa-copy"></i></button>
+          </div>
+        </div>
+
+        <div class="guide" id="client-cursor">
+          <p class="ui-note" style="margin-top:0">写入 <code>~/.cursor/mcp.json</code>：</p>
+          <div class="code-block">
+            <pre><code data-mcp-code="cursor">{
   "mcpServers": {
     "kvault": {
       "url": "__BASE__/mcp",
@@ -612,54 +496,41 @@
     }
   }
 }</code></pre>
-                    <button class="copy-btn" type="button" data-copy="mcpCodeCursor"><i class="fas fa-copy"></i></button>
-                  </div>
-                </div>
+            <button class="ui-copy" type="button" data-copy="mcpCodeCursor" aria-label="复制"><i class="fas fa-copy"></i></button>
+          </div>
+        </div>
 
-                <div class="guide" id="mcp-codex">
-                  <p class="access-hint" style="margin-top:0">写入 <code>~/.codex/config.toml</code>：</p>
-                  <div class="code-block">
-                    <pre><code data-mcp-code="codex">[mcp_servers.kvault]
+        <div class="guide" id="client-codex">
+          <p class="ui-note" style="margin-top:0">写入 <code>~/.codex/config.toml</code>：</p>
+          <div class="code-block">
+            <pre><code data-mcp-code="codex">[mcp_servers.kvault]
 url = "__BASE__/mcp"
 bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
-                    <button class="copy-btn" type="button" data-copy="mcpCodeCodex"><i class="fas fa-copy"></i></button>
-                  </div>
-                </div>
+            <button class="ui-copy" type="button" data-copy="mcpCodeCodex" aria-label="复制"><i class="fas fa-copy"></i></button>
+          </div>
+        </div>
 
-                <div class="guide" id="mcp-curl">
-                  <div class="code-block">
-                    <pre><code data-mcp-code="curl">curl -s __BASE__/mcp \
+        <div class="guide" id="client-curl">
+          <div class="code-block">
+            <pre><code data-mcp-code="curl">curl -s __BASE__/mcp \
   -H "Authorization: Bearer $KVAULT_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'</code></pre>
-                    <button class="copy-btn" type="button" data-copy="mcpCodeCurl"><i class="fas fa-copy"></i></button>
-                  </div>
-                </div>
-
-                <div class="mini-list" aria-label="可用工具">
-                  <span class="mini-chip"><i class="fas fa-cloud-arrow-up"></i>上传</span>
-                  <span class="mini-chip"><i class="fas fa-list"></i>列表</span>
-                  <span class="mini-chip"><i class="fas fa-circle-info"></i>详情</span>
-                  <span class="mini-chip"><i class="fas fa-share-nodes"></i>分享</span>
-                  <span class="mini-chip"><i class="fas fa-trash"></i>删除</span>
-                  <span class="mini-chip"><i class="fas fa-file-lines"></i>文本片段</span>
-                </div>
-
-                <details class="access-details">
-                  <summary>工具与权限</summary>
-                  <p>共 11 个工具。后台开关决定「哪些工具可用」，Token 的 scope 决定「这个 Token 能做什么」，两者同时满足才会执行。完整清单见 <a href="/docs/reference/agent-integration.md">接入文档</a>。</p>
-                </details>
-              </div>
-            </article>
+            <button class="ui-copy" type="button" data-copy="mcpCodeCurl" aria-label="复制"><i class="fas fa-copy"></i></button>
           </div>
-        </section>
-      </main>
+        </div>
 
-      <footer class="access-footer">
-        <span>K-Vault-NEXT · WebDAV / MCP 接入</span>
-        <span><a href="./upload.html">上传</a> · <a href="./gallery.html">图床</a> · <a href="/admin/access">后台接入设置</a></span>
-      </footer>
-    </div>
+        <div class="mini-list" aria-label="可用工具">
+          <span class="mini-chip"><i class="fas fa-cloud-arrow-up"></i>上传</span>
+          <span class="mini-chip"><i class="fas fa-list"></i>列表</span>
+          <span class="mini-chip"><i class="fas fa-circle-info"></i>详情</span>
+          <span class="mini-chip"><i class="fas fa-share-nodes"></i>分享</span>
+          <span class="mini-chip"><i class="fas fa-trash"></i>删除</span>
+          <span class="mini-chip"><i class="fas fa-file-lines"></i>文本片段</span>
+        </div>
+        <p class="ui-note">后台开关决定「哪些工具可用」，Token scope 决定「这个 Token 能做什么」。</p>
+      </div>
+    </section>
 
     <script>
       (function () {
@@ -682,24 +553,46 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
 
         function copyText(text) {
           if (window.KVault && KVault.copy) return KVault.copy(text);
-          if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(function () { return true; }).catch(function () { return false; });
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).then(function () { return true; }).catch(function () { return false; });
+          }
           return Promise.resolve(false);
         }
 
-        function flash(btn, done) {
-          if (!btn) return;
-          var old = btn.innerHTML;
-          var hasLabel = btn.textContent.trim().length > 0;
-          btn.innerHTML = done
-            ? '<i class="fas fa-check"></i>' + (hasLabel ? "已复制" : "")
-            : '<i class="fas fa-copy"></i>' + (hasLabel ? "复制失败" : "");
-          btn.classList.toggle("is-done", !!done);
-          setTimeout(function () {
-            btn.innerHTML = old;
-            btn.classList.remove("is-done");
-          }, 1600);
+        function setBadge(el, state, label) {
+          if (!el) return;
+          el.classList.remove("is-on", "is-off");
+          if (state === true) el.classList.add("is-on");
+          else if (state === false) el.classList.add("is-off");
+          el.textContent = label;
         }
 
+        function openSheet(name) {
+          closeSheet();
+          var sheet = $("sheet-" + name);
+          if (!sheet) return;
+          $("sheetMask").classList.remove("is-hidden");
+          sheet.classList.remove("is-hidden");
+          document.documentElement.classList.add("ui-sheet-open");
+        }
+
+        function closeSheet() {
+          document.querySelectorAll(".ui-sheet").forEach(function (el) { el.classList.add("is-hidden"); });
+          var mask = $("sheetMask");
+          if (mask) mask.classList.add("is-hidden");
+          document.documentElement.classList.remove("ui-sheet-open");
+        }
+
+        document.querySelectorAll("[data-open-sheet]").forEach(function (btn) {
+          btn.addEventListener("click", function () { openSheet(btn.getAttribute("data-open-sheet")); });
+        });
+        document.querySelectorAll("[data-close-sheet]").forEach(function (btn) {
+          btn.addEventListener("click", closeSheet);
+        });
+        $("sheetMask").addEventListener("click", closeSheet);
+        document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSheet(); });
+
+        /* ---- 复制 ---- */
         document.querySelectorAll("[data-copy]").forEach(function (btn) {
           btn.addEventListener("click", function () {
             var el = $(btn.getAttribute("data-copy"));
@@ -709,7 +602,15 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
               showLogin();
               return;
             }
-            copyText(text).then(function (ok) { flash(btn, ok); });
+            copyText(text).then(function (ok) {
+              var old = btn.innerHTML;
+              btn.innerHTML = '<i class="fas ' + (ok ? "fa-check" : "fa-copy") + '"></i>';
+              btn.classList.toggle("is-done", !!ok);
+              setTimeout(function () {
+                btn.innerHTML = old;
+                btn.classList.remove("is-done");
+              }, 1500);
+            });
           });
         });
 
@@ -723,7 +624,7 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
           });
           $("panel-webdav").classList.toggle("is-active", target === "webdav");
           $("panel-mcp").classList.toggle("is-active", target === "mcp");
-          if (target === "mcp" && !$("mcpStatus").dataset.done) probeMcp();
+          if (target === "mcp" && !$("mcpBadge").dataset.done) probeMcp();
           try {
             var url = new URL(location.href);
             if (target === "mcp") url.searchParams.set("tab", "mcp");
@@ -737,10 +638,12 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
         });
 
         var initial = "";
-        try { initial = new URLSearchParams(location.search).get("tab") || (location.hash === "#mcp" ? "mcp" : ""); } catch (e) { /* ignore */ }
+        try {
+          initial = new URLSearchParams(location.search).get("tab") || (location.hash === "#mcp" ? "mcp" : "");
+        } catch (e) { /* ignore */ }
         if (initial) activateTab(initial);
 
-        /* ---- 平台 / 客户端子标签 ---- */
+        /* ---- 子标签 ---- */
         document.querySelectorAll(".seg-tab[data-guide]").forEach(function (tab) {
           tab.addEventListener("click", function () {
             var key = tab.getAttribute("data-guide");
@@ -749,17 +652,15 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
           });
         });
 
-        document.querySelectorAll(".seg-tab[data-mcp]").forEach(function (tab) {
+        document.querySelectorAll(".seg-tab[data-client]").forEach(function (tab) {
           tab.addEventListener("click", function () {
-            var key = tab.getAttribute("data-mcp");
-            document.querySelectorAll(".seg-tab[data-mcp]").forEach(function (t) { t.classList.toggle("is-active", t === tab); });
-            document.querySelectorAll("[id^='mcp-']").forEach(function (g) {
-              if (g.classList.contains("guide")) g.classList.toggle("is-active", g.id === "mcp-" + key);
-            });
+            var key = tab.getAttribute("data-client");
+            document.querySelectorAll(".seg-tab[data-client]").forEach(function (t) { t.classList.toggle("is-active", t === tab); });
+            document.querySelectorAll("[id^='client-']").forEach(function (g) { g.classList.toggle("is-active", g.id === "client-" + key); });
           });
         });
 
-        /* ---- 动态地址 ---- */
+        /* ---- 地址与代码 ---- */
         var davUrl = base + "/dav";
         var mcpUrl = base + "/mcp";
         $("davUrl").textContent = davUrl;
@@ -774,11 +675,10 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
           code.setAttribute("id", "mcpCode" + code.getAttribute("data-mcp-code").replace(/^./, function (c) { return c.toUpperCase(); }));
         });
 
-        /* ---- 登录态 / 设置 ---- */
+        /* ---- 设置与状态 ---- */
         function showLogin() {
           $("davLogin").hidden = false;
-          var link = $("davLoginLink");
-          link.href = "./login.html?redirect=" + encodeURIComponent(location.pathname + location.search);
+          $("davLoginLink").href = "./login.html?redirect=" + encodeURIComponent(location.pathname + location.search);
         }
 
         function loadSettings() {
@@ -793,58 +693,46 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
               settings = data;
               var w = data.webdav || {};
               var enabled = w.enabled === true;
-              var bar = $("davBar");
-              bar.classList.toggle("is-ok", enabled);
-              bar.classList.toggle("is-off", !enabled);
-              $("davStatus").textContent = enabled ? "WebDAV 已开启" : "WebDAV 未开启";
+              setBadge($("davBadge"), enabled, enabled ? "已开启" : "未开启");
               $("davMeta").textContent = enabled
                 ? (w.readOnly ? "只读" : "读写") + " · " + (backendLabels[w.backend] || w.backend || "—")
-                : "";
+                : "未开启";
               if (w.username) {
                 davUserValue = w.username;
                 $("davUser").textContent = w.username;
-                $("davUser").classList.remove("is-muted");
                 $("probeUser").value = w.username;
               }
-              $("davPass").textContent = w.hasPassword ? "已设置，在后台修改" : "尚未设置";
+              $("davPass").textContent = w.hasPassword ? "已设置" : "尚未设置";
             })
-            .catch(function () { /* 离线或未配置：保持默认文案 */ });
+            .catch(function () { /* 离线时保持探测结果 */ });
         }
 
-        /* ---- WebDAV 状态 ---- */
         function probeDav() {
-          var bar = $("davBar");
-          $("davStatus").textContent = "检测中";
+          setBadge($("davBadge"), null, "检测中");
           return fetch("/dav/", { method: "PROPFIND", headers: { Depth: "0" } })
             .then(function (res) {
               var code = res.status;
               if (code === 401 || code === 207 || code === 200) {
-                bar.classList.remove("is-off");
-                bar.classList.add("is-ok");
-                $("davStatus").textContent = "WebDAV 已开启";
+                setBadge($("davBadge"), true, "已开启");
+                if ($("davMeta").textContent === "检测中") $("davMeta").textContent = "可挂载";
                 return true;
               }
               if (code === 404) {
-                bar.classList.remove("is-ok");
-                bar.classList.add("is-off");
-                $("davStatus").textContent = "WebDAV 未开启";
+                setBadge($("davBadge"), false, "未开启");
+                $("davMeta").textContent = "未开启";
                 return false;
               }
-              bar.classList.remove("is-ok", "is-off");
-              $("davStatus").textContent = "状态未知";
+              setBadge($("davBadge"), null, "状态未知");
               return null;
             })
             .catch(function () {
-              bar.classList.remove("is-ok", "is-off");
-              $("davStatus").textContent = "状态未知";
-              return false;
+              setBadge($("davBadge"), null, "状态未知");
+              return null;
             });
         }
 
-        /* ---- MCP 状态：匿名 initialize ---- */
         function probeMcp() {
-          var bar = $("mcpBar");
-          $("mcpStatus").textContent = "检测中";
+          setBadge($("mcpBadge"), null, "检测中");
           return fetch("/mcp", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
@@ -854,68 +742,55 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
             })
           })
             .then(function (res) {
-              $("mcpStatus").dataset.done = "1";
+              $("mcpBadge").dataset.done = "1";
               if (res.status === 200 || res.status === 202) {
-                bar.classList.remove("is-off");
-                bar.classList.add("is-ok");
-                $("mcpStatus").textContent = "MCP 已开启";
+                setBadge($("mcpBadge"), true, "已开启");
                 return true;
               }
               if (res.status === 404) {
-                bar.classList.remove("is-ok");
-                bar.classList.add("is-off");
-                $("mcpStatus").textContent = "MCP 未开启";
+                setBadge($("mcpBadge"), false, "未开启");
                 return false;
               }
-              bar.classList.remove("is-ok", "is-off");
-              $("mcpStatus").textContent = "状态未知";
+              setBadge($("mcpBadge"), null, "状态未知");
               return null;
             })
             .catch(function () {
-              bar.classList.remove("is-ok", "is-off");
-              $("mcpStatus").textContent = "状态未知";
+              setBadge($("mcpBadge"), null, "状态未知");
             });
         }
 
-        /* ---- WebDAV 连接自检 ---- */
+        /* ---- 自检 ---- */
         $("probeBtn").addEventListener("click", function () {
           var out = $("probeResult");
           var user = $("probeUser").value;
           var pass = $("probePass").value;
-          out.className = "probe-result";
+          out.className = "ui-note";
           out.textContent = "正在测试…";
           fetch("/dav/", {
             method: "PROPFIND",
             headers: { Depth: "0", Authorization: "Basic " + btoa(user + ":" + pass) }
           }).then(function (res) {
             if (res.status === 207) {
-              out.className = "probe-result is-ok";
               out.textContent = "连接成功，账号密码有效。";
             } else if (res.status === 401) {
-              out.className = "probe-result is-bad";
               out.textContent = "认证失败：用户名或密码不正确。";
             } else if (res.status === 404) {
-              out.className = "probe-result is-bad";
               out.textContent = "服务未开启：请先在后台启用 WebDAV。";
             } else {
               out.textContent = "服务端返回 " + res.status + "，请检查配置。";
             }
           }).catch(function (err) {
-            out.className = "probe-result is-bad";
             out.textContent = "请求失败：" + (err.message || "未知错误");
           });
         });
 
-        /* ---- MCP Token 自检 ---- */
         $("mcpTest").addEventListener("click", function () {
           var out = $("mcpTestResult");
           var token = $("mcpToken").value.trim();
           if (!token) {
-            out.className = "probe-result is-bad";
             out.textContent = "请先填入 API Token。";
             return;
           }
-          out.className = "probe-result";
           out.textContent = "正在测试…";
           fetch("/mcp", {
             method: "POST",
@@ -927,12 +802,10 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
             body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
           }).then(function (res) {
             if (res.status === 401) {
-              out.className = "probe-result is-bad";
               out.textContent = "Token 无效或已过期。";
               return null;
             }
             if (res.status === 404) {
-              out.className = "probe-result is-bad";
               out.textContent = "MCP 端点未开启。";
               return null;
             }
@@ -941,43 +814,22 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
             if (!data) return;
             var tools = data.result && data.result.tools;
             if (Array.isArray(tools)) {
-              out.className = "probe-result is-ok";
               out.textContent = "连接成功，当前 Token 可用 " + tools.length + " 个工具。";
             } else if (data.error) {
-              out.className = "probe-result is-bad";
               out.textContent = "调用失败：" + (data.error.message || data.error.code || "未知错误");
             } else {
-              out.className = "probe-result is-ok";
               out.textContent = "服务端已响应。";
             }
           }).catch(function (err) {
-            out.className = "probe-result is-bad";
             out.textContent = "请求失败：" + (err.message || "未知错误");
           });
         });
 
-        $("copyAll").addEventListener("click", function () {
-          var btn = this;
-          if (!davUserValue) {
-            showLogin();
-            return;
-          }
-          copyText("地址：" + davUrl + "\n用户名：" + davUserValue).then(function (ok) {
-            btn.innerHTML = ok ? '<i class="fas fa-check"></i>已复制' : '<i class="fas fa-copy"></i>复制失败';
-            setTimeout(function () { btn.innerHTML = '<i class="fas fa-copy"></i>复制地址与账号'; }, 1600);
-          });
-        });
-
-        $("davRefresh").addEventListener("click", function () { probeDav(); loadSettings(); });
-        $("mcpRefresh").addEventListener("click", probeMcp);
-
         probeDav();
         loadSettings().then(function () {
-          /* 已登录时用设置里的开关状态覆盖探测结果（更准确） */
           if (settings && settings.webdav && settings.webdav.enabled === false) {
-            $("davBar").classList.remove("is-ok");
-            $("davBar").classList.add("is-off");
-            $("davStatus").textContent = "WebDAV 未开启";
+            setBadge($("davBadge"), false, "未开启");
+            $("davMeta").textContent = "未开启";
           }
         });
         if (initial === "mcp") probeMcp();

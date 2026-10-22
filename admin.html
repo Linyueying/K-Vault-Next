@@ -1761,6 +1761,178 @@ html[data-theme="dark"] .dock__indicator{
    归入上方「减动效例外」的同一媒体查询（.dock：无 spinner 关键词的块会被
    check_style.py 判为重复定义全站冻结规则）。 */
 html[data-perf="low"] .dock{transition:none}
+
+/* =========================================================
+   Apple 接入页：首屏摘要 + 二级 Sheet
+   ========================================================= */
+.access-page-head{width:100%;max-width:640px;margin:0 auto;padding:2px 0 16px}
+.access-page-head h2{font-size:30px;font-weight:700;letter-spacing:-.03em;color:var(--ui-label);line-height:1.1}
+.access-page-head p{margin-top:5px;color:var(--ui-secondary);font-size:13px}
+.access-overview{width:100%;max-width:640px;margin:0 auto;padding:2px 0 0}
+@media (max-width:700px){
+  .access-page-head{padding:0 2px 14px}
+  .access-page-head h2{font-size:26px}
+}
+.access-overview .ui-note{max-width:560px}
+
+/* Sheet 内的旧 Token 表单：压成 iOS 分组行 */
+.ui-sheet .token-section{
+  margin:0 0 20px;
+  padding:0;
+  overflow:hidden;
+  border-radius:var(--ui-radius);
+  background:var(--ui-group);
+}
+.ui-sheet .token-section.no-margin{margin-bottom:0}
+.ui-sheet .token-section-head{
+  margin:0;
+  padding:11px 14px 3px;
+  border:0;
+}
+.ui-sheet .token-section-title{
+  gap:6px;
+  color:var(--ui-secondary);
+  font-size:12px;
+  font-weight:600;
+}
+.ui-sheet .token-section-title i{display:none}
+.ui-sheet .token-section-head .badge-env{font-size:10px;padding:2px 7px}
+.ui-sheet .token-field{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-height:48px;
+  margin:0;
+  padding:6px 14px;
+  border:0;
+  border-top:1px solid var(--ui-separator);
+}
+.ui-sheet .token-field > label{
+  flex:0 0 92px;
+  min-width:0;
+  margin:0;
+  color:var(--ui-label);
+  font-size:15px;
+  font-weight:400;
+  line-height:1.3;
+}
+.ui-sheet .token-field q-tip,
+.ui-sheet .token-field .q-tip,
+.ui-sheet .token-field .qtip,
+.ui-sheet .token-field label i{display:none}
+.ui-sheet .token-field:has(.seg),
+.ui-sheet .token-field:has(.checkbox-row){
+  display:block;
+  padding:12px 14px;
+}
+.ui-sheet .token-field:has(.seg) > label,
+.ui-sheet .token-field:has(.checkbox-row) > label{
+  display:block;
+  flex:none;
+  margin:0 0 8px;
+  color:var(--ui-secondary);
+  font-size:12px;
+  font-weight:600;
+}
+.ui-sheet .token-field .seg{padding:0}
+.ui-sheet .token-field .checkbox-row{display:flex;align-items:center;gap:8px}
+.ui-sheet .token-input,
+.ui-sheet .token-select{
+  flex:1;
+  min-width:0;
+  height:34px;
+  min-height:0;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+  color:var(--ui-label);
+  font-size:15px;
+  text-align:right;
+}
+.ui-sheet .token-input:focus,
+.ui-sheet .token-select:focus{outline:none;border:0;box-shadow:none}
+.ui-sheet .token-grid{display:block;gap:0}
+.ui-sheet .seg{padding:8px 14px 10px;gap:6px}
+.ui-sheet .seg__opt{height:30px;padding:0 10px;font-size:12px;border-radius:8px}
+.ui-sheet .checkbox-row{padding:0;font-size:15px}
+.ui-sheet .row{margin:8px 14px 14px!important;padding:0}
+.ui-sheet .row .btn{height:42px;border-radius:12px;font-size:14px}
+.ui-sheet .row .btn--primary{background:var(--ui-blue);box-shadow:none}
+.ui-sheet .row .btn--primary:hover:not(:disabled){background:var(--ui-blue);box-shadow:none}
+.ui-sheet .token-divider{display:none}
+.ui-sheet .token-secret{
+  margin:0 0 20px;
+  padding:12px 14px;
+  border:0;
+  border-radius:var(--ui-radius);
+  background:var(--ui-blue-soft);
+  box-shadow:none;
+}
+.ui-sheet .token-secret-title{font-size:12px;color:var(--ui-blue)}
+.ui-sheet .token-secret-value{gap:8px;flex-wrap:wrap}
+.ui-sheet .token-secret-value code{font-size:11px;word-break:break-all}
+.ui-sheet .token-list{background:transparent;border:0;box-shadow:none}
+.ui-sheet .token-row{
+  margin:0;
+  padding:11px 14px;
+  border:0;
+  border-top:1px solid var(--ui-separator);
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.ui-sheet .token-row:first-child{border-top:0}
+.ui-sheet .token-row-top{gap:6px}
+.ui-sheet .token-name{font-size:15px;color:var(--ui-label)}
+.ui-sheet .token-preview{font-size:11px;color:var(--ui-secondary)}
+.ui-sheet .token-badge{font-size:10px}
+.ui-sheet .token-row-meta{margin-top:4px;gap:4px 10px;font-size:11px}
+.ui-sheet .token-row-actions{gap:4px;margin-left:auto}
+.ui-sheet .token-row-actions .mini-icon-btn{width:30px;height:30px;border-radius:50%;background:var(--ui-fill)}
+.ui-sheet .token-empty{padding:18px 14px;font-size:13px}
+
+/* 手机：把浮动胶囊 dock 收成 iOS 标签栏 */
+@media (max-width:700px){
+  #app{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+  .dock{
+    top:auto;
+    right:0;
+    bottom:0;
+    left:0;
+    width:100%;
+    max-width:none;
+    transform:none;
+    padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));
+    border:0;
+    border-top:1px solid var(--ui-separator);
+    border-radius:0;
+    background:rgba(249,249,249,.94);
+    box-shadow:none;
+    backdrop-filter:blur(20px) saturate(180%);
+    -webkit-backdrop-filter:blur(20px) saturate(180%);
+    gap:0;
+  }
+  html[data-theme="dark"] .dock{background:rgba(22,22,24,.94)}
+  .dock__indicator{display:none}
+  .dock__btn{
+    min-height:50px;
+    padding:4px 2px 2px;
+    gap:2px;
+    border:0;
+    border-radius:0;
+    color:var(--ui-secondary);
+  }
+  .dock__btn i{font-size:20px}
+  .dock__btn span{font-size:10px;font-weight:500}
+  .dock__btn:hover,
+  .dock__btn:active{background:transparent;color:var(--ui-secondary);transform:none}
+  .dock__btn.active,
+  html[data-theme="dark"] .dock__btn.active{color:var(--ui-blue);background:transparent}
+  .batch-dock{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+}
 </style>
 </head>
 <body>
@@ -2340,233 +2512,193 @@ html[data-perf="low"] .dock{transition:none}
   </section>
   <!-- /① 文件浏览（工具栏 + 工具箱 + 文件列表） -->
 
-  <!-- ② 接入：WebDAV / MCP / API Token -->
+  <!-- ② 接入：首屏只留摘要，配置进二级 Sheet -->
   <section class="section" data-section="access" v-show="activeSection==='access'">
-    <div class="console-access-grid">
-    <section class="liquid-card panel-inline console-access-card">
-      <div class="token-section">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas fa-network-wired"></i>
-            <span>WebDAV</span>
-            <q-tip>把本站挂载为网络驱动器。上传的文件与其他入口同构，可在文件列表中管理。</q-tip>
-          </h3>
-          <span class="badge-env" v-if="webdavSource === 'kv'">KV 覆盖</span>
-          <span class="badge-env" v-else>环境变量</span>
-        </div>
+    <div class="access-page-head">
+      <h2>接入</h2>
+      <p>WebDAV、MCP 与 API Token</p>
+    </div>
+    <div class="access-overview">
+      <div class="ui-section-label">连接与凭据</div>
+      <div class="ui-group ui-group--icons">
+        <button type="button" class="ui-row" @click="openAccessSheet('webdav')">
+          <span class="ui-row__icon"><i class="fas fa-network-wired"></i></span>
+          <span class="ui-row__body">
+            <span class="ui-row__title">WebDAV</span>
+            <span class="ui-row__sub">{{ webdavAccessSummary }}</span>
+          </span>
+          <span class="ui-badge" :class="webdavForm.enabled ? 'is-on' : 'is-off'">{{ webdavForm.enabled ? '已开启' : '未开启' }}</span>
+          <i class="fas fa-chevron-right ui-chevron"></i>
+        </button>
 
-        <div class="set-group">
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>启用 WebDAV
-                <q-tip>开启后可通过 <code class="kv-code">/dav</code> 访问；关闭时返回 404。</q-tip>
-              </strong>
-            </div>
-            <label class="switch">
-              <input type="checkbox" v-model="webdavForm.enabled" role="switch"
-                     :aria-checked="String(webdavForm.enabled)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
+        <button type="button" class="ui-row" @click="openAccessSheet('mcp')">
+          <span class="ui-row__icon is-purple"><i class="fas fa-plug"></i></span>
+          <span class="ui-row__body">
+            <span class="ui-row__title">MCP</span>
+            <span class="ui-row__sub">{{ mcpAccessSummary }}</span>
+          </span>
+          <span class="ui-badge" :class="mcpForm.enabled ? 'is-on' : 'is-off'">{{ mcpForm.enabled ? '已开启' : '未开启' }}</span>
+          <i class="fas fa-chevron-right ui-chevron"></i>
+        </button>
+
+        <button type="button" class="ui-row" @click="openAccessSheet('token')">
+          <span class="ui-row__icon is-green"><i class="fas fa-key"></i></span>
+          <span class="ui-row__body">
+            <span class="ui-row__title">API Token</span>
+            <span class="ui-row__sub">MCP 与 REST 共用</span>
+          </span>
+          <span class="ui-row__value">{{ tokens.length }} 个</span>
+          <i class="fas fa-chevron-right ui-chevron"></i>
+        </button>
+      </div>
+      <p class="ui-note">WebDAV 挂成磁盘，MCP 交给 AI，Token 管住两者。</p>
+    </div>
+
+    <div class="ui-sheet-mask" v-if="accessSheet" @click="closeAccessSheet"></div>
+
+    <!-- WebDAV -->
+    <section class="ui-sheet" v-if="accessSheet==='webdav'" role="dialog" aria-modal="true" aria-label="WebDAV 设置">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>WebDAV</h2>
+        <button type="button" class="ui-sheet__close" @click="closeAccessSheet" aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+        <div class="ui-group">
+          <div class="ui-row ui-row--switch">
+            <span class="ui-row__label">启用 WebDAV</span>
+            <label class="ui-switch">
+              <input type="checkbox" v-model="webdavForm.enabled" :aria-checked="String(webdavForm.enabled)" />
+              <span></span>
             </label>
           </div>
         </div>
 
         <template v-if="webdavForm.enabled">
-          <div class="token-grid">
-            <div class="token-field">
-              <label>用户名
-                <q-tip>仅支持字母、数字与 . _ @ - 。环境变量基线：{{ webdavEnvBaseline.username || '—' }}</q-tip>
-              </label>
-              <input class="token-input" type="text" v-model="webdavForm.username"
-                     placeholder="例如 kvault" autocomplete="off">
+          <div class="ui-section-label" style="margin-top:22px">连接</div>
+          <div class="ui-group">
+            <div class="ui-field">
+              <label class="ui-field__label">用户名</label>
+              <input type="text" v-model="webdavForm.username" placeholder="kvault" autocomplete="off" spellcheck="false">
             </div>
-            <div class="token-field">
-              <label>密码
-                <q-tip>
-                  <template v-if="webdavHasPassword">已设置，留空表示不修改。</template>
-                  <template v-else>至少 6 个字符。</template>
-                </q-tip>
-              </label>
-              <input class="token-input" type="password" v-model="webdavForm.password"
-                     :placeholder="webdavHasPassword ? '留空则不修改' : '至少 6 个字符'" autocomplete="new-password">
+            <div class="ui-field">
+              <label class="ui-field__label">密码</label>
+              <input type="password" v-model="webdavForm.password"
+                     :placeholder="webdavHasPassword ? '留空不修改' : '至少 6 位'" autocomplete="new-password">
             </div>
-          </div>
-
-          <div class="set-group">
-            <div class="settings-switch-row">
-              <div class="settings-switch-text">
-                <strong>只读
-                  <q-tip>客户端只能浏览与下载，拒绝上传、改名与删除。</q-tip>
-                </strong>
-              </div>
-              <label class="switch">
-                <input type="checkbox" v-model="webdavForm.readOnly" role="switch"
-                       :aria-checked="String(webdavForm.readOnly)" />
-                <span class="switch__track"></span>
-                <span class="switch__thumb"></span>
+            <div class="ui-row ui-row--switch">
+              <span class="ui-row__label">只读</span>
+              <label class="ui-switch">
+                <input type="checkbox" v-model="webdavForm.readOnly" :aria-checked="String(webdavForm.readOnly)" />
+                <span></span>
               </label>
             </div>
-          </div>
-
-          <div class="token-field">
-            <label>存储后端
-              <q-tip>WebDAV 上传的文件写入该后端。R2 容量与速度更好。</q-tip>
-            </label>
-            <select class="token-input" v-model="webdavForm.backend">
-              <option v-for="opt in webdavBackendOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
-          </div>
-
-          <div class="token-field">
-            <label>服务地址</label>
-            <div class="input-with-unit">
-              <input class="token-input" type="text" :value="webdavServiceUrl" readonly
-                     @focus="$event.target.select()">
-              <button type="button" class="btn" @click="copyWebdavUrl" style="flex:0 0 auto">
+            <div class="ui-field">
+              <label class="ui-field__label">存储</label>
+              <select v-model="webdavForm.backend">
+                <option v-for="opt in webdavBackendOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
+            <div class="ui-field">
+              <label class="ui-field__label">地址</label>
+              <input type="text" :value="webdavServiceUrl" readonly @focus="$event.target.select()">
+              <button type="button" class="ui-copy" :class="{'is-done': webdavAddrCopied}" @click="copyWebdavUrl" aria-label="复制地址">
                 <i class="fas" :class="webdavAddrCopied ? 'fa-check' : 'fa-copy'"></i>
-                <span>{{ webdavAddrCopied ? '已复制' : '复制' }}</span>
               </button>
             </div>
           </div>
+
+          <div class="ui-actions">
+            <button type="button" class="ui-btn" :disabled="webdavSaving" @click="saveWebdavSettings">
+              <i class="fas" :class="webdavSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+              <span>{{ webdavSaving ? '保存中…' : '保存' }}</span>
+            </button>
+            <a class="ui-btn ui-btn--secondary" href="/webdav.html" target="_blank" rel="noopener">打开接入页</a>
+          </div>
+          <button type="button" class="ui-btn ui-btn--danger" style="width:100%;margin-top:6px" :disabled="webdavSaving" @click="resetWebdavSettings">恢复默认</button>
         </template>
 
-        <div class="settings-note settings-note--warn" v-else>
-          <i class="fas fa-triangle-exclamation"></i>
-          <span>未开启，<code class="kv-code">/dav</code> 返回 404。</span>
-        </div>
-
-        <div class="row" style="margin-top:12px">
-          <button class="btn btn--primary" :disabled="webdavSaving" @click="saveWebdavSettings">
-            <i class="fas" :class="webdavSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>保存</span>
-          </button>
-          <button class="btn" :disabled="webdavSaving" @click="resetWebdavSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <a class="btn" href="/webdav.html" target="_blank" rel="noopener">
-            <i class="fas fa-up-right-from-square"></i>
-            <span>打开接入页</span>
-          </a>
-        </div>
+        <p class="ui-note" v-else>关闭时 <code>/dav</code> 返回 404。</p>
       </div>
     </section>
 
-    <section class="liquid-card panel-inline console-access-card">
-      <div class="token-section">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas fa-plug"></i>
-            <span>MCP</span>
-            <q-tip>让支持 Model Context Protocol 的 AI 客户端通过 <code class="kv-code">/mcp</code> 读写文件。</q-tip>
-          </h3>
-          <span class="badge-env" v-if="mcpSource === 'kv'">KV 覆盖</span>
-          <span class="badge-env" v-else>环境变量</span>
-        </div>
-
-        <div class="set-group">
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>启用 MCP
-                <q-tip>开启后可通过 <code class="kv-code">/mcp</code> 访问；关闭时返回 404。</q-tip>
-              </strong>
-            </div>
-            <label class="switch">
-              <input type="checkbox" v-model="mcpForm.enabled" role="switch"
-                     :aria-checked="String(mcpForm.enabled)" />
-              <span class="switch__track"></span>
-              <span class="switch__thumb"></span>
+    <!-- MCP -->
+    <section class="ui-sheet" v-if="accessSheet==='mcp'" role="dialog" aria-modal="true" aria-label="MCP 设置">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>MCP</h2>
+        <button type="button" class="ui-sheet__close" @click="closeAccessSheet" aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+        <div class="ui-group">
+          <div class="ui-row ui-row--switch">
+            <span class="ui-row__label">启用 MCP</span>
+            <label class="ui-switch">
+              <input type="checkbox" v-model="mcpForm.enabled" :aria-checked="String(mcpForm.enabled)" />
+              <span></span>
             </label>
           </div>
         </div>
 
         <template v-if="mcpForm.enabled">
-          <div class="token-field">
-            <label>服务地址
-              <q-tip>客户端传输类型选 Streamable HTTP，地址填这一项。</q-tip>
-            </label>
-            <div class="input-with-unit">
-              <input class="token-input" type="text" :value="mcpEndpointUrl" readonly
-                     @focus="$event.target.select()">
-              <button type="button" class="btn" @click="copyMcpEndpoint" style="flex:0 0 auto">
+          <div class="ui-section-label" style="margin-top:22px">连接</div>
+          <div class="ui-group">
+            <div class="ui-field">
+              <label class="ui-field__label">地址</label>
+              <input type="text" :value="mcpEndpointUrl" readonly @focus="$event.target.select()">
+              <button type="button" class="ui-copy" :class="{'is-done': mcpAddrCopied}" @click="copyMcpEndpoint" aria-label="复制地址">
                 <i class="fas" :class="mcpAddrCopied ? 'fa-check' : 'fa-copy'"></i>
-                <span>{{ mcpAddrCopied ? '已复制' : '复制' }}</span>
               </button>
+            </div>
+            <div class="ui-row">
+              <span class="ui-row__label">传输</span>
+              <span class="ui-row__value">Streamable HTTP</span>
             </div>
           </div>
 
-          <div class="set-group" style="margin-top:12px">
-            <div class="settings-switch-row" style="align-items:flex-start">
-              <div class="settings-switch-text">
-                <strong>可用工具
-                  <q-tip>关闭的工具不会出现在 tools/list，硬编码调用也会被拒绝。工具还受 Token scope 限制。</q-tip>
-                </strong>
-              </div>
-            </div>
-
-            <div v-if="mcpTools.length === 0" class="settings-note">
-              <i class="fas fa-circle-info"></i>
-              <span>正在加载工具清单…</span>
-            </div>
-
-            <div v-for="tool in mcpTools" :key="tool.name" class="settings-switch-row">
-              <div class="settings-switch-text">
-                <strong style="font-weight:600">{{ tool.label }}
-                  <span class="badge-env" style="margin-left:6px">{{ tool.scope }}</span>
-                </strong>
-                <div class="kv-code" style="display:inline-block;margin-top:4px">{{ tool.name }}</div>
-              </div>
-              <label class="switch">
+          <div class="ui-section-label" style="margin-top:22px">可用工具</div>
+          <div class="ui-group">
+            <div class="ui-row ui-row--switch" v-for="tool in mcpTools" :key="tool.name">
+              <span class="ui-row__body">
+                <span class="ui-row__title">{{ tool.label }}</span>
+                <span class="ui-row__sub">{{ tool.name }} · {{ tool.scope }}</span>
+              </span>
+              <label class="ui-switch">
                 <input type="checkbox" role="switch" :checked="tool.enabled"
                        :aria-checked="String(tool.enabled)"
                        @change="setMcpToolEnabled(tool, $event.target.checked)" />
-                <span class="switch__track"></span>
-                <span class="switch__thumb"></span>
+                <span></span>
               </label>
             </div>
+            <div class="ui-row" v-if="mcpTools.length === 0">
+              <span class="ui-row__sub">正在加载工具清单…</span>
+            </div>
           </div>
+          <p class="ui-note">{{ mcpTools.length }} 个工具；关闭后不会下发给 Agent，仍受 Token scope 限制。</p>
 
-          <div class="settings-note" v-if="mcpForm.disabledTools.length > 0">
-            <i class="fas fa-circle-info"></i>
-            <span>已关闭 {{ mcpForm.disabledTools.length }} / {{ mcpTools.length }} 个工具。</span>
+          <div class="ui-actions">
+            <button type="button" class="ui-btn" :disabled="mcpSaving" @click="saveMcpSettings">
+              <i class="fas" :class="mcpSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+              <span>{{ mcpSaving ? '保存中…' : '保存' }}</span>
+            </button>
+            <a class="ui-btn ui-btn--secondary" href="/webdav.html?tab=mcp" target="_blank" rel="noopener">打开接入页</a>
           </div>
-          <div class="settings-note" v-else>
-            <i class="fas fa-circle-info"></i>
-            <span>{{ mcpTools.length }} 个工具全部开放，仍受 Token scope 限制。</span>
-          </div>
+          <button type="button" class="ui-btn ui-btn--danger" style="width:100%;margin-top:6px" :disabled="mcpSaving" @click="resetMcpSettings">恢复默认</button>
         </template>
 
-        <div class="settings-note settings-note--warn" v-else>
-          <i class="fas fa-triangle-exclamation"></i>
-          <span>未开启，<code class="kv-code">/mcp</code> 返回 404。</span>
-        </div>
-
-        <div class="row" style="margin-top:12px">
-          <button class="btn btn--primary" :disabled="mcpSaving" @click="saveMcpSettings">
-            <i class="fas" :class="mcpSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>保存</span>
-          </button>
-          <button class="btn" :disabled="mcpSaving" @click="resetMcpSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <a class="btn" href="/webdav.html?tab=mcp" target="_blank" rel="noopener">
-            <i class="fas fa-up-right-from-square"></i>
-            <span>打开接入页</span>
-          </a>
-        </div>
+        <p class="ui-note" v-else>关闭时 <code>/mcp</code> 返回 404。</p>
       </div>
     </section>
 
-  <section class="liquid-card panel-inline console-access-card console-access-card--wide">
-    <!-- token -->
-      <h2 class="dialog-title">
-        <i class="fas fa-key"></i>
-        <span>API Token</span>
-        <q-tip>
-          给脚本与 Agent 用的长期凭据，与网页登录态隔离。密钥只在创建时显示一次。
-        </q-tip>
-      </h2>
+    <!-- API Token -->
+    <section class="ui-sheet" v-if="accessSheet==='token'" role="dialog" aria-modal="true" aria-label="API Token">
+      <div class="ui-sheet__handle"></div>
+      <header class="ui-sheet__head">
+        <h2>API Token</h2>
+        <button type="button" class="ui-sheet__close" @click="closeAccessSheet" aria-label="关闭"><i class="fas fa-xmark"></i></button>
+      </header>
+      <div class="ui-sheet__body">
+
 
       <!-- 一次性密钥展示 -->
       <transition name="pop">
@@ -2611,7 +2743,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
 
         <div class="token-field">
-          <label>权限（scopes）
+          <label>权限
             <q-tip>
               每个权限的作用见对应权限名上的悬停提示。
               <br>
@@ -2628,7 +2760,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
 
         <div class="token-field">
-          <label>策略：限定存储后端（留空 = 不限制）</label>
+          <label>存储后端</label>
           <div class="seg">
             <button class="seg__opt" v-for="name in tokenPolicyStorages" :key="name"
                     :class="{'is-on': tokenForm.allowedStorages.includes(name)}"
@@ -2640,19 +2772,20 @@ html[data-perf="low"] .dock{transition:none}
 
         <div class="token-grid">
           <div class="token-field">
-            <label>策略：目录前缀</label>
+            <label>目录前缀</label>
             <input class="token-input" v-model="tokenForm.folderPrefix" placeholder="例如 blog（留空 = 不限制）">
           </div>
           <div class="token-field">
-            <label>策略：单文件上限（MB）</label>
+            <label>单文件上限</label>
             <input class="token-input" type="number" min="0" v-model.number="tokenForm.maxFileSizeMb" placeholder="0 = 不限制">
           </div>
         </div>
 
-        <div class="token-field">
-          <label class="checkbox-row">
+        <div class="ui-row ui-row--switch">
+          <span class="ui-row__label">启用该 Token</span>
+          <label class="ui-switch">
             <input type="checkbox" v-model="tokenForm.enabled">
-            <span>启用该 Token</span>
+            <span></span>
           </label>
         </div>
 
@@ -2718,8 +2851,8 @@ html[data-perf="low"] .dock{transition:none}
         </transition>
       </div>
 
-  </section>
-    </div>
+      </div>
+    </section>
   </section>
 
   <!-- ③ 存储与上传：用量监控 / 上传设置 -->
@@ -4513,6 +4646,7 @@ const __kvApp = Vue.createApp({
     tokenLoading: false,
     tokenSubmitting: false,
     tokens: [],
+    accessSheet: '',
     tokenEditingId: '',
     tokenSecret: null,
     tokenScopeCatalog: [
@@ -4559,8 +4693,8 @@ const __kvApp = Vue.createApp({
     /* password 字段始终留空：留空 = 不修改（与后端归一化层约定一致） */
     webdavForm: { enabled: false, username: '', password: '', readOnly: false, backend: 'telegram' },
     webdavBackendOptions: [
-      { value:'telegram', label:'Telegram（默认，零额外配置）' },
-      { value:'r2',       label:'Cloudflare R2（容量大、速度快）' }
+      { value:'telegram', label:'Telegram' },
+      { value:'r2',       label:'Cloudflare R2' }
     ],
     webdavAddrCopied: false,
 
@@ -4653,6 +4787,23 @@ const __kvApp = Vue.createApp({
     sharePanelVisible()     { return this.activeSection === 'shares'; },
     tokenPanelVisible()     { return this.activeSection === 'access'; },
     brandingPanelVisible()  { return this.activeSection === 'system'; },
+
+    /* ---------- 接入摘要 ---------- */
+    webdavAccessSummary() {
+      if (!this.webdavForm.enabled) return '挂载为网络磁盘';
+      const short = { telegram: 'Telegram', r2: 'Cloudflare R2', s3: 'S3', webdav: 'WebDAV', github: 'GitHub' };
+      return (this.webdavForm.readOnly ? '只读' : '读写') + ' · ' + (short[this.webdavForm.backend] || this.webdavForm.backend);
+    },
+    mcpAccessSummary() {
+      if (!this.mcpForm.enabled) return '让 AI 直接读写文件';
+      return '已开启 · ' + (this.mcpTools.length || 0) + ' 个工具';
+    },
+    webdavServiceUrl() {
+      try { return window.location.origin + '/dav'; } catch (e) { return '/dav'; }
+    },
+    mcpEndpointUrl() {
+      try { return window.location.origin + '/mcp'; } catch (e) { return '/mcp'; }
+    },
 
     /* ---------- 长列表双路降级 ----------
        分享 / 合集 / Token 三张表都走后端 limit=1000 且没有分页。条目一多，
@@ -5974,6 +6125,7 @@ const __kvApp = Vue.createApp({
       catch (e) { /* 极端环境下 pushState 不可用：状态照切，只是地址栏不同步 */ }
       this.preview = null;          // 切板块收起预览灯箱，避免悬浮在新板块上
       this.openMenu = null;
+      this.closeAccessSheet();
       window.scrollTo(0, 0);
       this.onSectionEnter(name);
     },
@@ -6738,6 +6890,17 @@ const __kvApp = Vue.createApp({
       if (!this.search) this.searchOpen = false;
     },
 
+    /* ================= 接入 Sheet ================= */
+    openAccessSheet(name) {
+      this.accessSheet = name;
+      document.documentElement.classList.add('ui-sheet-open');
+    },
+    closeAccessSheet() {
+      if (!this.accessSheet) return;
+      this.accessSheet = '';
+      document.documentElement.classList.remove('ui-sheet-open');
+    },
+
     /* ================= 上传设置（访客上传） =================
        原模态已内联进「存储与上传」板块，open/close 改为导航垫片，
        数据加载统一由 onSectionEnter('storage') 负责。 */
@@ -7096,13 +7259,6 @@ const __kvApp = Vue.createApp({
     /* ================= WebDAV 服务端 ================= */
 
     /* 完整的 WebDAV 挂载地址（供复制）。用当前 origin + /dav，确保与部署域名一致 */
-    get webdavServiceUrl() {
-      try {
-        return window.location.origin + '/dav';
-      } catch (e) {
-        return '/dav';
-      }
-    },
 
     async copyWebdavUrl() {
       const url = this.webdavServiceUrl;
@@ -7190,13 +7346,6 @@ const __kvApp = Vue.createApp({
     /* ================= MCP 端点 ================= */
 
     /* 完整的 MCP 服务地址（供复制）。用当前 origin + /mcp，确保与部署域名一致 */
-    get mcpEndpointUrl() {
-      try {
-        return window.location.origin + '/mcp';
-      } catch (e) {
-        return '/mcp';
-      }
-    },
 
     /* 单个工具开关：勾选 = 启用。内部存的是"禁用清单"，这里做一次反转，
        让模板里写 :checked="tool.enabled" 更直观。 */
@@ -7441,6 +7590,7 @@ const __kvApp = Vue.createApp({
       this.tokenSecret = null;
       this.resetTokenForm();
       this.loadTokens();
+      this.$nextTick(() => this.openAccessSheet('token'));
     },
     closeTokenPanel() {
       /* 内联后无关闭语义，只把一次性密钥与表单状态复位 */
@@ -8450,6 +8600,7 @@ const __kvApp = Vue.createApp({
        板块本身不响应 Esc —— 它是页面结构，不是浮层。 */
     this._escHandler = (e) => {
       if (e.key !== 'Escape') return;
+      if (this.accessSheet) { this.closeAccessSheet(); return; }
       if (this.preview) { this.closePreview(); return; }
       if (this.qrVisible) { this.qrVisible = false; return; }
       if (this.bundleVisible) { this.closeBundleShare(); return; }
@@ -8473,6 +8624,7 @@ const __kvApp = Vue.createApp({
         this.activeSection = s;
         this.preview = null;
         this.openMenu = null;
+        this.closeAccessSheet();
         window.scrollTo(0, 0);
         this.onSectionEnter(s);
       }
