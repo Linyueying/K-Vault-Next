@@ -87,14 +87,25 @@
         padding: 34px 0 18px;
         animation: riseIn 0.5s var(--ease-fluid) 0.04s backwards;
       }
-      .access-head h1 { font-size: clamp(2rem, 4vw, 2.5rem); line-height: 1.1; letter-spacing: -0.04em; font-weight: 700; }
+      .access-head h1 {
+        font-size: clamp(2rem, 4vw, 2.5rem);
+        line-height: 1.1;
+        letter-spacing: -0.04em;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--text-main) 30%, var(--primary));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
       .access-head p { margin-top: 6px; color: var(--ui-secondary); font-size: var(--fs-md); }
       .access-tabs {
         display: inline-flex;
         gap: 2px;
-        padding: 2px;
-        border-radius: 9px;
-        background: var(--ui-fill);
+        padding: 3px;
+        border: 1px solid var(--glass-border-ice);
+        border-radius: var(--r-pill);
+        background: var(--glass-surface);
+        box-shadow: var(--shadow-soft);
       }
       .access-tab {
         display: inline-flex;
@@ -104,9 +115,9 @@
         height: 32px;
         padding: 0 15px;
         border: none;
-        border-radius: 7px;
+        border-radius: var(--r-pill);
         background: transparent;
-        color: var(--ui-label);
+        color: var(--text-sub);
         font-family: inherit;
         font-size: 13px;
         font-weight: 600;
@@ -114,7 +125,12 @@
         transition: background-color 0.16s ease, box-shadow 0.16s ease;
         -webkit-tap-highlight-color: transparent;
       }
-      .access-tab.is-active { background: var(--ui-group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+      .access-tab.is-active {
+        background: var(--glass-elevated);
+        color: var(--primary-dark);
+        box-shadow: var(--shadow-sm);
+      }
+      html[data-theme="dark"] .access-tab.is-active { color: var(--primary-light); }
 
       .access-panel { display: none; }
       .access-panel.is-active { display: block; animation: riseIn 0.36s var(--ease-fluid) backwards; }
@@ -124,10 +140,11 @@
       .seg-tabs {
         display: flex;
         gap: 2px;
-        padding: 2px;
+        padding: 3px;
         margin-bottom: 14px;
-        border-radius: 9px;
-        background: var(--ui-fill);
+        border: 1px solid var(--glass-border-ice);
+        border-radius: var(--r-pill);
+        background: var(--glass-subtle);
         overflow-x: auto;
         scrollbar-width: none;
       }
@@ -138,16 +155,21 @@
         height: 32px;
         padding: 0 10px;
         border: none;
-        border-radius: 7px;
+        border-radius: var(--r-pill);
         background: transparent;
-        color: var(--ui-label);
+        color: var(--text-sub);
         font-family: inherit;
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
         transition: background-color 0.16s ease, box-shadow 0.16s ease;
       }
-      .seg-tab.is-active { background: var(--ui-group); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+      .seg-tab.is-active {
+        background: var(--glass-elevated);
+        color: var(--primary-dark);
+        box-shadow: var(--shadow-sm);
+      }
+      html[data-theme="dark"] .seg-tab.is-active { color: var(--primary-light); }
 
       .guide { display: none; }
       .guide.is-active { display: block; }

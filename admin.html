@@ -1766,8 +1766,10 @@ html[data-perf="low"] .dock{transition:none}
    Apple 接入页：首屏摘要 + 二级 Sheet
    ========================================================= */
 .access-page-head{width:100%;max-width:640px;margin:0 auto;padding:2px 0 16px}
-.access-page-head h2{font-size:30px;font-weight:700;letter-spacing:-.03em;color:var(--ui-label);line-height:1.1}
-.access-page-head p{margin-top:5px;color:var(--ui-secondary);font-size:13px}
+.access-page-head h2{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
+  background:linear-gradient(135deg,var(--text-main) 30%,var(--primary));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.access-page-head p{margin-top:5px;color:var(--text-muted);font-size:13px}
 .access-overview{width:100%;max-width:640px;margin:0 auto;padding:2px 0 0}
 @media (max-width:700px){
   .access-page-head{padding:0 2px 14px}
@@ -1859,9 +1861,9 @@ html[data-perf="low"] .dock{transition:none}
 .ui-sheet .seg__opt{height:30px;padding:0 10px;font-size:12px;border-radius:8px}
 .ui-sheet .checkbox-row{padding:0;font-size:15px}
 .ui-sheet .row{margin:8px 14px 14px!important;padding:0}
-.ui-sheet .row .btn{height:42px;border-radius:12px;font-size:14px}
-.ui-sheet .row .btn--primary{background:var(--ui-blue);box-shadow:none}
-.ui-sheet .row .btn--primary:hover:not(:disabled){background:var(--ui-blue);box-shadow:none}
+.ui-sheet .row .btn{height:42px;border-radius:var(--r-pill);font-size:14px}
+.ui-sheet .row .btn--primary{background:linear-gradient(135deg,var(--primary),var(--primary-dark));box-shadow:var(--glow-primary)}
+.ui-sheet .row .btn--primary:hover:not(:disabled){background:linear-gradient(135deg,var(--primary),var(--primary-dark));box-shadow:0 5px 14px rgba(var(--primary-rgb),.36)}
 .ui-sheet .token-divider{display:none}
 .ui-sheet .token-secret{
   margin:0 0 20px;
@@ -1894,45 +1896,7 @@ html[data-perf="low"] .dock{transition:none}
 .ui-sheet .token-row-actions .mini-icon-btn{width:30px;height:30px;border-radius:50%;background:var(--ui-fill)}
 .ui-sheet .token-empty{padding:18px 14px;font-size:13px}
 
-/* 手机：把浮动胶囊 dock 收成 iOS 标签栏 */
-@media (max-width:700px){
-  #app{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
-  .dock{
-    top:auto;
-    right:0;
-    bottom:0;
-    left:0;
-    width:100%;
-    max-width:none;
-    transform:none;
-    padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));
-    border:0;
-    border-top:1px solid var(--ui-separator);
-    border-radius:0;
-    background:rgba(249,249,249,.94);
-    box-shadow:none;
-    backdrop-filter:blur(20px) saturate(180%);
-    -webkit-backdrop-filter:blur(20px) saturate(180%);
-    gap:0;
-  }
-  html[data-theme="dark"] .dock{background:rgba(22,22,24,.94)}
-  .dock__indicator{display:none}
-  .dock__btn{
-    min-height:50px;
-    padding:4px 2px 2px;
-    gap:2px;
-    border:0;
-    border-radius:0;
-    color:var(--ui-secondary);
-  }
-  .dock__btn i{font-size:20px}
-  .dock__btn span{font-size:10px;font-weight:500}
-  .dock__btn:hover,
-  .dock__btn:active{background:transparent;color:var(--ui-secondary);transform:none}
-  .dock__btn.active,
-  html[data-theme="dark"] .dock__btn.active{color:var(--ui-blue);background:transparent}
-  .batch-dock{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
-}
+
 </style>
 </head>
 <body>
