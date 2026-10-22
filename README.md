@@ -4,7 +4,7 @@
 
 # K-Vault-Next
 
-## 一个跑在 Cloudflare Pages 上的 Serverless 云盘 / 图床 —— 零服务器、零构建、零运行时依赖
+## 跑在 Cloudflare Pages 上的 WebDAV / MCP / 图床 —— 给大网盘补一个快入口
 
 [![Deploy to Cloudflare Pages](https://img.shields.io/badge/Deploy-Cloudflare%20Pages-F38020?logo=cloudflare&logoColor=white)](#-部署5-步上线)
 ![Runtime Dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen)
@@ -16,20 +16,32 @@
 
 </div>
 
-> **白嫖 Cloudflare 免费额度，部署一个属于你自己的云盘。** 不用买 VPS、不用开 Docker、不用管运维。Fork 一下，绑两个资源，5 分钟上线。
+> **白嫖 Cloudflare 免费额度，部署一个自己的轻文件层。** 不用买 VPS、不用开 Docker、不用管运维。Fork 一下，绑两个资源，5 分钟上线。
+
+它不是要替代 Google Drive / 阿里云盘，而是大网盘旁边那条**快通道**：挂载成磁盘、交给 AI、粘贴成直链。小、快、简，文件仍在你自己的存储里。
 
 ---
 
-## 为什么你该部署一个 K-Vault-Next
+## 三种用法
 
 | | |
 | :--- | :--- |
-| **零成本** | 完全跑在 Cloudflare 免费额度内：Pages 托管、KV 元数据、R2 存储、D1 数据库、Functions 计算。不花一分钱。 |
-| **零运维** | 没有服务器、没有 Docker、没有 Nginx、没有数据库要养。没有构建步骤，`git push` 即部署。 |
-| **零运行时依赖** | 运行时代码只有标准 Web API。没有 npm 生产依赖，没有 CVE 需要追。唯一的依赖是 `wrangler`（开发用）。 |
-| **七种存储后端** | Telegram、R2、S3 兼容、Discord、HuggingFace、WebDAV、GitHub —— 你手头有什么就用什么。 |
+| **WebDAV** | 挂到 Finder / 资源管理器 / 手机 App，拖拽即上传。桌面端不用打开网页。 |
+| **MCP** | Claude Code、Cursor 等客户端通过 `/mcp` 直接上传、检索、分享文件。 |
+| **图床** | 拖入图片，立刻拿到直链、Markdown 与分享链接。 |
+
+---
+
+## 为什么是它
+
+| | |
+| :--- | :--- |
+| **小** | 首页只有三个入口；上传台独立成页，不把队列、历史、节点设置堆到首屏。 |
+| **快** | 跑在 Cloudflare 边缘，零构建、零运行时依赖，`git push` 即部署。 |
+| **简** | 一个 `/dav`、一个 `/mcp`、一条直链，没有多余概念。 |
+| **零成本** | Pages 托管、KV 元数据、R2 存储、D1 数据库、Functions 计算，全部在免费额度内。 |
+| **七种存储后端** | Telegram、R2、S3 兼容、Discord、HuggingFace、WebDAV、GitHub —— 手头有什么就用什么。 |
 | **单文件最高 10GB** | R2 原生 multipart 分片上传，大文件不虚。 |
-| **自带隔空投送** | 点对点临时传输：8 位连接码 / 二维码配对，传完即焚，像 AirDrop 一样传文件。 |
 | **安全默认** | 管理面 fail-closed、SSRF 防护、统一限流、暴力破解防护、堆栈脱敏、源码不泄露。 |
 | **为机器而生** | 完整 REST API v1 + 细粒度 Token 策略 + OpenAPI 定义 + Agent 接入指南。 |
 

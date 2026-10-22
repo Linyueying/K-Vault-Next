@@ -4,7 +4,7 @@
 
 # K-Vault-Next
 
-> A Serverless file host and image bed running on **Cloudflare Pages**, with Telegram, R2, S3, Discord, HuggingFace, WebDAV and GitHub storage backends.
+> A small, fast file layer on **Cloudflare Pages** — WebDAV mount, MCP endpoint and image bed. Files stay in your own storage backend.
 
 **English** | [中文](README.md)
 
@@ -18,7 +18,7 @@
 
 ---
 
-Files land in the storage backend you pick, metadata goes into Cloudflare KV, and you get direct links, previews, folder management, share controls, text pastes, API tokens and a machine-callable API on top.
+Not a replacement for Google Drive or iCloud — a shortcut beside them: mount it as a disk, let agents read and write through `/mcp`, or drop an image and copy the direct link. Telegram, R2, S3, Discord, HuggingFace, WebDAV and GitHub are all supported.
 
 **There is exactly one deployment form**: Cloudflare Pages (static pages in the repo root plus Pages Functions under `functions/`). No build step, no Docker, no server to operate, **zero runtime dependencies**, and zero cost inside the free quota.
 

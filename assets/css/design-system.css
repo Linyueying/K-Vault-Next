@@ -311,7 +311,13 @@ body {
   color: #fff;
   box-shadow: var(--glow-primary);
 }
-.btn--primary:hover:not(:disabled) { color: #fff; box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36); }
+.btn--primary:hover:not(:disabled) {
+  color: #fff;
+  /* 必须重申渐变：.btn:hover 的 background 简写会清掉 .btn--primary 的
+     background-image，导致悬停时变成浅色底 + 白字（几乎不可见）。 */
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36);
+}
 .btn--primary:disabled { background: rgba(100, 116, 139, 0.16); color: var(--text-muted); box-shadow: none; }
 
 .btn--danger { color: var(--c-danger); border-color: rgba(244, 63, 94, 0.3); }

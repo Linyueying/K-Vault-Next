@@ -100,7 +100,7 @@ console.log('\n[4] 任意输入都不会产出 [object Object]');
 console.log('\n[5] 页面已不再直接拼接 error 对象');
 {
   const root = path.join(import.meta.dirname, '..');
-  for (const f of ['admin.html', 'paste.html', 'index.html']) {
+  for (const f of ['admin.html', 'paste.html', 'index.html', 'upload.html']) {
     const src = fs.readFileSync(path.join(root, f), 'utf8');
     // 匹配 new Error(xxx.error) / new Error(a.error || ...) —— 都应改走 helper
     const bad = src.match(/new Error\((\w+)\.error(\s*\|\||\s*\))/g) || [];

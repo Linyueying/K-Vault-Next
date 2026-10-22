@@ -4348,7 +4348,8 @@
         this.redirectToLogin();
       },
       redirectToLogin() {
-        window.location.href = "/login.html?redirect=%2F";
+        const back = window.location.pathname + window.location.search;
+        window.location.href = "/login.html?redirect=" + encodeURIComponent(back);
       },
       async checkStorageTarget() {
         this.beginNodeSettle();

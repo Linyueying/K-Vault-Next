@@ -45,7 +45,7 @@ import os
 import re
 import sys
 
-PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
+PAGES = ['index.html', 'upload.html', 'admin.html', 'gallery.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 # 各页引用的样式表。页面自己的 <style> 单独处理。

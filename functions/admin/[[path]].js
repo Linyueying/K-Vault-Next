@@ -1,7 +1,7 @@
 /**
  * /admin/* → admin.html 的 SPA fallback。
  *
- * 管理后台的前端分区导航（文件 / 分享 / 存储 / 设置）用的是
+ * 管理后台的前端分区导航（文件 / 分享 / 接入 / 存储 / 设置）用的是
  * `history.pushState('/admin/<section>')`，也就是**真实路径**而不是 hash。
  * 好处是地址栏干净、前进后退语义正确、切板块不再触发锚点滚动；
  * 代价是这些路径在服务器上并不存在 —— 刷新或直接访问
@@ -13,7 +13,7 @@
  * 地址栏始终停留在用户输入的 URL 上（302 会让 URL 抖一下再回来）。
  *
  * 与 `functions/upload.js` 的 `serveUploadPage()` 是同一套做法
- * （`/upload` → `/index.html`），这里是 `/admin/*` → `/admin.html`。
+ * （`/upload` → `/upload.html`），这里是 `/admin/*` → `/admin.html`。
  */
 
 /** 带扩展名的路径段（如 `foo.js`、`logo.png`）视为静态资源，不接管。 */

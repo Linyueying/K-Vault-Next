@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>WebDAV 服务 | K-Vault</title>
+    <title>接入 · WebDAV / MCP | K-Vault</title>
+    <meta name="description" content="把 K-Vault 挂载为 WebDAV 磁盘，或通过 MCP 让 AI 客户端直接读写文件。" />
     <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico" />
     <link rel="apple-touch-icon" href="/assets/img/logo-180.png" />
     <link rel="shortcut icon" href="/assets/img/favicon.ico" />
@@ -14,572 +15,972 @@
     <script src="/assets/js/theme.js?v=20260305"></script>
     <script src="/assets/js/app-core.js"></script>
     <style>
-      /* 设计令牌统一取自 design-system.css；本页只写全站共享层没有的局部增量
-         （topbar / brand / 本页骨架类）。卡片、按钮、输入框、状态胶囊均直接复用
-         design-system.css 的 .card / .btn / .input / .status-pill，避免两处定义漂移。 */
+      body {
+        background: var(--bg-gradient);
+        background-attachment: scroll;
+        color: var(--text-main);
+        font-family: var(--font-sans);
+        min-height: 100vh;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+      }
 
-      /* ===== 顶部栏：与 index / share 同源（index.css 不在共享层，
-         故在此内联复刻，确保三页外观一致） ===== */
-      .topbar {
+      .access-shell {
         position: relative;
         z-index: 2;
+        max-width: 1020px;
+        margin: 0 auto;
+        padding: 18px var(--sp-5) 48px;
+      }
+
+      .access-topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 16px var(--sp-5) 6px;
+        gap: var(--sp-4);
+        padding: 6px 0;
+        animation: riseInSm 0.44s var(--ease-fluid) backwards;
       }
-      .brand { display: flex; align-items: center; gap: var(--sp-3); user-select: none; min-width: 0; }
-      .brand__logo {
-        width: 38px; height: 38px;
-        border-radius: var(--r-sm);
+      .access-brand { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; color: inherit; text-decoration: none; }
+      .access-brand__logo {
+        width: 38px; height: 38px; flex: none;
         display: flex; align-items: center; justify-content: center;
+        border-radius: var(--r-sm);
         background: linear-gradient(135deg, #fff, #e0f2fe);
         border: 1px solid var(--glass-border-ice);
         box-shadow: 0 4px 12px rgba(2, 132, 199, 0.14);
-        transition: transform 0.45s var(--ease-spring), box-shadow 0.3s var(--ease-apple);
       }
-      .brand:hover .brand__logo { transform: rotate(-6deg) scale(1.06); box-shadow: 0 8px 20px rgba(2, 132, 199, 0.24); }
-      .brand__logo img { width: 24px; height: 24px; object-fit: contain; }
-      .brand__text { min-width: 0; }
-      .brand__text h1 {
-        font-size: var(--fs-xl); font-weight: 800; letter-spacing: -0.02em; margin: 0;
-        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 50%, var(--primary-light) 100%);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+      .access-brand__logo img { width: 24px; height: 24px; object-fit: contain; }
+      .access-brand__text { display: flex; flex-direction: column; min-width: 0; }
+      .access-brand__text strong { font-size: var(--fs-lg); font-weight: 800; letter-spacing: -0.02em; }
+      .access-brand__text span { color: var(--text-muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; }
+      .access-nav { display: flex; align-items: center; gap: 2px; }
+      .access-nav a {
+        padding: 7px 11px;
+        white-space: nowrap;
+        border-radius: var(--r-pill);
+        color: var(--text-sub);
+        font-size: var(--fs-sm);
+        font-weight: 600;
+        text-decoration: none;
+        transition: var(--transition);
       }
-      .brand__text span { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); display: block; margin-top: -2px; }
-      .top-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; justify-content: flex-end; }
+      .access-nav a:hover { color: var(--primary-dark); background: rgba(var(--primary-rgb), 0.07); }
+      html[data-theme="dark"] .access-nav a:hover { color: var(--primary-light); }
+      .access-theme {
+        width: var(--h-ctrl-sm); height: var(--h-ctrl-sm);
+        margin-left: 2px;
+        border: 1px solid transparent; border-radius: var(--r-pill);
+        background: transparent; color: var(--text-muted);
+        cursor: pointer; transition: var(--transition);
+      }
+      .access-theme:hover { color: var(--primary); border-color: var(--glass-border-ice); background: var(--glass-surface); }
 
-      /* ===== 内容容器 ===== */
-      .page {
-        position: relative;
-        z-index: 1;
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 8px var(--sp-5) 40px;
-      }
-
-      /* ===== 卡片网格 ===== */
-      .layout {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+      .access-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
         gap: var(--sp-4);
+        flex-wrap: wrap;
+        padding: clamp(36px, 6vw, 56px) 0 22px;
+        animation: riseIn 0.5s var(--ease-fluid) 0.04s backwards;
       }
-      .span-2 { grid-column: 1 / -1; }
+      .access-head h1 { font-size: clamp(1.8rem, 3.4vw, 2.4rem); line-height: 1.15; letter-spacing: -0.035em; font-weight: 800; }
+      .access-head p { margin-top: 8px; color: var(--text-muted); font-size: var(--fs-md); }
+      .access-tabs {
+        display: inline-flex;
+        gap: 3px;
+        padding: 4px;
+        border-radius: var(--r-pill);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-soft);
+      }
+      .access-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 16px;
+        border: none;
+        border-radius: var(--r-pill);
+        background: transparent;
+        color: var(--text-sub);
+        font-family: inherit;
+        font-size: var(--fs-sm);
+        font-weight: 700;
+        cursor: pointer;
+        transition: var(--transition);
+        -webkit-tap-highlight-color: transparent;
+      }
+      .access-tab:hover { color: var(--primary); }
+      .access-tab.is-active { color: #fff; background: var(--primary); box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.28); }
 
-      /* 工具栏行：直接吃共享 .liquid-card 的玻璃外观，这里只加内边距与两端对齐 */
-      .toolbar-row {
-        grid-column: 1 / -1;
+      .access-panel { display: none; }
+      .access-panel.is-active { display: block; animation: riseIn 0.4s var(--ease-fluid) backwards; }
+
+      .svc-bar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 10px;
-        padding: var(--sp-3) var(--sp-4);
         flex-wrap: wrap;
+        padding: 12px 16px;
+        border-radius: var(--r-md);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-soft);
       }
+      .svc-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--text-muted); }
+      .svc-bar.is-ok .svc-dot { background: var(--c-success); }
+      .svc-bar.is-off .svc-dot { background: var(--c-danger); }
+      .svc-bar__text { font-size: var(--fs-md); font-weight: 700; }
+      .svc-bar__meta { color: var(--text-muted); font-size: var(--fs-sm); }
+      .svc-bar__actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+      .svc-link {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 10px;
+        border-radius: var(--r-pill);
+        color: var(--text-sub);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        text-decoration: none;
+        transition: var(--transition);
+      }
+      .svc-link:hover { color: var(--primary); background: rgba(var(--primary-rgb), 0.07); }
+      .svc-icon-btn {
+        width: var(--h-ctrl-sm); height: var(--h-ctrl-sm);
+        border: 1px solid transparent; border-radius: var(--r-pill);
+        background: transparent; color: var(--text-muted);
+        cursor: pointer; transition: var(--transition);
+      }
+      .svc-icon-btn:hover { color: var(--primary); border-color: var(--glass-border-ice); background: var(--glass-surface); }
 
-      /* ===== 卡片内局部排版（基础外观由 design-system.css 的 .card 提供） ===== */
-      /* .card-pad：卡片正文内边距（design-system 的 .card__body 只有 padding 一项声明，
-         被 check_styles 的「仅 margin/padding 不计为有效样式」规则排除，故用本页局部类） */
-      .card-pad { padding: 0 var(--sp-4) var(--sp-4); }
-      .card-sub { margin-top: 4px; color: var(--text-muted); font-size: 0.86rem; line-height: 1.45; }
+      .access-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); align-items: start; }
+      .access-card {
+        border-radius: var(--r-lg);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-soft);
+        overflow: hidden;
+      }
+      .access-card--wide { grid-column: 1 / -1; }
+      .access-card__head {
+        display: flex; align-items: center; gap: 8px;
+        padding: 15px 18px 0;
+      }
+      .access-card__head i { color: var(--primary); font-size: 0.9rem; }
+      .access-card__head h2 { font-size: var(--fs-md); font-weight: 700; }
+      .access-card__note { margin-left: auto; color: var(--text-muted); font-size: var(--fs-xs); }
+      .access-card__body { padding: 14px 18px 18px; }
 
-      .kv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
-      .info-line {
-        display: flex;
+      .conn-list { display: flex; flex-direction: column; }
+      .conn-row {
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr) auto;
         align-items: center;
         gap: 10px;
         padding: 10px 0;
         border-bottom: 1px dashed var(--glass-border-ice);
       }
-      .info-line:last-child { border-bottom: none; }
-      .info-line .info-label {
-        flex: 0 0 auto;
-        min-width: 76px;
-        color: var(--text-sub);
-        font-size: 0.86rem;
-        font-weight: 600;
-      }
-      .info-line .info-value {
-        flex: 1;
+      .conn-row:last-child { border-bottom: none; }
+      .conn-row__label { color: var(--text-muted); font-size: var(--fs-xs); font-weight: 700; }
+      .conn-row__value {
         min-width: 0;
-        font-size: 0.9rem;
-        word-break: break-all;
-      }
-
-      /* 连接信息输入框/地址：复用共享 .input，仅追加本页需要的 flex 行为 */
-      .copy-box {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-      }
-      .copy-box .url-text {
-        flex: 1;
-        min-width: 0;
-        overflow-x: auto;
-        white-space: nowrap;
-        padding: 0 var(--sp-3);
-        height: var(--h-ctrl);
-        display: flex;
-        align-items: center;
-        border-radius: var(--r-sm);
-        border: 1px solid var(--glass-border-ice);
-        background: var(--glass-subtle);
         font-family: var(--font-mono);
         font-size: var(--fs-sm);
         color: var(--text-main);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .conn-row__value.is-muted { font-family: var(--font-sans); color: var(--text-muted); }
+      .copy-btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        height: 28px; padding: 0 9px;
+        border: 1px solid var(--glass-border-ice);
+        border-radius: var(--r-pill);
+        background: var(--glass-subtle);
+        color: var(--text-sub);
+        font-family: inherit; font-size: var(--fs-xs); font-weight: 600;
+        cursor: pointer; transition: var(--transition);
+      }
+      .copy-btn:hover { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.4); }
+      .copy-btn.is-done { color: var(--c-success-text); border-color: rgba(16, 185, 129, 0.4); }
+
+      .access-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+      .access-hint { margin-top: 12px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.6; }
+      .access-hint code { font-family: var(--font-mono); color: var(--text-sub); }
+
+      .seg-tabs {
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        margin-bottom: 14px;
+        border-radius: var(--r-sm);
+        background: rgba(var(--primary-rgb), 0.05);
+        border: 1px solid var(--glass-border-ice);
+        overflow-x: auto;
         scrollbar-width: none;
       }
-      .copy-box .url-text::-webkit-scrollbar { display: none; }
-
-      /* ===== 状态胶囊：复刻 index.css 外观（.status-pill 基础不在共享层） =====
-         三态：默认灰（检测中，不呼吸）/ is-ok 绿（脉冲）/ is-bad 红（常亮） */
-      .status-pill {
-        display: inline-flex; align-items: center; justify-content: center;
-        gap: var(--sp-2);
-        padding: 7px var(--sp-4);
-        min-width: 136px;
-        max-width: min(320px, 70vw);
-        border-radius: var(--r-pill);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        color: var(--primary-dark);
-        font-size: var(--fs-sm); font-weight: 600;
-        box-shadow: var(--shadow-soft);
-        transition: var(--transition);
-        cursor: default;
-      }
-      html[data-theme="dark"] .status-pill { color: var(--primary-light); }
-      .status-pill__pulse {
-        width: 8px; height: 8px; border-radius: 50%;
-        background: var(--text-muted);
-        flex: none;
-      }
-      .status-pill.is-ok {
-        color: var(--c-success-text);
-        border-color: rgba(16, 185, 129, 0.4);
-      }
-      html[data-theme="dark"] .status-pill.is-ok { color: var(--c-success); }
-      /* L5：pulseRing 已删（box-shadow 扩散逐帧重绘且常驻），改为静态点 */
-      .status-pill.is-ok .status-pill__pulse { background: var(--c-success); }
-      .status-pill.is-bad {
-        color: var(--c-danger);
-        border-color: rgba(225, 29, 72, 0.4);
-      }
-      .status-pill.is-bad .status-pill__pulse { background: var(--c-danger); }
-
-      /* ===== 平台挂载指引折叠块（页面局部组件） ===== */
-      .guide-block {
-        border: 1px solid var(--glass-border-ice);
-        border-radius: var(--r-md);
-        padding: 10px var(--sp-3);
-        margin-bottom: 8px;
-        background: var(--glass-subtle);
-      }
-      .guide-block:last-child { margin-bottom: 0; }
-      .guide-title {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-weight: 700;
-        font-size: 0.9rem;
-        cursor: pointer;
-        user-select: none;
-      }
-      .guide-title i.caret { margin-left: auto; transition: transform var(--dur-base) var(--ease-apple); color: var(--text-muted); }
-      .guide-block.open .guide-title i.caret { transform: rotate(180deg); }
-      .guide-body {
-        margin-top: 8px;
-        font-size: 0.86rem;
-        line-height: 1.7;
+      .seg-tabs::-webkit-scrollbar { display: none; }
+      .seg-tab {
+        flex: 1;
+        min-width: max-content;
+        padding: 7px 10px;
+        border: none;
+        border-radius: 9px;
+        background: transparent;
         color: var(--text-sub);
-        display: none;
+        font-family: inherit;
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        cursor: pointer;
+        transition: var(--transition);
+      }
+      .seg-tab:hover { color: var(--primary); }
+      .seg-tab.is-active { color: var(--text-main); background: var(--glass-elevated); box-shadow: var(--shadow-sm); }
+
+      .guide { display: none; }
+      .guide.is-active { display: block; }
+      .guide ol { margin: 0; padding-left: 18px; color: var(--text-sub); font-size: var(--fs-md); line-height: 1.8; }
+      .guide li::marker { color: var(--primary); font-weight: 700; }
+      .guide code { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-main); background: rgba(var(--primary-rgb), 0.08); padding: 1px 5px; border-radius: 5px; }
+
+      .code-block {
+        position: relative;
+        margin-top: 12px;
+        border-radius: var(--r-md);
+        background: #0b1220;
+        border: 1px solid rgba(148, 163, 184, 0.2);
         overflow: hidden;
       }
-      .guide-block.open .guide-body { display: block; }
-      .guide-body ol { margin: 6px 0; padding-left: 20px; }
-      .guide-body code {
+      html[data-theme="dark"] .code-block { background: #060b14; }
+      .code-block code {
+        color: inherit;
+        background: transparent;
+        padding: 0;
+        border-radius: 0;
+        font-family: inherit;
+        font-size: inherit;
+      }
+      .code-block pre {
+        margin: 0;
+        padding: 14px 52px 14px 15px;
+        overflow-x: auto;
+        color: #dbeafe;
         font-family: var(--font-mono);
-        background: rgba(var(--primary-rgb), 0.1);
-        padding: 1px 5px;
-        border-radius: 4px;
-        word-break: break-all;
+        font-size: 0.76rem;
+        line-height: 1.7;
+        white-space: pre;
+      }
+      .code-block .copy-btn {
+        position: absolute;
+        top: 8px; right: 8px;
+        height: 26px;
+        border-color: rgba(148, 163, 184, 0.28);
+        background: rgba(255, 255, 255, 0.08);
+        color: #cbd5e1;
+      }
+      .code-block .copy-btn:hover { color: #fff; border-color: rgba(148, 163, 184, 0.5); }
+
+      .probe-form { display: flex; gap: 8px; flex-wrap: wrap; }
+      .probe-form .input { flex: 1; min-width: 140px; }
+      .probe-result { margin-top: 10px; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.6; word-break: break-word; }
+      .probe-result.is-ok { color: var(--c-success-text); }
+      .probe-result.is-bad { color: var(--c-danger); }
+
+      .mini-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+      .mini-chip {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 5px 9px;
+        border-radius: var(--r-pill);
+        background: rgba(var(--primary-rgb), 0.06);
+        border: 1px solid var(--glass-border-ice);
+        color: var(--text-sub);
+        font-size: var(--fs-xs);
+        font-weight: 600;
       }
 
-      .result-line {
-        font-size: 0.88rem;
+      .login-banner {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; flex-wrap: wrap;
+        margin-top: var(--sp-3);
+        padding: 12px 16px;
+        border-radius: var(--r-md);
+        background: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        color: var(--text-sub);
+        font-size: var(--fs-sm);
+      }
+      .login-banner a { color: var(--primary); font-weight: 700; text-decoration: none; }
+      .login-banner[hidden] { display: none; }
+
+      details.access-details {
+        margin-top: 14px;
         color: var(--text-muted);
-        margin-top: 10px;
-        line-height: 1.6;
-        word-break: break-word;
+        font-size: var(--fs-xs);
+        line-height: 1.7;
       }
-      .result-line.ok { color: var(--c-success); }
-      .result-line.bad { color: var(--c-danger); }
+      details.access-details summary { cursor: pointer; font-weight: 600; color: var(--text-sub); }
+      details.access-details p { margin-top: 6px; }
 
-      /* ===== 响应式 ===== */
+      .access-footer {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: var(--sp-3); flex-wrap: wrap;
+        margin-top: var(--sp-6);
+        padding-top: var(--sp-5);
+        border-top: 1px solid var(--glass-border-ice);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+      }
+      .access-footer a { color: var(--text-sub); text-decoration: none; }
+      .access-footer a:hover { color: var(--primary); }
+
       @media (max-width: 860px) {
-        .layout { grid-template-columns: 1fr; }
-        .span-2 { grid-column: auto; }
+        .access-grid { grid-template-columns: 1fr; }
+        .access-card--wide { grid-column: auto; }
       }
-      @media (max-width: 640px) {
-        .page { padding: 8px var(--sp-3) 32px; }
-        .topbar { padding: 12px var(--sp-3) 4px; flex-wrap: wrap; }
-        .top-actions { width: 100%; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
-        .top-actions::-webkit-scrollbar { display: none; }
-        .info-line { flex-direction: column; align-items: flex-start; gap: 4px; }
-        .copy-box { flex-direction: column; align-items: stretch; }
+      @media (max-width: 600px) {
+        .access-shell { padding: 12px var(--sp-3) 36px; }
+        .code-block pre { font-size: 0.68rem; }
+        .access-brand { flex: 0 0 auto; }
+        .access-brand__logo { width: 34px; height: 34px; }
+        .access-brand__text strong { font-size: var(--fs-md); max-width: 90px; }
+        .access-nav { gap: 0; }
+        .access-nav a { padding: 6px 7px; font-size: var(--fs-xs); }
+        .access-nav__home, .access-nav__admin { display: none; }
+        .access-head { padding-top: 30px; }
+        .access-tabs { width: 100%; }
+        .access-tab { flex: 1; justify-content: center; }
+        .conn-row { grid-template-columns: 1fr auto; gap: 4px 10px; }
+        .conn-row__label { grid-column: 1 / -1; }
+        .conn-row__value { white-space: normal; word-break: break-all; }
       }
-
-      /* ===== 首屏入场编排：与 index / share / admin 同一套 riseIn ===== */
-      .topbar { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
-      .card, .liquid-card { animation: riseIn 0.52s var(--ease-fluid) backwards; }
     </style>
     <link rel="stylesheet" href="/assets/css/mobile-refactor.css" />
   </head>
   <body>
-    <!-- 环境光背景：与 index / share 同源 -->
     <div class="ambient-glow">
       <div class="ambient-orb orb-1"></div>
       <div class="ambient-orb orb-2"></div>
     </div>
 
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand__logo">
-          <img
-            src="/assets/img/logo-64.png"
-            alt="Logo"
-            onerror="this.onerror=null;this.src='/assets/img/favicon.ico';"
-          />
+    <div class="access-shell">
+      <header class="access-topbar">
+        <a class="access-brand" href="./">
+          <span class="access-brand__logo">
+            <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" />
+          </span>
+          <span class="access-brand__text">
+            <strong>接入</strong>
+            <span>WebDAV · MCP</span>
+          </span>
+        </a>
+        <nav class="access-nav" aria-label="主导航">
+          <a class="access-nav__home" href="./">首页</a>
+          <a href="./upload.html">上传</a>
+          <a href="./gallery.html">图床</a>
+          <a class="access-nav__admin" href="/admin/files">后台</a>
+          <button class="access-theme" type="button" data-theme-toggle aria-label="切换主题">
+            <i class="fas fa-moon" data-theme-icon></i>
+          </button>
+        </nav>
+      </header>
+
+      <main>
+        <div class="access-head">
+          <div>
+            <h1>接入你的工作流</h1>
+            <p>挂载成磁盘，或让 AI 直接读写。</p>
+          </div>
+          <div class="access-tabs" role="tablist" aria-label="接入方式">
+            <button class="access-tab is-active" type="button" role="tab" aria-selected="true" data-tab="webdav">
+              <i class="fas fa-hard-drive"></i>WebDAV
+            </button>
+            <button class="access-tab" type="button" role="tab" aria-selected="false" data-tab="mcp">
+              <i class="fas fa-robot"></i>MCP
+            </button>
+          </div>
         </div>
-        <div class="brand__text">
-          <h1>WebDAV 服务</h1>
-          <span>K-Vault · 网盘挂载</span>
-        </div>
-      </div>
-      <div class="top-actions">
-        <a class="btn btn--sm" href="./"><i class="fas fa-home"></i><span>首页</span></a>
-        <a class="btn btn--sm" href="./gallery.html"><i class="fas fa-images"></i><span>图片浏览</span></a>
-        <a class="btn btn--sm" href="/admin/files"><i class="fas fa-folder-tree"></i><span>管理后台</span></a>
-        <a class="btn btn--sm" href="./vault.html"><i class="fas fa-shield-halved"></i><span>密码库</span></a>
-        <a class="btn btn--sm btn--primary" href="./webdav.html"><i class="fas fa-network-wired"></i><span>WebDAV</span></a>
-        <button type="button" class="btn btn--ghost btn--icon" data-theme-toggle aria-label="切换主题">
-          <i class="fas fa-moon" data-theme-icon></i>
-        </button>
-      </div>
-    </header>
 
-    <main class="page">
-      <section class="layout">
-        <article class="toolbar-row liquid-card">
-          <div class="status-pill" id="statusPill">
-            <span class="status-pill__pulse"></span>
-            <span id="statusText">正在检测 WebDAV 服务状态...</span>
+        <!-- WebDAV -->
+        <section class="access-panel is-active" id="panel-webdav" role="tabpanel">
+          <div class="svc-bar" id="davBar">
+            <span class="svc-dot"></span>
+            <span class="svc-bar__text" id="davStatus">检测中</span>
+            <span class="svc-bar__meta" id="davMeta"></span>
+            <div class="svc-bar__actions">
+              <button class="svc-icon-btn" type="button" id="davRefresh" title="刷新状态" aria-label="刷新状态">
+                <i class="fas fa-rotate"></i>
+              </button>
+              <a class="svc-link" href="/admin/access"><i class="fas fa-sliders"></i>设置</a>
+            </div>
           </div>
-          <div class="kv-row">
-            <button class="btn btn--sm" id="refreshBtn"><i class="fas fa-rotate"></i> 刷新状态</button>
-            <a class="btn btn--sm btn--primary" href="/admin/storage"><i class="fas fa-sliders"></i> 去后台设置</a>
-          </div>
-        </article>
 
-        <article class="card span-2">
-          <div class="card__header">
-            <div>
-              <h2><i class="fas fa-circle-info"></i> 服务状态</h2>
-              <p class="card-sub">把本站当作 WebDAV 网盘挂载。开启后可用资源管理器 / Finder / 手机 App 直接拖拽文件。</p>
-            </div>
+          <div class="login-banner" id="davLogin" hidden>
+            <span>登录后可查看用户名并复制完整连接信息。</span>
+            <a id="davLoginLink" href="./login.html?redirect=%2Fwebdav.html">去登录</a>
           </div>
-          <div class="card-pad">
-            <div class="info-line">
-              <span class="info-label">运行状态</span>
-              <span class="info-value" id="svcEnabled">—</span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">存储后端</span>
-              <span class="info-value" id="svcBackend">—</span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">读写权限</span>
-              <span class="info-value" id="svcMode">—</span>
-            </div>
-            <p class="result-line" id="statusDetail"></p>
-          </div>
-        </article>
 
-        <article class="card">
-          <div class="card__header">
-            <div>
-              <h2><i class="fas fa-link"></i> 连接地址</h2>
-              <p class="card-sub">在 WebDAV 客户端中填入以下地址与账号密码。</p>
-            </div>
-          </div>
-          <div class="card-pad">
-            <div class="info-line">
-              <span class="info-label">服务地址</span>
-              <div class="info-value">
-                <div class="copy-box">
-                  <span class="url-text mono" id="serviceUrl">/dav</span>
-                  <button class="btn btn--sm" id="copyUrlBtn"><i class="fas fa-copy"></i> 复制</button>
+          <div class="access-grid">
+            <article class="access-card">
+              <div class="access-card__head">
+                <i class="fas fa-link"></i>
+                <h2>连接信息</h2>
+              </div>
+              <div class="access-card__body">
+                <div class="conn-list">
+                  <div class="conn-row">
+                    <span class="conn-row__label">地址</span>
+                    <span class="conn-row__value" id="davUrl">/dav</span>
+                    <button class="copy-btn" type="button" data-copy="davUrl"><i class="fas fa-copy"></i>复制</button>
+                  </div>
+                  <div class="conn-row">
+                    <span class="conn-row__label">用户名</span>
+                    <span class="conn-row__value is-muted" id="davUser">登录后可见</span>
+                    <button class="copy-btn" type="button" data-copy="davUser"><i class="fas fa-copy"></i>复制</button>
+                  </div>
+                  <div class="conn-row">
+                    <span class="conn-row__label">密码</span>
+                    <span class="conn-row__value is-muted" id="davPass">在后台设置</span>
+                    <a class="copy-btn" href="/admin/access"><i class="fas fa-key"></i>查看</a>
+                  </div>
+                </div>
+                <div class="access-actions">
+                  <button class="btn btn--primary btn--sm" type="button" id="copyAll"><i class="fas fa-copy"></i>复制地址与账号</button>
+                </div>
+                <p class="access-hint">客户端通常需要明文保存密码。建议单独设置一个密码，并始终在 HTTPS 下使用。</p>
+              </div>
+            </article>
+
+            <article class="access-card">
+              <div class="access-card__head">
+                <i class="fas fa-satellite-dish"></i>
+                <h2>连接自检</h2>
+              </div>
+              <div class="access-card__body">
+                <div class="probe-form">
+                  <input class="input" id="probeUser" type="text" placeholder="用户名" autocomplete="off" />
+                  <input class="input" id="probePass" type="password" placeholder="密码" autocomplete="new-password" />
+                  <button class="btn btn--primary" type="button" id="probeBtn"><i class="fas fa-plug-circle-check"></i>测试</button>
+                </div>
+                <p class="probe-result" id="probeResult">填入账号密码，验证服务端是否可达。</p>
+              </div>
+            </article>
+
+            <article class="access-card access-card--wide">
+              <div class="access-card__head">
+                <i class="fas fa-list-check"></i>
+                <h2>挂载方式</h2>
+                <span class="access-card__note">按平台选择</span>
+              </div>
+              <div class="access-card__body">
+                <div class="seg-tabs" role="tablist" aria-label="操作系统">
+                  <button class="seg-tab is-active" type="button" data-guide="win">Windows</button>
+                  <button class="seg-tab" type="button" data-guide="mac">macOS</button>
+                  <button class="seg-tab" type="button" data-guide="mobile">手机</button>
+                  <button class="seg-tab" type="button" data-guide="cli">命令行</button>
+                </div>
+
+                <div class="guide is-active" id="guide-win">
+                  <ol>
+                    <li>此电脑 → 映射网络驱动器。</li>
+                    <li>地址填 <code id="winPath">\\host@SSL\dav</code>，勾选「使用其他凭据」。</li>
+                    <li>输入上方用户名与密码。</li>
+                  </ol>
+                  <div class="code-block">
+                    <pre><code id="winCmd">net use Z: \\host@SSL\dav /user:用户名 密码</code></pre>
+                    <button class="copy-btn" type="button" data-copy="winCmd"><i class="fas fa-copy"></i></button>
+                  </div>
+                </div>
+
+                <div class="guide" id="guide-mac">
+                  <ol>
+                    <li>Finder 按 <code>⌘K</code>，打开「连接服务器」。</li>
+                    <li>地址填 <code id="macPath">https://host/dav</code>。</li>
+                    <li>选择「注册用户」，输入用户名与密码。</li>
+                  </ol>
+                </div>
+
+                <div class="guide" id="guide-mobile">
+                  <ol>
+                    <li>安装支持 WebDAV 的文件管理器：Documents、Solid Explorer、Material Files 等。</li>
+                    <li>新建连接 → 选 WebDAV → 填入上方地址、用户名与密码。</li>
+                  </ol>
+                </div>
+
+                <div class="guide" id="guide-cli">
+                  <ol>
+                    <li>列目录：</li>
+                  </ol>
+                  <div class="code-block">
+                    <pre><code id="curlCmd">curl -u 用户名:密码 -X PROPFIND https://host/dav/ -H "Depth: 1"</code></pre>
+                    <button class="copy-btn" type="button" data-copy="curlCmd"><i class="fas fa-copy"></i></button>
+                  </div>
+                  <p class="access-hint">rclone：<code>rclone config</code> → 选 <code>webdav</code> → URL 填服务地址。</p>
                 </div>
               </div>
-            </div>
-
-            <div class="info-line">
-              <span class="info-label">用户名</span>
-              <span class="info-value" id="svcUser">在后台存储设置中查看</span>
-            </div>
-
-            <div class="info-line">
-              <span class="info-label">密码</span>
-              <span class="info-value">在后台「存储 → WebDAV 服务端」中查看 / 修改</span>
-            </div>
-
-            <p class="card-sub" style="margin-top:12px">
-              提示：WebDAV 客户端通常需要<strong>明文保存密码</strong>，建议为本服务单独设置一个密码，
-              并优先在 HTTPS 下使用。
-            </p>
+            </article>
           </div>
-        </article>
+        </section>
 
-        <article class="card">
-          <div class="card__header">
-            <div>
-              <h2><i class="fas fa-plug-circle-check"></i> 连接自检</h2>
-              <p class="card-sub">在浏览器内直接探测服务端是否可达（需要先输入账号密码）。</p>
+        <!-- MCP -->
+        <section class="access-panel" id="panel-mcp" role="tabpanel">
+          <div class="svc-bar" id="mcpBar">
+            <span class="svc-dot"></span>
+            <span class="svc-bar__text" id="mcpStatus">检测中</span>
+            <span class="svc-bar__meta">Streamable HTTP</span>
+            <div class="svc-bar__actions">
+              <button class="svc-icon-btn" type="button" id="mcpRefresh" title="刷新状态" aria-label="刷新状态">
+                <i class="fas fa-rotate"></i>
+              </button>
+              <a class="svc-link" href="/admin/access"><i class="fas fa-sliders"></i>设置</a>
             </div>
           </div>
-          <div class="card-pad">
-            <div class="kv-row">
-              <input class="input" id="probeUser" type="text" placeholder="用户名" autocomplete="off" />
-              <input class="input" id="probePass" type="password" placeholder="密码" autocomplete="new-password" />
-              <button class="btn btn--primary" id="probeBtn"><i class="fas fa-satellite-dish"></i> 测试连接</button>
-            </div>
-            <p class="result-line" id="probeResult">尚未测试。</p>
-          </div>
-        </article>
 
-        <article class="card span-2">
-          <div class="card__header">
-            <div>
-              <h2><i class="fas fa-list-check"></i> 挂载指引</h2>
-              <p class="card-sub">按平台选择对应步骤。点击标题展开。</p>
-            </div>
-          </div>
-          <div class="card-pad">
-            <div class="guide-block" data-guide>
-              <div class="guide-title"><i class="fab fa-windows"></i><span>Windows 资源管理器</span><i class="fas fa-chevron-down caret"></i></div>
-              <div class="guide-body">
-                <ol>
-                  <li>打开「此电脑」，点击顶部「映射网络驱动器」。</li>
-                  <li>文件夹填入：<code id="winUrl">\\host@SSL\dav</code>（注意用 <code>@SSL</code> 走 HTTPS）。</li>
-                  <li>勾选「使用其他凭据连接」，输入本站用户名密码。</li>
-                  <li>若提示证书问题，选择继续即可（自签证书场景）。</li>
-                </ol>
-                <p>命令行方式：<code id="winCmd">net use Z: \\host@SSL\dav /user:用户名 密码</code></p>
+          <div class="access-grid">
+            <article class="access-card">
+              <div class="access-card__head">
+                <i class="fas fa-plug"></i>
+                <h2>端点</h2>
               </div>
-            </div>
-
-            <div class="guide-block" data-guide>
-              <div class="guide-title"><i class="fab fa-apple"></i><span>macOS Finder</span><i class="fas fa-chevron-down caret"></i></div>
-              <div class="guide-body">
-                <ol>
-                  <li>Finder 菜单：<strong>前往 → 连接服务器</strong>（⌘K）。</li>
-                  <li>服务器地址填入：<code id="macUrl">https://host/dav</code>。</li>
-                  <li>选择「注册用户」，输入用户名密码，即可在 Finder 中看到为共享磁盘。</li>
-                </ol>
+              <div class="access-card__body">
+                <div class="conn-list">
+                  <div class="conn-row">
+                    <span class="conn-row__label">地址</span>
+                    <span class="conn-row__value" id="mcpUrl">/mcp</span>
+                    <button class="copy-btn" type="button" data-copy="mcpUrl"><i class="fas fa-copy"></i>复制</button>
+                  </div>
+                  <div class="conn-row">
+                    <span class="conn-row__label">传输</span>
+                    <span class="conn-row__value is-muted">Streamable HTTP</span>
+                  </div>
+                  <div class="conn-row">
+                    <span class="conn-row__label">鉴权</span>
+                    <span class="conn-row__value is-muted">Bearer API Token</span>
+                    <a class="copy-btn" href="/admin/access"><i class="fas fa-key"></i>创建</a>
+                  </div>
+                </div>
+                <p class="access-hint">Token 只在创建时显示一次。MCP 工具还受后台「可用工具」开关约束。</p>
               </div>
-            </div>
+            </article>
 
-            <div class="guide-block" data-guide>
-              <div class="guide-title"><i class="fas fa-mobile-screen"></i><span>手机 App（iOS / Android）</span><i class="fas fa-chevron-down caret"></i></div>
-              <div class="guide-body">
-                <ol>
-                  <li>安装任一支持 WebDAV 的文件管理器：Documents（iOS）、Solid Explorer / Material Files（Android）、RaiDrive（全平台）。</li>
-                  <li>新增连接 → 选择 <strong>WebDAV</strong> → 填入上面的服务地址。</li>
-                  <li>输入用户名密码即可浏览、上传、下载。</li>
-                </ol>
+            <article class="access-card">
+              <div class="access-card__head">
+                <i class="fas fa-satellite-dish"></i>
+                <h2>Token 自检</h2>
               </div>
-            </div>
+              <div class="access-card__body">
+                <div class="probe-form">
+                  <input class="input" id="mcpToken" type="password" placeholder="kvault_..." autocomplete="off" />
+                  <button class="btn btn--primary" type="button" id="mcpTest"><i class="fas fa-satellite-dish"></i>测试</button>
+                </div>
+                <p class="probe-result" id="mcpTestResult">填入 API Token，验证能否列出工具。</p>
+              </div>
+            </article>
 
-            <div class="guide-block" data-guide>
-              <div class="guide-title"><i class="fas fa-terminal"></i><span>命令行（curl / rclone）</span><i class="fas fa-chevron-down caret"></i></div>
-              <div class="guide-body">
-                <p>列目录：</p>
-                <p><code id="curlCmd">curl -u 用户名:密码 -X PROPFIND https://host/dav/ -H "Depth: 1"</code></p>
-                <p>上传：</p>
-                <p><code>curl -u 用户名:密码 -T ./local.txt https://host/dav/local.txt</code></p>
-                <p>rclone：<code>rclone config</code> → 选 <code>webdav</code> → URL 填服务地址。</p>
+            <article class="access-card access-card--wide">
+              <div class="access-card__head">
+                <i class="fas fa-code"></i>
+                <h2>客户端配置</h2>
+                <span class="access-card__note">替换 Token 后使用</span>
               </div>
-            </div>
+              <div class="access-card__body">
+                <div class="seg-tabs" role="tablist" aria-label="MCP 客户端">
+                  <button class="seg-tab is-active" type="button" data-mcp="claude">Claude Code</button>
+                  <button class="seg-tab" type="button" data-mcp="cursor">Cursor</button>
+                  <button class="seg-tab" type="button" data-mcp="codex">Codex</button>
+                  <button class="seg-tab" type="button" data-mcp="curl">cURL</button>
+                </div>
+
+                <div class="guide is-active" id="mcp-claude">
+                  <div class="code-block">
+                    <pre><code data-mcp-code="claude">claude mcp add --transport http kvault __BASE__/mcp --header "Authorization: Bearer kvault_xxx"</code></pre>
+                    <button class="copy-btn" type="button" data-copy="mcpCodeClaude"><i class="fas fa-copy"></i></button>
+                  </div>
+                </div>
+
+                <div class="guide" id="mcp-cursor">
+                  <p class="access-hint" style="margin-top:0">写入 <code>~/.cursor/mcp.json</code>：</p>
+                  <div class="code-block">
+                    <pre><code data-mcp-code="cursor">{
+  "mcpServers": {
+    "kvault": {
+      "url": "__BASE__/mcp",
+      "headers": {
+        "Authorization": "Bearer kvault_xxx"
+      }
+    }
+  }
+}</code></pre>
+                    <button class="copy-btn" type="button" data-copy="mcpCodeCursor"><i class="fas fa-copy"></i></button>
+                  </div>
+                </div>
+
+                <div class="guide" id="mcp-codex">
+                  <p class="access-hint" style="margin-top:0">写入 <code>~/.codex/config.toml</code>：</p>
+                  <div class="code-block">
+                    <pre><code data-mcp-code="codex">[mcp_servers.kvault]
+url = "__BASE__/mcp"
+bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
+                    <button class="copy-btn" type="button" data-copy="mcpCodeCodex"><i class="fas fa-copy"></i></button>
+                  </div>
+                </div>
+
+                <div class="guide" id="mcp-curl">
+                  <div class="code-block">
+                    <pre><code data-mcp-code="curl">curl -s __BASE__/mcp \
+  -H "Authorization: Bearer $KVAULT_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'</code></pre>
+                    <button class="copy-btn" type="button" data-copy="mcpCodeCurl"><i class="fas fa-copy"></i></button>
+                  </div>
+                </div>
+
+                <div class="mini-list" aria-label="可用工具">
+                  <span class="mini-chip"><i class="fas fa-cloud-arrow-up"></i>上传</span>
+                  <span class="mini-chip"><i class="fas fa-list"></i>列表</span>
+                  <span class="mini-chip"><i class="fas fa-circle-info"></i>详情</span>
+                  <span class="mini-chip"><i class="fas fa-share-nodes"></i>分享</span>
+                  <span class="mini-chip"><i class="fas fa-trash"></i>删除</span>
+                  <span class="mini-chip"><i class="fas fa-file-lines"></i>文本片段</span>
+                </div>
+
+                <details class="access-details">
+                  <summary>工具与权限</summary>
+                  <p>共 11 个工具。后台开关决定「哪些工具可用」，Token 的 scope 决定「这个 Token 能做什么」，两者同时满足才会执行。完整清单见 <a href="/docs/reference/agent-integration.md">接入文档</a>。</p>
+                </details>
+              </div>
+            </article>
           </div>
-        </article>
-      </section>
-    </main>
+        </section>
+      </main>
+
+      <footer class="access-footer">
+        <span>K-Vault-NEXT · WebDAV / MCP 接入</span>
+        <span><a href="./upload.html">上传</a> · <a href="./gallery.html">图床</a> · <a href="/admin/access">后台接入设置</a></span>
+      </footer>
+    </div>
 
     <script>
       (function () {
         "use strict";
 
-        var statusPill = document.getElementById("statusPill");
-        var statusText = document.getElementById("statusText");
-        var statusDetail = document.getElementById("statusDetail");
-        var svcEnabled = document.getElementById("svcEnabled");
-        var svcBackend = document.getElementById("svcBackend");
-        var svcMode = document.getElementById("svcMode");
-        var svcUser = document.getElementById("svcUser");
-        var serviceUrlEl = document.getElementById("serviceUrl");
-        var copyUrlBtn = document.getElementById("copyUrlBtn");
-        var refreshBtn = document.getElementById("refreshBtn");
-        var probeBtn = document.getElementById("probeBtn");
-        var probeResult = document.getElementById("probeResult");
-        var probeUser = document.getElementById("probeUser");
-        var probePass = document.getElementById("probePass");
+        var base = location.origin;
+        var settings = null;
+        var davUserValue = "";
+        var backendLabels = {
+          telegram: "Telegram",
+          r2: "Cloudflare R2",
+          s3: "S3",
+          discord: "Discord",
+          huggingface: "HuggingFace",
+          github: "GitHub",
+          webdav: "WebDAV"
+        };
 
-        var serviceUrl = window.location.origin + "/dav";
+        function $(id) { return document.getElementById(id); }
 
-        function setStatus(message, ok) {
-          statusPill.classList.remove("is-ok", "is-bad");
-          if (ok === true) statusPill.classList.add("is-ok");
-          if (ok === false) statusPill.classList.add("is-bad");
-          statusText.textContent = message;
+        function copyText(text) {
+          if (window.KVault && KVault.copy) return KVault.copy(text);
+          if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(function () { return true; }).catch(function () { return false; });
+          return Promise.resolve(false);
         }
 
-        function backendLabel(backend) {
-          var map = {
-            telegram: "Telegram",
-            r2: "Cloudflare R2",
-            s3: "Amazon S3",
-            discord: "Discord",
-            huggingface: "HuggingFace",
-            github: "GitHub"
-          };
-          return map[backend] || backend || "—";
+        function flash(btn, done) {
+          if (!btn) return;
+          var old = btn.innerHTML;
+          var hasLabel = btn.textContent.trim().length > 0;
+          btn.innerHTML = done
+            ? '<i class="fas fa-check"></i>' + (hasLabel ? "已复制" : "")
+            : '<i class="fas fa-copy"></i>' + (hasLabel ? "复制失败" : "");
+          btn.classList.toggle("is-done", !!done);
+          setTimeout(function () {
+            btn.innerHTML = old;
+            btn.classList.remove("is-done");
+          }, 1600);
         }
 
-        function fillGuideUrls() {
-          var host = window.location.host;
-          var hostname = window.location.hostname;
-          // Windows UNC：WebDAV over HTTPS 用 `\\host@SSL\path`
-          var winPath = "\\\\" + hostname + "@SSL\\dav";
-          var winCmd = "net use Z: \\\\" + hostname + "@SSL\\dav /user:用户名 密码";
-          var macUrl = "https://" + host;
-          var curlCmd = 'curl -u 用户名:密码 -X PROPFIND ' + serviceUrl + '/ -H "Depth: 1"';
-          document.getElementById("winUrl").textContent = winPath;
-          document.getElementById("winCmd").textContent = winCmd;
-          document.getElementById("macUrl").textContent = macUrl + "/dav";
-          document.getElementById("curlCmd").textContent = curlCmd;
-          serviceUrlEl.textContent = serviceUrl;
-        }
-
-        async function loadStatus() {
-          setStatus("正在检测 WebDAV 服务状态...", null);
-          try {
-            var res = await fetch("/api/status", { credentials: "include" });
-            var data = await res.json();
-            var svc = data.webdavServer || {};
-
-            if (svc.enabled) {
-              setStatus("WebDAV 服务已开启", true);
-              statusDetail.textContent = "服务可用，客户端可挂载。";
-              statusDetail.className = "result-line ok";
-            } else {
-              setStatus("WebDAV 服务未开启", false);
-              statusDetail.textContent = "请前往后台「存储 → WebDAV 服务端」开启并设置账号密码。";
-              statusDetail.className = "result-line bad";
+        document.querySelectorAll("[data-copy]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var el = $(btn.getAttribute("data-copy"));
+            if (!el) return;
+            var text = el.textContent.trim();
+            if (!text || text === "登录后可见" || text === "在后台设置") {
+              showLogin();
+              return;
             }
+            copyText(text).then(function (ok) { flash(btn, ok); });
+          });
+        });
 
-            svcEnabled.textContent = svc.enabled ? "已开启" : "未开启";
-            svcBackend.textContent = backendLabel(svc.backend);
-            svcMode.textContent = svc.readOnly ? "只读（仅浏览 / 下载）" : "读写（可上传 / 管理）";
-          } catch (e) {
-            setStatus("状态检测失败：" + (e.message || "未知错误"), false);
-            statusDetail.textContent = e.message || "未知错误";
-            statusDetail.className = "result-line bad";
-          }
+        /* ---- 主标签 ---- */
+        function activateTab(name) {
+          var target = name === "mcp" ? "mcp" : "webdav";
+          document.querySelectorAll(".access-tab").forEach(function (tab) {
+            var on = tab.getAttribute("data-tab") === target;
+            tab.classList.toggle("is-active", on);
+            tab.setAttribute("aria-selected", String(on));
+          });
+          $("panel-webdav").classList.toggle("is-active", target === "webdav");
+          $("panel-mcp").classList.toggle("is-active", target === "mcp");
+          if (target === "mcp" && !$("mcpStatus").dataset.done) probeMcp();
+          try {
+            var url = new URL(location.href);
+            if (target === "mcp") url.searchParams.set("tab", "mcp");
+            else url.searchParams.delete("tab");
+            history.replaceState(null, "", url.pathname + url.search + url.hash);
+          } catch (e) { /* ignore */ }
         }
 
-        /* 浏览器内直接发 PROPFIND 探测：能同时验证 401 / 207 / 404 三种结果 */
-        async function probe() {
-          probeResult.textContent = "正在测试...";
-          probeResult.className = "result-line";
+        document.querySelectorAll(".access-tab").forEach(function (tab) {
+          tab.addEventListener("click", function () { activateTab(tab.getAttribute("data-tab")); });
+        });
 
-          try {
-            var res = await fetch("/dav/", {
-              method: "PROPFIND",
-              headers: {
-                "Depth": "0",
-                "Authorization": "Basic " + btoa(probeUser.value + ":" + probePass.value)
-              }
+        var initial = "";
+        try { initial = new URLSearchParams(location.search).get("tab") || (location.hash === "#mcp" ? "mcp" : ""); } catch (e) { /* ignore */ }
+        if (initial) activateTab(initial);
+
+        /* ---- 平台 / 客户端子标签 ---- */
+        document.querySelectorAll(".seg-tab[data-guide]").forEach(function (tab) {
+          tab.addEventListener("click", function () {
+            var key = tab.getAttribute("data-guide");
+            document.querySelectorAll(".seg-tab[data-guide]").forEach(function (t) { t.classList.toggle("is-active", t === tab); });
+            document.querySelectorAll("[id^='guide-']").forEach(function (g) { g.classList.toggle("is-active", g.id === "guide-" + key); });
+          });
+        });
+
+        document.querySelectorAll(".seg-tab[data-mcp]").forEach(function (tab) {
+          tab.addEventListener("click", function () {
+            var key = tab.getAttribute("data-mcp");
+            document.querySelectorAll(".seg-tab[data-mcp]").forEach(function (t) { t.classList.toggle("is-active", t === tab); });
+            document.querySelectorAll("[id^='mcp-']").forEach(function (g) {
+              if (g.classList.contains("guide")) g.classList.toggle("is-active", g.id === "mcp-" + key);
             });
+          });
+        });
 
-            if (res.status === 207) {
-              probeResult.textContent = "✓ 连接成功（207 Multi-Status）：账号密码正确，服务端可正常响应。";
-              probeResult.className = "result-line ok";
-            } else if (res.status === 401) {
-              probeResult.textContent = "✗ 认证失败（401）：用户名或密码不正确。";
-              probeResult.className = "result-line bad";
-            } else if (res.status === 404) {
-              probeResult.textContent = "✗ 服务未开启（404）：请先在后台开启 WebDAV 服务端。";
-              probeResult.className = "result-line bad";
-            } else {
-              probeResult.textContent = "收到响应状态 " + res.status + "，请检查配置。";
-              probeResult.className = "result-line";
-            }
-          } catch (e) {
-            probeResult.textContent = "请求失败：" + (e.message || "未知错误");
-            probeResult.className = "result-line bad";
-          }
+        /* ---- 动态地址 ---- */
+        var davUrl = base + "/dav";
+        var mcpUrl = base + "/mcp";
+        $("davUrl").textContent = davUrl;
+        $("mcpUrl").textContent = mcpUrl;
+        $("winPath").textContent = "\\\\" + location.hostname + "@SSL\\dav";
+        $("winCmd").textContent = "net use Z: \\\\" + location.hostname + "@SSL\\dav /user:用户名 密码";
+        $("macPath").textContent = davUrl;
+        $("curlCmd").textContent = 'curl -u 用户名:密码 -X PROPFIND ' + davUrl + '/ -H "Depth: 1"';
+
+        document.querySelectorAll("[data-mcp-code]").forEach(function (code) {
+          code.textContent = code.textContent.replace(/__BASE__/g, base);
+          code.setAttribute("id", "mcpCode" + code.getAttribute("data-mcp-code").replace(/^./, function (c) { return c.toUpperCase(); }));
+        });
+
+        /* ---- 登录态 / 设置 ---- */
+        function showLogin() {
+          $("davLogin").hidden = false;
+          var link = $("davLoginLink");
+          link.href = "./login.html?redirect=" + encodeURIComponent(location.pathname + location.search);
         }
 
-        copyUrlBtn.addEventListener("click", function () {
-          KVault.copy(serviceUrl).then(function (copied) {
-            copyUrlBtn.innerHTML = copied
-              ? '<i class="fas fa-check"></i> 已复制'
-              : '<i class="fas fa-copy"></i> 复制';
-            setTimeout(function () {
-              copyUrlBtn.innerHTML = '<i class="fas fa-copy"></i> 复制';
-            }, 1800);
-          });
-        });
+        function loadSettings() {
+          return fetch("/api/manage/settings", { credentials: "include" })
+            .then(function (res) {
+              if (res.status === 401) { showLogin(); return null; }
+              if (!res.ok) return null;
+              return res.json();
+            })
+            .then(function (data) {
+              if (!data) return;
+              settings = data;
+              var w = data.webdav || {};
+              var enabled = w.enabled === true;
+              var bar = $("davBar");
+              bar.classList.toggle("is-ok", enabled);
+              bar.classList.toggle("is-off", !enabled);
+              $("davStatus").textContent = enabled ? "WebDAV 已开启" : "WebDAV 未开启";
+              $("davMeta").textContent = enabled
+                ? (w.readOnly ? "只读" : "读写") + " · " + (backendLabels[w.backend] || w.backend || "—")
+                : "";
+              if (w.username) {
+                davUserValue = w.username;
+                $("davUser").textContent = w.username;
+                $("davUser").classList.remove("is-muted");
+                $("probeUser").value = w.username;
+              }
+              $("davPass").textContent = w.hasPassword ? "已设置，在后台修改" : "尚未设置";
+            })
+            .catch(function () { /* 离线或未配置：保持默认文案 */ });
+        }
 
-        refreshBtn.addEventListener("click", function () {
-          loadStatus();
-        });
+        /* ---- WebDAV 状态 ---- */
+        function probeDav() {
+          var bar = $("davBar");
+          $("davStatus").textContent = "检测中";
+          return fetch("/dav/", { method: "PROPFIND", headers: { Depth: "0" } })
+            .then(function (res) {
+              var code = res.status;
+              if (code === 401 || code === 207 || code === 200) {
+                bar.classList.remove("is-off");
+                bar.classList.add("is-ok");
+                $("davStatus").textContent = "WebDAV 已开启";
+                return true;
+              }
+              if (code === 404) {
+                bar.classList.remove("is-ok");
+                bar.classList.add("is-off");
+                $("davStatus").textContent = "WebDAV 未开启";
+                return false;
+              }
+              bar.classList.remove("is-ok", "is-off");
+              $("davStatus").textContent = "状态未知";
+              return null;
+            })
+            .catch(function () {
+              bar.classList.remove("is-ok", "is-off");
+              $("davStatus").textContent = "状态未知";
+              return false;
+            });
+        }
 
-        probeBtn.addEventListener("click", function () {
-          probe();
-        });
+        /* ---- MCP 状态：匿名 initialize ---- */
+        function probeMcp() {
+          var bar = $("mcpBar");
+          $("mcpStatus").textContent = "检测中";
+          return fetch("/mcp", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1, method: "initialize",
+              params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "k-vault-access", version: "1.0" } }
+            })
+          })
+            .then(function (res) {
+              $("mcpStatus").dataset.done = "1";
+              if (res.status === 200 || res.status === 202) {
+                bar.classList.remove("is-off");
+                bar.classList.add("is-ok");
+                $("mcpStatus").textContent = "MCP 已开启";
+                return true;
+              }
+              if (res.status === 404) {
+                bar.classList.remove("is-ok");
+                bar.classList.add("is-off");
+                $("mcpStatus").textContent = "MCP 未开启";
+                return false;
+              }
+              bar.classList.remove("is-ok", "is-off");
+              $("mcpStatus").textContent = "状态未知";
+              return null;
+            })
+            .catch(function () {
+              bar.classList.remove("is-ok", "is-off");
+              $("mcpStatus").textContent = "状态未知";
+            });
+        }
 
-        document.querySelectorAll("[data-guide]").forEach(function (block) {
-          var title = block.querySelector(".guide-title");
-          title.addEventListener("click", function () {
-            block.classList.toggle("open");
-          });
-        });
-
-        fillGuideUrls();
-        loadStatus();
-
-        /* 预填用户名便于自检（密码仍需手动输入） */
-        (async function prefillUser() {
-          try {
-            var res = await fetch("/api/manage/settings", { credentials: "include" });
-            if (!res.ok) return;
-            var data = await res.json();
-            var name = data && data.webdav && data.webdav.username;
-            if (name) {
-              probeUser.value = name;
-              svcUser.textContent = name;
+        /* ---- WebDAV 连接自检 ---- */
+        $("probeBtn").addEventListener("click", function () {
+          var out = $("probeResult");
+          var user = $("probeUser").value;
+          var pass = $("probePass").value;
+          out.className = "probe-result";
+          out.textContent = "正在测试…";
+          fetch("/dav/", {
+            method: "PROPFIND",
+            headers: { Depth: "0", Authorization: "Basic " + btoa(user + ":" + pass) }
+          }).then(function (res) {
+            if (res.status === 207) {
+              out.className = "probe-result is-ok";
+              out.textContent = "连接成功，账号密码有效。";
+            } else if (res.status === 401) {
+              out.className = "probe-result is-bad";
+              out.textContent = "认证失败：用户名或密码不正确。";
+            } else if (res.status === 404) {
+              out.className = "probe-result is-bad";
+              out.textContent = "服务未开启：请先在后台启用 WebDAV。";
+            } else {
+              out.textContent = "服务端返回 " + res.status + "，请检查配置。";
             }
-          } catch (e) {
-            /* 未登录 / 接口不可用：保持"在后台查看"的提示 */
+          }).catch(function (err) {
+            out.className = "probe-result is-bad";
+            out.textContent = "请求失败：" + (err.message || "未知错误");
+          });
+        });
+
+        /* ---- MCP Token 自检 ---- */
+        $("mcpTest").addEventListener("click", function () {
+          var out = $("mcpTestResult");
+          var token = $("mcpToken").value.trim();
+          if (!token) {
+            out.className = "probe-result is-bad";
+            out.textContent = "请先填入 API Token。";
+            return;
           }
-        })();
+          out.className = "probe-result";
+          out.textContent = "正在测试…";
+          fetch("/mcp", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json, text/event-stream",
+              "Authorization": "Bearer " + token
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
+          }).then(function (res) {
+            if (res.status === 401) {
+              out.className = "probe-result is-bad";
+              out.textContent = "Token 无效或已过期。";
+              return null;
+            }
+            if (res.status === 404) {
+              out.className = "probe-result is-bad";
+              out.textContent = "MCP 端点未开启。";
+              return null;
+            }
+            return res.json();
+          }).then(function (data) {
+            if (!data) return;
+            var tools = data.result && data.result.tools;
+            if (Array.isArray(tools)) {
+              out.className = "probe-result is-ok";
+              out.textContent = "连接成功，当前 Token 可用 " + tools.length + " 个工具。";
+            } else if (data.error) {
+              out.className = "probe-result is-bad";
+              out.textContent = "调用失败：" + (data.error.message || data.error.code || "未知错误");
+            } else {
+              out.className = "probe-result is-ok";
+              out.textContent = "服务端已响应。";
+            }
+          }).catch(function (err) {
+            out.className = "probe-result is-bad";
+            out.textContent = "请求失败：" + (err.message || "未知错误");
+          });
+        });
+
+        $("copyAll").addEventListener("click", function () {
+          var btn = this;
+          if (!davUserValue) {
+            showLogin();
+            return;
+          }
+          copyText("地址：" + davUrl + "\n用户名：" + davUserValue).then(function (ok) {
+            btn.innerHTML = ok ? '<i class="fas fa-check"></i>已复制' : '<i class="fas fa-copy"></i>复制失败';
+            setTimeout(function () { btn.innerHTML = '<i class="fas fa-copy"></i>复制地址与账号'; }, 1600);
+          });
+        });
+
+        $("davRefresh").addEventListener("click", function () { probeDav(); loadSettings(); });
+        $("mcpRefresh").addEventListener("click", probeMcp);
+
+        probeDav();
+        loadSettings().then(function () {
+          /* 已登录时用设置里的开关状态覆盖探测结果（更准确） */
+          if (settings && settings.webdav && settings.webdav.enabled === false) {
+            $("davBar").classList.remove("is-ok");
+            $("davBar").classList.add("is-off");
+            $("davStatus").textContent = "WebDAV 未开启";
+          }
+        });
+        if (initial === "mcp") probeMcp();
       })();
     </script>
   </body>

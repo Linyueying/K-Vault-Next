@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-own-theme-toggle>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>上传 · K-Vault-NEXT</title>
+    <meta name="description" content="K-Vault-NEXT 上传台：上传图片或文件，获取直链、分享短链与 Markdown 链接。" />
+    <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="上传 · K-Vault-NEXT" />
+    <meta property="og:description" content="上传图片或文件，获取直链、分享短链与 Markdown 链接。" />
+    <!-- og:image 用相对路径时部分平台抓不到，部署后建议换成 https://你的域名/logo-180.png -->
+    <meta property="og:image" content="/assets/img/logo-180.png" />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
+    <link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+    <link rel="shortcut icon" href="/assets/img/favicon.ico">
+    <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/vendor/glassfx/glass.css" />
+    <link rel="stylesheet" href="/assets/css/design-system.css" />
+    <link rel="stylesheet" href="/assets/css/theme.css" />
+    <link rel="stylesheet" href="/assets/css/index.css" />
+    <link rel="stylesheet" href="/assets/css/airdrop.css" />
+    <script src="/assets/js/theme.js?v=20260305"></script>
+    <script defer src="/assets/js/app-core.js"></script>
+  </head>
+  <body>
+    <div class="ambient-glow">
+      <div class="ambient-orb orb-1"></div>
+      <div class="ambient-orb orb-2"></div>
+    </div>
+
+    <div id="app" v-cloak>
+      <!-- 顶栏 -->
+      <header class="topbar">
+        <a class="brand" href="./" title="返回首页">
+          <span class="brand__logo">
+            <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';">
+          </span>
+          <span class="brand__text">
+            <h1 class="brand__title" data-brand-name>K-Vault-NEXT</h1>
+            <span class="brand__sub">上传台 · {{ versionLabel }}</span>
+          </span>
+        </a>
+        <div class="top-actions">
+          <a class="btn btn--ghost btn--icon top-home" href="./" title="返回首页" aria-label="返回首页">
+            <i class="fas fa-house"></i>
+          </a>
+          <a class="btn btn--ghost btn--icon top-access" href="./webdav.html" title="WebDAV / MCP 接入" aria-label="接入">
+            <i class="fas fa-plug"></i>
+          </a>
+          <div class="status-pill" @click="openDrawer('storage')" :title="'切换存储节点 (当前: ' + storageTarget + ')'">
+            <span class="status-pill__pulse" :class="{ 'is-settling': nodeResolving }"></span>
+            <transition name="label" mode="out-in">
+              <span class="status-pill__text" :key="storageMode">{{ storageTarget }}</span>
+            </transition>
+            <i class="fas fa-chevron-right" style="font-size: 0.65rem; opacity: 0.6;"></i>
+          </div>
+          <button class="btn btn--ghost btn--icon" @click="toggleLiquidTheme" :title="currentTheme === 'dark' ? '浅色模式' : '深色模式'">
+            <i :class="currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
+          </button>
+        </div>
+      </header>
+
+      <!-- 访客提示 -->
+      <transition name="drop">
+        <div class="guest-banner" v-if="!authChecking && isGuest && guestUploadConfig">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-circle-info"></i>
+            <span>访客模式：单文件上限 {{ formatSize(guestUploadConfig.maxFileSize) }}，每日上限 {{ guestUploadConfig.maxDailyUploads }} 次</span>
+          </div>
+          <span style="cursor: pointer; text-decoration: underline;" @click="redirectToLogin()">登录账户</span>
+        </div>
+        <!-- 访客上传已关闭：明确告知必须登录，点击即跳登录页 -->
+        <div class="guest-banner" v-else-if="!authChecking && guestBlocked" role="button" @click="redirectToLogin()">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-lock"></i>
+            <span>访客上传已关闭，请登录后上传</span>
+          </div>
+          <span style="cursor: pointer; text-decoration: underline;">去登录</span>
+        </div>
+      </transition>
+
+      <main>
+        <!-- 上传投放区 -->
+        <section class="card upload-zone" @click="triggerUpload"
+          @dragenter.prevent="onDragEnter" @dragover.prevent="onDragOver"
+          @dragleave.prevent="onDragLeave" @drop.prevent="onDrop"
+          :class="{ dragover: isDragging, 'is-settling': nodeResolving, 'is-blocked': guestBlocked }"
+          :style="guestBlocked ? 'cursor: not-allowed;' : ''">
+          <div class="upload-zone__icon"><i class="fas fa-cloud-arrow-up" :class="{ 'is-settling': nodeResolving }"></i></div>
+          <h2 class="upload-zone__title">{{ guestBlocked ? '访客上传已关闭，请登录后上传' : '点击或拖拽文件到此区域上传' }}</h2>
+          <transition name="morph" mode="out-in">
+          <p class="upload-zone__sub" v-if="guestBlocked" key="blocked">
+            <span style="cursor: pointer; text-decoration: underline; color: var(--primary);" @click.stop="redirectToLogin()">点此登录</span>
+          </p>
+          <p class="upload-zone__sub" v-else :key="uploadLimitKey">
+            当前节点单文件上限：<strong style="color: var(--primary);">{{ currentUploadLimitLabel }}</strong>。支持全局快速粘贴文件 (<kbd style="padding: 2px 6px; border-radius: 6px; background: var(--primary-surface); color: var(--primary);">Ctrl+V</kbd>)。
+          </p>
+          </transition>
+          <transition name="morph" mode="out-in">
+          <div class="route-hint" v-if="storageMode === 'auto'" key="auto-route">
+            <span class="route-chip route-chip--small">
+              <i class="fab fa-telegram"></i>
+              <span>≤ {{ formatSize(smartThreshold) }} → Telegram</span>
+            </span>
+            <i class="fas fa-arrow-right-long"></i>
+            <span class="route-chip route-chip--large">
+              <i :class="getStorageIcon(smartLargeMode)"></i>
+              <span>&gt; {{ formatSize(smartThreshold) }} → {{ storageLabel(smartLargeMode) }}</span>
+            </span>
+          </div>
+          <div class="route-hint route-hint--direct" v-else key="direct-route">
+            <span class="route-chip route-chip--single">
+              <i :class="getStorageIcon(storageMode)"></i>
+              <span>全部文件 → {{ storageLabel(storageMode) }}</span>
+            </span>
+          </div>
+          </transition>
+          <input type="file" style="display: none;" ref="fileInput" multiple @change="handleFileSelect" />
+        </section>
+
+        <!-- 快捷操作 -->
+        <div class="quick-actions">
+          <button class="btn" @click="triggerUpload"><i class="fas fa-folder-open"></i><span>选择文件</span></button>
+          <a href="./gallery.html" class="btn"><i class="fas fa-images"></i><span>图片浏览</span></a>
+          <button class="btn" @click="showUrlInput = !showUrlInput"><i class="fas fa-link"></i><span>URL 转存</span></button>
+          <button class="btn" @click="openDrawer('folder')"><i class="fas fa-folder-tree"></i><span>{{ folderPath ? folderPath : '上传目录' }}</span></button>
+          <button class="btn" @click="openAirdrop" :class="{ 'is-airdrop': airdropCapability.enabled }">
+            <i class="fas fa-paper-plane"></i><span>隔空投送</span>
+          </button>
+        </div>
+
+        <!-- URL 转存 -->
+        <transition name="drop">
+          <div class="url-bar" v-if="showUrlInput">
+            <i class="fas fa-link"></i>
+            <input type="text" v-model="urlToUpload" placeholder="输入外部图片或文件 URL 直链地址..." @keyup.enter="uploadFromUrl" />
+            <button class="btn btn--primary" @click="uploadFromUrl" :disabled="urlUploading">
+              <i :class="urlUploading ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane'"></i>
+              <span>{{ urlUploading ? '转存中' : '开始转存' }}</span>
+            </button>
+          </div>
+        </transition>
+
+<!-- 上传队列 —— 独立组件（见 index.js 的 uploadQueueComponent）。
+     队列是整页里变化最频繁的部分（进度每秒都在动），单独成组件之后它的更新
+     不再带着上传区 / 抽屉 / 历史 / dock / 交付面板一起重新生成 vnode。
+     注意这里只传 files 的引用：父组件一旦读取队列元素的内容，
+     这份「高频变化」就会重新变成父组件的依赖。 -->
+<upload-queue :files="uploadingFiles" :ui="queueUi" :actions="queueActions"
+  :expanded-names="expandedTaskNames" @toggle-name="toggleNameExpanded"></upload-queue>
+        <!-- 交付结果 -->
+        <transition name="collapse">
+        <div class="collapse" v-if="uploadedFiles.length > 0">
+        <div class="collapse__inner">
+        <section class="card panel">
+          <div class="panel__head">
+            <span class="panel__title">
+              <i class="fas fa-circle-check" style="color: var(--c-success);"></i>
+              <span>交付结果</span>
+              <span class="badge">{{ uploadedFiles.length }}</span>
+            </span>
+            <div class="result-actions">
+              <!-- 「选择/清空」↔「全选/完成」是同一处 UI 的两套按钮，靠 out-in 互斥切换。
+                   两个分支必须写成**兄弟节点**且各自带 key —— 原来的写法是「外层 div 靠
+                   :key 换身份、内部再套 v-if/v-else」，Vue 要在一帧里先判外层身份、再 patch
+                   子节点，这多出来的一次往返正是模式切换瞬间 UI 落后的成因：实测状态翻转后
+                   ~230ms 按钮文案与复选框才跟着变。退场分支不再能被点到，由 design-system.css
+                   的 .ctrl-leave-active{pointer-events:none} 兜底。 -->
+              <transition name="ctrl" mode="out-in">
+                <div v-if="resultSelectMode" key="sel" class="result-actions__group" style="display:flex; align-items:center; gap: var(--sp-4);">
+                  <button class="text-btn" @click="selectAll">{{ isAllSelected ? '全不选' : '全选' }}</button>
+                  <button class="text-btn text-btn--strong" @click="toggleSelectMode">完成</button>
+                </div>
+                <div v-else key="normal" class="result-actions__group" style="display:flex; align-items:center; gap: var(--sp-4);">
+                  <button class="text-btn text-btn--strong" @click="toggleSelectMode">选择</button>
+                  <button class="text-btn text-btn--danger" :class="{ armed: clearArmed }" @click="handleClearResults">{{ clearArmed ? '确认清空' : '清空' }}</button>
+                </div>
+              </transition>
+            </div>
+          </div>
+
+          <!-- 交付结果列表：超过 QUEUE_LEAN_LIMIT 行的处理方式见下方双路注释。 -->
+          <!-- 双路：短列表用 transition-group（有进出场/位移动画）；超过阈值换成
+               普通 <div>，省掉 FLIP 的每子节点 getBoundingClientRect 与全量重渲染。
+               详见 index.js 里 resultLean / resultListWrap 的注释。 -->
+          <component :is="resultListWrap" class="list list--card" :class="{ 'list--lean': resultLean }" :name="resultLean ? undefined : 'list'" :tag="resultLean ? undefined : 'div'">
+            <div class="row" :class="{ 'is-selected': resultSelectMode && file.selected, 'menu-open': resultMenuFor === index }"
+              v-for="(file, index) in uploadedFiles" :key="getCleanFileUrl(file) || file.name || index" @click="onResultRowTap(file)">
+              <!-- L2：这里原本包一层 <transition name="check">。它在 v-for 内部 ——
+                   100 行就是 100 个 Transition 组件实例，外加每个子 vnode 都挂上
+                   .transition 标记（Vue 的 shouldUpdateComponent 见到它直接 return
+                   true，props 引用相等之类的跳过机制全部失效）。
+                   改为纯 v-if + CSS animation：挂载即播，不需要 Vue 钩子。 -->
+              <span v-if="resultSelectMode" class="check" :class="{ on: file.selected }"><i class="fas fa-check"></i></span>
+              <span class="row__thumb">
+                <img v-if="isImageFile(getDisplayName(file)) && !file._imgError" :src="getThumbUrl(file)" alt="" loading="lazy" decoding="async" @error="handleThumbError($event, file)" />
+                <i v-else :class="getFileIcon(getDisplayName(file))"></i>
+              </span>
+              <div class="row__main">
+                <div class="row__title" :title="getDisplayName(file)">{{ getDisplayName(file) }}</div>
+                <div class="row__sub">
+                  <span v-if="file.size">{{ formatSize(file.size) }}</span>
+                  <span v-if="hasShare(file)" class="share-badge"><i class="fas fa-link"></i> 已分享</span>
+                </div>
+              </div>
+              <!-- L2：原本是 <transition name="rowAct">，同样是 v-for 内每行一个实例。
+                   改成 :class 切换 + CSS 过渡：
+                   · pointer-events: none 必须保留 —— 它等价于 design-system.css 那条
+                     「离场节点停止响应指针」的修复，缺了会回归「第二次点击命中正在
+                     离场的旧节点」这个已修 bug；
+                   · 隐藏时转 absolute 是为了让出流宽（原 rowAct-leave-active 同处理由），
+                     否则文件名在选中模式下会被按钮挤住。 -->
+              <div class="row__actions" :class="{ 'is-hidden': resultSelectMode }">
+                  <button class="btn btn--ghost btn--icon" @click.stop="copyLink(file)" title="复制直链"><i class="fas fa-copy"></i></button>
+                  <button class="btn btn--ghost btn--icon" :class="{ open: resultMenuFor === index }" @click.stop="toggleFileMenu(index)" title="更多操作"><i class="fas fa-ellipsis"></i></button>
+                  <!-- L2：同上，去掉 <transition name="menu"> 包裹。菜单同时只会显示
+                       一个，但包裹它的 transition 却是每行一个实例 —— 削的正是这份
+                       O(N) 实例成本，动画本身交给 .menu 的 CSS animation。 -->
+                  <div v-if="resultMenuFor === index" class="menu glass menu--anim" :class="{ 'menu--up': index === uploadedFiles.length - 1 }" @click.stop>
+                      <button class="menu__item" @click="menuAct(openPreview(file))"><i class="fas fa-eye"></i><span>预览</span></button>
+                      <button class="menu__item" @click="menuAct(downloadFile(file))"><i class="fas fa-download"></i><span>下载</span></button>
+                      <button class="menu__item" @click="menuAct(openShareDialog(file))"><i class="fas fa-share-nodes"></i><span>{{ hasShare(file) ? '管理分享' : '创建分享' }}</span></button>
+                      <button v-if="hasShare(file)" class="menu__item" @click="menuAct(copyShareLink(file))"><i class="fas fa-link"></i><span>复制分享短链</span></button>
+                    </div>
+              </div>
+            </div>
+
+          </component>
+
+          <transition name="collapse">
+            <div class="collapse" v-if="resultSelectMode">
+            <div class="collapse__inner">
+            <div class="selection-bar glass" :class="{ 'selection-bar--empty': selectedCount === 0 }">
+              <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 <transition name="count" mode="out-in"><span :key="selectedCount" class="selection-bar__count">{{ selectedCount }}</span></transition> 项</span>
+              <div class="selection-bar__actions">
+                <button class="btn btn--sm" @click="downloadSelected" :disabled="selectedCount === 0" title="逐个下载所选文件"><i class="fas fa-download"></i> 下载</button>
+                <button class="btn btn--sm" @click="shareSelected" :disabled="selectedCount === 0" title="把所选文件合成一个分享链接"><i class="fas fa-share-nodes"></i> 分享</button>
+                <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0" :title="`按「${currentFormatLabel}」格式复制所选文件的直链`"><i class="fas fa-copy"></i> 复制链接</button>
+                <button class="btn btn--sm" @click="moveSelectedToFolder" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '把所选文件移动到其它目录' : '需要登录后才能移动云端文件'"><i class="fas fa-folder-tree"></i> 移动到</button>
+                <button class="btn btn--sm btn--danger" @click="deleteSelected" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '从云端删除所选文件（不可恢复）' : '需要登录后才能删除云端文件'"><i class="fas fa-trash-can"></i> 删除</button>
+              </div>
+            </div>
+            </div>
+            </div>
+          </transition>
+        </section>
+        </div>
+        </div>
+        </transition>
+      </main>
+
+      <!-- 底部 Dock：iOS 27 式高透液态玻璃 + 滑动指示器 + 跟手拖拽 -->
+      <nav class="dock glass glass-refract"
+           ref="dockEl"
+           :class="{ 'is-dragging': dockDragActive }"
+           :style="{ '--dock-pos': dockDragActive ? dockDrag.pos : dockIndicatorIndex }"
+           @pointerdown="onDockPointerDown"
+           @pointermove="onDockPointerMove"
+           @pointerup="onDockPointerUp"
+           @pointercancel="onDockPointerCancel">
+        <!-- 滑动指示器：独立绝对定位层，位于按钮之下 -->
+        <span class="dock__indicator" aria-hidden="true"></span>
+
+        <button class="dock__btn" data-dock-slot="0" :class="{ active: !showDrawer }" @click="onDockClick(0, () => (showDrawer = false))">
+          <i class="fas fa-cloud-arrow-up"></i><span>主控台</span>
+        </button>
+        <button class="dock__btn" data-dock-slot="1" @click="onDockClick(1, () => openDrawer('storage'))" :class="{ active: showDrawer && activeDrawerTab === 'storage' }">
+          <i :class="getStorageIcon(storageMode)"></i><span>存储节点</span>
+        </button>
+        <button class="dock__btn" data-dock-slot="2" @click="onDockClick(2, () => openDrawer('folder'))" :class="{ active: showDrawer && activeDrawerTab === 'folder' }">
+          <i class="fas fa-folder-tree"></i><span>目录路径</span>
+        </button>
+        <button class="dock__btn" data-dock-slot="3" @click="onDockClick(3, () => openMoreDrawer())" :class="{ active: showDrawer && isMoreTabActive }">
+          <i class="fas fa-layer-group"></i><span>更多功能</span>
+        </button>
+      </nav>
+
+      <!-- 抽屉 -->
+      <transition name="sheet">
+      <div class="modal-mask modal-mask--bottom" v-if="showDrawer" @click.self="showDrawer = false">
+        <div class="modal modal--sheet" ref="drawerSheet" tabindex="-1"
+             @touchstart.passive="onDrawerTouchStart" @touchmove.passive="onDrawerTouchMove"
+             @touchend="onDrawerTouchEnd" @touchcancel="onDrawerTouchCancel"
+             @keydown.left="stepDrawerTab(-1)" @keydown.right="stepDrawerTab(1)">
+          <div class="modal__handle"></div>
+
+          <div class="drawer-tabs">
+            <button v-for="tab in drawerTabs" :key="tab.key" class="drawer-tab" :class="{ active: activeDrawerTab === tab.key }" @click="switchDrawerTab(tab.key)">
+              <i :class="tab.icon"></i><span>{{ tab.label }}</span>
+            </button>
+          </div>
+
+          <!-- 抽屉页签转场：方向感知的非线性滑动（前进 / 后退） -->
+          <transition :name="'pane-' + drawerNavDir" mode="out-in">
+          <!-- Tab 1: 存储节点 -->
+          <div v-if="activeDrawerTab === 'storage'" key="storage" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
+            <div class="summary">
+              <span class="summary__label">当前存储单文件上限</span>
+              <transition name="label" mode="out-in">
+                <span class="summary__value" :key="uploadLimitKey">{{ currentUploadLimitLabel }}</span>
+              </transition>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group__header">存储节点</div>
+              <div class="settings-list">
+                <div class="settings-row" v-if="!isGuest" role="button" tabindex="0"
+                  :class="{ selected: storageMode === 'auto', 'row-is-open': smartNodeExpanded }"
+                  @click="setStorageMode('auto')" @keydown.enter.prevent="setStorageMode('auto')">
+                  <span class="settings-row__icon ico--violet"><i class="fas fa-wand-magic-sparkles"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">智能节点 <span class="row-tag">AUTO</span></span>
+                    <span class="settings-row__sub">≤ {{ formatSize(smartThreshold) }} 走 Telegram，超出走 {{ storageLabel(smartLargeMode) }}</span>
+                  </span>
+                  <button class="row-expand-btn" :class="{ active: smartNodeExpanded }"
+                    @click.stop="toggleSmartNodeExpanded()"
+                    :title="smartNodeExpanded ? '收起大文件节点设置' : '展开大文件节点设置'"
+                    :aria-expanded="smartNodeExpanded ? 'true' : 'false'">
+                    <i class="fas fa-chevron-down"></i>
+                  </button>
+                  <span class="settings-row__check" v-if="storageMode === 'auto'"><i class="fas fa-check"></i></span>
+                </div>
+
+                <!-- 大文件节点选择：折叠进智能节点行，点箭头才展开 -->
+                <transition name="rowExpand">
+                  <div class="row-expand" v-if="!isGuest && storageMode === 'auto' && smartNodeExpanded">
+                    <div class="settings-group">
+                      <div class="settings-group__header">大文件节点 · 超过 {{ formatSize(smartThreshold) }}</div>
+                      <div class="settings-list settings-list--nested">
+                        <button class="settings-row" v-for="opt in largeStorageOptions" :key="opt.value"
+                          :class="{ selected: smartLargeMode === opt.value, locked: !isStorageAvailable(opt.value) }"
+                          :disabled="!isStorageAvailable(opt.value)"
+                          @click="isStorageAvailable(opt.value) && setSmartLargeMode(opt.value)">
+                          <span class="settings-row__icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }"><i :class="opt.icon"></i></span>
+                          <span class="settings-row__text">
+                            <span class="settings-row__title">{{ opt.label }}</span>
+                            <span class="settings-row__sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
+                            <span class="unconfigured" v-else>未配置</span>
+                          </span>
+                          <span class="settings-row__check" v-if="smartLargeMode === opt.value"><i class="fas fa-check"></i></span>
+                        </button>
+                      </div>
+                      <div class="settings-group__footer">
+                        仅在文件超过 {{ formatSize(smartThreshold) }} 时生效；未配置的节点不可选。
+                      </div>
+                    </div>
+                  </div>
+                </transition>
+
+                <button class="settings-row" :class="{ selected: storageMode === 'telegram' }" @click="setStorageMode('telegram')">
+                  <span class="settings-row__icon ico--blue"><i class="fab fa-telegram"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">Telegram 频道</span>
+                    <span class="settings-row__sub">20MB 免费无限制云存储</span>
+                  </span>
+                  <span class="settings-row__check" v-if="storageMode === 'telegram'"><i class="fas fa-check"></i></span>
+                </button>
+
+                <template v-if="!isGuest">
+                  <button class="settings-row" v-for="opt in storageNodeOptions" :key="opt.value"
+                    :class="{ selected: storageMode === opt.value, locked: !isStorageAvailable(opt.value) }"
+                    :disabled="!isStorageAvailable(opt.value)"
+                    @click="isStorageAvailable(opt.value) && setStorageMode(opt.value)">
+                    <span class="settings-row__icon" :style="{ '--icon-bg': opt.color + '22', '--icon-fg': opt.color }"><i :class="opt.icon"></i></span>
+                    <span class="settings-row__text">
+                      <span class="settings-row__title">{{ opt.label }}</span>
+                      <span class="settings-row__sub" v-if="isStorageAvailable(opt.value)">{{ opt.desc }}</span>
+                      <span class="unconfigured" v-else>未配置</span>
+                    </span>
+                    <span class="settings-row__check" v-if="storageMode === opt.value"><i class="fas fa-check"></i></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+
+            <div class="settings-group" v-if="!isGuest">
+              <div class="settings-group__header">上传</div>
+              <div class="settings-list">
+                <div class="settings-row settings-row--static">
+                  <span class="settings-row__icon ico--violet"><i class="fas fa-bolt"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">并行上传 <span class="row-tag" v-if="isParallelActive()">ON</span></span>
+                    <span class="settings-row__sub">{{ isParallelActive() ? '大文件 2 路并发；Telegram 受自身限流逐条发送' : '关闭时逐个上传，网络不稳时更稳妥' }}</span>
+                  </span>
+                  <label class="switch" title="开启后大文件最多 2 路并发（受 Cloudflare 单实例 128MB 内存与后端并发配额限制）">
+                    <input type="checkbox" :checked="parallelUpload" @change="setParallelUpload($event.target.checked)" />
+                    <span class="switch__track"></span><span class="switch__thumb"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-group__footer">
+                开启后大文件（R2 / S3 / GitHub 等）按 2 路并发上传，小文件仍逐条发送。
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Tab 2: 上传目录 -->
+          <div v-else-if="activeDrawerTab === 'folder'" key="folder" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
+            <div class="folder-current">
+              <div class="folder-current__main">
+                <div class="folder-current__label"><i class="fas fa-location-dot"></i><span>当前上传目录</span></div>
+                <div class="breadcrumb">
+                  <span class="breadcrumb__item" @click="selectUploadFolder('')"><i class="fas fa-house" style="font-size: 0.72rem;"></i><span>根目录</span></span>
+                  <template v-for="(seg, i) in folderPathSegments" :key="'seg-' + i">
+                    <i class="fas fa-chevron-right breadcrumb__sep"></i>
+                    <span class="breadcrumb__item" :class="{ 'breadcrumb__item--current': i === folderPathSegments.length - 1 }"
+                      @click="i !== folderPathSegments.length - 1 && selectUploadFolder(folderPathUpTo(i))">{{ seg }}</span>
+                  </template>
+                </div>
+              </div>
+              <!-- 同步状态点：黄=同步中 / 绿=已同步 / 红=失败；无动作时隐藏。
+                   点击查看「延迟为何不可避免」。放在目录同步按钮旁，语义即「目录与云端的同步」 -->
+              <button class="sync-dot-btn" type="button" :class="{ 'is-idle': syncState === 'idle' }"
+                      @click="showSyncExplain" :title="syncDotTitle" aria-label="同步状态">
+                <span class="sync-dot" :class="syncDotClass"></span>
+              </button>
+              <button class="btn btn--ghost btn--icon" @click="fetchUploadFolders(true)" title="从云端同步目录"><i class="fas fa-rotate" :class="{ 'fa-spin': uploadFoldersLoading }"></i></button>
+            </div>
+
+            <transition name="rise" mode="out-in">
+            <button class="folder-new-trigger" v-if="!showUploadFolderCreator" @click="openUploadFolderCreator" :disabled="isGuest">
+              <i class="fas fa-folder-plus"></i><span>新建目录</span>
+            </button>
+
+            <div class="folder-new" v-else>
+              <div class="folder-new__head">
+                <span class="folder-new__title"><i class="fas fa-folder-plus"></i><span>新建目录</span></span>
+                <button class="btn btn--ghost btn--icon" @click="cancelUploadFolderCreator" title="取消"><i class="fas fa-xmark"></i></button>
+              </div>
+              <input ref="newFolderInput" type="text" class="input" v-model="newUploadFolderPath" placeholder="输入目录名，支持 a/b 多级" @keyup.enter="createUploadFolder" />
+              <div class="folder-new__hint">将创建在「{{ folderPath || '根目录' }}」下；用 / 分隔可一次创建多级。</div>
+              <div class="folder-new__actions">
+                <span class="grow"></span>
+                <button class="btn btn--sm" @click="cancelUploadFolderCreator">取消</button>
+                <button class="btn btn--sm btn--primary" @click="createUploadFolder" :disabled="uploadFolderCreating">
+                  <i :class="uploadFolderCreating ? 'fas fa-spinner fa-spin' : 'fas fa-check'"></i>
+                  {{ uploadFolderCreating ? '创建中' : '创建' }}
+                </button>
+              </div>
+            </div>
+            </transition>
+
+            <div class="section-label">
+              <i class="fas fa-sitemap"></i>
+              <span>云端目录结构</span>
+              <span class="count">{{ uploadFolderOptions.length }} 个目录</span>
+            </div>
+
+            <div class="tree-panel">
+              <div class="tree-row" :class="{ active: !folderPath }" style="padding-left: 10px;">
+                <span class="tree-row__arrow empty"></span>
+                <i class="fas fa-house tree-row__icon" style="color: var(--primary);"></i>
+                <span class="tree-row__name" @click="selectUploadFolder('')">根目录</span>
+                <div class="tree-row__actions">
+                  <button class="btn btn--ghost btn--icon btn--sm" @click="handleShareFolder({ path: '', name: '根目录', fileCount: 0 })" title="分享根目录（未归类文件）"><i class="fas fa-share-nodes"></i></button>
+                </div>
+              </div>
+
+              <folder-node v-for="node in uploadFolderTree.children" :key="node.path" :node="node" :depth="1"
+                :current-path="folderPath" :expanded="expandedFolders"
+                @select="selectUploadFolder" @toggle="toggleFolderExpand"
+                @rename="handleRenameFolder" @delete="handleDeleteFolder" @share="handleShareFolder"></folder-node>
+
+              <transition name="fade" mode="out-in">
+              <div class="tree-empty" v-if="uploadFoldersLoading && !uploadFolderTree.children.length" key="loading">
+                <i class="fas fa-spinner fa-spin"></i><span>正在读取目录结构...</span>
+              </div>
+              <div class="tree-empty" v-else-if="!uploadFolderTree.children.length" key="empty">
+                <i class="fas fa-folder-open"></i><span>暂无子目录，可在上方直接输入路径或新建</span>
+              </div>
+              </transition>
+            </div>
+          </div>
+
+          <!-- Tab 3: 本地历史 -->
+          <div v-else-if="activeDrawerTab === 'history'" key="history" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
+            <div class="hist-stats">
+              <span class="hist-stats__item"><i class="fas fa-clock-rotate-left"></i><span><strong>{{ historyStats.count }}</strong> 条</span></span>
+              <span class="hist-stats__item"><i class="fas fa-database"></i><span><strong>{{ formatSize(historyStats.totalSize) }}</strong></span></span>
+              <span class="hist-stats__item"><i class="fas fa-filter"></i><span>显示 <strong>{{ historySorted.length }}</strong></span></span>
+            </div>
+
+            <div class="hist-toolbar">
+              <div class="hist-search">
+                <i class="fas fa-magnifying-glass"></i>
+                <input type="text" v-model="historySearch" placeholder="搜索文件名或链接..." />
+                <i class="fas fa-circle-xmark hist-search__clear" v-if="historySearch" @click="historySearch = ''"></i>
+              </div>
+              <button class="btn btn--sm" :class="{ 'btn--primary': historyOptionsOpen }" @click="historyOptionsOpen = !historyOptionsOpen">
+                <i class="fas fa-sliders"></i><span>筛选</span>
+                <i class="fas fa-chevron-down" :style="{ transform: historyOptionsOpen ? 'rotate(180deg)' : 'none', fontSize: '0.55rem', transition: 'transform 0.34s var(--ease-spring)' }"></i>
+              </button>
+            </div>
+
+            <transition name="rise">
+            <div class="hist-options" v-if="historyOptionsOpen">
+              <div class="hist-options__row">
+                <label>排序</label>
+                <select v-model="historySort">
+                  <option value="time-desc">最新优先</option>
+                  <option value="time-asc">最早优先</option>
+                  <option value="name-asc">名称 A → Z</option>
+                  <option value="size-desc">体积由大到小</option>
+                </select>
+              </div>
+              <div class="hist-options__row">
+                <label>视图</label>
+                <div class="view-toggle">
+                  <button :class="{ active: historyView === 'grid' }" @click="historyView = 'grid'" title="网格视图"><i class="fas fa-grip"></i></button>
+                  <button :class="{ active: historyView === 'list' }" @click="historyView = 'list'" title="列表视图"><i class="fas fa-list"></i></button>
+                </div>
+              </div>
+            </div>
+            </transition>
+
+            <div class="type-tabs">
+              <button class="type-tab" v-for="tab in historyTypeTabs" :key="tab.value" :class="{ active: historyTypeFilter === tab.value }" @click="historyTypeFilter = tab.value">
+                {{ tab.label }} ({{ historyTypeCounts[tab.value] }})
+              </button>
+            </div>
+
+            <transition name="collapse">
+            <div class="collapse" v-if="historySelectedCount > 0">
+            <div class="collapse__inner">
+            <div class="selection-bar glass">
+              <span class="selection-bar__info"><i class="fas fa-check-circle"></i> 已选 {{ historySelectedCount }}</span>
+              <div class="selection-bar__actions">
+                <button class="btn btn--sm" @click="downloadHistorySelected" title="逐个下载所选文件"><i class="fas fa-download"></i> 下载</button>
+                <button class="btn btn--sm" @click="copyHistorySelected" :title="`按「${currentFormatLabel}」格式复制所选文件的直链`"><i class="fas fa-copy"></i> 复制链接</button>
+                <button class="btn btn--sm" @click="addHistorySelectedToResults" title="把所选记录加回交付结果"><i class="fas fa-plus"></i> 加入结果</button>
+                <button class="btn btn--sm" @click="moveHistorySelectedToFolder" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '把所选文件移动到其它目录' : '需要登录后才能移动云端文件'"><i class="fas fa-folder-tree"></i> 移动到</button>
+                <button class="btn btn--sm btn--danger" @click="deleteHistorySelected" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '从云端删除所选文件（不可恢复）' : '需要登录后才能删除云端文件'"><i class="fas fa-trash"></i> 删除</button>
+              </div>
+            </div>
+            </div>
+            </div>
+            </transition>
+
+            <transition name="fade">
+            <div class="hist-toolbar hist-toolbar--wrap" v-if="historySorted.length">
+              <button class="btn btn--sm" @click="toggleHistorySelectAll">
+                <i :class="historyAllSelected ? 'fas fa-check-double' : 'fas fa-check'"></i>
+                {{ historyAllSelected ? '取消全选' : '全选' }}
+              </button>
+              <button class="btn btn--sm" @click="exportHistory"><i class="fas fa-file-export"></i> 导出</button>
+              <button class="btn btn--sm" @click="cleanupExpiredHistory" :disabled="!uploadHistory.length || historyCleanupRunning">
+                <i :class="historyCleanupRunning ? 'fas fa-spinner fa-spin' : 'fas fa-magnifying-glass-chart'"></i>
+                {{ historyCleanupRunning ? `检查 ${historyCleanupProgress.checked}/${historyCleanupProgress.total}` : '清理失效' }}
+              </button>
+              <span class="grow"></span>
+              <button class="btn btn--sm btn--danger" @click="clearHistory" :disabled="!uploadHistory.length"><i class="fas fa-broom"></i> 清空</button>
+            </div>
+            </transition>
+
+            <transition name="fade" mode="out-in">
+            <div v-if="historySorted.length" key="list">
+              <div class="hist-group" v-for="(group, gIdx) in historyGroups" :key="'group-' + gIdx">
+                <div class="hist-group__label" v-if="group.label">
+                  <i class="fas fa-calendar-day"></i><span>{{ group.label }}</span>
+                </div>
+
+                <component :is="historyListWrap" class="hist-grid" v-if="historyView === 'grid'" :name="historyLean ? undefined : 'list'" :tag="historyLean ? undefined : 'div'">
+                  <div class="hist-card" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }" @click="historyPreview(item)">
+                    <input type="checkbox" class="hist-card__check" v-model="item.selected" @click.stop />
+                    <div class="hist-card__thumb">
+                      <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getThumbUrl(item)" @error="handleThumbError($event, item)" />
+                      <i v-else :class="getFileIcon(getDisplayName(item))"></i>
+                    </div>
+                    <div class="hist-card__name" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
+                    <div class="hist-card__actions">
+                      <button class="btn btn--ghost btn--icon btn--sm" :class="{ 'share-active': hasShare(item) }" @click.stop="openShareDialog(item)" :title="hasShare(item) ? '管理分享' : '分享这个文件'">
+                        <i class="fas fa-share-nodes"></i>
+                      </button>
+                    </div>
+                    <div class="hist-card__foot">
+                      <button class="btn btn--ghost" @click.stop="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
+                      <button class="btn btn--ghost" v-if="hasShare(item)" @click.stop="copyShareLink(item)" title="复制分享短链"><i class="fas fa-link"></i></button>
+                      <button class="btn btn--ghost" :disabled="isDownloading(item)" @click.stop="historyDownload(item)" title="下载">
+                        <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                      </button>
+                      <button class="btn btn--ghost btn--danger" @click.stop="historyDelete(item)" title="仅从本地历史移除（云端文件保留）"><i class="fas fa-xmark"></i></button>
+                    </div>
+                  </div>
+                </component>
+
+                <component :is="historyListWrap" class="list" v-else :name="historyLean ? undefined : 'list'" :tag="historyLean ? undefined : 'div'">
+                  <div class="row hist-row" v-for="item in group.items" :key="item.id" :class="{ 'is-selected': item.selected }">
+                    <input type="checkbox" v-model="item.selected" style="accent-color: var(--primary); cursor: pointer; flex-shrink: 0;" />
+                    <div class="row__thumb" @click="historyPreview(item)">
+                      <img v-if="isImageFile(getDisplayName(item)) && !item._imgError" :src="getThumbUrl(item)" @error="handleThumbError($event, item)" />
+                      <i v-else :class="getFileIcon(getDisplayName(item))"></i>
+                    </div>
+                    <div class="row__main">
+                      <div class="row__title" :title="getDisplayName(item)">{{ getDisplayName(item) }}</div>
+                      <div class="row__sub">
+                        <span>{{ formatSize(item.size) }}</span>
+                        <span>{{ formatHistoryTime(item.uploadTime) }}</span>
+                        <span v-if="item.storageMode">{{ storageLabel(item.storageMode) }}</span>
+                        <span v-if="item.folderPath">/{{ item.folderPath }}</span>
+                        <span class="badge badge--success" v-if="hasShare(item)"><i class="fas fa-share-nodes"></i>{{ shareBadgeText(item) }}</span>
+                      </div>
+                    </div>
+                    <div class="row__actions">
+                      <button class="btn btn--ghost btn--icon" @click="historyCopyLink(item)" title="复制直链"><i class="fas fa-copy"></i></button>
+                      <button class="btn btn--ghost btn--icon" :class="{ 'share-active': hasShare(item) }" @click="openShareDialog(item)" :title="hasShare(item) ? '管理分享' : '分享这个文件'"><i class="fas fa-share-nodes"></i></button>
+                      <button class="btn btn--ghost btn--icon" v-if="hasShare(item)" @click="copyShareLink(item)" title="复制分享短链"><i class="fas fa-link"></i></button>
+                      <button class="btn btn--ghost btn--icon" @click="historyPreview(item)" title="预览"><i class="fas fa-eye"></i></button>
+                      <button class="btn btn--ghost btn--icon" :disabled="isDownloading(item)" @click="historyDownload(item)" title="下载">
+                        <i :class="isDownloading(item) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+                      </button>
+                      <button class="btn btn--ghost btn--icon btn--danger" @click="historyDelete(item)" title="仅从本地历史移除（云端文件保留）"><i class="fas fa-xmark"></i></button>
+                    </div>
+                  </div>
+                </component>
+              </div>
+            </div>
+
+            <div class="hist-empty" v-else key="empty">
+              <i class="fas fa-clock-rotate-left"></i>
+              <span v-if="uploadHistory.length">没有匹配的历史记录，试试调整搜索关键词或筛选条件</span>
+              <span v-else>暂无本地上传历史，上传文件后将自动记录在此</span>
+            </div>
+            </transition>
+          </div>
+
+          <!-- Tab 4: 系统导航 -->
+          <div v-else key="menu" class="drawer-pane"
+               :class="{ 'drawer-pane--dragging': drawerPaneDragging }" :style="drawerPaneStyle">
+            <div class="settings-group" v-if="!isGuest">
+              <div class="settings-group__header">扩展工具</div>
+              <div class="settings-list">
+                <a href="./gallery.html" class="settings-row">
+                  <span class="settings-row__icon ico--violet"><i class="fas fa-images"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">图片画廊浏览</span>
+                    <span class="settings-row__sub">按时间线浏览已上传的图片</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+                <a href="./vault.html" class="settings-row">
+                  <span class="settings-row__icon ico--sky"><i class="fas fa-shield-halved"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">密码库</span>
+                    <span class="settings-row__sub">本地加密保存登录、银行卡与身份信息</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+                <a href="/admin/files" class="settings-row">
+                  <span class="settings-row__icon ico--sky"><i class="fas fa-sliders"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">管理后台</span>
+                    <span class="settings-row__sub">存储节点、账户与全局配置</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+                <a href="./webdav.html" class="settings-row">
+                  <span class="settings-row__icon ico--blue"><i class="fas fa-hard-drive"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">WebDAV 服务</span>
+                    <span class="settings-row__sub">用系统文件管理器挂载云端目录</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </a>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group__header">偏好</div>
+              <div class="settings-list">
+                <button class="settings-row" @click="toggleLiquidTheme">
+                  <span class="settings-row__icon ico--violet"><i :class="currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">外观主题</span>
+                    <span class="settings-row__sub">当前：{{ currentTheme === 'dark' ? '深色' : '浅蓝' }}</span>
+                  </span>
+                  <span class="settings-row__go"><i class="fas fa-chevron-right"></i></span>
+                </button>
+                <button class="settings-row settings-row--danger" v-if="isAuthenticated" @click="handleLogout">
+                  <span class="settings-row__icon"><i class="fas fa-arrow-right-from-bracket"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">退出登录</span>
+                    <span class="settings-row__sub">清除本机登录状态</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-list">
+                <div class="settings-row" role="button" tabindex="0"
+                  :class="{ 'row-is-open': devOptionsExpanded }"
+                  @click="toggleDevOptions()" @keydown.enter.prevent="toggleDevOptions()">
+                  <span class="settings-row__icon ico--sky"><i class="fas fa-code"></i></span>
+                  <span class="settings-row__text">
+                    <span class="settings-row__title">开发者选项</span>
+                    <span class="settings-row__sub">{{ liveEngine ? '灵动引擎运行中' : '已切换到低性能模式' }}</span>
+                  </span>
+                  <button class="row-expand-btn" :class="{ active: devOptionsExpanded }"
+                    @click.stop="toggleDevOptions()"
+                    :title="devOptionsExpanded ? '收起开发者选项' : '展开开发者选项'"
+                    :aria-expanded="devOptionsExpanded ? 'true' : 'false'">
+                    <i class="fas fa-chevron-down"></i>
+                  </button>
+                </div>
+
+                <transition name="rowExpand">
+                  <div class="row-expand" v-if="devOptionsExpanded">
+                    <div class="settings-group">
+                      <div class="settings-group__header">渲染引擎</div>
+                      <div class="settings-list settings-list--nested">
+                        <div class="settings-row settings-row--static">
+                          <span class="settings-row__icon ico--violet"><i class="fas fa-wand-magic-sparkles"></i></span>
+                          <span class="settings-row__text">
+                            <span class="settings-row__title">灵动引擎 <span class="row-tag" v-if="liveEngine">ON</span></span>
+                            <span class="settings-row__sub">{{ liveEngine ? '毛玻璃与全部动态效果' : '已停用：模糊与动画全部关闭' }}</span>
+                          </span>
+                          <!-- 用 click.prevent + 受控 checked：确认框被取消时，开关不会因为
+                               原生 checkbox 已翻转而与 liveEngine 脱节 -->
+                          <label class="switch" title="关闭后将移除全部毛玻璃模糊并停止所有动画">
+                            <input type="checkbox" :checked="liveEngine" @click.prevent="setLiveEngine(!liveEngine)" />
+                            <span class="switch__track"></span><span class="switch__thumb"></span>
+                          </label>
+                        </div>
+                      </div>
+                      <div class="settings-group__footer">
+                        关闭后立即停用毛玻璃模糊、页面过渡与列表动画，可明显提升低端设备的流畅度与续航；设置会记住，可随时回来重新开启。
+                      </div>
+                    </div>
+                  </div>
+                </transition>
+              </div>
+            </div>
+          </div>
+          </transition>
+        </div>
+      </div>
+      </transition>
+
+      <!-- 预览弹窗 -->
+      <transition name="dialog">
+      <div class="modal-mask modal-mask--center" v-if="previewData" @click="closePreview">
+        <div class="modal modal--preview" @click.stop>
+          <img v-if="previewData.type === 'native-image'" :src="previewData.url" style="max-width: 100%; max-height: 70vh; border-radius: var(--r-md); box-shadow: var(--shadow-elevated);" />
+          <div v-else-if="previewData.type === 'iframe'" style="width: 88vw; height: 70vh; border-radius: var(--r-md); overflow: hidden; background: #000;">
+            <iframe ref="previewIframe" :src="previewData.iframeUrl" style="width: 100%; height: 100%; border: none;" allowfullscreen></iframe>
+          </div>
+          <div style="margin-top: 14px; display: flex; gap: 8px;">
+            <button class="btn btn--primary" @click="copyPreviewLink"><i class="fas fa-copy"></i> 复制直链</button>
+            <button class="btn" :disabled="isDownloading(previewData)" @click="downloadPreviewFile">
+              <i :class="isDownloading(previewData) ? 'fas fa-spinner fa-spin' : 'fas fa-download'"></i>
+              <span>{{ isDownloading(previewData) ? '拉取中...' : '下载' }}</span>
+            </button>
+            <button class="btn" @click="closePreview"><i class="fas fa-xmark"></i> 关闭</button>
+          </div>
+        </div>
+      </div>
+      </transition>
+
+      <!-- 隔空投送（Beta）
+           独立组件，实现在 assets/js/airdrop.js。放在这里与其余弹层并列，
+           遮罩层级、dialog 过渡、点击遮罩关闭等行为全部沿用同一套实现。 -->
+      <airdrop-panel
+        :visible="airdropVisible"
+        :is-guest="!isAuthenticated"
+        :capability="airdropCapability"
+        :default-node="storageMode"
+        :base-url="baseURL"
+        @close="closeAirdrop"
+        @toast="pushAirdropToast"
+        @request-open="openAirdrop"
+      ></airdrop-panel>
+
+      <!-- 分享弹窗 -->
+      <transition name="dialog">
+      <div class="modal-mask modal-mask--center" v-if="shareDialogVisible" @click.self="closeShareDialog">
+        <div class="modal modal--dialog">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 9px; font-size: 0.98rem; font-weight: 800;">
+              <i class="fas fa-share-nodes" style="color: var(--primary);"></i>
+              <span>{{ shareDialogTitle }}</span>
+            </div>
+            <button class="btn btn--ghost btn--icon" @click="closeShareDialog" title="关闭"><i class="fas fa-xmark"></i></button>
+          </div>
+
+          <div class="summary" style="display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-sub); word-break: break-all;">
+            {{ shareDialogItemsLabel }}
+          </div>
+
+          <transition name="rise" mode="out-in">
+          <div class="share-result" v-if="shareDialogResult" key="result">
+            <div class="share-result__head"><i class="fas fa-circle-check"></i><span>{{ shareDialogCreated ? '分享链接已生成' : '分享设置已生效' }}</span></div>
+            <!-- 回显存下来的标题 / 说明：让用户确认"我填的就是这个"，
+                 而不是等到打开分享页才发现打错字。 -->
+            <div class="share-result__title" v-if="shareDialogResult.title">{{ shareDialogResult.title }}</div>
+            <div class="share-result__desc" v-if="shareDialogResult.description">{{ shareDialogResult.description }}</div>
+            <div class="share-result__url">
+              <code>{{ shareDialogResult.url }}</code>
+              <button class="btn btn--ghost btn--icon" @click="copyShareDialogUrl" title="复制链接"><i class="fas fa-copy"></i></button>
+            </div>
+            <!-- 二维码：手机上"给旁边的人扫一下"比"复制一串链接再发过去"快得多。
+                 由 vendor/qrcode.js 纯前端生成，不依赖任何外部服务。 -->
+            <div class="share-result__qr" v-if="shareDialogQr" v-html="shareDialogQr" @click="copyShareDialogUrl" title="点击复制链接"></div>
+            <div class="share-result__tags">
+              <span class="share-tag" v-if="shareDialogResult.passwordProtected"><i class="fas fa-lock"></i> 密码保护</span>
+              <span class="share-tag" v-if="shareDialogResult.maxDownloads">限 {{ shareDialogResult.maxDownloads }} 次下载</span>
+              <span class="share-tag" v-if="shareDialogResult.expiresAt">有效期至 {{ new Date(shareDialogResult.expiresAt).toLocaleString('zh-CN') }}</span>
+              <span class="share-tag share-tag--muted" v-if="!shareDialogResult.passwordProtected && !shareDialogResult.maxDownloads && !shareDialogResult.expiresAt">公开 · 永久 · 不限次数</span>
+            </div>
+            <div class="share-result__hint" v-if="isShareDialogBundle">访问者打开链接会看到这 {{ (shareDialogResult && shareDialogResult.bundleCount) || shareDialogItems.length }} 个文件的清单，可逐个预览或下载；只有点「下载」才计入次数。</div>
+            <div class="share-result__hint" v-else>访问者打开链接会先看到分享页，可以选择预览或下载；只有点「下载」才计入次数。</div>
+            <div class="share-result__hint share-result__hint--live" v-if="shareDialogResult && shareDialogResult.live">
+              <i class="fas fa-arrows-rotate"></i> 这是<b>实时文件夹分享</b>：之后往该目录上传或删除文件，分享页会自动同步最新内容，无需重新生成链接。
+            </div>
+
+            <!-- 逐项结果汇总：部分文件失效时明确列出，不静默丢弃 -->
+            <div class="share-result__warn" v-if="shareDialogResult.bundleMissing > 0">
+              <i class="fas fa-triangle-exclamation"></i>
+              <span>有 {{ shareDialogResult.bundleMissing }} 个文件已失效，未加入合集{{ shareDialogResult.bundleMissingNames.length ? '：' + shareDialogResult.bundleMissingNames.join('、') : '' }}</span>
+            </div>
+          </div>
+
+          <div class="share-fields" v-else key="fields">
+            <!-- 标题 / 说明：三种形态（单文件 / 多选 / 目录）都可用。
+                 以前分享页只能显示"系统给的名字"，分享者想解释一句
+                 "这是未压缩原图"都无处可写。 -->
+            <div class="field">
+              <label>分享标题<span class="field__opt">选填</span></label>
+              <input class="input" type="text" v-model="shareDialogForm.title" :placeholder="shareTitlePlaceholder" maxlength="200" />
+            </div>
+
+            <div class="field">
+              <label>分享说明<span class="field__opt">选填</span></label>
+              <textarea class="textarea" rows="2" v-model="shareDialogForm.description"
+                :placeholder="shareDescriptionPlaceholder" maxlength="2000"></textarea>
+            </div>
+
+            <div class="field">
+              <label>自定义短链</label>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <span class="mono" style="font-size: 0.76rem; color: var(--text-muted); flex: none;">/s/</span>
+                <input class="input" type="text" v-model="shareDialogForm.slug"
+                  :disabled="shareDialogMode === 'manage' && !shareDialogForm.keepSlug"
+                  :placeholder="shareSlugPlaceholder" maxlength="64"
+                  @input="shareDialogForm.slug = shareDialogForm.slug.toLowerCase().replace(/[^a-z0-9_-]/g, '')" />
+              </div>
+              <label class="share-keep" v-if="shareDialogMode === 'manage' && shareDialogCurrentSlug">
+                <input type="checkbox" v-model="shareDialogForm.keepSlug" />
+                保留当前短链（不勾选则改为下方新短链，留空即取消自定义）
+              </label>
+              <div style="font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px;">
+                只能包含小写字母、数字、下划线与短横线。留空则由系统自动生成。
+              </div>
+            </div>
+
+            <div class="share-fields__row">
+              <div class="field">
+                <label>有效期</label>
+                <select class="select" v-model.number="shareDialogForm.expiresIn">
+                  <option :value="0">{{ shareDialogMode === 'manage' ? '保持不变' : '永久有效' }}</option>
+                  <option :value="3600">1 小时</option>
+                  <option :value="86400">1 天</option>
+                  <option :value="604800">7 天</option>
+                  <option :value="2592000">30 天</option>
+                  <option :value="31536000">365 天</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>下载次数上限</label>
+                <input class="input" type="number" min="0" v-model="shareDialogForm.maxDownloads" :placeholder="shareDialogMode === 'manage' ? '保持不变' : '留空表示不限'" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label>访问密码</label>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <input class="input" :type="shareDialogShowPassword ? 'text' : 'password'" v-model="shareDialogForm.password" autocomplete="new-password"
+                  :disabled="shareDialogMode === 'manage' && !shareDialogForm.keepPassword" :placeholder="sharePasswordPlaceholder" />
+                <button class="btn btn--ghost btn--icon" type="button" @click="shareDialogShowPassword = !shareDialogShowPassword" :title="shareDialogShowPassword ? '隐藏' : '显示'">
+                  <i :class="shareDialogShowPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                </button>
+              </div>
+              <label class="share-keep" v-if="shareDialogMode === 'manage' && shareDialogItem && shareDialogItem.shareProtected">
+                <input type="checkbox" v-model="shareDialogForm.keepPassword" />
+                保留当前密码（不勾选则改为下方新密码，留空即清除密码）
+              </label>
+            </div>
+
+            <label class="share-keep" v-if="shareDialogFolder" style="margin-top: 2px;">
+              <input type="checkbox" v-model="shareDialogFolder.includeSubfolders" />
+              同时包含子目录中的文件
+            </label>
+
+            <div class="share-hint"><i class="fas fa-circle-info"></i><span>{{ shareDialogExpiryHint }}</span></div>
+            <div class="share-error" v-if="shareDialogError"><i class="fas fa-triangle-exclamation"></i><span>{{ shareDialogError }}</span></div>
+          </div>
+          </transition>
+
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <!-- 取消分享对三种形态都可用：合集与目录此前只能建不能撤，
+                 链接一旦发出去就收不回来了。 -->
+            <button class="btn btn--danger" v-if="shareDialogMode === 'manage'" :disabled="shareDialogRevoking || shareDialogBusy" @click="isShareDialogBundle ? revokeBundleShare() : revokeShare()">
+              <i :class="shareDialogRevoking ? 'fas fa-circle-notch fa-spin' : 'fas fa-ban'"></i>
+              <span>{{ shareDialogRevoking ? '处理中…' : '取消分享' }}</span>
+            </button>
+            <span class="grow"></span>
+            <button class="btn" v-if="shareDialogResult" @click="editShareAgain"><i class="fas fa-pen"></i><span>继续修改</span></button>
+            <button class="btn" :disabled="shareDialogBusy" @click="closeShareDialog"><span>{{ shareDialogResult ? '完成' : '取消' }}</span></button>
+            <button class="btn btn--primary" v-if="!shareDialogResult" :disabled="shareDialogBusy" @click="submitShareDialog">
+              <i :class="shareDialogBusy ? 'fas fa-circle-notch fa-spin' : 'fas fa-share-nodes'"></i>
+              <span>{{ shareDialogBusy ? '提交中…' : (shareDialogMode === 'manage' ? '保存修改' : '生成分享链接') }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      </transition>
+
+      <!-- 下载进度 -->
+      <transition name="pop">
+      <div class="download-panel" v-if="downloadProgress.active">
+        <div class="download-panel__title">
+          <i class="fas fa-download"></i>
+          <span class="download-panel__name">{{ downloadProgress.fileName || '下载中' }}</span>
+          <span class="download-panel__pct">{{ downloadProgress.total > 0 ? Math.round((downloadProgress.loaded / downloadProgress.total) * 100) + '%' : '' }}</span>
+        </div>
+        <div class="progress" style="margin-top: 0;">
+          <div class="progress__val" :style="{ transform: 'scaleX(' + (downloadProgress.total > 0 ? (downloadProgress.loaded / downloadProgress.total) : 0) + ')' }"></div>
+        </div>
+        <div class="download-panel__meta">
+          <span>{{ formatSize(downloadProgress.loaded) }} / {{ downloadProgress.total > 0 ? formatSize(downloadProgress.total) : '未知大小' }}</span>
+          <span class="speed" v-if="downloadProgress.speed">{{ downloadProgress.speed }}</span>
+        </div>
+      </div>
+      </transition>
+
+      <!-- 统一自定义对话框（替代原生 alert / confirm / prompt） -->
+      <transition name="dialog">
+        <div class="modal-mask modal-mask--center" v-if="dlg.visible" @click.self="dlgDismiss">
+          <div class="modal modal--dialog dlg" :class="dlg.tone ? 'dlg--' + dlg.tone : ''"
+            role="alertdialog" aria-modal="true" :aria-label="dlg.title" @click.stop
+            @keydown.esc.prevent="dlgDismiss">
+            <div class="dlg__head">
+              <div class="dlg__icon"><i :class="dlg.icon"></i></div>
+              <div class="dlg__heading">
+                <span class="dlg__sub" v-if="dlg.subtitle">{{ dlg.subtitle }}</span>
+                <h3 class="dlg__title">{{ dlg.title }}</h3>
+              </div>
+              <button class="btn btn--ghost btn--icon btn--sm" v-if="dlg.closable" @click="dlgDismiss" title="关闭 (Esc)">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+
+            <div class="dlg__body">
+              <p class="dlg__text" v-if="dlg.message">{{ dlg.message }}</p>
+
+              <div class="dlg__field" v-if="dlg.mode === 'prompt'">
+                <label for="uni-dlg-input">{{ dlg.label }}</label>
+                <input id="uni-dlg-input" ref="dlgInput" class="dlg__input" type="text"
+                  v-model="dlg.value" :placeholder="dlg.placeholder" :maxlength="dlg.maxlength || null"
+                  autocomplete="off" spellcheck="false"
+                  @keyup.enter="dlgConfirm" @keydown.esc.prevent="dlgDismiss" />
+                <span class="dlg__hint" v-if="dlg.hint">{{ dlg.hint }}</span>
+                <span class="dlg__error" v-if="dlg.error"><i class="fas fa-circle-exclamation"></i>{{ dlg.error }}</span>
+              </div>
+            </div>
+
+            <div class="dlg__actions" :class="{ 'dlg__actions--split': dlg.note }">
+              <span class="dlg__hint" v-if="dlg.note" style="flex: 1; min-width: 120px;">{{ dlg.note }}</span>
+              <div class="dlg__group">
+                <button class="btn" v-if="dlg.showCancel" @click="dlgDismiss">{{ dlg.cancelText }}</button>
+                <button class="btn" ref="dlgConfirmBtn"
+                  :class="dlg.tone === 'danger' ? 'btn--danger-solid' : 'btn--primary'"
+                  @click="dlgConfirm">
+                  <i :class="dlg.confirmIcon" v-if="dlg.confirmIcon"></i>
+                  <span>{{ dlg.confirmText }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Toast：统一结构 —— .toast-stack 容器 + .toast 单条（样式来自 design-system.css） -->
+      <div class="toast-stack">
+        <transition name="toast" mode="out-in">
+          <div class="toast" :class="toasts[toasts.length - 1].type" v-if="toasts.length > 0" :key="toastKey">
+            <i :class="toasts[toasts.length - 1].type === 'error' ? 'fas fa-triangle-exclamation' : 'fas fa-circle-check'"></i>
+            <span>{{ toasts[toasts.length - 1].message }}</span>
+          </div>
+        </transition>
+      </div>
+    </div>
+
+    <script defer src="/assets/vendor/vue.global.prod.min.js"></script>
+    <!-- 二维码生成器（零依赖，分享结果面板用）。必须在 index.js 之前加载：
+         它在 index.js 的 computed 里被同步调用。 -->
+    <script defer src="/assets/vendor/qrcode.js"></script>
+    <!-- 隔空投送组件。必须在 index.js 之前加载：index.js 创建 app 时就要
+         把它注册进 components，晚于它加载会拿到 undefined。 -->
+    <script defer src="/assets/js/airdrop.js"></script>
+    <script defer src="/assets/js/index.js"></script>
+    <script defer src="/assets/js/branding.js?v=20260927"></script>
+  </body>
+</html>

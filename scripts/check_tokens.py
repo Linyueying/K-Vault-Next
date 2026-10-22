@@ -34,7 +34,7 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHARED = 'assets/css/design-system.css'
 CSS_DIR = 'assets/css'
-PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
+PAGES = ['index.html', 'upload.html', 'admin.html', 'gallery.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 VAR_DEF = re.compile(r'(--[a-zA-Z0-9-]+)\s*:')

@@ -9,7 +9,7 @@
 
 检查项：
     A. 共享层禁改名单：各页不得再自行实现已收敛到 app-core.js 的能力
-    B. 样式表加载顺序：8 页必须完全一致
+    B. 样式表加载顺序：各页共享层必须一致
     C. 跨页重复 CSS 类：同一个类名在多页各自定义（应上收到 design-system.css）
     D. 共享层被页面重定义：design-system.css 里的类又在页面 <style> 里定义
     E. mobile-refactor.css 死选择器回潮：已清理的类不得再次出现
@@ -23,7 +23,7 @@ import re
 import sys
 from collections import defaultdict
 
-PAGES = ['index.html', 'admin.html', 'gallery.html', 'paste.html',
+PAGES = ['index.html', 'upload.html', 'admin.html', 'gallery.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 SHARED_CSS = 'assets/css/design-system.css'
@@ -49,6 +49,7 @@ BANNED_JS = [
 # ------------------------------------------------- B. 期望的样式表加载顺序
 EXPECTED_CSS_ORDER = [
     'font-awesome',        # 图标字体，必须是第一个样式表
+    'glass.css',           # 液态玻璃底层
     'design-system.css',   # 唯一共享样式层
     'theme.css',
 ]
@@ -277,7 +278,7 @@ def main():
             for h in hits:
                 print('        %s' % h)
     if not a_bad:
-        print('  [OK]   8 页均无重复实现')
+        print('  [OK]   %d 页均无重复实现' % len(PAGES))
     bad += a_bad
 
     # ------------------------------------------------- B. 样式/脚本加载顺序
@@ -287,30 +288,27 @@ def main():
         html = read(p)
         orders[p] = (css_loaded_order(html), script_loaded_order(html))
 
-    ref_page = 'index.html'
-    ref_css, ref_js = orders[ref_page]
-    # 基准里不含覆盖层；检查时把登记过的覆盖层从各页顺序里摘掉再比
+    # 只校验「共享层」的相对顺序，不要求每页都加载全套。
+    # 原因：首页已拆成「轻量入口页 + upload.html 控制台」，入口页不再加载
+    # Vue / 页面主脚本；paste.html 是纯跳转页，只引 design-system.css。
+    # 若仍拿 index.html 当超集，会把「页面更轻」误判成顺序漂移。
+    # 真正要守的是：共享层出现时必须按既定顺序，页面专属脚本/样式不参与比较。
+    ref_css = EXPECTED_CSS_ORDER
+    ref_js = EXPECTED_SCRIPT_ORDER
     late_allowed = set(LATE_LOAD_CSS)
     b_bad = 0
     for p in PAGES:
         css, js = orders[p]
-        css_cmp = [c for c in css if c not in late_allowed]
+        css_cmp = [c for c in css if c not in late_allowed and c in ref_css]
+        js_cmp = [x for x in js if x in ref_js]
         probs = []
-        # 顺序必须与基准一致（子序列语义：允许各页只加载部分，但相对顺序不能变）
-        idx, ok = 0, True
-        for name in ref_css:
-            if idx < len(css_cmp) and css_cmp[idx] == name:
-                idx += 1
-        if idx != len(css_cmp):
-            ok = False
-            probs.append('CSS 顺序 %s 与基准不一致，基准为 %s' % (css, ref_css))
-        idx = 0
-        for name in ref_js:
-            if idx < len(js) and js[idx] == name:
-                idx += 1
-        if idx != len(js):
-            ok = False
-            probs.append('JS 顺序 %s 与基准不一致，基准为 %s' % (js, ref_js))
+        # 无论加载多少项，共享层的相对顺序必须与基准一致
+        expect_css = [c for c in ref_css if c in css_cmp]
+        if css_cmp != expect_css:
+            probs.append('CSS 共享层顺序 %s 与基准 %s 不一致' % (css_cmp, expect_css))
+        expect_js = [x for x in ref_js if x in js_cmp]
+        if js_cmp != expect_js:
+            probs.append('JS 共享层顺序 %s 与基准 %s 不一致' % (js_cmp, expect_js))
         # 未登记的覆盖层 = 新插了一层，必须显式登记（在下方 used_late 统一处理）
         if probs:
             b_bad += 1
@@ -318,7 +316,7 @@ def main():
             for x in probs:
                 print('        %s' % x)
     if not b_bad:
-        print('  [OK]   8 页基础加载顺序一致')
+        print('  [OK]   %d 页基础加载顺序一致' % len(PAGES))
         print('         CSS  : %s' % ' -> '.join(ref_css))
         print('         JS   : %s' % ' -> '.join(ref_js))
 
