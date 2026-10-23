@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>概览 · K-Vault-NEXT</title>
-    <meta name="description" content="K-Vault-NEXT 工作台：文件、存储与 WebDAV / MCP 接入状态。" />
+    <title>K-Vault-NEXT · WebDAV / MCP / 图床</title>
+    <meta name="description" content="大网盘之外的小、快、简文件层：WebDAV 挂载、MCP 接入、图片直链。部署在 Cloudflare，文件留在自己的存储里。" />
     <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="概览 · K-Vault-NEXT" />
-    <meta property="og:description" content="文件、存储与 WebDAV / MCP 接入状态。" />
+    <meta property="og:title" content="K-Vault-NEXT · WebDAV / MCP / 图床" />
+    <meta property="og:description" content="WebDAV 挂载、MCP 接入、图片直链。小、快、简的自托管文件层。" />
     <meta property="og:image" content="/assets/img/logo-180.png" />
     <meta name="twitter:card" content="summary" />
     <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
@@ -32,15 +32,15 @@
         -webkit-font-smoothing: antialiased;
       }
 
-      .dash-shell {
+      .home-shell {
         position: relative;
         z-index: 2;
-        max-width: 1080px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 18px var(--sp-5) 44px;
+        padding: 18px var(--sp-5) 48px;
       }
 
-      .dash-topbar {
+      .home-topbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -48,208 +48,360 @@
         padding: 6px 0;
         animation: riseInSm 0.44s var(--ease-fluid) backwards;
       }
-      .dash-brand { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; color: inherit; text-decoration: none; }
-      .dash-brand__logo {
-        width: 38px; height: 38px; flex: none;
-        display: flex; align-items: center; justify-content: center;
+      .home-brand {
+        display: flex;
+        align-items: center;
+        gap: var(--sp-3);
+        min-width: 0;
+        color: inherit;
+        text-decoration: none;
+      }
+      .home-brand__logo {
+        width: 38px;
+        height: 38px;
+        flex: none;
         border-radius: var(--r-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
         background: linear-gradient(135deg, #fff, #e0f2fe);
         border: 1px solid var(--glass-border-ice);
         box-shadow: 0 4px 12px rgba(2, 132, 199, 0.14);
       }
-      .dash-brand__logo img { width: 24px; height: 24px; object-fit: contain; }
-      .dash-brand__text { display: flex; flex-direction: column; min-width: 0; }
-      .dash-brand__text strong { font-size: var(--fs-lg); font-weight: 800; letter-spacing: -0.02em; }
-      .dash-brand__text span { color: var(--text-muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; }
-      .dash-nav { display: flex; align-items: center; gap: 2px; }
-      .dash-nav a {
+      .home-brand__logo img { width: 24px; height: 24px; object-fit: contain; }
+      .home-brand__text { display: flex; flex-direction: column; min-width: 0; }
+      .home-brand__text strong {
+        font-size: var(--fs-lg);
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .home-brand__text span {
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .home-nav {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .home-nav a {
         padding: 7px 11px;
+        white-space: nowrap;
         border-radius: var(--r-pill);
         color: var(--text-sub);
         font-size: var(--fs-sm);
         font-weight: 600;
         text-decoration: none;
-        white-space: nowrap;
         transition: var(--transition);
       }
-      .dash-nav a:hover { color: var(--primary-dark); background: rgba(var(--primary-rgb), 0.07); }
-      .dash-nav a.is-current { color: var(--primary-dark); background: var(--glass-surface); }
-      html[data-theme="dark"] .dash-nav a:hover,
-      html[data-theme="dark"] .dash-nav a.is-current { color: var(--primary-light); }
-      .dash-theme {
-        width: var(--h-ctrl-sm); height: var(--h-ctrl-sm);
-        margin-left: 2px;
-        border: 1px solid transparent; border-radius: var(--r-pill);
-        background: transparent; color: var(--text-muted);
-        cursor: pointer; transition: var(--transition);
-      }
-      .dash-theme:hover { color: var(--primary); border-color: var(--glass-border-ice); background: var(--glass-surface); }
-
-      .dash-head {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: var(--sp-4);
-        flex-wrap: wrap;
-        padding: 34px 0 18px;
-        animation: riseIn 0.5s var(--ease-fluid) 0.04s backwards;
-      }
-      .dash-head h1 {
-        font-size: clamp(1.9rem, 3.6vw, 2.4rem);
-        line-height: 1.1;
-        letter-spacing: -0.04em;
-        font-weight: 800;
-        background: linear-gradient(135deg, var(--text-main) 30%, var(--primary));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-      }
-      .dash-head p { margin-top: 6px; color: var(--text-muted); font-size: var(--fs-md); }
-      .dash-actions { display: flex; align-items: center; gap: 8px; }
-      .dash-actions .ui-btn { flex: none; width: auto; height: 42px; padding: 0 16px; }
-      .dash-refresh {
-        width: 42px; height: 42px;
-        display: inline-flex; align-items: center; justify-content: center;
+      .home-nav a:hover { color: var(--primary-dark); background: rgba(var(--primary-rgb), 0.07); }
+      html[data-theme="dark"] .home-nav a:hover { color: var(--primary-light); }
+      .home-nav .home-nav__admin {
+        margin-left: 4px;
+        color: var(--primary-dark);
         border: 1px solid var(--glass-border-ice);
-        border-radius: 50%;
         background: var(--glass-surface);
+      }
+      html[data-theme="dark"] .home-nav .home-nav__admin { color: var(--primary-light); }
+      .home-nav .home-theme {
+        width: var(--h-ctrl-sm);
+        height: var(--h-ctrl-sm);
+        margin-left: 2px;
+        border: 1px solid transparent;
+        border-radius: var(--r-pill);
+        background: transparent;
         color: var(--text-muted);
         cursor: pointer;
         transition: var(--transition);
       }
-      .dash-refresh:hover { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.4); }
-      .dash-refresh.is-loading i { opacity: 0.45; }
-
-      .dash-metrics {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px;
-        margin-bottom: 18px;
-      }
-      .dash-metric {
-        padding: 15px 18px 14px;
-        border: 1px solid var(--glass-border-ice);
-        border-radius: var(--r-md);
+      .home-nav .home-theme:hover {
+        color: var(--primary);
+        border-color: var(--glass-border-ice);
         background: var(--glass-surface);
-        box-shadow: var(--shadow-soft);
       }
-      .dash-metric span { display: block; color: var(--text-muted); font-size: var(--fs-xs); font-weight: 600; }
-      .dash-metric strong {
-        display: block;
-        margin-top: 5px;
-        color: var(--text-main);
-        font-size: 28px;
-        font-weight: 800;
-        letter-spacing: -0.04em;
-        line-height: 1.1;
-      }
-      .dash-metric small { display: block; margin-top: 3px; color: var(--text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .dash-metric--files strong { color: var(--primary-dark); }
-      html[data-theme="dark"] .dash-metric--files strong { color: var(--primary-light); }
 
-      .dash-grid {
+      .hero {
         display: grid;
-        grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.8fr);
-        gap: 16px;
-        align-items: start;
+        grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+        gap: clamp(32px, 5vw, 72px);
+        align-items: center;
+        padding: clamp(56px, 8vw, 96px) 0 clamp(48px, 6vw, 72px);
       }
-      .dash-card__head {
+      .hero__copy { animation: riseIn 0.56s var(--ease-fluid) 0.04s backwards; }
+      .hero__eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--primary-dark);
+        font-size: var(--fs-xs);
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      html[data-theme="dark"] .hero__eyebrow { color: var(--primary-light); }
+      .hero__eyebrow i { font-size: 0.7rem; }
+      .hero h1 {
+        margin-top: 18px;
+        font-size: clamp(2.5rem, 5.4vw, 4rem);
+        line-height: 1.06;
+        letter-spacing: -0.045em;
+        font-weight: 800;
+      }
+      .hero h1 span {
+        display: inline-block;
+        background: linear-gradient(120deg, var(--primary-dark) 0%, var(--primary) 46%, var(--primary-light) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        padding-bottom: 0.06em;
+      }
+      .hero__sub {
+        max-width: 33em;
+        margin-top: 22px;
+        color: var(--text-sub);
+        font-size: var(--fs-lg);
+        line-height: 1.75;
+      }
+      .hero__actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 30px;
+      }
+      .hero__link {
+        margin-left: 4px;
+        color: var(--text-sub);
+        font-size: var(--fs-sm);
+        font-weight: 600;
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: var(--transition);
+      }
+      .hero__link:hover { color: var(--primary); border-bottom-color: currentColor; }
+      .hero__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        margin-top: 26px;
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+      }
+      .hero__meta span { display: inline-flex; align-items: center; gap: 6px; }
+      .hero__meta span::before {
+        content: "";
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--primary);
+      }
+
+      .endpoint-panel {
+        padding: var(--sp-3);
+        border-radius: var(--r-lg);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-elevated);
+        animation: riseIn 0.6s var(--ease-fluid) 0.12s backwards;
+      }
+      .endpoint-panel__head {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
-        padding: 0 4px 8px;
+        padding: 6px 10px 12px;
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 700;
+        letter-spacing: 0.08em;
       }
-      .dash-card__head h2 { font-size: var(--fs-md); font-weight: 700; color: var(--text-main); }
-      .dash-card__head a { color: var(--primary); font-size: var(--fs-xs); font-weight: 600; text-decoration: none; }
-      .dash-card__head a:hover { text-decoration: underline; }
-
-      .dash-file { cursor: pointer; }
-      .dash-file:hover { background: rgba(var(--primary-rgb), 0.04); }
-      .dash-file .ui-row__icon { overflow: hidden; }
-      .dash-file .ui-row__title { font-size: 14px; }
-      .dash-file .ui-row__sub { font-size: 11px; }
-
-      .dash-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-        padding: 30px 18px;
-        text-align: center;
-      }
-      .dash-empty i { color: var(--text-muted); font-size: 22px; opacity: 0.55; }
-      .dash-empty p { color: var(--text-muted); font-size: var(--fs-sm); }
-      .dash-empty .ui-btn { width: auto; flex: none; height: 38px; padding: 0 16px; margin-top: 4px; font-size: 13px; }
-
-      .dash-skeleton {
-        height: 52px;
+      .endpoint {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 9px 14px;
-        border-top: 1px solid var(--ui-separator);
+        padding: 13px 12px;
+        border-radius: var(--r-md);
+        border: 1px solid transparent;
+        color: inherit;
+        text-decoration: none;
+        transition: var(--transition);
       }
-      .dash-skeleton:first-child { border-top: 0; }
-      .dash-skeleton b {
-        width: 30px; height: 30px;
+      .endpoint + .endpoint { margin-top: 2px; }
+      .endpoint:hover {
+        background: rgba(var(--primary-rgb), 0.05);
+        border-color: var(--glass-border-ice);
+      }
+      .endpoint__icon {
+        width: 38px;
+        height: 38px;
         flex: none;
-        border-radius: 7px;
-        background: rgba(var(--primary-rgb), 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--r-sm);
+        color: var(--primary-dark);
+        background: rgba(var(--primary-rgb), 0.1);
+        font-size: 0.95rem;
       }
-      .dash-skeleton span {
-        height: 9px;
-        flex: 1;
-        border-radius: 5px;
-        background: rgba(var(--primary-rgb), 0.08);
+      html[data-theme="dark"] .endpoint__icon { color: var(--primary-light); }
+      .endpoint__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+      .endpoint__body strong { font-size: var(--fs-md); font-weight: 700; }
+      .endpoint__body code {
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
+      .endpoint__state {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 9px;
+        border-radius: var(--r-pill);
+        background: rgba(148, 163, 184, 0.14);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 700;
+      }
+      .endpoint__state::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .endpoint__state.is-on { color: var(--c-success-text); background: rgba(16, 185, 129, 0.11); }
+      .endpoint__state.is-off { color: var(--c-danger); background: var(--c-danger-soft); }
+      .endpoint-panel__foot {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 8px;
+        padding: 12px 10px 4px;
+        border-top: 1px solid var(--glass-border-ice);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+      }
+      .endpoint-panel__foot i { color: var(--primary); }
 
-      .dash-side .ui-section-label { padding-left: 4px; }
-      .dash-side .ui-section-label + .ui-group { margin-top: 0; }
-      .dash-side .ui-row { min-height: 56px; }
-      .dash-side .ui-row__title { font-size: 15px; }
-      .dash-side .ui-row__sub { font-size: 11px; }
+      .pillars {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--sp-3);
+      }
+      .pillar {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        padding: var(--sp-5);
+        border-radius: var(--r-lg);
+        background: var(--glass-surface);
+        border: 1px solid var(--glass-border-ice);
+        box-shadow: var(--shadow-soft);
+        transition: transform 0.36s var(--ease-spring), box-shadow 0.3s var(--ease-apple), border-color 0.3s var(--ease-apple);
+      }
+      .pillar:hover {
+        transform: translateY(-3px);
+        border-color: rgba(var(--primary-rgb), 0.4);
+        box-shadow: var(--shadow-elevated);
+      }
+      .pillar__top { display: flex; align-items: center; justify-content: space-between; }
+      .pillar__icon {
+        width: 42px;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--r-sm);
+        color: var(--primary-dark);
+        background: linear-gradient(135deg, rgba(224, 242, 254, 0.95), rgba(186, 230, 253, 0.6));
+        border: 1px solid var(--glass-border-ice);
+        font-size: 1.05rem;
+      }
+      html[data-theme="dark"] .pillar__icon { color: var(--primary-light); background: rgba(2, 132, 199, 0.16); }
+      .pillar__num {
+        color: var(--text-muted);
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        opacity: 0.6;
+      }
+      .pillar h2 { margin-top: 18px; font-size: var(--fs-xl); font-weight: 800; letter-spacing: -0.02em; }
+      .pillar p { margin-top: 8px; color: var(--text-sub); font-size: var(--fs-md); line-height: 1.65; flex: 1; }
+      .pillar__link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 20px;
+        color: var(--primary);
+        font-size: var(--fs-sm);
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .pillar__link i { transition: transform 0.28s var(--ease-spring); }
+      .pillar__link:hover i { transform: translateX(3px); }
 
-      .dash-footer {
+      .home-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--sp-4);
+        margin-top: var(--sp-6);
+        padding: var(--sp-4) 0;
+        border-top: 1px solid var(--glass-border-ice);
+        border-bottom: 1px solid var(--glass-border-ice);
+      }
+      .home-stat { display: flex; align-items: baseline; gap: 10px; }
+      .home-stat strong {
+        font-size: var(--fs-2xl);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--primary-dark);
+      }
+      html[data-theme="dark"] .home-stat strong { color: var(--primary-light); }
+      .home-stat span { color: var(--text-muted); font-size: var(--fs-sm); }
+
+      .home-footer {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: var(--sp-3);
         flex-wrap: wrap;
-        margin-top: 28px;
-        padding-top: 18px;
-        border-top: 1px solid var(--glass-border-ice);
+        padding-top: var(--sp-5);
         color: var(--text-muted);
-        font-size: 12px;
+        font-size: var(--fs-xs);
       }
-      .dash-footer a { color: var(--text-sub); text-decoration: none; }
-      .dash-footer a:hover { color: var(--primary); }
+      .home-footer__links { display: flex; gap: var(--sp-4); }
+      .home-footer a { color: var(--text-sub); text-decoration: none; }
+      .home-footer a:hover { color: var(--primary); }
 
-      @media (max-width: 860px) {
-        .dash-grid { grid-template-columns: 1fr; }
+      @media (max-width: 900px) {
+        .hero { grid-template-columns: 1fr; padding-top: 40px; }
+        .endpoint-panel { max-width: 520px; }
+        .pillars { grid-template-columns: 1fr; }
+        .pillar p { flex: none; }
       }
       @media (max-width: 640px) {
-        .dash-shell { padding: 12px var(--sp-3) 32px; }
-        .dash-brand { flex: 0 0 auto; }
-        .dash-brand__logo { width: 34px; height: 34px; }
-        .dash-brand__text strong { font-size: var(--fs-md); max-width: 104px; }
-        .dash-nav { gap: 0; }
-        .dash-nav a { padding: 6px 7px; font-size: var(--fs-xs); }
-        .dash-nav__admin { display: none; }
-        .dash-head { padding-top: 28px; align-items: center; }
-        .dash-head h1 { font-size: 1.9rem; }
-        .dash-head p { font-size: 12px; }
-        .dash-actions .ui-btn { height: 38px; padding: 0 13px; font-size: 13px; }
-        .dash-refresh { width: 38px; height: 38px; }
-        .dash-metrics { gap: 8px; }
-        .dash-metric { padding: 12px 13px; }
-        .dash-metric strong { font-size: 22px; }
-        .dash-metric small { font-size: 10px; }
-        .dash-file .ui-row__title { font-size: 13px; }
-        .ui-row code.ui-row__value { max-width: 48%; }
-      }
-      @media (max-width: 380px) {
-        .dash-nav a:nth-child(1) { display: none; }
+        .home-shell { padding: 12px var(--sp-3) 36px; }
+        .home-brand { flex: 0 0 auto; }
+        .home-brand__logo { width: 34px; height: 34px; }
+        .home-brand__text strong { font-size: var(--fs-md); max-width: 112px; }
+        .home-nav { gap: 0; }
+        .home-nav a { padding: 6px 7px; font-size: var(--fs-xs); }
+        .home-nav__admin { display: none; }
+        .hero { padding-top: 32px; gap: 32px; }
+        .hero h1 { font-size: clamp(2.2rem, 11vw, 2.9rem); }
+        .hero__sub { font-size: var(--fs-md); }
+        .hero__actions .btn { flex: 1; justify-content: center; }
+        .hero__link { width: 100%; margin: 4px 0 0; text-align: center; }
+        .home-stats { grid-template-columns: 1fr; gap: 10px; }
+        .home-stat { justify-content: space-between; }
       }
     </style>
   </head>
@@ -259,111 +411,123 @@
       <div class="ambient-orb orb-2"></div>
     </div>
 
-    <div class="dash-shell">
-      <header class="dash-topbar">
-        <a class="dash-brand" href="./">
-          <span class="dash-brand__logo">
+    <div class="home-shell">
+      <header class="home-topbar">
+        <a class="home-brand" href="./">
+          <span class="home-brand__logo">
             <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" />
           </span>
-          <span class="dash-brand__text">
+          <span class="home-brand__text">
             <strong data-brand-name>K-Vault-NEXT</strong>
-            <span>工作台</span>
+            <span>轻文件层</span>
           </span>
         </a>
-        <nav class="dash-nav" aria-label="主导航">
-          <a class="is-current" href="./">概览</a>
+        <nav class="home-nav" aria-label="主导航">
           <a href="./upload.html">上传</a>
           <a href="./gallery.html">图床</a>
           <a href="./webdav.html">接入</a>
-          <a class="dash-nav__admin" href="/admin/files">后台</a>
-          <button class="dash-theme" type="button" data-theme-toggle aria-label="切换主题">
+          <a class="home-nav__admin" href="/admin/files">后台</a>
+          <button class="home-theme" type="button" data-theme-toggle aria-label="切换主题">
             <i class="fas fa-moon" data-theme-icon></i>
           </button>
         </nav>
       </header>
 
       <main>
-        <div class="dash-head">
-          <div>
-            <h1>概览</h1>
-            <p id="dashSub">正在读取状态…</p>
+        <section class="hero">
+          <div class="hero__copy">
+            <span class="hero__eyebrow"><i class="fas fa-bolt"></i> Self-hosted · Serverless</span>
+            <h1>大网盘之外，<br /><span>多一个快入口</span></h1>
+            <p class="hero__sub">WebDAV 当磁盘挂，MCP 让 AI 直接用，图片上传即得直链。小、快、简，文件仍留在你自己的存储里。</p>
+            <div class="hero__actions">
+              <a class="btn btn--primary btn--lg" href="./upload.html"><i class="fas fa-cloud-arrow-up"></i>打开上传台</a>
+              <a class="btn btn--lg" href="./webdav.html"><i class="fas fa-hard-drive"></i>挂载 WebDAV</a>
+              <a class="hero__link" href="./webdav.html?tab=mcp">MCP 接入 <i class="fas fa-arrow-right"></i></a>
+            </div>
+            <div class="hero__meta">
+              <span>单文件最高 10GB</span>
+              <span>7 种存储后端</span>
+              <span>零运行时依赖</span>
+            </div>
           </div>
-          <div class="dash-actions">
-            <button class="dash-refresh" id="refreshBtn" type="button" title="刷新" aria-label="刷新">
-              <i class="fas fa-rotate" id="refreshIcon"></i>
-            </button>
-            <a class="ui-btn" href="./upload.html"><i class="fas fa-cloud-arrow-up"></i>上传文件</a>
-          </div>
-        </div>
 
-        <section class="dash-metrics" aria-label="概况">
-          <div class="dash-metric dash-metric--files">
-            <span>文件</span>
-            <strong id="statFiles">—</strong>
-            <small id="statFilesSub">最近更新</small>
-          </div>
-          <div class="dash-metric">
-            <span>存储后端</span>
-            <strong id="statBackends">—</strong>
-            <small id="statBackendsSub">已连接</small>
-          </div>
-          <div class="dash-metric">
-            <span>单文件上限</span>
-            <strong id="statLimit">—</strong>
-            <small id="statLimitSub">上限</small>
-          </div>
+          <aside class="endpoint-panel" aria-label="服务端点">
+            <div class="endpoint-panel__head">
+              <span>接入端点</span>
+            </div>
+            <a class="endpoint" href="./webdav.html">
+              <span class="endpoint__icon"><i class="fas fa-hard-drive"></i></span>
+              <span class="endpoint__body">
+                <strong>WebDAV</strong>
+                <code id="davEndpoint">/dav</code>
+              </span>
+              <span class="endpoint__state" id="davState">检测中</span>
+            </a>
+            <a class="endpoint" href="./webdav.html?tab=mcp">
+              <span class="endpoint__icon"><i class="fas fa-robot"></i></span>
+              <span class="endpoint__body">
+                <strong>MCP</strong>
+                <code id="mcpEndpoint">/mcp</code>
+              </span>
+              <span class="endpoint__state" id="mcpState">检测中</span>
+            </a>
+            <a class="endpoint" href="./upload.html">
+              <span class="endpoint__icon"><i class="fas fa-image"></i></span>
+              <span class="endpoint__body">
+                <strong>图片直链</strong>
+                <code>/file/…</code>
+              </span>
+              <span class="endpoint__state is-on">可用</span>
+            </a>
+            <div class="endpoint-panel__foot"><i class="fas fa-shield-halved"></i>私有部署，数据在你自己的后端</div>
+          </aside>
         </section>
 
-        <div class="dash-grid">
-          <section>
-            <div class="dash-card__head">
-              <h2>最近文件</h2>
-              <a href="/admin/files">全部</a>
+        <section class="pillars" aria-label="三种用法">
+          <article class="pillar">
+            <div class="pillar__top">
+              <span class="pillar__icon"><i class="fas fa-hard-drive"></i></span>
+              <span class="pillar__num">01</span>
             </div>
-            <div class="ui-group" id="recentList">
-              <div class="dash-skeleton"><b></b><span></span></div>
-              <div class="dash-skeleton"><b></b><span></span></div>
-              <div class="dash-skeleton"><b></b><span></span></div>
+            <h2>像本地磁盘一样用</h2>
+            <p>Finder、资源管理器、手机 App 直接挂载，拖拽即上传，不用打开网页。</p>
+            <a class="pillar__link" href="./webdav.html">查看挂载方式 <i class="fas fa-arrow-right"></i></a>
+          </article>
+          <article class="pillar">
+            <div class="pillar__top">
+              <span class="pillar__icon"><i class="fas fa-robot"></i></span>
+              <span class="pillar__num">02</span>
             </div>
-          </section>
+            <h2>让 AI 直接读写文件</h2>
+            <p>Claude Code、Cursor 等客户端通过 /mcp 上传、检索、分享，不必再贴一长串路径。</p>
+            <a class="pillar__link" href="./webdav.html?tab=mcp">接入 MCP <i class="fas fa-arrow-right"></i></a>
+          </article>
+          <article class="pillar">
+            <div class="pillar__top">
+              <span class="pillar__icon"><i class="fas fa-image"></i></span>
+              <span class="pillar__num">03</span>
+            </div>
+            <h2>粘贴即得直链</h2>
+            <p>拖入图片，自动生成直链、Markdown 与分享链接，写文章时随手就用。</p>
+            <a class="pillar__link" href="./upload.html">打开上传台 <i class="fas fa-arrow-right"></i></a>
+          </article>
+        </section>
 
-          <aside class="dash-side">
-            <div class="ui-section-label">接入</div>
-            <div class="ui-group ui-group--icons">
-              <a class="ui-row" href="./webdav.html">
-                <span class="ui-row__icon"><i class="fas fa-hard-drive"></i></span>
-                <span class="ui-row__body">
-                  <span class="ui-row__title">WebDAV</span>
-                  <span class="ui-row__sub">挂载为网络磁盘</span>
-                </span>
-                <span class="ui-badge" id="davBadge">检测中</span>
-                <i class="fas fa-chevron-right ui-chevron"></i>
-              </a>
-              <a class="ui-row" href="./webdav.html?tab=mcp">
-                <span class="ui-row__icon is-purple"><i class="fas fa-robot"></i></span>
-                <span class="ui-row__body">
-                  <span class="ui-row__title">MCP</span>
-                  <span class="ui-row__sub">让 AI 直接读写</span>
-                </span>
-                <span class="ui-badge" id="mcpBadge">检测中</span>
-                <i class="fas fa-chevron-right ui-chevron"></i>
-              </a>
-              <a class="ui-row" href="/admin/storage">
-                <span class="ui-row__icon is-green"><i class="fas fa-database"></i></span>
-                <span class="ui-row__body">
-                  <span class="ui-row__title">存储</span>
-                  <span class="ui-row__sub" id="storageSub">读取中…</span>
-                </span>
-                <i class="fas fa-chevron-right ui-chevron"></i>
-              </a>
-            </div>
-          </aside>
-        </div>
+        <section class="home-stats" aria-label="规格">
+          <div class="home-stat"><strong>0</strong><span>台服务器要维护</span></div>
+          <div class="home-stat"><strong>7</strong><span>种存储后端可选</span></div>
+          <div class="home-stat"><strong>10GB</strong><span>单文件上限</span></div>
+        </section>
       </main>
 
-      <footer class="dash-footer">
-        <span>K-Vault-NEXT</span>
-        <span><a href="./upload.html">上传</a> · <a href="./gallery.html">图床</a> · <a href="./webdav.html">接入</a> · <a href="/admin/files">后台</a></span>
+      <footer class="home-footer">
+        <span>K-Vault-NEXT · 给大网盘补一个快入口</span>
+        <div class="home-footer__links">
+          <a href="./upload.html">上传</a>
+          <a href="./gallery.html">图床</a>
+          <a href="./webdav.html">接入</a>
+          <a href="/admin/files">管理后台</a>
+        </div>
       </footer>
     </div>
 
@@ -371,222 +535,46 @@
       (function () {
         "use strict";
 
-        var STORAGE_KEYS = ["telegram", "r2", "s3", "discord", "huggingface", "webdav", "github"];
-        var STORAGE_LABELS = {
-          telegram: "Telegram",
-          r2: "Cloudflare R2",
-          s3: "S3",
-          discord: "Discord",
-          huggingface: "HuggingFace",
-          webdav: "WebDAV",
-          github: "GitHub"
-        };
-        var ICONS = {
-          image: "fas fa-image",
-          video: "fas fa-video",
-          audio: "fas fa-music",
-          document: "fas fa-file-lines"
-        };
+        fetch("/api/site-branding", { headers: { "Accept": "application/json" } })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (data) {
+            if (!data || !data.siteName) return;
+            document.querySelectorAll("[data-brand-name]").forEach(function (el) {
+              el.textContent = data.siteName;
+            });
+          })
+          .catch(function () { /* 品牌接口失败不阻塞首页 */ });
 
-        var dashSub = document.getElementById("dashSub");
-        var statFiles = document.getElementById("statFiles");
-        var statFilesSub = document.getElementById("statFilesSub");
-        var statBackends = document.getElementById("statBackends");
-        var statBackendsSub = document.getElementById("statBackendsSub");
-        var statLimit = document.getElementById("statLimit");
-        var statLimitSub = document.getElementById("statLimitSub");
-        var storageSub = document.getElementById("storageSub");
-        var recentList = document.getElementById("recentList");
-        var refreshBtn = document.getElementById("refreshBtn");
-        var refreshIcon = document.getElementById("refreshIcon");
-        var davBadge = document.getElementById("davBadge");
-        var mcpBadge = document.getElementById("mcpBadge");
-        var loggedIn = false;
-        var enabledBackends = [];
+        var davState = document.getElementById("davState");
+        var mcpState = document.getElementById("mcpState");
+        var davEndpoint = document.getElementById("davEndpoint");
+        var mcpEndpoint = document.getElementById("mcpEndpoint");
 
-        function esc(value) {
-          return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
-            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-          });
-        }
+        if (davEndpoint) davEndpoint.textContent = location.host + "/dav";
+        if (mcpEndpoint) mcpEndpoint.textContent = location.host + "/mcp";
 
-        function formatSize(bytes) {
-          var n = Number(bytes || 0);
-          if (!n) return "—";
-          var units = ["B", "KB", "MB", "GB", "TB"];
-          var i = 0;
-          while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
-          return (i === 0 ? Math.round(n) : n.toFixed(n >= 10 ? 0 : 1)) + " " + units[i];
-        }
-
-        function relativeTime(value) {
-          var raw = Number(value || 0);
-          if (!raw) return "—";
-          var ms = raw < 1e12 ? raw * 1000 : raw;
-          var diff = Math.max(0, Date.now() - ms) / 1000;
-          if (diff < 60) return "刚刚";
-          if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
-          if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
-          if (diff < 86400 * 7) return Math.floor(diff / 86400) + " 天前";
-          var d = new Date(ms);
-          return d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate();
-        }
-
-        function typeOf(name, meta) {
-          if (meta && meta.fileType) return meta.fileType;
-          var ext = String(name || "").split(".").pop().toLowerCase();
-          if (["png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "bmp", "ico"].indexOf(ext) > -1) return "image";
-          if (["mp4", "webm", "mov", "mkv", "avi", "m4v"].indexOf(ext) > -1) return "video";
-          if (["mp3", "wav", "ogg", "flac", "m4a", "aac"].indexOf(ext) > -1) return "audio";
-          return "document";
-        }
-
-        function setBadge(el, state, label) {
+        function setState(el, on, labelOn, labelOff) {
           if (!el) return;
           el.classList.remove("is-on", "is-off");
-          if (state === true) el.classList.add("is-on");
-          else if (state === false) el.classList.add("is-off");
-          el.textContent = label;
-        }
-
-        function renderLogin(message) {
-          recentList.innerHTML =
-            '<div class="dash-empty">' +
-              '<i class="fas fa-lock"></i>' +
-              '<p>' + esc(message || "登录后查看最近文件") + '</p>' +
-              '<a class="ui-btn" href="./login.html?redirect=%2F">登录</a>' +
-            '</div>';
-        }
-
-        function renderEmpty() {
-          recentList.innerHTML =
-            '<div class="dash-empty">' +
-              '<i class="fas fa-folder-open"></i>' +
-              '<p>还没有文件</p>' +
-              '<a class="ui-btn" href="./upload.html">上传第一个</a>' +
-            '</div>';
-        }
-
-        function renderFiles(files) {
-          if (!files.length) { renderEmpty(); return; }
-          recentList.innerHTML = files.map(function (item) {
-            var meta = item.metadata || {};
-            var name = meta.fileName || item.name || "未命名";
-            var type = typeOf(name, meta);
-            var url = location.origin + "/file/" + item.name;
-            var sub = [formatSize(meta.fileSize), STORAGE_LABELS[meta.storageType] || meta.storageType || "Telegram", relativeTime(meta.TimeStamp)]
-              .filter(function (x) { return x && x !== "—"; }).join(" · ");
-            return '<div class="ui-row dash-file" data-href="' + esc(url) + '" role="link" tabindex="0" title="' + esc(name) + '">' +
-              '<span class="ui-row__icon"><i class="' + (ICONS[type] || ICONS.document) + '"></i></span>' +
-              '<span class="ui-row__body">' +
-                '<span class="ui-row__title">' + esc(name) + '</span>' +
-                '<span class="ui-row__sub">' + esc(sub) + '</span>' +
-              '</span>' +
-              '<button class="ui-copy" type="button" data-copy-url="' + esc(url) + '" aria-label="复制直链"><i class="fas fa-copy"></i></button>' +
-            '</div>';
-          }).join("");
-        }
-
-        function applyStatus(st) {
-          loggedIn = !!(st && !(st.auth && st.auth.enabled && st.auth.authenticated === false));
-          if (!loggedIn) {
-            statFiles.textContent = "—";
-            statFilesSub.textContent = "登录后查看";
-            statBackends.textContent = "—";
-            statBackendsSub.textContent = "登录后查看";
-            statLimit.textContent = "—";
-            statLimitSub.textContent = "登录后查看";
-            storageSub.textContent = "登录后查看";
-            dashSub.textContent = "登录后查看文件与容量";
+          if (on === null) {
+            el.textContent = "状态未知";
             return;
           }
-
-          enabledBackends = STORAGE_KEYS.filter(function (key) {
-            var item = st && st[key];
-            return !!(item && (item.enabled || item.configured || item.connected) && item.enabled !== false);
-          });
-          statBackends.textContent = String(enabledBackends.length);
-          statBackendsSub.textContent = "共 " + STORAGE_KEYS.length + " 种";
-          storageSub.textContent = enabledBackends.length
-            ? enabledBackends.length + " 个后端已连接"
-            : "尚未配置后端";
-
-          var max = 0;
-          var maxKey = "";
-          enabledBackends.forEach(function (key) {
-            var limit = st.uploadLimits && st.uploadLimits[key];
-            var bytes = Number(limit && limit.maxBytes || 0);
-            if (bytes > max) { max = bytes; maxKey = key; }
-          });
-          statLimit.textContent = max ? formatSize(max) : "—";
-          statLimitSub.textContent = max ? (STORAGE_LABELS[maxKey] || maxKey) : "未配置后端";
-          dashSub.textContent = enabledBackends.length
-            ? enabledBackends.length + " 个存储后端 · 单文件最高 " + (max ? formatSize(max) : "—")
-            : "尚未配置存储后端";
-        }
-
-        function loadStatus() {
-          return fetch("/api/status", { credentials: "include" })
-            .then(function (res) {
-              if (res.status === 401) return null;
-              if (!res.ok) throw new Error("HTTP " + res.status);
-              return res.json();
-            })
-            .then(function (st) {
-              if (!st) {
-                loggedIn = false;
-                applyStatus(null);
-                return null;
-              }
-              applyStatus(st);
-              return st;
-            })
-            .catch(function () {
-              dashSub.textContent = "状态读取失败";
-              statBackends.textContent = "—";
-              statBackendsSub.textContent = "读取失败";
-              return null;
-            });
-        }
-
-        function loadFiles() {
-          var p = new URLSearchParams();
-          p.set("_t", Date.now());
-          p.set("limit", "6");
-          p.set("includeStats", "1");
-          return fetch("/api/manage/list?" + p.toString(), { credentials: "include" })
-            .then(function (res) {
-              if (res.status === 401) { loggedIn = false; renderLogin(); return null; }
-              if (!res.ok) throw new Error("HTTP " + res.status);
-              return res.json();
-            })
-            .then(function (data) {
-              if (!data) return;
-              var files = Array.isArray(data.keys) ? data.keys : [];
-              var total = data.stats && typeof data.stats.total === "number" ? data.stats.total : files.length;
-              statFiles.textContent = String(total);
-              statFilesSub.textContent = files.length ? "最近更新 " + relativeTime(files[0].metadata && files[0].metadata.TimeStamp) : "还没有文件";
-              renderFiles(files);
-            })
-            .catch(function () {
-              statFiles.textContent = "—";
-              statFilesSub.textContent = "读取失败";
-              recentList.innerHTML =
-                '<div class="dash-empty">' +
-                  '<i class="fas fa-triangle-exclamation"></i>' +
-                  '<p>文件列表读取失败</p>' +
-                '</div>';
-            });
+          el.classList.add(on ? "is-on" : "is-off");
+          el.textContent = on ? labelOn : labelOff;
         }
 
         function probeDav() {
           return fetch("/dav/", { method: "PROPFIND", headers: { Depth: "0" } })
             .then(function (res) {
-              if (res.status === 401 || res.status === 200 || res.status === 207) { setBadge(davBadge, true, "已开启"); return; }
-              if (res.status === 404) { setBadge(davBadge, false, "未开启"); return; }
-              setBadge(davBadge, null, "未知");
+              var code = res.status;
+              if (code === 401 || code === 207 || code === 200) setState(davState, true, "已开启", "未开启");
+              else if (code === 404) setState(davState, false, "已开启", "未开启");
+              else setState(davState, null, "已开启", "未开启");
             })
-            .catch(function () { setBadge(davBadge, null, "未知"); });
+            .catch(function () {
+              davState.textContent = "状态未知";
+            });
         }
 
         function probeMcp() {
@@ -594,77 +582,28 @@
             method: "POST",
             headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
             body: JSON.stringify({
-              jsonrpc: "2.0", id: 1, method: "initialize",
-              params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "k-vault-home", version: "1.0" } }
+              jsonrpc: "2.0",
+              id: 1,
+              method: "initialize",
+              params: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                clientInfo: { name: "k-vault-home", version: "1.0" }
+              }
             })
           })
             .then(function (res) {
-              if (res.status === 200 || res.status === 202) { setBadge(mcpBadge, true, "已开启"); return; }
-              if (res.status === 404) { setBadge(mcpBadge, false, "未开启"); return; }
-              setBadge(mcpBadge, null, "未知");
+              if (res.status === 200 || res.status === 202) setState(mcpState, true, "已开启", "未开启");
+              else if (res.status === 404) setState(mcpState, false, "已开启", "未开启");
+              else setState(mcpState, null, "已开启", "未开启");
             })
-            .catch(function () { setBadge(mcpBadge, null, "未知"); });
-        }
-
-        function loadAll() {
-          refreshBtn.classList.add("is-loading");
-          refreshIcon.classList.add("fa-spin");
-          dashSub.textContent = "正在读取状态…";
-          statFiles.textContent = "—";
-          statFilesSub.textContent = "最近更新";
-          statBackends.textContent = "—";
-          statBackendsSub.textContent = "已连接";
-          statLimit.textContent = "—";
-          statLimitSub.textContent = "上限";
-          storageSub.textContent = "读取中…";
-
-          return Promise.all([loadStatus(), loadFiles(), probeDav(), probeMcp()])
-            .catch(function () { /* 各分支已处理 */ })
-            .finally(function () {
-              refreshBtn.classList.remove("is-loading");
-              refreshIcon.classList.remove("fa-spin");
+            .catch(function () {
+              mcpState.textContent = "状态未知";
             });
         }
 
-        recentList.addEventListener("click", function (e) {
-          var copy = e.target.closest("[data-copy-url]");
-          if (copy) {
-            e.preventDefault();
-            e.stopPropagation();
-            var url = copy.getAttribute("data-copy-url");
-            var done = function (ok) {
-              var old = copy.innerHTML;
-              copy.innerHTML = '<i class="fas ' + (ok ? "fa-check" : "fa-copy") + '"></i>';
-              copy.classList.toggle("is-done", !!ok);
-              setTimeout(function () { copy.innerHTML = old; copy.classList.remove("is-done"); }, 1500);
-            };
-            if (window.KVault && KVault.copy) KVault.copy(url).then(done);
-            else if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { done(true); }).catch(function () { done(false); });
-            return;
-          }
-          var row = e.target.closest("[data-href]");
-          if (row) window.open(row.getAttribute("data-href"), "_blank", "noopener");
-        });
-
-        recentList.addEventListener("keydown", function (e) {
-          if (e.key !== "Enter" && e.key !== " ") return;
-          var row = e.target.closest("[data-href]");
-          if (!row || e.target.closest("[data-copy-url]")) return;
-          e.preventDefault();
-          window.open(row.getAttribute("data-href"), "_blank", "noopener");
-        });
-
-        refreshBtn.addEventListener("click", loadAll);
-
-        fetch("/api/site-branding", { headers: { "Accept": "application/json" } })
-          .then(function (res) { return res.ok ? res.json() : null; })
-          .then(function (data) {
-            if (!data || !data.siteName) return;
-            document.querySelectorAll("[data-brand-name]").forEach(function (el) { el.textContent = data.siteName; });
-          })
-          .catch(function () {});
-
-        loadAll();
+        probeDav();
+        probeMcp();
       })();
     </script>
   </body>
