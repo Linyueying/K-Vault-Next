@@ -1,46 +1,49 @@
 /**
- * 字节缓存工具（延迟优化 P0-3）
+ * 字节缓存工具（下载延迟优化）
  *
  * 独立成模块的原因：`/file/<id>`（写入缓存）与上传完成（预热缓存）两侧
- * 都要用到同一套「开关判定 + 键构造」规则。两处各写一遍迟早会漂移 ——
+ * 都要用到同一套「键构造 + 体积上限」规则。两处各写一遍迟早会漂移 ——
  * 上传侧键多了一个查询参数，就会预热出一个永远命中不了的东西。
  *
- * 这里刻意**只依赖叶子模块**（env-config / runtime-config），避免形成
- * metadata-d1 ↔ file-record 那样的循环依赖。runtime-config 不反向依赖
- * 本模块，因此这条边是单向的。
+ * 这里刻意**只依赖叶子模块**，避免形成 metadata-d1 ↔ file-record 那样的
+ * 循环依赖。
+ *
+ * ============================================================================
+ * 为什么没有开关
+ * ============================================================================
+ * 这三项（字节缓存 / TTL / 单文件上限）是常量，不读 KV、不读环境变量。
+ * 理由：它们处在每个下载请求的必经之路上，做成可配置就得在热路径上多读
+ * 一次配置、多一层「配置读失败该降级成什么」的兜底，而这些复杂度换来的
+ * 只是一项「关掉会变慢」的选项 —— 不值。
+ * 需要临时停用时改这里的常量重新部署，是分钟级操作。
  */
-
-import { getPerfConfig, readPerfConfigFromEnv } from './runtime-config.js';
 
 /**
- * 读取字节缓存策略（KV 覆盖 > 环境变量基线）。
- *
- * 返回整份策略而不是单个布尔 / 数值，是因为调用方通常**同时需要其中三四项**
- * （启用判定 + TTL + 字节上限）。让它们各自调一次 getPerfConfig 会打三四个
- * async —— 虽然 getRuntimeConfig 自带 30 秒进程内缓存，但缓存正巧过期时，
- * 连续几次 await 会各自打一次 KV。一次读取、整份使用。
- *
- * 读取失败时降级到**环境变量基线**而不是「全关」：
- * 这一组里有两个开关的默认值为 true，把它们一律按 false 处理会让一次
- * 短暂的 KV 抖动变成「优化全部失效」；回落到基线的行为与平时完全一致。
- *
- * @param {any} env
- * @returns {Promise<{enabled: boolean, warm: boolean, ttl: number, maxBytes: number}>}
+ * 缓存时长（秒）。也是「删除后最坏情况下边缘副本残留多久」的上限 ——
+ * 正常情况下删除/改名/加密码都会主动清副本（见 purgeByteCache），
+ * 这个 TTL 只是兜底。
  */
-export async function getByteCachePolicy(env) {
-  let perf;
-  try {
-    perf = await getPerfConfig(env);
-  } catch (error) {
-    console.warn('perf config read failed, falling back to env baseline:', error?.message || error);
-    perf = readPerfConfigFromEnv(env);
-  }
-  return {
-    enabled: perf?.publicByteCache === true,
-    warm: perf?.warmOnUpload === true,
-    ttl: perf?.publicByteCacheTtl,
-    maxBytes: perf?.publicByteCacheMaxBytes
-  };
+export const BYTE_CACHE_TTL_SECONDS = 3600;
+
+/**
+ * 单文件进缓存的上限（字节）。
+ *
+ * 64MB 远低于平台 512MB 的上限：`response.clone()` 分流时两路消费速度不一致，
+ * workerd 会缓冲差值；天花板要按 128MB 的 isolate 内存来定才安全。
+ * 超过这个体积的文件不缓存，也不会被预热（省掉白跑一趟整份下载）。
+ */
+export const BYTE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * 读取字节缓存策略。
+ *
+ * 保留函数形态而不是让调用方直接引常量，是为了让「一次取整份策略」的
+ * 用法保持一致 —— 调用方通常同时需要 TTL 与体积上限。
+ *
+ * @returns {{ttl: number, maxBytes: number}}
+ */
+export function getByteCachePolicy() {
+  return { ttl: BYTE_CACHE_TTL_SECONDS, maxBytes: BYTE_CACHE_MAX_BYTES };
 }
 
 /**
@@ -140,15 +143,13 @@ export async function purgeByteCache(origin, values) {
  * @param {{size?: number}} [options] - 已知文件大小时可提前跳过注定进不了缓存的大文件
  */
 export async function scheduleWarm(env, ctx, origin, fileKey, options = {}) {
-  const policy = await getByteCachePolicy(env);
-  if (!policy.enabled || !policy.warm) return false;
   if (!origin || !fileKey || typeof ctx?.waitUntil !== 'function') return false;
 
   // 超过单文件上限的文件注定写不进缓存，预热只是白跑一趟完整下载
   // （对 100MB 的文件等于凭空翻一倍出网流量）。大小未知时照常预热，
   // 下载侧还有一次 Content-Length 兜底判定。
   const size = Number(options?.size);
-  if (Number.isFinite(size) && size > 0 && size > Number(policy.maxBytes || Infinity)) return false;
+  if (Number.isFinite(size) && size > 0 && size > BYTE_CACHE_MAX_BYTES) return false;
 
   try {
     const target = new URL(`/file/${encodeURIComponent(String(fileKey))}`, origin).toString();

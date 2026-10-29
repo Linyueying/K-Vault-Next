@@ -1,7 +1,5 @@
 ﻿import { createS3Client } from '../utils/s3client.js';
-import { buildByteCacheKey, getByteCachePolicy } from '../utils/byte-cache.js';
-import { getPerfConfig, readPerfConfigFromEnv } from '../utils/runtime-config.js';
-import { envValue } from '../utils/env-config.js';
+import { buildByteCacheKey, BYTE_CACHE_TTL_SECONDS, BYTE_CACHE_MAX_BYTES } from '../utils/byte-cache.js';
 import { getDiscordFileUrl } from '../utils/discord.js';
 import { getHuggingFaceFile } from '../utils/huggingface.js';
 import { getWebDAVFile, headWebDAVFile } from '../utils/webdav.js';
@@ -115,12 +113,16 @@ export async function onRequest(context) {
     : await trackDownloadsIfNeeded(context, headless);
 
   const tagged = await applyEntityTag(context, tracked);
-  const cacheable = applyPublicCache(context, tagged);
-  const final = applyDownloadDisposition(context, cacheable);
+
+  // 先判定「能不能缓存」再入缓存：storeByteCache 依赖这个标记，
+  // 而它必须在同一请求内、拿到响应之后才能判（要算 status / Range）。
+  markPublicCacheable(context, tagged);
+
+  const final = applyDownloadDisposition(context, tagged);
 
   // 入缓存的是**未经 disposition 改写**的那份：键里不带 ?dl=1，
   // 预览与下载共用同一份字节，差异在交付前逐请求改写。
-  await storeByteCache(context, cacheable);
+  await storeByteCache(context, tagged);
   flushBackground(context);
 
   return withTiming(context, final, startedAt);
@@ -215,9 +217,6 @@ function withTiming(context, response, startedAt) {
   }
 }
 
-// 公共文件缓存时长（秒）。刻意不长：删除后最多残留这么久的边缘副本。
-const PUBLIC_CACHE_MAX_AGE = 300;
-
 /** 取请求的文件 ID（params.path 可能是数组）。 */
 function requestFileId(context) {
   let fileId = context?.params?.path;
@@ -258,40 +257,11 @@ function flushBackground(context) {
 // 的文件会进缓存（判定见 isImmutablePublic）。闸门一旦能被边缘缓存跳过
 // 就形同虚设，所以这里是硬条件而非启发式。
 //
-// 为什么默认关闭：这是「可用性换一致性」的取舍 —— 删除文件后，边缘副本
-// 最多还会残留 MAX_AGE 秒。文件托管对一致性的预期高于静态资源，
-// 所以做成显式开关而非默认行为。
+// 为什么没有开关：命中时完全绕过后端，这是「国内访问 Telegram 后端」唯一
+// 能把 TTFB 从跨洋降到本地的手段，开着它才是正常形态。所有会改变可见性的
+// 写操作（删除 / 改名 / 加密码）都会主动清副本，见 purgeByteCache。
+// 极端情况下（边缘清理失败）副本最多残留一个 TTL，这是缓存本身的物理上限。
 
-/**
- * 取本次请求的性能配置快照（KV 覆盖 > 环境变量基线）。
- *
- * 挂到 context 上是为了让同一请求内的多处判定共用一次读取 ——
- * `getRuntimeConfig` 虽有 30 秒进程内缓存，但缓存正巧过期时，
- * 一次下载里连续三四次 await 会各自打一次 KV。
- *
- * 读取失败降级到**环境变量基线**而不是「全关」：这一组里
- * `tgFilePathPersist` 默认为 true，一律按 false 处理会让一次短暂的 KV
- * 抖动变成「优化全部静默失效」；回落到基线的行为则与平时完全一致。
- *
- * @param {object} context
- * @returns {Promise<object>} perf 配置
- */
-async function perfSnapshot(context) {
-  if (context?.__kvPerfConfig) return context.__kvPerfConfig;
-
-  // context 可能缺位（单测直接调用、或某个辅助路径没传下来），此时退化成
-  // 「只读一次、不缓存」。宁可每次都读，也不能因为取不到 context 就把整条
-  // 优化链当成全关 —— 那同样会让滚轮抖动变成「优化全部失效」。
-  let value;
-  try {
-    value = await getPerfConfig(context?.env);
-  } catch (error) {
-    console.warn('perf config read failed, falling back to env baseline:', error?.message || error);
-    value = readPerfConfigFromEnv(context?.env);
-  }
-  if (context) context.__kvPerfConfig = value;
-  return value;
-}
 
 /**
  * 尝试从边缘缓存取字节。命中则后续完全不必碰任何后端。
@@ -302,7 +272,6 @@ async function tryByteCacheMatch(context) {
   const { request } = context;
   context.__kvByteCache = 'BYPASS';
 
-  if (!(await perfSnapshot(context)).publicByteCache) return null;
   // 运行环境没有 Cache API（本地 node 测试、非 Worker 运行时）时静默跳过：
   // 打到这里的每一次都记一条 warn 只会把真正的异常淹掉。
   if (typeof caches === 'undefined' || !caches?.default) return null;
@@ -361,20 +330,18 @@ function conditionalFromByteCache(context, cached) {
 async function storeByteCache(context, response) {
   const { request } = context;
 
-  const perf = await perfSnapshot(context);
-  if (!perf.publicByteCache) return;
   if (typeof caches === 'undefined' || !caches?.default) return;
   if (context.__kvByteCache !== 'MISS') return;   // 只有这次真的回源了才需要写
   if (!context.__kvPublicCacheable) return;       // 闸门判定：必须公开不可变
   if (Number(response?.status) !== 200) return;
 
   const declared = Number(response.headers.get('Content-Length'));
-  if (Number.isFinite(declared) && declared > Number(perf.publicByteCacheMaxBytes)) return;
+  if (Number.isFinite(declared) && declared > BYTE_CACHE_MAX_BYTES) return;
 
   try {
     const copy = response.clone();
     const headers = new Headers(copy.headers);
-    headers.set('Cache-Control', `public, max-age=${Number(perf.publicByteCacheTtl)}`);
+    headers.set('Cache-Control', `public, max-age=${BYTE_CACHE_TTL_SECONDS}`);
     const toCache = new Response(copy.body, { status: 200, headers });
 
     ensureBackground(context).push(
@@ -388,56 +355,35 @@ async function storeByteCache(context, response) {
 }
 
 /**
- * 给「不可变的公开文件」开放短时缓存。
+ * 判定「这个文件能不能被当作不可变的公开资源缓存」，并把结论挂到 context。
  *
- * 默认关闭（需 PUBLIC_DOWNLOAD_CACHE=1）：缓存是**可用性换一致性**的取舍，
- * 而文件托管的一致性预期高于静态资源 —— 用户删掉文件后，边缘副本最多
- * 还会存在 5 分钟。因此只对「无任何保护、无配额」的文件开放，并且是
- * 显式开关而非默认行为。
+ * 这是整个下载链路里**唯一**决定「能不能缓存」的地方：字节缓存的
+ * 存取两侧都读这个标记，所以同一份事实不会被判两遍而漂移。
  *
- * 为什么必须逐个文件判定而不是整站开关：
- *   带密码 / 有有效期 / 有下载次数上限的文件一旦进 CDN，
- *   闸门就绕过去了 —— 边缘会直接把内容递给没有密码的人。
- *   这类文件即便开关打开也保持 no-store。
+ * 三条排除规则（见 isImmutablePublic）：带密码 / 有有效期 / 有次数上限；
+ * 另外合集成员与签名直链也在调用点被排除 —— 它们受各自的闸门保护，
+ * 一旦进边缘缓存，闸门就绕过去了。
+ *
+ * 只做判定、**不改写响应**：给不给浏览器缓存由字节缓存命中时自带的
+ * Cache-Control 决定，这里不再额外加一层短时缓存头（那会引入第二个
+ * 残留窗口，却没有对应的清理路径）。
  */
 /** @internal 供测试使用 */
-export function applyPublicCache(context, response) {
+export function markPublicCacheable(context, response) {
   try {
-    if (!response || Number(response.status) !== 200) return response;
-    if (String(context?.request?.method || '').toUpperCase() !== 'GET') return response;
+    if (!response || Number(response.status) !== 200) return;
+    if (String(context?.request?.method || '').toUpperCase() !== 'GET') return;
     // 分段响应（206/Range）与带 Range 的请求不进：缓存键里没有 Range，
     // 不同区间的响应会互相污染。
-    if (context.request.headers.get('Range')) return response;
+    if (context.request.headers.get('Range')) return;
     // 合集成员文件受合集密码与配额保护；签名直链自带有效期 —— 都不缓存。
-    if (context.__kvBundleAccess || context.__kvSignedLink) return response;
-    if (!isImmutablePublic(context.__kvFileMetadata)) return response;
+    if (context.__kvBundleAccess || context.__kvSignedLink) return;
+    if (!isImmutablePublic(context.__kvFileMetadata)) return;
 
-    // 走到这里说明**文件本身**确实公开且不可变 —— 这是与任何开关无关的
-    // 事实判定。响应头缓存与字节缓存各有自己的开关，但共用这一个结论，
-    // 免得同一份事实在两处各判一遍而漂移（也避免为了开字节缓存
-    // 被迫先开旧的响应头缓存）。
     context.__kvPublicCacheable = true;
-
-    if (!isPublicCacheEnabled(context.env)) return response;
-
-    const headers = new Headers(response.headers);
-    headers.set('Cache-Control', `public, max-age=${PUBLIC_CACHE_MAX_AGE}`);
-    headers.set('CDN-Cache-Control', `public, max-age=${PUBLIC_CACHE_MAX_AGE}`);
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers,
-    });
   } catch (error) {
-    console.warn('Failed to apply public cache headers:', error?.message || error);
-    return response;
+    console.warn('Failed to mark public cacheable:', error?.message || error);
   }
-}
-
-/** 公共下载缓存开关（默认关闭）。 */
-function isPublicCacheEnabled(env) {
-  const raw = String(envValue(env, 'PUBLIC_DOWNLOAD_CACHE') || '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'on';
 }
 
 /**
@@ -696,7 +642,7 @@ if (!fileId) {
     const record = recordResult?.record;
     const kvKey = recordResult?.kvKey || fileId;
 
-    // 供外层判定「能否安全缓存」（见 applyPublicCache）
+    // 供外层判定「能否安全缓存」（见 markPublicCacheable）
     context.__kvFileMetadata = record?.metadata || null;
 
     if (env.img_url && !record?.metadata) {
@@ -1702,18 +1648,12 @@ const TG_PATH_KV_PREFIX = 'tgpath:';
 const TG_PATH_KV_TTL_SECONDS = 7 * 24 * 3600;
 
 /**
- * 是否启用 file_path 的 KV 持久化（后台「性能优化」面板可在线切换）。
+ * file_path 的 KV 持久化是**无条件开启**的。
  *
- * 默认开启：这是纯加速项，且有明确的兜底 —— 一旦解析出的路径失效，
+ * 这是纯加速项，且有明确的兜底 —— 一旦解析出的路径失效，
  * `fetchTelegramUpstream` 会失效重解析（见 `invalidateTelegramFilePath`）。
- *
- * 签名改用 context 而非 env：perf 快照挂在 context 上，同一请求内多处
- * 判定共用一次读取（见 perfSnapshot）。
+ * 把它做成开关没有意义：关掉只是把每次下载都退回一次跨洋 Bot API 调用。
  */
-async function isTgPathPersistEnabled(context) {
-  const perf = await perfSnapshot(context);
-  return perf.tgFilePathPersist !== false;
-}
 
 /** 把任务挂到 waitUntil；没有 context 时火后不管（写失败只会让下次 miss）。 */
 function background(context, promise) {
@@ -1777,7 +1717,7 @@ export async function getTelegramFilePathCached(env, fileId, context = null) {
   }
 
   // ---- L2：KV（跨 isolate / 跨 PoP 共享，边缘读 ~5-20ms） ----
-  const persist = (await isTgPathPersistEnabled(context)) && Boolean(env?.img_url);
+  const persist = Boolean(env?.img_url);
   const kvCacheKey = `${TG_PATH_KV_PREFIX}${fileId}`;
   if (persist) {
     try {

@@ -240,9 +240,10 @@ async function deleteTelegramMessage(messageId, env) {
 /**
  * 清除边缘上与该文件相关的副本。
  *
- * 两条链路要分别清：
- *   1. `/file/<id>` —— 响应头缓存（PUBLIC_DOWNLOAD_CACHE 开启时）
- *   2. `/__kvault-bytecache/<id>` —— 字节缓存（默认开启）
+ * 两条链路都要清：
+ *   1. `/file/<id>` —— 旧版本开启过 `PUBLIC_DOWNLOAD_CACHE` 的部署可能还留着
+ *      响应头缓存条目；升级不会自动清空 Cache API，所以这里顺手删掉（廉价兜底）
+ *   2. `/__kvault-bytecache/<id>` —— 字节缓存（现在唯一的缓存层）
  *
  * 第 2 条不是可选项：字节缓存的键带着存储前缀的各种写法（`r2:c.png` /
  * `c.png`），只删 `/file/<id>` 会留下「后台已删除、链接仍能完整下载」的

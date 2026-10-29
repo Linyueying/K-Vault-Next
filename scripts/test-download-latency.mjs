@@ -4,7 +4,7 @@
  * 覆盖四项优化的核心不变量：
  *   [A] Telegram file_path 三级缓存：KV 命中 / 回填 / 失效重解析
  *   [B] 记录快路径缓存：只缓存无保护属性、写后失效、miss 不缓存
- *   [C] 字节缓存：键不含查询串、大小上限、默认开启且可单独关闭
+ *   [C] 字节缓存：键不含查询串、策略为固定常量
  *   [D] ETag：稳定可复现、If-None-Match 解析
  *
  * 运行：node scripts/test-download-latency.mjs
@@ -14,18 +14,18 @@ import {
   clearRecordCacheMemory,
   forgetRecordCache,
   isCacheableRecord,
-  getRecordCachePolicy,
   lookupRecordCache,
   writeRecordCache,
 } from '../functions/utils/record-cache.js';
 import {
+  BYTE_CACHE_MAX_BYTES,
+  BYTE_CACHE_TTL_SECONDS,
   buildByteCacheKey,
   getByteCachePolicy,
 } from '../functions/utils/byte-cache.js';
-import { invalidateRuntimeConfigCache } from '../functions/utils/runtime-config.js';
 import {
-  applyPublicCache,
   entityTagFor,
+  markPublicCacheable,
   getTelegramFilePathCached,
   onRequest,
   parseETagList,
@@ -67,11 +67,6 @@ function makeKvStore() {
 }
 
 function makeEnv(vars = {}) {
-  // 运行时配置是**模块级、跨 env 实例**缓存的（生产上一个 isolate 一份，
-  // 这是刻意的摊薄）。测试里每个用例都用不同的 env 对象模拟不同部署，
-  // 若不显式失效，前一个用例读到的配置会泄漏给下一个 —— 表现为
-  // 「没配环境变量却读到了开关已开」。
-  invalidateRuntimeConfigCache();
   const kv = makeKvStore();
   return { img_url: kv, _kv: kv, ...vars };
 }
@@ -123,33 +118,11 @@ console.log('\n[A] Telegram file_path 三级缓存');
 }
 
 
-/**
- * 读取一份策略，读之前先让运行时配置缓存失效。
- *
- * 配置缓存是**模块级**的（生产上一个 isolate 一份，刻意的摊薄），不区分
- * env 实例。测试里同一段会造几个不同的 env 模拟不同部署，若不在读取前
- * 显式隔离，先读到的那份会泄漏给后面 —— 表现为「没配环境变量却读到已开」。
- */
-async function recordPolicy(env) {
-  invalidateRuntimeConfigCache();
-  return getRecordCachePolicy(env);
-}
-
-async function bytePolicy(env) {
-  invalidateRuntimeConfigCache();
-  return getByteCachePolicy(env);
-}
-
 // ============================================================================
 console.log('\n[B] 记录快路径缓存');
 {
   clearRecordCacheMemory();
-  const env = makeEnv({ RECORD_CACHE: '1' });
-
-  check('L2 开关可被识别', (await recordPolicy(env)).enabled === true);
-  check('默认开启（未配置任何环境变量）', (await recordPolicy(makeEnv())).enabled === true);
-  check('显式关闭后不判定为启用',
-    (await recordPolicy(makeEnv({ RECORD_CACHE: '0' }))).enabled === false);
+  const env = makeEnv();
 
   const publicMeta = { fileName: 'a.png', fileSize: 1024, shareMaxDownloads: 0 };
   const protectedMeta = { fileName: 'b.png', sharePasswordHash: 'abc' };
@@ -161,9 +134,6 @@ console.log('\n[B] 记录快路径缓存');
   check('空元数据不可缓存', isCacheableRecord(null) === false);
 
   const result = { record: { value: '', metadata: publicMeta }, kvKey: 'img:a.png' };
-  // 上一条 check 用过一个「没开开关」的 env，它把配置缓存写成了 false；
-  // 不在这里隔离一次，writeRecordCache 会跟着读到 false 而跳过 L2。
-  invalidateRuntimeConfigCache();
   await writeRecordCache(env, 'a.png', result);
 
   const hit = await lookupRecordCache(env, 'a.png');
@@ -194,14 +164,10 @@ console.log('\n[B] 记录快路径缓存');
 // ============================================================================
 console.log('\n[C] 字节缓存');
 {
-  const off = makeEnv({ PUBLIC_BYTE_CACHE: '0', WARM_ON_UPLOAD: '0' });
-  const on = makeEnv({ PUBLIC_BYTE_CACHE: '1', WARM_ON_UPLOAD: '1' });
-  check('默认开启（未配置任何环境变量）', (await bytePolicy(makeEnv())).enabled === true);
-  check('显式关闭后不判定为启用', (await bytePolicy(off)).enabled === false);
-  check('开关打开后生效', (await bytePolicy(on)).enabled === true);
-  check('预热默认开启', (await bytePolicy(makeEnv())).warm === true);
-  check('预热可单独关闭', (await bytePolicy(off)).warm === false);
-  check('预热可随缓存一起开启', (await bytePolicy(on)).warm === true);
+  const policy = getByteCachePolicy();
+  check('缓存时长是常量 3600s', policy.ttl === BYTE_CACHE_TTL_SECONDS && policy.ttl === 3600);
+  check('单文件上限是常量 64MB',
+    policy.maxBytes === BYTE_CACHE_MAX_BYTES && policy.maxBytes === 64 * 1024 * 1024);
 
   const base = 'https://vault.example.com/file/img%3Aabc.png?dl=1&b=xyz';
   const key = buildByteCacheKey(base, 'img:abc.png');
@@ -213,17 +179,6 @@ console.log('\n[C] 字节缓存');
   const previewKey = buildByteCacheKey('https://vault.example.com/file/img%3Aabc.png', 'img:abc.png');
   check('下载与预览共用同一键', previewKey.url === key.url, previewKey.url);
 
-  check('默认大小上限为 64MB', (await bytePolicy(off)).maxBytes === 64 * 1024 * 1024);
-  check(
-    '大小上限可被环境变量覆盖',
-    (await bytePolicy(makeEnv({ PUBLIC_BYTE_CACHE_MAX_BYTES: '1048576' }))).maxBytes ===
-      1024 * 1024
-  );
-  check(
-    '大小上限不超过 Cloudflare 的 512MB',
-    (await bytePolicy(makeEnv({ PUBLIC_BYTE_CACHE_MAX_BYTES: '999999999999' }))).maxBytes ===
-      512 * 1024 * 1024
-  );
 }
 
 // ============================================================================
@@ -252,7 +207,7 @@ console.log('\n[D] ETag 与条件请求');
 }
 
 // ============================================================================
-console.log('\n[E] 「文件是否公开」的判定必须与开关解耦');
+console.log('\n[E] 「文件是否公开」是唯一判定，决定能不能进缓存');
 {
   const publicMeta = { fileName: 'e.png', fileSize: 1024 };
 
@@ -261,42 +216,46 @@ console.log('\n[E] 「文件是否公开」的判定必须与开关解耦');
   const makeCtx = (overrides = {}) => ({
     request: new Request('https://vault.example.com/file/e.png', { method: 'GET' }),
     params: { path: 'e.png' },
-    env: makeEnv({ PUBLIC_BYTE_CACHE: '1' }),
+    env: makeEnv(),
     __kvFileMetadata: publicMeta,
     ...overrides,
   });
 
-  // 只开字节缓存、不开旧响应头缓存
   const ctx = makeCtx();
-  const out = applyPublicCache(ctx, new Response('bytes', { status: 200 }));
-  check('未开旧开关时不改写 Cache-Control', out.headers.get('CDN-Cache-Control') === null);
-  check(
-    '但仍标记「文件本身可公开缓存」',
-    ctx.__kvPublicCacheable === true,
-    '否则字节缓存会被旧开关连带禁用'
-  );
+  const ret = markPublicCacheable(ctx, new Response('bytes', { status: 200 }));
+  check('公开文件被标记为可缓存', ctx.__kvPublicCacheable === true);
+  check('判定函数不改写响应（返回 undefined）', ret === undefined);
 
-  // 受保护文件：任何开关下都不许标记
+  // 受保护文件：任何情况下都不许标记
   const protectedCtx = makeCtx({
-    env: makeEnv({ PUBLIC_BYTE_CACHE: '1', PUBLIC_DOWNLOAD_CACHE: '1' }),
     __kvFileMetadata: { fileName: 'f.png', sharePasswordHash: 'x' },
   });
-  applyPublicCache(protectedCtx, new Response('bytes', { status: 200 }));
+  markPublicCacheable(protectedCtx, new Response('bytes', { status: 200 }));
   check('带密码文件不被标记', protectedCtx.__kvPublicCacheable === undefined);
 
   // 合集成员 / 签名直链同样排除
   const bundleCtx = makeCtx({ __kvBundleAccess: true });
-  applyPublicCache(bundleCtx, new Response('bytes', { status: 200 }));
+  markPublicCacheable(bundleCtx, new Response('bytes', { status: 200 }));
   check('合集成员不被标记', bundleCtx.__kvPublicCacheable === undefined);
 
   const signedCtx = makeCtx({ __kvSignedLink: true });
-  applyPublicCache(signedCtx, new Response('bytes', { status: 200 }));
+  markPublicCacheable(signedCtx, new Response('bytes', { status: 200 }));
   check('签名直链不被标记', signedCtx.__kvPublicCacheable === undefined);
 
   // 非 200 不参与判定
   const errorCtx = makeCtx();
-  applyPublicCache(errorCtx, new Response('nope', { status: 404 }));
+  markPublicCacheable(errorCtx, new Response('nope', { status: 404 }));
   check('非 200 响应不参与判定', errorCtx.__kvPublicCacheable === undefined);
+
+  // Range 请求不进缓存（缓存键里没有 Range，不同区间会互相污染）
+  const rangeCtx = makeCtx({
+    request: new Request('https://vault.example.com/file/e.png', {
+      method: 'GET',
+      headers: { Range: 'bytes=0-10' },
+    }),
+  });
+  markPublicCacheable(rangeCtx, new Response('bytes', { status: 200 }));
+  check('Range 请求不被标记', rangeCtx.__kvPublicCacheable === undefined);
 }
 
 // ============================================================================
