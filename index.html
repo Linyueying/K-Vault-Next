@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>K-Vault-NEXT · WebDAV / MCP / 图床</title>
-    <meta name="description" content="大网盘之外的小、快、简文件层：WebDAV 挂载、MCP 接入、图片直链。部署在 Cloudflare，文件留在自己的存储里。" />
-    <meta name="theme-color" content="#f0f7ff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)" />
+    <title>K-Vault-NEXT · 你的私有文件中枢</title>
+    <meta name="description" content="一个跑在 Cloudflare 边缘的私有文件中枢：WebDAV 挂载、MCP 接入、图片直链。文件留在自己的存储里。" />
+    <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#080d16" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="K-Vault-NEXT · WebDAV / MCP / 图床" />
-    <meta property="og:description" content="WebDAV 挂载、MCP 接入、图片直链。小、快、简的自托管文件层。" />
+    <meta property="og:title" content="K-Vault-NEXT · 你的私有文件中枢" />
+    <meta property="og:description" content="WebDAV、MCP 与图片直链，一个轻量、私有、为 AI 准备好的文件层。" />
     <meta property="og:image" content="/assets/img/logo-180.png" />
     <meta name="twitter:card" content="summary" />
     <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
@@ -23,511 +23,688 @@
     <script defer src="/assets/js/app-core.js"></script>
     <style>
       body {
-        background: var(--bg-gradient);
-        background-attachment: scroll;
-        color: var(--text-main);
-        font-family: var(--font-sans);
+        --home-bg: #f5f7fb;
+        --home-surface: rgba(255, 255, 255, 0.78);
+        --home-surface-solid: #ffffff;
+        --home-surface-soft: #eef2f7;
+        --home-ink: #111827;
+        --home-sub: #566176;
+        --home-line: rgba(17, 24, 39, 0.1);
+        --home-blue: #176b87;
+        --home-blue-bright: #1b8aad;
+        --home-mint: #9ee7d2;
+        margin: 0;
         min-height: 100vh;
         overflow-x: hidden;
+        background: var(--home-bg) !important;
+        color: var(--home-ink);
+        font-family: var(--font-sans);
         -webkit-font-smoothing: antialiased;
       }
-
+      html[data-theme="dark"] body {
+        --home-bg: #080d16;
+        --home-surface: rgba(17, 26, 41, 0.78);
+        --home-surface-solid: #111a29;
+        --home-surface-soft: #172233;
+        --home-ink: #f3f6fb;
+        --home-sub: #9aa8bc;
+        --home-line: rgba(226, 232, 240, 0.12);
+        --home-blue: #72d6f5;
+        --home-blue-bright: #8ce4fa;
+        --home-mint: #9ee7d2;
+        background: var(--home-bg) !important;
+        color: var(--home-ink) !important;
+      }
+      a, button { -webkit-tap-highlight-color: transparent; }
+      button { font: inherit; }
+      a:focus-visible, button:focus-visible {
+        outline: 3px solid rgba(var(--primary-rgb), 0.35);
+        outline-offset: 4px;
+      }
+      .home-background {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .home-background::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.45;
+        background-image: linear-gradient(var(--home-line) 1px, transparent 1px), linear-gradient(90deg, var(--home-line) 1px, transparent 1px);
+        background-size: 72px 72px;
+        mask-image: linear-gradient(to bottom, black, transparent 72%);
+      }
+      .home-background::after {
+        content: "";
+        position: absolute;
+        width: 760px;
+        height: 760px;
+        top: -360px;
+        right: -120px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(49, 178, 199, 0.16), transparent 68%);
+      }
+      html[data-theme="dark"] .home-background::before { opacity: 0.22; }
       .home-shell {
         position: relative;
-        z-index: 2;
-        max-width: 1120px;
+        z-index: 1;
+        width: min(1240px, calc(100% - 48px));
         margin: 0 auto;
-        padding: 18px var(--sp-5) 48px;
       }
-
-      .home-topbar {
+      .home-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: var(--sp-4);
-        padding: 6px 0;
-        animation: riseInSm 0.44s var(--ease-fluid) backwards;
+        gap: var(--sp-5);
+        min-height: 88px;
+        border-bottom: 1px solid var(--home-line);
+        animation: riseInSm 0.5s var(--ease-fluid) backwards;
       }
       .home-brand {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        gap: var(--sp-3);
-        min-width: 0;
-        color: inherit;
+        gap: 11px;
+        color: var(--home-ink) !important;
         text-decoration: none;
+        flex: none;
       }
-      .home-brand__logo {
+      .home-brand__mark {
+        display: grid;
+        place-items: center;
         width: 38px;
         height: 38px;
-        flex: none;
-        border-radius: var(--r-sm);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #fff, #e0f2fe);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.14);
+        border-radius: 11px;
+        background: var(--home-ink);
+        box-shadow: 0 7px 20px rgba(15, 23, 42, 0.12);
       }
-      .home-brand__logo img { width: 24px; height: 24px; object-fit: contain; }
-      .home-brand__text { display: flex; flex-direction: column; min-width: 0; }
-      .home-brand__text strong {
-        font-size: var(--fs-lg);
-        font-weight: 800;
-        letter-spacing: -0.02em;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .home-brand__text span {
-        color: var(--text-muted);
+      html[data-theme="dark"] .home-brand__mark { background: #e8f7fa; }
+      .home-brand__mark img { width: 25px; height: 25px; object-fit: contain; }
+      .home-brand__name { font-size: 0.96rem; font-weight: 800; letter-spacing: -0.025em; }
+      .home-brand__tag {
+        margin-left: 2px;
+        padding-left: 12px;
+        border-left: 1px solid var(--home-line);
+        color: var(--home-sub);
         font-size: var(--fs-xs);
         font-weight: 600;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.08em;
       }
-
-      .home-nav {
-        display: flex;
-        align-items: center;
-        gap: 2px;
-      }
+      .home-nav { display: flex; align-items: center; gap: 28px; }
       .home-nav a {
-        padding: 7px 11px;
-        white-space: nowrap;
-        border-radius: var(--r-pill);
-        color: var(--text-sub);
+        position: relative;
+        padding: 10px 0;
+        color: var(--home-sub) !important;
         font-size: var(--fs-sm);
-        font-weight: 600;
+        font-weight: 650;
         text-decoration: none;
         transition: var(--transition);
       }
-      .home-nav a:hover { color: var(--primary-dark); background: rgba(var(--primary-rgb), 0.07); }
-      html[data-theme="dark"] .home-nav a:hover { color: var(--primary-light); }
-      .home-nav .home-nav__admin {
-        margin-left: 4px;
-        color: var(--primary-dark);
-        border: 1px solid var(--glass-border-ice);
-        background: var(--glass-surface);
+      .home-nav a::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 100%;
+        bottom: 4px;
+        height: 1px;
+        background: var(--home-ink);
+        transition: right var(--dur-base) var(--ease-fluid);
       }
-      html[data-theme="dark"] .home-nav .home-nav__admin { color: var(--primary-light); }
-      .home-nav .home-theme {
-        width: var(--h-ctrl-sm);
-        height: var(--h-ctrl-sm);
-        margin-left: 2px;
-        border: 1px solid transparent;
-        border-radius: var(--r-pill);
+      .home-nav a:hover { color: var(--home-ink) !important; }
+      .home-nav a:hover::after { right: 0; }
+      .home-actions { display: flex; align-items: center; gap: 8px; }
+      .home-theme, .icon-button {
+        display: inline-grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        border: 1px solid var(--home-line);
+        border-radius: 50%;
         background: transparent;
-        color: var(--text-muted);
+        color: var(--home-sub);
         cursor: pointer;
         transition: var(--transition);
       }
-      .home-nav .home-theme:hover {
-        color: var(--primary);
-        border-color: var(--glass-border-ice);
-        background: var(--glass-surface);
+      .home-theme:hover, .icon-button:hover { color: var(--home-ink); background: var(--home-surface-soft); }
+      .header-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 0 17px;
+        border-radius: var(--r-pill);
+        background: var(--home-ink);
+        color: var(--home-bg) !important;
+        font-size: var(--fs-sm);
+        font-weight: 700;
+        text-decoration: none;
+        transition: var(--transition);
       }
+      .header-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(15, 23, 42, 0.16); }
 
       .hero {
         display: grid;
-        grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
-        gap: clamp(32px, 5vw, 72px);
+        grid-template-columns: minmax(0, 0.92fr) minmax(480px, 1.08fr);
+        gap: clamp(44px, 6vw, 84px);
         align-items: center;
-        padding: clamp(56px, 8vw, 96px) 0 clamp(48px, 6vw, 72px);
+        padding: clamp(72px, 9vw, 116px) 0 80px;
       }
-      .hero__copy { animation: riseIn 0.56s var(--ease-fluid) 0.04s backwards; }
-      .hero__eyebrow {
+      .hero__copy { position: relative; z-index: 2; animation: riseIn 0.62s var(--ease-fluid) 0.04s backwards; }
+      .eyebrow {
         display: inline-flex;
         align-items: center;
-        gap: 7px;
-        color: var(--primary-dark);
+        gap: 9px;
+        margin: 0 0 24px;
+        color: var(--home-blue);
         font-size: var(--fs-xs);
         font-weight: 800;
         letter-spacing: 0.14em;
         text-transform: uppercase;
       }
-      html[data-theme="dark"] .hero__eyebrow { color: var(--primary-light); }
-      .hero__eyebrow i { font-size: 0.7rem; }
+      .eyebrow__dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #22a67a;
+        box-shadow: 0 0 0 5px rgba(34, 166, 122, 0.1);
+      }
       .hero h1 {
-        margin-top: 18px;
-        font-size: clamp(2.5rem, 5.4vw, 4rem);
-        line-height: 1.06;
-        letter-spacing: -0.045em;
-        font-weight: 800;
+        max-width: 680px;
+        margin: 0;
+        color: var(--home-ink);
+        font-size: clamp(3.25rem, 5.2vw, 5rem);
+        font-weight: 760;
+        line-height: 1.08;
+        letter-spacing: -0.065em;
       }
-      .hero h1 span {
-        display: inline-block;
-        background: linear-gradient(120deg, var(--primary-dark) 0%, var(--primary) 46%, var(--primary-light) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        padding-bottom: 0.06em;
+      .hero h1 span { color: var(--home-blue); }
+      .hero__lead {
+        max-width: 540px;
+        margin: 26px 0 0;
+        color: var(--home-sub);
+        font-size: clamp(0.98rem, 1.4vw, 1.08rem);
+        line-height: 1.9;
       }
-      .hero__sub {
-        max-width: 33em;
-        margin-top: 22px;
-        color: var(--text-sub);
-        font-size: var(--fs-lg);
-        line-height: 1.75;
-      }
-      .hero__actions {
-        display: flex;
+      .hero__buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+      .button-primary, .button-secondary {
+        display: inline-flex;
         align-items: center;
-        flex-wrap: wrap;
+        justify-content: center;
         gap: 10px;
-        margin-top: 30px;
-      }
-      .hero__link {
-        margin-left: 4px;
-        color: var(--text-sub);
-        font-size: var(--fs-sm);
-        font-weight: 600;
+        min-height: 50px;
+        padding: 0 23px;
+        border: 1px solid transparent;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-md);
+        font-weight: 750;
         text-decoration: none;
-        border-bottom: 1px solid transparent;
         transition: var(--transition);
       }
-      .hero__link:hover { color: var(--primary); border-bottom-color: currentColor; }
-      .hero__meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px 16px;
-        margin-top: 26px;
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-        font-weight: 600;
-      }
-      .hero__meta span { display: inline-flex; align-items: center; gap: 6px; }
-      .hero__meta span::before {
-        content: "";
-        width: 4px;
-        height: 4px;
-        border-radius: 50%;
-        background: var(--primary);
-      }
+      .button-primary { background: var(--home-ink); color: var(--home-bg) !important; }
+      .button-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18); }
+      .button-primary i { transition: transform var(--dur-base) var(--ease-fluid); }
+      .button-primary:hover i { transform: translate(2px, -2px); }
+      .button-secondary { border-color: var(--home-line); background: var(--home-surface); color: var(--home-ink) !important; }
+      .button-secondary:hover { background: var(--home-surface-solid); border-color: rgba(var(--primary-rgb), 0.35); }
+      .hero__note { display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 28px; color: var(--home-sub); font-size: var(--fs-xs); }
+      .hero__note span { display: inline-flex; align-items: center; gap: 7px; }
+      .hero__note i { color: #21946f; font-size: 0.62rem; }
 
-      .endpoint-panel {
-        padding: var(--sp-3);
-        border-radius: var(--r-lg);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-elevated);
-        animation: riseIn 0.6s var(--ease-fluid) 0.12s backwards;
+      .hero__visual { position: relative; min-width: 0; animation: riseIn 0.7s var(--ease-fluid) 0.12s backwards; }
+      .workspace {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 24px;
+        background: #111a26;
+        color: #eef5fa;
+        box-shadow: 0 34px 90px rgba(15, 35, 51, 0.22), 0 4px 16px rgba(15, 23, 42, 0.12);
+        transform: perspective(1400px) rotateY(-2deg) rotateX(1deg);
+        transform-origin: center left;
       }
-      .endpoint-panel__head {
+      html[data-theme="dark"] .workspace { border-color: rgba(158, 231, 210, 0.14); box-shadow: 0 34px 90px rgba(0, 0, 0, 0.45); }
+      .workspace__bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 6px 10px 12px;
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-        font-weight: 700;
-        letter-spacing: 0.08em;
-      }
-      .endpoint {
-        display: flex;
-        align-items: center;
         gap: 12px;
-        padding: 13px 12px;
-        border-radius: var(--r-md);
-        border: 1px solid transparent;
-        color: inherit;
-        text-decoration: none;
-        transition: var(--transition);
+        height: 52px;
+        padding: 0 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: #151f2c;
       }
-      .endpoint + .endpoint { margin-top: 2px; }
-      .endpoint:hover {
-        background: rgba(var(--primary-rgb), 0.05);
-        border-color: var(--glass-border-ice);
+      .window-dots { display: flex; gap: 6px; }
+      .window-dots i { width: 7px; height: 7px; border-radius: 50%; background: #3c4a59; }
+      .window-dots i:first-child { background: #9ee7d2; }
+      .workspace__path { color: #8999aa; font-family: var(--font-mono); font-size: 0.62rem; }
+      .workspace__sync { display: inline-flex; align-items: center; gap: 6px; color: #9ee7d2; font-size: 0.6rem; }
+      .workspace__sync::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+      .workspace__body { display: grid; grid-template-columns: 58px minmax(0, 1fr); min-height: 400px; }
+      .workspace__rail { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 20px 0; border-right: 1px solid rgba(255, 255, 255, 0.07); }
+      .rail-logo { display: grid; place-items: center; width: 28px; height: 28px; margin-bottom: 10px; border-radius: 8px; background: #9ee7d2; color: #10231e; font-size: 0.72rem; font-weight: 900; }
+      .rail-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: #65778b; font-size: 0.7rem; }
+      .rail-icon.is-active { background: rgba(158, 231, 210, 0.1); color: #9ee7d2; }
+      .workspace__main { min-width: 0; padding: 26px; }
+      .workspace__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+      .workspace__kicker { margin: 0 0 5px; color: #708297; font-size: 0.58rem; letter-spacing: 0.1em; text-transform: uppercase; }
+      .workspace__heading h2 { margin: 0; color: #f4f8fb; font-size: 1.02rem; font-weight: 650; letter-spacing: -0.02em; }
+      .workspace__upload { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border-radius: 8px; background: #9ee7d2; color: #10231e !important; font-size: 0.62rem; font-weight: 800; text-decoration: none; }
+      .storage-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 24px; }
+      .storage-chip { padding: 12px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 10px; background: rgba(255, 255, 255, 0.025); }
+      .storage-chip span { display: block; color: #718398; font-size: 0.55rem; }
+      .storage-chip strong { display: block; margin-top: 5px; color: #dfe9f1; font-family: var(--font-mono); font-size: 0.68rem; font-weight: 500; }
+      .file-table { margin-top: 22px; }
+      .file-table__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: #7b8da0; font-size: 0.58rem; }
+      .file-table__head span:last-child { color: #9ee7d2; }
+      .file-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+      .file-row__icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: rgba(114, 214, 245, 0.08); color: #72d6f5; font-size: 0.65rem; }
+      .file-row:nth-child(3) .file-row__icon { background: rgba(158, 231, 210, 0.08); color: #9ee7d2; }
+      .file-row:nth-child(4) .file-row__icon { background: rgba(196, 181, 253, 0.08); color: #c4b5fd; }
+      .file-row__name { min-width: 0; }
+      .file-row__name strong { display: block; overflow: hidden; color: #dce6ee; font-size: 0.64rem; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+      .file-row__name span { display: block; margin-top: 3px; color: #65788c; font-size: 0.54rem; }
+      .file-row__meta { color: #718398; font-family: var(--font-mono); font-size: 0.54rem; }
+      .mcp-float {
+        position: absolute;
+        right: -24px;
+        bottom: -30px;
+        width: 218px;
+        padding: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.65);
+        border-radius: 16px;
+        background: rgba(250, 253, 255, 0.9);
+        color: #15202c;
+        box-shadow: 0 20px 45px rgba(15, 35, 51, 0.18);
+        backdrop-filter: blur(18px);
       }
-      .endpoint__icon {
-        width: 38px;
-        height: 38px;
-        flex: none;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--r-sm);
-        color: var(--primary-dark);
-        background: rgba(var(--primary-rgb), 0.1);
-        font-size: 0.95rem;
-      }
-      html[data-theme="dark"] .endpoint__icon { color: var(--primary-light); }
-      .endpoint__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-      .endpoint__body strong { font-size: var(--fs-md); font-weight: 700; }
-      .endpoint__body code {
-        font-family: var(--font-mono);
-        font-size: var(--fs-xs);
-        color: var(--text-muted);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .endpoint__state {
-        flex: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 5px 9px;
-        border-radius: var(--r-pill);
-        background: rgba(148, 163, 184, 0.14);
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-        font-weight: 700;
-      }
-      .endpoint__state::before {
-        content: "";
-        width: 5px;
-        height: 5px;
-        border-radius: 50%;
-        background: currentColor;
-      }
-      .endpoint__state.is-on { color: var(--c-success-text); background: rgba(16, 185, 129, 0.11); }
-      .endpoint__state.is-off { color: var(--c-danger); background: var(--c-danger-soft); }
-      .endpoint-panel__foot {
-        display: flex;
-        align-items: center;
-        gap: 7px;
-        margin-top: 8px;
-        padding: 12px 10px 4px;
-        border-top: 1px solid var(--glass-border-ice);
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-      }
-      .endpoint-panel__foot i { color: var(--primary); }
+      html[data-theme="dark"] .mcp-float { border-color: rgba(255, 255, 255, 0.14); background: rgba(24, 36, 51, 0.94); color: #eef5fa; }
+      .mcp-float__top { display: flex; align-items: center; gap: 9px; }
+      .mcp-float__icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: #dff7ef; color: #147255; }
+      .mcp-float__top strong { display: block; font-size: 0.7rem; }
+      .mcp-float__top span { display: block; margin-top: 2px; color: #6e7d8d; font-size: 0.55rem; }
+      html[data-theme="dark"] .mcp-float__top span { color: #91a1b3; }
+      .mcp-float__code { margin-top: 12px; padding: 9px 10px; border-radius: 8px; background: rgba(15, 23, 42, 0.055); color: #527084; font-family: var(--font-mono); font-size: 0.56rem; }
+      html[data-theme="dark"] .mcp-float__code { background: rgba(0, 0, 0, 0.18); color: #9fb6c7; }
+      .visual-caption { margin: 48px 0 0; color: var(--home-sub); font-size: var(--fs-xs); text-align: right; }
+      .visual-caption i { margin-right: 6px; }
 
-      .pillars {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--sp-3);
+      .spec-strip { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--home-line); border-bottom: 1px solid var(--home-line); }
+      .spec { padding: 28px 26px; }
+      .spec + .spec { border-left: 1px solid var(--home-line); }
+      .spec strong { display: block; color: var(--home-ink); font-size: 1.45rem; font-weight: 700; letter-spacing: -0.04em; }
+      .spec span { display: block; margin-top: 5px; color: var(--home-sub); font-size: var(--fs-xs); }
+
+      .section { padding: 112px 0 0; }
+      .section-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.52fr); align-items: end; gap: 40px; margin-bottom: 42px; }
+      .section-label { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; color: var(--home-blue); font-family: var(--font-mono); font-size: var(--fs-xs); letter-spacing: 0.1em; text-transform: uppercase; }
+      .section-label::before { content: ""; width: 22px; height: 1px; background: currentColor; }
+      .section-heading h2, .architecture__copy h2 {
+        margin: 0;
+        color: var(--home-ink);
+        font-size: clamp(2rem, 3.5vw, 3rem);
+        font-weight: 720;
+        line-height: 1.18;
+        letter-spacing: -0.05em;
       }
-      .pillar {
+      .section-heading > p { margin: 0 0 4px; color: var(--home-sub); font-size: var(--fs-md); line-height: 1.85; }
+      .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+      .feature-card {
         position: relative;
         display: flex;
         flex-direction: column;
-        padding: var(--sp-5);
-        border-radius: var(--r-lg);
-        background: var(--glass-surface);
-        border: 1px solid var(--glass-border-ice);
-        box-shadow: var(--shadow-soft);
-        transition: transform 0.36s var(--ease-spring), box-shadow 0.3s var(--ease-apple), border-color 0.3s var(--ease-apple);
+        min-height: 380px;
+        overflow: hidden;
+        padding: 30px;
+        border: 1px solid var(--home-line);
+        border-radius: 22px;
+        background: var(--home-surface);
+        transition: var(--transition);
       }
-      .pillar:hover {
-        transform: translateY(-3px);
-        border-color: rgba(var(--primary-rgb), 0.4);
-        box-shadow: var(--shadow-elevated);
-      }
-      .pillar__top { display: flex; align-items: center; justify-content: space-between; }
-      .pillar__icon {
-        width: 42px;
-        height: 42px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--r-sm);
-        color: var(--primary-dark);
-        background: linear-gradient(135deg, rgba(224, 242, 254, 0.95), rgba(186, 230, 253, 0.6));
-        border: 1px solid var(--glass-border-ice);
-        font-size: 1.05rem;
-      }
-      html[data-theme="dark"] .pillar__icon { color: var(--primary-light); background: rgba(2, 132, 199, 0.16); }
-      .pillar__num {
-        color: var(--text-muted);
-        font-family: var(--font-mono);
-        font-size: var(--fs-xs);
-        opacity: 0.6;
-      }
-      .pillar h2 { margin-top: 18px; font-size: var(--fs-xl); font-weight: 800; letter-spacing: -0.02em; }
-      .pillar p { margin-top: 8px; color: var(--text-sub); font-size: var(--fs-md); line-height: 1.65; flex: 1; }
-      .pillar__link {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 20px;
-        color: var(--primary);
-        font-size: var(--fs-sm);
-        font-weight: 700;
-        text-decoration: none;
-      }
-      .pillar__link i { transition: transform 0.28s var(--ease-spring); }
-      .pillar__link:hover i { transform: translateX(3px); }
+      .feature-card:hover { transform: translateY(-4px); border-color: rgba(var(--primary-rgb), 0.28); box-shadow: 0 20px 50px rgba(30, 60, 80, 0.08); }
+      .feature-card--dav { grid-column: span 7; }
+      .feature-card--mcp { grid-column: span 5; background: #111c29; color: #f2f7fb; border-color: rgba(255, 255, 255, 0.07); }
+      .feature-card--image { grid-column: span 5; }
+      .feature-card--share { grid-column: span 7; }
+      .feature-card__number { color: var(--home-sub); font-family: var(--font-mono); font-size: var(--fs-xs); }
+      .feature-card--mcp .feature-card__number { color: #6f8398; }
+      .feature-card__icon { display: grid; place-items: center; width: 42px; height: 42px; margin: 26px 0 18px; border-radius: 12px; background: var(--home-surface-soft); color: var(--home-blue); font-size: 0.95rem; }
+      .feature-card--mcp .feature-card__icon { background: rgba(158, 231, 210, 0.1); color: #9ee7d2; }
+      .feature-card h3 { margin: 0; color: inherit; font-size: 1.35rem; font-weight: 700; letter-spacing: -0.035em; }
+      .feature-card > p { max-width: 440px; margin: 10px 0 0; color: var(--home-sub); font-size: var(--fs-md); line-height: 1.75; }
+      .feature-card--mcp > p { color: #91a3b6; }
+      .feature-link { display: inline-flex; align-items: center; gap: 8px; width: fit-content; margin-top: auto; padding-top: 24px; color: var(--home-ink) !important; font-size: var(--fs-sm); font-weight: 750; text-decoration: none; }
+      .feature-card--mcp .feature-link { color: #9ee7d2 !important; }
+      .feature-link i { transition: transform var(--dur-base) var(--ease-fluid); }
+      .feature-link:hover i { transform: translateX(4px); }
+      .dav-graphic { display: flex; align-items: center; gap: 12px; margin: 28px 0 0; }
+      .dav-device { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border: 1px solid var(--home-line); border-radius: 12px; background: var(--home-surface-solid); color: var(--home-sub); font-size: var(--fs-xs); }
+      .dav-device i { color: var(--home-blue); }
+      .dav-line { position: relative; flex: 1; height: 1px; min-width: 24px; background: var(--home-line); }
+      .dav-line::after { content: ""; position: absolute; top: -3px; right: 0; width: 7px; height: 7px; border-radius: 50%; background: #27a47b; }
+      .code-window { margin-top: 24px; padding: 15px; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: rgba(0, 0, 0, 0.16); font-family: var(--font-mono); font-size: 0.62rem; line-height: 1.9; }
+      .code-window span { display: block; color: #7f93a8; }
+      .code-window b { color: #9ee7d2; font-weight: 500; }
+      .code-window em { color: #72d6f5; font-style: normal; }
+      .link-formats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+      .link-formats span { padding: 8px 11px; border: 1px solid var(--home-line); border-radius: 8px; background: var(--home-surface-solid); color: var(--home-sub); font-family: var(--font-mono); font-size: 0.6rem; }
+      .share-graphic { display: flex; align-items: center; gap: 14px; margin-top: 28px; padding: 14px; border: 1px solid var(--home-line); border-radius: 12px; background: var(--home-surface-solid); }
+      .share-graphic__qr { display: grid; grid-template-columns: repeat(3, 5px); gap: 3px; flex: none; padding: 5px; border: 1px solid var(--home-line); border-radius: 5px; }
+      .share-graphic__qr i { width: 5px; height: 5px; background: var(--home-ink); }
+      .share-graphic__qr i:nth-child(2), .share-graphic__qr i:nth-child(4), .share-graphic__qr i:nth-child(8) { opacity: 0.15; }
+      .share-graphic__text { min-width: 0; }
+      .share-graphic__text strong { display: block; color: var(--home-ink); font-size: var(--fs-xs); }
+      .share-graphic__text span { display: block; overflow: hidden; margin-top: 5px; color: var(--home-sub); font-family: var(--font-mono); font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }
+      .share-graphic__badge { margin-left: auto; padding: 5px 8px; border-radius: var(--r-pill); background: rgba(34, 166, 122, 0.1); color: #218a68; font-size: 0.56rem; white-space: nowrap; }
 
-      .home-stats {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: var(--sp-4);
-        margin-top: var(--sp-6);
-        padding: var(--sp-4) 0;
-        border-top: 1px solid var(--glass-border-ice);
-        border-bottom: 1px solid var(--glass-border-ice);
-      }
-      .home-stat { display: flex; align-items: baseline; gap: 10px; }
-      .home-stat strong {
-        font-size: var(--fs-2xl);
-        font-weight: 800;
-        letter-spacing: -0.03em;
-        color: var(--primary-dark);
-      }
-      html[data-theme="dark"] .home-stat strong { color: var(--primary-light); }
-      .home-stat span { color: var(--text-muted); font-size: var(--fs-sm); }
+      .architecture { display: grid; grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr); gap: clamp(48px, 7vw, 96px); align-items: start; }
+      .architecture__copy > p:not(.section-label) { margin: 22px 0 0; color: var(--home-sub); font-size: var(--fs-md); line-height: 1.9; }
+      .architecture__badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+      .architecture__badges span { padding: 7px 10px; border: 1px solid var(--home-line); border-radius: var(--r-pill); color: var(--home-sub); font-size: var(--fs-xs); }
+      .endpoint-panel { overflow: hidden; border: 1px solid var(--home-line); border-radius: 20px; background: var(--home-surface); }
+      .endpoint-panel__head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--home-line); color: var(--home-sub); font-size: var(--fs-xs); }
+      .endpoint-panel__head span:last-child { display: inline-flex; align-items: center; gap: 6px; color: #218a68; }
+      .endpoint-panel__head i { font-size: 0.55rem; }
+      .endpoint { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 18px 20px; }
+      .endpoint + .endpoint { border-top: 1px solid var(--home-line); }
+      .endpoint__icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--home-surface-soft); color: var(--home-blue); font-size: 0.78rem; }
+      .endpoint__body { min-width: 0; }
+      .endpoint__body strong { display: block; color: var(--home-ink); font-size: var(--fs-sm); }
+      .endpoint__body code { display: block; overflow: hidden; margin-top: 4px; color: var(--home-sub); font-family: var(--font-mono); font-size: 0.6rem; text-overflow: ellipsis; white-space: nowrap; }
+      .endpoint__state { display: inline-flex; align-items: center; gap: 6px; color: var(--home-sub); font-size: var(--fs-xs); white-space: nowrap; }
+      .endpoint__state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #9aa5b1; }
+      .endpoint__state.is-on { color: #218a68; }
+      .endpoint__state.is-on::before { background: #22a67a; box-shadow: 0 0 0 4px rgba(34, 166, 122, 0.09); }
+      .endpoint__state.is-off { color: #bf5b67; }
+      .endpoint__state.is-off::before { background: #d56a76; }
+      .endpoint .icon-button { width: 30px; height: 30px; font-size: 0.65rem; }
+      .endpoint-panel__foot { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--home-line); background: var(--home-surface-soft); color: var(--home-sub); font-size: var(--fs-xs); }
+      .endpoint-panel__foot i { color: var(--home-blue); }
 
-      .home-footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--sp-3);
-        flex-wrap: wrap;
-        padding-top: var(--sp-5);
-        color: var(--text-muted);
-        font-size: var(--fs-xs);
-      }
-      .home-footer__links { display: flex; gap: var(--sp-4); }
-      .home-footer a { color: var(--text-sub); text-decoration: none; }
-      .home-footer a:hover { color: var(--primary); }
+      .final-cta { position: relative; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 32px; overflow: hidden; margin: 112px 0 40px; padding: clamp(34px, 5vw, 58px); border-radius: 24px; background: #111c29; color: #f3f7fa; }
+      .final-cta::after { content: ""; position: absolute; width: 420px; height: 420px; right: -140px; top: -240px; border-radius: 50%; background: radial-gradient(circle, rgba(158, 231, 210, 0.18), transparent 68%); pointer-events: none; }
+      .final-cta__copy { position: relative; z-index: 1; }
+      .final-cta__copy span { color: #9ee7d2; font-family: var(--font-mono); font-size: var(--fs-xs); letter-spacing: 0.1em; text-transform: uppercase; }
+      .final-cta h2 { margin: 13px 0 0; color: #f3f7fa; font-size: clamp(1.8rem, 3vw, 2.65rem); font-weight: 680; letter-spacing: -0.045em; }
+      .final-cta p { margin: 12px 0 0; color: #94a5b8; font-size: var(--fs-md); }
+      .final-cta__actions { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 10px; }
+      .final-cta .button-primary { background: #9ee7d2; color: #10231e !important; }
+      .final-cta .button-secondary { border-color: rgba(255, 255, 255, 0.14); background: transparent; color: #e7eef5 !important; text-align: center; }
+      .home-footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 26px 0 38px; border-top: 1px solid var(--home-line); color: var(--home-sub); font-size: var(--fs-xs); }
+      .home-footer__brand { display: flex; align-items: center; gap: 8px; color: var(--home-ink); font-weight: 700; }
+      .home-footer__brand img { width: 18px; height: 18px; }
+      .home-footer__links { display: flex; flex-wrap: wrap; gap: 22px; }
+      .home-footer a { color: var(--home-sub) !important; text-decoration: none; transition: var(--transition); }
+      .home-footer a:hover { color: var(--home-blue) !important; }
 
-      @media (max-width: 900px) {
-        .hero { grid-template-columns: 1fr; padding-top: 40px; }
-        .endpoint-panel { max-width: 520px; }
-        .pillars { grid-template-columns: 1fr; }
-        .pillar p { flex: none; }
+      @media (max-width: 1080px) {
+        .home-nav { display: none; }
+        .hero { grid-template-columns: 1fr; gap: 64px; padding-top: 76px; }
+        .hero__copy { max-width: 760px; }
+        .hero h1 { font-size: clamp(3.4rem, 8vw, 5.2rem); }
+        .hero__visual { width: min(720px, 94%); margin: 0 auto; }
+        .workspace { transform: none; }
+        .section-heading { grid-template-columns: 1fr; gap: 18px; }
+        .section-heading > p { max-width: 600px; }
+        .architecture { grid-template-columns: 1fr; gap: 36px; }
+        .architecture__copy { max-width: 640px; }
       }
-      @media (max-width: 640px) {
-        .home-shell { padding: 12px var(--sp-3) 36px; }
-        .home-brand { flex: 0 0 auto; }
-        .home-brand__logo { width: 34px; height: 34px; }
-        .home-brand__text strong { font-size: var(--fs-md); max-width: 112px; }
-        .home-nav { gap: 0; }
-        .home-nav a { padding: 6px 7px; font-size: var(--fs-xs); }
-        .home-nav__admin { display: none; }
-        .hero { padding-top: 32px; gap: 32px; }
-        .hero h1 { font-size: clamp(2.2rem, 11vw, 2.9rem); }
-        .hero__sub { font-size: var(--fs-md); }
-        .hero__actions .btn { flex: 1; justify-content: center; }
-        .hero__link { width: 100%; margin: 4px 0 0; text-align: center; }
-        .home-stats { grid-template-columns: 1fr; gap: 10px; }
-        .home-stat { justify-content: space-between; }
+      @media (max-width: 760px) {
+        .home-shell { width: min(100% - 32px, 1240px); }
+        .home-header { min-height: 74px; }
+        .home-brand__tag { display: none; }
+        .header-cta { min-height: 38px; padding: 0 14px; }
+        .header-cta i { display: none; }
+        .hero { gap: 48px; padding: 56px 0 64px; }
+        .hero h1 { font-size: clamp(2.7rem, 12vw, 4rem); line-height: 1.12; }
+        .hero__lead { font-size: 0.95rem; }
+        .hero__visual { width: calc(100% - 8px); }
+        .workspace__body { grid-template-columns: 44px minmax(0, 1fr); min-height: 340px; }
+        .workspace__main { padding: 20px 16px; }
+        .workspace__rail { padding-top: 18px; }
+        .rail-icon { width: 26px; height: 26px; }
+        .workspace__sync { display: none; }
+        .storage-overview { gap: 6px; }
+        .storage-chip { padding: 9px; }
+        .mcp-float { right: -8px; bottom: -34px; width: 190px; }
+        .visual-caption { margin-top: 52px; }
+        .spec-strip { grid-template-columns: repeat(2, 1fr); }
+        .spec { padding: 22px 16px; }
+        .spec:nth-child(3) { border-left: 0; border-top: 1px solid var(--home-line); }
+        .spec:nth-child(4) { border-top: 1px solid var(--home-line); }
+        .section { padding-top: 80px; }
+        .section-heading { margin-bottom: 28px; }
+        .feature-card { grid-column: 1 / -1; min-height: 340px; padding: 24px; }
+        .dav-graphic { flex-wrap: wrap; }
+        .dav-line { min-width: 36px; }
+        .final-cta { grid-template-columns: 1fr; margin-top: 80px; }
+        .final-cta__actions { flex-direction: row; flex-wrap: wrap; }
+        .home-footer { align-items: flex-start; flex-direction: column; }
+      }
+      @media (max-width: 460px) {
+        .home-shell { width: calc(100% - 28px); }
+        .home-brand__name { font-size: 0.85rem; }
+        .home-brand__mark { width: 34px; height: 34px; }
+        .home-actions { gap: 6px; }
+        .home-theme { width: 34px; height: 34px; }
+        .header-cta { padding: 0 12px; font-size: var(--fs-xs); }
+        .hero__buttons { align-items: stretch; flex-direction: column; }
+        .button-primary, .button-secondary { width: 100%; }
+        .hero__note { gap: 9px 14px; }
+        .workspace__path { display: none; }
+        .workspace__heading h2 { font-size: 0.9rem; }
+        .workspace__upload { padding: 7px 9px; }
+        .storage-chip:nth-child(3) { display: none; }
+        .storage-overview { grid-template-columns: repeat(2, 1fr); }
+        .file-row__meta { display: none; }
+        .file-row { grid-template-columns: 30px minmax(0, 1fr); }
+        .mcp-float { width: 174px; }
+        .endpoint { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 9px; padding: 16px 14px; }
+        .endpoint__state { grid-column: 2; }
+        .endpoint .icon-button { grid-column: 3; grid-row: 1 / span 2; }
+        .share-graphic__badge { display: none; }
+        .final-cta__actions { flex-direction: column; }
       }
     </style>
   </head>
   <body>
-    <div class="ambient-glow">
-      <div class="ambient-orb orb-1"></div>
-      <div class="ambient-orb orb-2"></div>
-    </div>
-
+    <div class="home-background" aria-hidden="true"></div>
     <div class="home-shell">
-      <header class="home-topbar">
-        <a class="home-brand" href="./">
-          <span class="home-brand__logo">
-            <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" />
-          </span>
-          <span class="home-brand__text">
-            <strong data-brand-name>K-Vault-NEXT</strong>
-            <span>轻文件层</span>
-          </span>
+      <header class="home-header">
+        <a class="home-brand" href="./" aria-label="K-Vault 首页">
+          <span class="home-brand__mark"><img src="/assets/img/logo-64.png" alt="" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" /></span>
+          <span class="home-brand__name" data-brand-name>K-Vault-NEXT</span>
+          <span class="home-brand__tag">PRIVATE FILE LAYER</span>
         </a>
         <nav class="home-nav" aria-label="主导航">
-          <a href="./upload.html">上传</a>
-          <a href="./gallery.html">图床</a>
-          <a href="./webdav.html">接入</a>
-          <a class="home-nav__admin" href="/admin/files">后台</a>
-          <button class="home-theme" type="button" data-theme-toggle aria-label="切换主题">
-            <i class="fas fa-moon" data-theme-icon></i>
-          </button>
+          <a href="#capabilities">产品能力</a>
+          <a href="#architecture">接入方式</a>
+          <a href="./gallery.html">图片画廊</a>
+          <a href="/admin/files">管理后台</a>
         </nav>
+        <div class="home-actions">
+          <button class="home-theme" type="button" data-theme-toggle aria-label="切换主题"><i class="fas fa-moon" data-theme-icon></i></button>
+          <a class="header-cta" href="./upload.html">打开上传台 <i class="fas fa-arrow-up-right-from-square"></i></a>
+        </div>
       </header>
 
       <main>
-        <section class="hero">
+        <section class="hero" aria-labelledby="hero-title">
           <div class="hero__copy">
-            <span class="hero__eyebrow"><i class="fas fa-bolt"></i> Self-hosted · Serverless</span>
-            <h1>大网盘之外，<br /><span>多一个快入口</span></h1>
-            <p class="hero__sub">WebDAV 当磁盘挂，MCP 让 AI 直接用，图片上传即得直链。小、快、简，文件仍留在你自己的存储里。</p>
-            <div class="hero__actions">
-              <a class="btn btn--primary btn--lg" href="./upload.html"><i class="fas fa-cloud-arrow-up"></i>打开上传台</a>
-              <a class="btn btn--lg" href="./webdav.html"><i class="fas fa-hard-drive"></i>挂载 WebDAV</a>
-              <a class="hero__link" href="./webdav.html?tab=mcp">MCP 接入 <i class="fas fa-arrow-right"></i></a>
+            <p class="eyebrow"><span class="eyebrow__dot"></span>Cloudflare Native · Your Storage</p>
+            <h1 id="hero-title">文件不必搬家，<br /><span>让访问更简单。</span></h1>
+            <p class="hero__lead">一个轻量、私有、为 AI 准备好的文件层。挂载为磁盘、交给 Agent，或粘贴成直链——你的文件，始终留在自己的存储里。</p>
+            <div class="hero__buttons">
+              <a class="button-primary" href="./upload.html">开始上传 <i class="fas fa-arrow-up-right-from-square"></i></a>
+              <a class="button-secondary" href="./webdav.html">探索接入方式 <i class="fas fa-arrow-right"></i></a>
             </div>
-            <div class="hero__meta">
-              <span>单文件最高 10GB</span>
-              <span>7 种存储后端</span>
-              <span>零运行时依赖</span>
+            <div class="hero__note" aria-label="产品特点">
+              <span><i class="fas fa-circle-check"></i>无需维护服务器</span>
+              <span><i class="fas fa-circle-check"></i>零运行时依赖</span>
+              <span><i class="fas fa-circle-check"></i>数据自主可控</span>
             </div>
           </div>
 
-          <aside class="endpoint-panel" aria-label="服务端点">
-            <div class="endpoint-panel__head">
-              <span>接入端点</span>
+          <div class="hero__visual">
+            <div class="workspace" aria-label="K-Vault 文件中枢界面预览">
+              <div class="workspace__bar">
+                <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+                <span class="workspace__path">workspace / all-files</span>
+                <span class="workspace__sync">EDGE CONNECTED</span>
+              </div>
+              <div class="workspace__body">
+                <div class="workspace__rail" aria-hidden="true">
+                  <span class="rail-logo">K</span>
+                  <span class="rail-icon is-active"><i class="fas fa-folder"></i></span>
+                  <span class="rail-icon"><i class="fas fa-image"></i></span>
+                  <span class="rail-icon"><i class="fas fa-share-nodes"></i></span>
+                  <span class="rail-icon"><i class="fas fa-gear"></i></span>
+                </div>
+                <div class="workspace__main">
+                  <div class="workspace__heading">
+                    <div><p class="workspace__kicker">YOUR FILE LAYER</p><h2>文件中枢</h2></div>
+                    <a class="workspace__upload" href="./upload.html"><i class="fas fa-plus"></i> 上传文件</a>
+                  </div>
+                  <div class="storage-overview">
+                    <div class="storage-chip"><span>STORAGE</span><strong>7 backends</strong></div>
+                    <div class="storage-chip"><span>MAX FILE</span><strong>10 GB</strong></div>
+                    <div class="storage-chip"><span>RUNTIME</span><strong>0 deps</strong></div>
+                  </div>
+                  <div class="file-table">
+                    <div class="file-table__head"><span>最近文件</span><span>所有更改已同步</span></div>
+                    <div class="file-row">
+                      <span class="file-row__icon"><i class="fas fa-image"></i></span>
+                      <div class="file-row__name"><strong>brand-cover.webp</strong><span>设计资源 / 图片</span></div>
+                      <span class="file-row__meta">2.4 MB</span>
+                    </div>
+                    <div class="file-row">
+                      <span class="file-row__icon"><i class="fas fa-file-lines"></i></span>
+                      <div class="file-row__name"><strong>product-notes.pdf</strong><span>文档 / 产品</span></div>
+                      <span class="file-row__meta">8.1 MB</span>
+                    </div>
+                    <div class="file-row">
+                      <span class="file-row__icon"><i class="fas fa-box-archive"></i></span>
+                      <div class="file-row__name"><strong>release-assets.zip</strong><span>交付 / 归档</span></div>
+                      <span class="file-row__meta">24.8 MB</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <a class="endpoint" href="./webdav.html">
+            <div class="mcp-float">
+              <div class="mcp-float__top">
+                <span class="mcp-float__icon"><i class="fas fa-wand-magic-sparkles"></i></span>
+                <div><strong>MCP Ready</strong><span>文件能力，直接交给 AI</span></div>
+              </div>
+              <div class="mcp-float__code">POST /mcp · tools/call</div>
+            </div>
+            <p class="visual-caption"><i class="fas fa-layer-group"></i>一个界面，连接你的所有文件工作流</p>
+          </div>
+        </section>
+
+        <section class="spec-strip" aria-label="产品规格">
+          <div class="spec"><strong>7 种</strong><span>存储后端，自由选择</span></div>
+          <div class="spec"><strong>10 GB</strong><span>R2 单文件分片上传</span></div>
+          <div class="spec"><strong>0 运维</strong><span>Pages 托管，边缘运行</span></div>
+          <div class="spec"><strong>100% 私有</strong><span>无遥测，无第三方上报</span></div>
+        </section>
+
+        <section class="section" id="capabilities" aria-labelledby="capabilities-title">
+          <div class="section-heading">
+            <div><p class="section-label">01 · One file layer</p><h2 id="capabilities-title">三种方式，同一个文件中枢。</h2></div>
+            <p>不为文件创造新的孤岛。桌面、AI 与 Web 各取所需，背后始终是同一份数据、同一套权限。</p>
+          </div>
+          <div class="bento">
+            <article class="feature-card feature-card--dav">
+              <span class="feature-card__number">01 / WEBDAV</span>
+              <span class="feature-card__icon"><i class="fas fa-hard-drive"></i></span>
+              <h3>像本地磁盘一样自然</h3>
+              <p>挂载到 Finder、资源管理器或手机 App。拖拽上传、断点续传，不必再打开网页。</p>
+              <div class="dav-graphic" aria-hidden="true">
+                <span class="dav-device"><i class="fas fa-laptop"></i>你的设备</span><span class="dav-line"></span><span class="dav-device"><i class="fas fa-cloud"></i>/dav</span>
+              </div>
+              <a class="feature-link" href="./webdav.html">查看挂载指南 <i class="fas fa-arrow-right"></i></a>
+            </article>
+
+            <article class="feature-card feature-card--mcp">
+              <span class="feature-card__number">02 / MCP</span>
+              <span class="feature-card__icon"><i class="fas fa-robot"></i></span>
+              <h3>让 AI 真正读写文件</h3>
+              <p>为 Claude Code、Cursor 等客户端提供原生 MCP 能力，上传、检索、分享一步到位。</p>
+              <div class="code-window" aria-hidden="true"><span><b>POST</b> /mcp</span><span>{ <em>"method"</em>: "tools/call" }</span><span>scope: upload · read · share</span></div>
+              <a class="feature-link" href="./webdav.html?tab=mcp">接入 MCP <i class="fas fa-arrow-right"></i></a>
+            </article>
+
+            <article class="feature-card feature-card--image">
+              <span class="feature-card__number">03 / IMAGE HOST</span>
+              <span class="feature-card__icon"><i class="fas fa-images"></i></span>
+              <h3>粘贴即得，随时可用</h3>
+              <p>图片落地即生成直链。Markdown、HTML、BBCode 一键复制，创作不被上传打断。</p>
+              <div class="link-formats" aria-label="支持的链接格式"><span>URL</span><span>Markdown</span><span>HTML</span><span>BBCode</span></div>
+              <a class="feature-link" href="./gallery.html">打开图片画廊 <i class="fas fa-arrow-right"></i></a>
+            </article>
+
+            <article class="feature-card feature-card--share">
+              <span class="feature-card__number">04 / SMART SHARE</span>
+              <span class="feature-card__icon"><i class="fas fa-share-nodes"></i></span>
+              <h3>分享，不止一个链接</h3>
+              <p>密码、有效期、下载次数，都由你决定。短链落地页清晰易读，预览不消耗下载配额。</p>
+              <div class="share-graphic" aria-hidden="true">
+                <span class="share-graphic__qr"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                <div class="share-graphic__text"><strong>分享已就绪</strong><span>your-domain/s/launch-assets</span></div>
+                <span class="share-graphic__badge">安全分享</span>
+              </div>
+              <a class="feature-link" href="./upload.html">上传并创建分享 <i class="fas fa-arrow-right"></i></a>
+            </article>
+          </div>
+        </section>
+
+        <section class="section architecture" id="architecture" aria-labelledby="architecture-title">
+          <div class="architecture__copy">
+            <p class="section-label">02 · Simple by design</p>
+            <h2 id="architecture-title">简单架构，<br />明确边界。</h2>
+            <p>请求到达 Cloudflare 边缘，文件进入你选择的存储，元数据留在自己的 KV 或 D1。没有黑箱，也没有多余环节。</p>
+            <div class="architecture__badges"><span>Cloudflare Pages</span><span>KV / R2 / D1</span><span>Fail-closed</span></div>
+          </div>
+          <div class="endpoint-panel" aria-label="服务端点实时状态">
+            <div class="endpoint-panel__head"><span>你的服务端点</span><span><i class="fas fa-bolt"></i>实时检测</span></div>
+            <div class="endpoint">
               <span class="endpoint__icon"><i class="fas fa-hard-drive"></i></span>
-              <span class="endpoint__body">
-                <strong>WebDAV</strong>
-                <code id="davEndpoint">/dav</code>
-              </span>
+              <div class="endpoint__body"><strong>WebDAV</strong><code id="davEndpoint">/dav</code></div>
               <span class="endpoint__state" id="davState">检测中</span>
-            </a>
-            <a class="endpoint" href="./webdav.html?tab=mcp">
+              <button class="icon-button" type="button" data-copy-target="davEndpoint" aria-label="复制 WebDAV 地址"><i class="far fa-copy"></i></button>
+            </div>
+            <div class="endpoint">
               <span class="endpoint__icon"><i class="fas fa-robot"></i></span>
-              <span class="endpoint__body">
-                <strong>MCP</strong>
-                <code id="mcpEndpoint">/mcp</code>
-              </span>
+              <div class="endpoint__body"><strong>MCP</strong><code id="mcpEndpoint">/mcp</code></div>
               <span class="endpoint__state" id="mcpState">检测中</span>
-            </a>
-            <a class="endpoint" href="./upload.html">
-              <span class="endpoint__icon"><i class="fas fa-image"></i></span>
-              <span class="endpoint__body">
-                <strong>图片直链</strong>
-                <code>/file/…</code>
-              </span>
+              <button class="icon-button" type="button" data-copy-target="mcpEndpoint" aria-label="复制 MCP 地址"><i class="far fa-copy"></i></button>
+            </div>
+            <div class="endpoint">
+              <span class="endpoint__icon"><i class="fas fa-link"></i></span>
+              <div class="endpoint__body"><strong>文件直链</strong><code id="fileEndpoint">/file/…</code></div>
               <span class="endpoint__state is-on">可用</span>
-            </a>
-            <div class="endpoint-panel__foot"><i class="fas fa-shield-halved"></i>私有部署，数据在你自己的后端</div>
-          </aside>
+              <button class="icon-button" type="button" data-copy-target="fileEndpoint" aria-label="复制文件直链前缀"><i class="far fa-copy"></i></button>
+            </div>
+            <div class="endpoint-panel__foot"><i class="fas fa-shield-halved"></i>端到端私有部署，凭证与数据不经过第三方</div>
+          </div>
         </section>
 
-        <section class="pillars" aria-label="三种用法">
-          <article class="pillar">
-            <div class="pillar__top">
-              <span class="pillar__icon"><i class="fas fa-hard-drive"></i></span>
-              <span class="pillar__num">01</span>
-            </div>
-            <h2>像本地磁盘一样用</h2>
-            <p>Finder、资源管理器、手机 App 直接挂载，拖拽即上传，不用打开网页。</p>
-            <a class="pillar__link" href="./webdav.html">查看挂载方式 <i class="fas fa-arrow-right"></i></a>
-          </article>
-          <article class="pillar">
-            <div class="pillar__top">
-              <span class="pillar__icon"><i class="fas fa-robot"></i></span>
-              <span class="pillar__num">02</span>
-            </div>
-            <h2>让 AI 直接读写文件</h2>
-            <p>Claude Code、Cursor 等客户端通过 /mcp 上传、检索、分享，不必再贴一长串路径。</p>
-            <a class="pillar__link" href="./webdav.html?tab=mcp">接入 MCP <i class="fas fa-arrow-right"></i></a>
-          </article>
-          <article class="pillar">
-            <div class="pillar__top">
-              <span class="pillar__icon"><i class="fas fa-image"></i></span>
-              <span class="pillar__num">03</span>
-            </div>
-            <h2>粘贴即得直链</h2>
-            <p>拖入图片，自动生成直链、Markdown 与分享链接，写文章时随手就用。</p>
-            <a class="pillar__link" href="./upload.html">打开上传台 <i class="fas fa-arrow-right"></i></a>
-          </article>
-        </section>
-
-        <section class="home-stats" aria-label="规格">
-          <div class="home-stat"><strong>0</strong><span>台服务器要维护</span></div>
-          <div class="home-stat"><strong>7</strong><span>种存储后端可选</span></div>
-          <div class="home-stat"><strong>10GB</strong><span>单文件上限</span></div>
+        <section class="final-cta" aria-labelledby="cta-title">
+          <div class="final-cta__copy"><span>Ready when you are</span><h2 id="cta-title">你的文件，你的规则。</h2><p>从一个文件开始，搭建属于自己的轻文件层。</p></div>
+          <div class="final-cta__actions">
+            <a class="button-primary" href="./upload.html">打开上传台 <i class="fas fa-arrow-up-right-from-square"></i></a>
+            <a class="button-secondary" href="/admin/files">进入管理后台</a>
+          </div>
         </section>
       </main>
 
       <footer class="home-footer">
-        <span>K-Vault-NEXT · 给大网盘补一个快入口</span>
-        <div class="home-footer__links">
-          <a href="./upload.html">上传</a>
-          <a href="./gallery.html">图床</a>
-          <a href="./webdav.html">接入</a>
-          <a href="/admin/files">管理后台</a>
-        </div>
+        <span class="home-footer__brand"><img src="/assets/img/logo-64.png" alt="" /><span data-brand-name>K-Vault-NEXT</span></span>
+        <span>跑在边缘，留在你手中。</span>
+        <nav class="home-footer__links" aria-label="页脚导航"><a href="./upload.html">上传</a><a href="./gallery.html">图床</a><a href="./webdav.html">接入</a><a href="/admin/files">管理</a></nav>
       </footer>
     </div>
 
@@ -549,11 +726,13 @@
         var mcpState = document.getElementById("mcpState");
         var davEndpoint = document.getElementById("davEndpoint");
         var mcpEndpoint = document.getElementById("mcpEndpoint");
+        var fileEndpoint = document.getElementById("fileEndpoint");
 
         if (davEndpoint) davEndpoint.textContent = location.host + "/dav";
         if (mcpEndpoint) mcpEndpoint.textContent = location.host + "/mcp";
+        if (fileEndpoint) fileEndpoint.textContent = location.host + "/file/…";
 
-        function setState(el, on, labelOn, labelOff) {
+        function setState(el, on) {
           if (!el) return;
           el.classList.remove("is-on", "is-off");
           if (on === null) {
@@ -561,20 +740,18 @@
             return;
           }
           el.classList.add(on ? "is-on" : "is-off");
-          el.textContent = on ? labelOn : labelOff;
+          el.textContent = on ? "已开启" : "未开启";
         }
 
         function probeDav() {
           return fetch("/dav/", { method: "PROPFIND", headers: { Depth: "0" } })
             .then(function (res) {
               var code = res.status;
-              if (code === 401 || code === 207 || code === 200) setState(davState, true, "已开启", "未开启");
-              else if (code === 404) setState(davState, false, "已开启", "未开启");
-              else setState(davState, null, "已开启", "未开启");
+              if (code === 401 || code === 207 || code === 200) setState(davState, true);
+              else if (code === 404) setState(davState, false);
+              else setState(davState, null);
             })
-            .catch(function () {
-              davState.textContent = "状态未知";
-            });
+            .catch(function () { setState(davState, null); });
         }
 
         function probeMcp() {
@@ -593,14 +770,28 @@
             })
           })
             .then(function (res) {
-              if (res.status === 200 || res.status === 202) setState(mcpState, true, "已开启", "未开启");
-              else if (res.status === 404) setState(mcpState, false, "已开启", "未开启");
-              else setState(mcpState, null, "已开启", "未开启");
+              if (res.status === 200 || res.status === 202) setState(mcpState, true);
+              else if (res.status === 404) setState(mcpState, false);
+              else setState(mcpState, null);
             })
-            .catch(function () {
-              mcpState.textContent = "状态未知";
-            });
+            .catch(function () { setState(mcpState, null); });
         }
+
+        document.querySelectorAll("[data-copy-target]").forEach(function (button) {
+          button.addEventListener("click", function () {
+            var target = document.getElementById(button.getAttribute("data-copy-target"));
+            if (!target || !window.KVault) return;
+            window.KVault.copy(target.textContent).then(function (ok) {
+              var icon = button.querySelector("i");
+              if (icon) icon.className = ok ? "fas fa-check" : "fas fa-xmark";
+              button.setAttribute("aria-label", ok ? "已复制" : "复制失败");
+              setTimeout(function () {
+                if (icon) icon.className = "far fa-copy";
+                button.setAttribute("aria-label", "复制端点地址");
+              }, 1600);
+            });
+          });
+        });
 
         probeDav();
         probeMcp();
