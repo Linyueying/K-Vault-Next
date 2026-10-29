@@ -43,17 +43,19 @@ const check = (label, cond, detail = '') => {
 /** 带读写计数的 KV 替身 —— 计数是本套件的核心断言依据。 */
 function makeKv(initial = {}, options = {}) {
   const store = new Map(Object.entries(initial));
-  const stats = { get: 0, put: 0, delete: 0 };
+  const stats = { get: 0, put: 0, delete: 0, keys: [] };
   return {
     _store: store,
     _stats: stats,
     async get(key) {
       stats.get += 1;
+      stats.keys.push(key);
       if (options.failGet) throw new Error('kv-down');
       return store.has(key) ? store.get(key) : null;
     },
     async getWithMetadata(key) {
       stats.get += 1;
+      stats.keys.push(key);
       if (options.failGet) throw new Error('kv-down');
       if (!store.has(key)) return null;
       return { value: '', metadata: store.get(key) };
@@ -68,6 +70,25 @@ function makeKv(initial = {}, options = {}) {
     },
   };
 }
+
+/**
+ * 统计「文件数据源」KV 读的次数。
+ *
+ * 排除两类键，它们都不是「回源读文件本体」：
+ *
+ *   · `config:*`   —— 运行时管理配置，由 getRuntimeConfig 读取并自带 30 秒
+ *     进程内缓存；生产上一个长期存活的 isolate 每 30 秒才回源一次。
+ *   · `reccache:*` —— 记录定位的**缓存副本**（性能优化项，默认开启）。
+ *     它 miss 时的这一次读是为了避免跨洋 D1 SELECT，命中时为 0 次；
+ *     把它算进来会让「短链解析不再依赖 KV 文件数据」这条链路失去约束力。
+ *
+ * 如果这里不排除，断言就会因为一次管理配置 / 一次缓存回填而误报，
+ * 真正要防的「偷偷多读一次文件数据」反而会被淹没。
+ */
+const dataReads = (env) =>
+  env.img_url._stats.keys.filter(
+    (key) => !String(key).startsWith('config:') && !String(key).startsWith('reccache:')
+  ).length;
 
 /** 给 env 套一层 D1 查询计数器。 */
 function countedEnv(base, extra = {}) {
@@ -206,13 +227,13 @@ console.log('[3] /s/:slug 重定向');
   const bundle = await open('team2024');
   check('合集 slug → 302', bundle.res.status === 302);
   check('合集 slug → ?b=', bundle.location.includes('?b=team2024'), bundle.location);
-  check('★ 合集命中时不读 KV', bundle.env.img_url._stats.get === 0,
-    `实际读 ${bundle.env.img_url._stats.get} 次`);
+  check('★ 合集命中时不读 KV（文件数据）', dataReads(bundle.env) === 0,
+    `实际读 ${dataReads(bundle.env)} 次`);
 
   const file = await open('holiday');
   check('文件短链 → ?s=', file.location.includes('?s=holiday'), file.location);
-  check('★ D1 判为「非合集」时不读 KV', file.env.img_url._stats.get === 0,
-    `实际读 ${file.env.img_url._stats.get} 次`);
+  check('★ D1 判为「非合集」时不读 KV（文件数据）', dataReads(file.env) === 0,
+    `实际读 ${dataReads(file.env)} 次`);
 
   const unknown = await open('ghost');
   check('未知 slug → ?s=', unknown.location.includes('?s=ghost'), unknown.location);
@@ -233,7 +254,8 @@ console.log('[3] /s/:slug 重定向');
   });
   check('D1 未绑定 → 回落 KV 并命中合集',
     (legacyRes.headers.get('location') || '').includes('?b=legacy'));
-  check('D1 未绑定 → 确实读了 KV', noD1.img_url._stats.get === 1);
+  check('D1 未绑定 → 确实读了 KV（文件数据）', dataReads(noD1) === 1,
+    `实际读 ${dataReads(noD1)} 次`);
 
   // ---- 回落路径：D1 未绑定 + KV 也挂了 ----
   const bothDown = countedEnv({ img_url: makeKv({}, { failGet: true }) });
@@ -275,8 +297,8 @@ console.log('[4] /api/share-info 短链解析');
   check('自定义短链 → fileName 正确', bySlug.body?.fileName === 'photo.png');
   check('自定义短链 → fileUrl 用 kvKey', bySlug.body?.fileUrl === '/file/r2%3Aphoto.png',
     bySlug.body?.fileUrl);
-  check('★ 短链命中时不读 KV', bySlug.env.img_url._stats.get === 0,
-    `实际读 ${bySlug.env.img_url._stats.get} 次`);
+  check('★ 短链命中时不读 KV（文件数据）', dataReads(bySlug.env) === 0,
+    `实际读 ${dataReads(bySlug.env)} 次`);
   check('★ 短链命中时只查 1 次 D1（不再二次定位记录）',
     bySlug.env._d1Stats.queries === 1, `实际 ${bySlug.env._d1Stats.queries} 次`);
 
@@ -291,8 +313,8 @@ console.log('[4] /api/share-info 短链解析');
   const byId = await ask('s=r2%3Aplain.png');
   check('文件 ID 直查 → 200', byId.res.status === 200, JSON.stringify(byId.body));
   check('文件 ID 直查 → fileName 正确', byId.body?.fileName === 'plain.png');
-  check('★ 文件 ID 直查 → KV 读为 0（映射查询已切 D1）',
-    byId.env.img_url._stats.get === 0, `实际 ${byId.env.img_url._stats.get} 次`);
+  check('★ 文件 ID 直查 → 文件数据 KV 读为 0（映射查询已切 D1）',
+    dataReads(byId.env) === 0, `实际 ${dataReads(byId.env)} 次`);
 
   // ---- 不存在 / 未开分享 ----
   check('不存在的短链 → 404', (await ask('s=ghost')).res.status === 404);
@@ -317,7 +339,7 @@ console.log('[4] /api/share-info 短链解析');
     env: legacy,
   });
   check('D1 未绑定 → 回落 KV 映射，仍然 200', legacyRes.status === 200);
-  check('D1 未绑定 → 确实读了 KV', legacy.img_url._stats.get > 0);
+  check('D1 未绑定 → 确实读了 KV（文件数据）', dataReads(legacy) > 0);
   void kvOnly; void fallbackEnv;
 
   // ---- 过期 ----

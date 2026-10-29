@@ -4,7 +4,7 @@
  * 覆盖四项优化的核心不变量：
  *   [A] Telegram file_path 三级缓存：KV 命中 / 回填 / 失效重解析
  *   [B] 记录快路径缓存：只缓存无保护属性、写后失效、miss 不缓存
- *   [C] 字节缓存：键不含查询串、大小上限、默认关闭
+ *   [C] 字节缓存：键不含查询串、大小上限、默认开启且可单独关闭
  *   [D] ETag：稳定可复现、If-None-Match 解析
  *
  * 运行：node scripts/test-download-latency.mjs
@@ -14,16 +14,15 @@ import {
   clearRecordCacheMemory,
   forgetRecordCache,
   isCacheableRecord,
-  isRecordCacheEnabled,
+  getRecordCachePolicy,
   lookupRecordCache,
   writeRecordCache,
 } from '../functions/utils/record-cache.js';
 import {
   buildByteCacheKey,
-  byteCacheMaxBytes,
-  isByteCacheEnabled,
-  isWarmOnUploadEnabled,
+  getByteCachePolicy,
 } from '../functions/utils/byte-cache.js';
+import { invalidateRuntimeConfigCache } from '../functions/utils/runtime-config.js';
 import {
   applyPublicCache,
   entityTagFor,
@@ -68,6 +67,11 @@ function makeKvStore() {
 }
 
 function makeEnv(vars = {}) {
+  // 运行时配置是**模块级、跨 env 实例**缓存的（生产上一个 isolate 一份，
+  // 这是刻意的摊薄）。测试里每个用例都用不同的 env 对象模拟不同部署，
+  // 若不显式失效，前一个用例读到的配置会泄漏给下一个 —— 表现为
+  // 「没配环境变量却读到了开关已开」。
+  invalidateRuntimeConfigCache();
   const kv = makeKvStore();
   return { img_url: kv, _kv: kv, ...vars };
 }
@@ -118,14 +122,34 @@ console.log('\n[A] Telegram file_path 三级缓存');
   }
 }
 
+
+/**
+ * 读取一份策略，读之前先让运行时配置缓存失效。
+ *
+ * 配置缓存是**模块级**的（生产上一个 isolate 一份，刻意的摊薄），不区分
+ * env 实例。测试里同一段会造几个不同的 env 模拟不同部署，若不在读取前
+ * 显式隔离，先读到的那份会泄漏给后面 —— 表现为「没配环境变量却读到已开」。
+ */
+async function recordPolicy(env) {
+  invalidateRuntimeConfigCache();
+  return getRecordCachePolicy(env);
+}
+
+async function bytePolicy(env) {
+  invalidateRuntimeConfigCache();
+  return getByteCachePolicy(env);
+}
+
 // ============================================================================
 console.log('\n[B] 记录快路径缓存');
 {
   clearRecordCacheMemory();
   const env = makeEnv({ RECORD_CACHE: '1' });
 
-  check('L2 开关可被识别', isRecordCacheEnabled(env) === true);
-  check('未开启时不判定为启用', isRecordCacheEnabled(makeEnv()) === false);
+  check('L2 开关可被识别', (await recordPolicy(env)).enabled === true);
+  check('默认开启（未配置任何环境变量）', (await recordPolicy(makeEnv())).enabled === true);
+  check('显式关闭后不判定为启用',
+    (await recordPolicy(makeEnv({ RECORD_CACHE: '0' }))).enabled === false);
 
   const publicMeta = { fileName: 'a.png', fileSize: 1024, shareMaxDownloads: 0 };
   const protectedMeta = { fileName: 'b.png', sharePasswordHash: 'abc' };
@@ -137,7 +161,10 @@ console.log('\n[B] 记录快路径缓存');
   check('空元数据不可缓存', isCacheableRecord(null) === false);
 
   const result = { record: { value: '', metadata: publicMeta }, kvKey: 'img:a.png' };
-  writeRecordCache(env, 'a.png', result);
+  // 上一条 check 用过一个「没开开关」的 env，它把配置缓存写成了 false；
+  // 不在这里隔离一次，writeRecordCache 会跟着读到 false 而跳过 L2。
+  invalidateRuntimeConfigCache();
+  await writeRecordCache(env, 'a.png', result);
 
   const hit = await lookupRecordCache(env, 'a.png');
   check('写入后能命中', hit?.kvKey === 'img:a.png', JSON.stringify(hit));
@@ -148,17 +175,17 @@ console.log('\n[B] 记录快路径缓存');
   check('失效后读不到', afterForget === null, JSON.stringify(afterForget));
 
   // 受保护记录写不进去 —— 这是安全红线，必须每次真读源
-  writeRecordCache(env, 'b.png', { record: { metadata: protectedMeta }, kvKey: 'img:b.png' });
+  await writeRecordCache(env, 'b.png', { record: { metadata: protectedMeta }, kvKey: 'img:b.png' });
   const protectedHit = await lookupRecordCache(env, 'b.png');
   check('受保护记录不入缓存', protectedHit === null, JSON.stringify(protectedHit));
 
   // miss 不缓存：否则刚上传的文件会在 TTL 内一直 404
-  writeRecordCache(env, 'missing.png', { record: null, kvKey: 'missing.png' });
+  await writeRecordCache(env, 'missing.png', { record: null, kvKey: 'missing.png' });
   const missHit = await lookupRecordCache(env, 'missing.png');
   check('miss 结果不缓存', missHit === null);
 
   // 带前缀的键与裸 ID 视作同一条记录，删除时两边都要清
-  writeRecordCache(env, 'r2:c.png', { record: { metadata: publicMeta }, kvKey: 'r2:c.png' });
+  await writeRecordCache(env, 'r2:c.png', { record: { metadata: publicMeta }, kvKey: 'r2:c.png' });
   await forgetRecordCache(env, 'c.png');
   const bareAfter = await lookupRecordCache(env, 'r2:c.png');
   check('前缀形式同样被清除', bareAfter === null, JSON.stringify(bareAfter));
@@ -167,12 +194,14 @@ console.log('\n[B] 记录快路径缓存');
 // ============================================================================
 console.log('\n[C] 字节缓存');
 {
-  const off = makeEnv();
+  const off = makeEnv({ PUBLIC_BYTE_CACHE: '0', WARM_ON_UPLOAD: '0' });
   const on = makeEnv({ PUBLIC_BYTE_CACHE: '1', WARM_ON_UPLOAD: '1' });
-  check('默认关闭', isByteCacheEnabled(off) === false);
-  check('开关打开后生效', isByteCacheEnabled(on) === true);
-  check('预热开关默认关闭', isWarmOnUploadEnabled(off) === false);
-  check('预热可随缓存一起开启', isWarmOnUploadEnabled(on) === true);
+  check('默认开启（未配置任何环境变量）', (await bytePolicy(makeEnv())).enabled === true);
+  check('显式关闭后不判定为启用', (await bytePolicy(off)).enabled === false);
+  check('开关打开后生效', (await bytePolicy(on)).enabled === true);
+  check('预热默认开启', (await bytePolicy(makeEnv())).warm === true);
+  check('预热可单独关闭', (await bytePolicy(off)).warm === false);
+  check('预热可随缓存一起开启', (await bytePolicy(on)).warm === true);
 
   const base = 'https://vault.example.com/file/img%3Aabc.png?dl=1&b=xyz';
   const key = buildByteCacheKey(base, 'img:abc.png');
@@ -184,14 +213,16 @@ console.log('\n[C] 字节缓存');
   const previewKey = buildByteCacheKey('https://vault.example.com/file/img%3Aabc.png', 'img:abc.png');
   check('下载与预览共用同一键', previewKey.url === key.url, previewKey.url);
 
-  check('默认大小上限为 64MB', byteCacheMaxBytes(off) === 64 * 1024 * 1024);
+  check('默认大小上限为 64MB', (await bytePolicy(off)).maxBytes === 64 * 1024 * 1024);
   check(
     '大小上限可被环境变量覆盖',
-    byteCacheMaxBytes(makeEnv({ PUBLIC_BYTE_CACHE_MAX_BYTES: '1048576' })) === 1024 * 1024
+    (await bytePolicy(makeEnv({ PUBLIC_BYTE_CACHE_MAX_BYTES: '1048576' }))).maxBytes ===
+      1024 * 1024
   );
   check(
     '大小上限不超过 Cloudflare 的 512MB',
-    byteCacheMaxBytes(makeEnv({ PUBLIC_BYTE_CACHE_MAX_BYTES: '999999999999' })) === 512 * 1024 * 1024
+    (await bytePolicy(makeEnv({ PUBLIC_BYTE_CACHE_MAX_BYTES: '999999999999' }))).maxBytes ===
+      512 * 1024 * 1024
   );
 }
 
@@ -356,6 +387,40 @@ console.log('\n[F] 下载主链路端到端冒烟（onRequest）');
     const headRes = await onRequest(headCtx);
     check('HEAD 返回 200', headRes.status === 200, `实际 ${headRes.status}`);
     check('HEAD 无 body', !headRes.body || (await headRes.text()) === '', 'HEAD 不应带字节');
+
+    // ---- 命中字节缓存的路径：不再回源，但条件请求仍要生效 ----
+    // 命中时手上没有 metadata，ETag 只能取自缓存副本本身；少了这一步，
+    // 重复访问虽然省掉了回源，却仍要把整份 body 再传一遍。
+    const cachedTag = '"cached-tag"';
+    const originalCaches = globalThis.caches;
+    globalThis.caches = {
+      default: {
+        async match() {
+          return new Response('cached-bytes', {
+            status: 200,
+            headers: { ETag: cachedTag, 'Content-Type': 'image/jpeg', 'Content-Length': '12' },
+          });
+        },
+        async put() {},
+        async delete() { return true; },
+      },
+    };
+    try {
+      const filesBefore = fileCalls;
+      const hit = await callOnce();
+      check('字节缓存命中 → HIT 标记', hit.headers.get('X-KVault-Byte-Cache') === 'HIT',
+        hit.headers.get('X-KVault-Byte-Cache'));
+      check('字节缓存命中后不再回源', fileCalls === filesBefore, `拉取 ${fileCalls} 次`);
+      check('命中时直接返回缓存字节', (await hit.text()) === 'cached-bytes');
+
+      const hit304 = await callOnce({ 'If-None-Match': cachedTag });
+      check('命中字节缓存时条件请求仍返回 304', hit304.status === 304, `实际 ${hit304.status}`);
+      check('命中字节缓存的 304 不带 body', (await hit304.text()) === '');
+      check('命中字节缓存的 304 携带 ETag', hit304.headers.get('ETag') === cachedTag);
+    } finally {
+      if (originalCaches === undefined) delete globalThis.caches;
+      else globalThis.caches = originalCaches;
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

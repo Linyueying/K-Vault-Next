@@ -45,6 +45,7 @@
  */
 
 import { getRecordWithKey } from '../../../../utils/file-record.js';
+import { purgeByteCache } from '../../../../utils/byte-cache.js';
 import {
   SHARE_TEXT_LIMITS,
   buildShareSummary,
@@ -308,6 +309,10 @@ export async function onRequest(context) {
 
     // ---------- 5. 写入（slug 冲突由 patchShareOptions 内部兜底判并抛错） ----------
     const storedMetadata = await patchShareOptions(env, kvKey, metadata, patch);
+
+    // 与 /api/manage/share/:id 同一理由：字节缓存命中时不查元数据，
+    // 新增的密码 / 有效期 / 配额只能靠这里主动清边缘副本才生效。
+    await purgeByteCache(new URL(request.url).origin, [fileId, kvKey]);
 
     return apiSuccess({
       action,

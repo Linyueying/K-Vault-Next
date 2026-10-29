@@ -278,7 +278,12 @@ export async function onRequestPost(context) {
         const body = await probe.json().catch(() => null);
         const uploadedKey = body ? extractUploadKey(body) : null;
         if (uploadedKey) {
-          scheduleWarm(env, context, new URL(request.url).origin, uploadedKey);
+          // 响应体里没有文件大小，用请求体的 Content-Length 当上界：
+          // multipart 请求体必然 ≥ 文件本身，超上限时跳过预热是安全的方向。
+          const declared = Number(request.headers.get('Content-Length'));
+          await scheduleWarm(env, context, new URL(request.url).origin, uploadedKey, {
+            size: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+          });
         }
       }
     } catch (error) {

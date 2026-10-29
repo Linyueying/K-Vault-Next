@@ -31,6 +31,7 @@
  */
 
 import { getRecordWithKey } from '../../../utils/file-record.js';
+import { purgeByteCache } from '../../../utils/byte-cache.js';
 import {
   SHARE_TEXT_LIMITS,
   buildShareSummary,
@@ -219,6 +220,13 @@ export async function onRequest(context) {
 
     // ---------- 6. 写入 ----------
     const storedMetadata = await patchShareOptions(env, kvKey, metadata, patch);
+
+    // 新加的密码 / 有效期 / 次数上限必须立刻对边缘副本生效。
+    // 字节缓存命中时**不查元数据**（那正是它能把延迟压到几十毫秒的原因），
+    // 因此这里只能主动清：否则「先公开分享过、后加了密码」的文件会继续
+    // 被边缘直接递出去，密码形同虚设。
+    await purgeByteCache(new URL(request.url).origin, [fileId, kvKey]);
+
     const summary = buildShareSummary(storedMetadata, kvKey);
 
     return jsonResponse({

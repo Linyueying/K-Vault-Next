@@ -86,10 +86,12 @@ function makeKv() {
   const values = new Map();   // key -> 原始字符串 value
   const metas = new Map();    // key -> metadata 对象
   const stats = { get: 0, put: 0, delete: 0, list: 0, getWithMetadata: 0 };
+  const putKeys = [];         // 写入过的键，供「只统计元数据类写入」的断言使用
   return {
     _values: values,
     _metas: metas,
     _stats: stats,
+    _putKeys: putKeys,
     /** 兼容既有断言写法：`_store.has(key)` 判存在 */
     _store: {
       has: (k) => values.has(k),
@@ -109,6 +111,7 @@ function makeKv() {
     },
     async put(key, value, opts) {
       stats.put += 1;
+      putKeys.push(String(key));
       values.set(key, String(value ?? ''));
       if (opts?.metadata !== undefined) metas.set(key, opts.metadata);
     },
@@ -123,8 +126,20 @@ function makeKv() {
   };
 }
 
-/** 组合 env：内存 D1 + KV 替身。 */
-function makeEnv() {
+/**
+ * 只统计「文件元数据类」KV 写。
+ *
+ * 排除两类键，它们与 `storage.writeKvLegacy` 想约束的事情无关：
+ *   · `config:*`   —— 运行时管理配置
+ *   · `reccache:*` —— 记录定位缓存副本（性能优化项，默认开启）：
+ *     读路径 miss 后回填一次，属于「加速」而不是「再存一份文件元数据」
+ */
+const metadataPuts = (env) =>
+  (env._kv._putKeys || []).filter(
+    (key) => !key.startsWith('config:') && !key.startsWith('reccache:')
+  ).length;
+
+/** 组合 env：内存 D1 + KV 替身。 */function makeEnv() {
   const kv = makeKv();
   const d1 = makeMigratedEnv();
   return { ...d1, img_url: kv, _kv: kv };
@@ -291,13 +306,13 @@ console.log('\n[8] 关闭开关后：editName 仍更新 D1 且不写 KV');
   await saveRuntimeConfig(env, 'storage', { writeKvLegacy: false });
   await seed(env, { kvKey: 'r2:g.png', fileName: 'g.png' });
 
-  const beforePut = env._kv._stats.put;
+  const beforePut = metadataPuts(env);
   const res = await editNameHandler(editCtx(env, 'g.png', 'renamed.png'));
   const body = await res.json();
 
   check('改名成功', body.success === true, JSON.stringify(body));
   check('★ D1 里的名字已更新', env._db.prepare('SELECT file_name FROM files WHERE id = ?').get('g.png')?.file_name === 'renamed.png');
-  check('★ KV 未被写入', env._kv._stats.put === beforePut, `新增 ${env._kv._stats.put - beforePut} 次`);
+  check('★ KV 未被写入', metadataPuts(env) === beforePut, `新增 ${metadataPuts(env) - beforePut} 次`);
 
   // 读侧一致性：改名后能读到新名
   const hit = await getRecordWithKey(env, 'g.png');

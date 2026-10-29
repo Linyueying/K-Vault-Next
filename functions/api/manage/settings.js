@@ -13,6 +13,8 @@
  *   - storage  存储回滚模式（writeKvLegacy，替代环境变量 KV_LEGACY_WRITE）
  *   - branding 站点品牌（siteName / siteTitle，替代环境变量 SITE_NAME / SITE_TITLE）
  *   - mcp      MCP 端点开关 + 工具级禁用清单（替代环境变量 MCP_ENABLED）
+ *   - perf     下载链路性能优化开关（替代 TG_FILE_PATH_PERSIST / RECORD_CACHE /
+ *              PUBLIC_BYTE_CACHE / WARM_ON_UPLOAD 及各自的数值参数）
  *
  * 这些分组写入 KV 后即时生效，不必改环境变量并重新部署。
  *
@@ -30,9 +32,16 @@ import {
     readWebdavServerConfigFromEnv,
     readMcpConfigFromEnv,
     readThumbConfigFromEnv,
+    readPerfConfigFromEnv,
     WEBDAV_BACKENDS,
     THUMB_BACKENDS,
     MAX_AIRDROP_STATS_RETENTION,
+    MIN_RECORD_CACHE_TTL,
+    MAX_RECORD_CACHE_TTL,
+    MIN_PUBLIC_BYTE_CACHE_TTL,
+    MAX_PUBLIC_BYTE_CACHE_TTL,
+    MIN_PUBLIC_BYTE_CACHE_MAX_BYTES,
+    MAX_PUBLIC_BYTE_CACHE_MAX_BYTES,
     MCP_TOOL_IDS,
     CONFIG_GROUPS
 } from '../../utils/runtime-config.js';
@@ -53,7 +62,7 @@ function json(data, status = 200) {
 
 /** 组装给前端的完整视图 */
 async function buildView(env) {
-    const [guest, cors, upload, storage, branding, airdrop, webdav, mcp, thumb] = await Promise.all([
+    const [guest, cors, upload, storage, branding, airdrop, webdav, mcp, thumb, perf] = await Promise.all([
         getRuntimeConfig(env, 'guest'),
         getRuntimeConfig(env, 'cors'),
         getRuntimeConfig(env, 'upload'),
@@ -62,7 +71,8 @@ async function buildView(env) {
         getRuntimeConfig(env, 'airdrop'),
         getRuntimeConfig(env, 'webdav'),
         getRuntimeConfig(env, 'mcp'),
-        getRuntimeConfig(env, 'thumb')
+        getRuntimeConfig(env, 'thumb'),
+        getRuntimeConfig(env, 'perf')
     ]);
 
     return {
@@ -140,6 +150,21 @@ async function buildView(env) {
             source: thumb.source,
             available: availableThumbBackends(env)
         },
+        // 下载链路性能优化（perf 组）。
+        //
+        // 四个开关 + 三个数值参数，全部可在线调整。这一组的特殊性在于：
+        // **每一项都可以独立关掉且不影响功能**，只是退回慢路径 —— 所以它
+        // 是排查线上问题时最重要的开关面板（"先全关掉验证是不是缓存引起的"）。
+        perf: {
+            tgFilePathPersist: perf.tgFilePathPersist !== false,
+            recordCache: perf.recordCache === true,
+            recordCacheTtl: perf.recordCacheTtl,
+            publicByteCache: perf.publicByteCache === true,
+            publicByteCacheTtl: perf.publicByteCacheTtl,
+            publicByteCacheMaxBytes: perf.publicByteCacheMaxBytes,
+            warmOnUpload: perf.warmOnUpload === true,
+            source: perf.source
+        },
         // 兼容既有前端：它只认 guest 的环境变量基线
         envBaseline: readGuestConfigFromEnv(env),
         // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
@@ -167,6 +192,8 @@ async function buildView(env) {
         })(),
         // 缩略图的环境变量基线（THUMB_*，缺省 enabled=true / 400 / 0.72 / auto）
         thumbEnvBaseline: readThumbConfigFromEnv(env),
+        // 性能优化的环境变量基线（TG_FILE_PATH_PERSIST 缺省 true，其余缺省 false）
+        perfEnvBaseline: readPerfConfigFromEnv(env),
         hasKvBinding: Boolean(env?.img_url),
         // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
         hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
@@ -490,6 +517,70 @@ export function validateThumb(input, env) {
     return { ok: true, value };
 }
 
+/**
+ * 校验性能优化配置。
+ *
+ * 规则：
+ *   · 四个开关必须是**真布尔值** —— 与 storage.writeKvLegacy / mcp.enabled
+ *     同理：这些开关决定「要不要绕过一次回源」「字节码不进边缘缓存」，
+ *     把前端传错的 `'false'` 当假值放行、再在归一化时回退默认值，会出现
+ *     「后台显示已关、实际还在缓存」的静默错配。这里显式要求布尔，
+ *     让类型错误立刻 400。
+ *
+ *     ⚠️ 注意这与**环境变量**侧的宽松解析（toFeatureFlag 接受 `=1` / `=0`）
+ *     刻意不同：环境变量是运维手工配的、已经上线的历史写法，必须向后兼容；
+ *     而 API 提交是新请求，理应有更严的要求。两者的宽严差异与
+ *     mcp.disabledTools「API 报错 / 归一化丢弃」是同一类取舍。
+ *   · 三个数值参数夹在各自的上下限内（具体范围见 runtime-config.js 的
+ *     MIN_/MAX_ 常量）。TTL 的下限不是为了安全，而是为了避免配出一个
+ *     「缓存刚写完就过期」的无效值；字节上限的下限同理。
+ *
+ * 显式回填落库值：类型收敛 + 取整，保证 KV 里存的永远是干净的数字。
+ *
+ * @param {unknown} input
+ */
+export function validatePerf(input) {
+    if (!input || typeof input !== 'object') return { error: 'perf 必须是对象。' };
+
+    const flags = ['tgFilePathPersist', 'recordCache', 'publicByteCache', 'warmOnUpload'];
+    for (const field of flags) {
+        if (input[field] !== undefined && typeof input[field] !== 'boolean') {
+            return { error: `perf.${field} 必须是布尔值（true / false）。` };
+        }
+    }
+
+    const ranges = [
+        ['recordCacheTtl', MIN_RECORD_CACHE_TTL, MAX_RECORD_CACHE_TTL, '记录缓存时长'],
+        ['publicByteCacheTtl', MIN_PUBLIC_BYTE_CACHE_TTL, MAX_PUBLIC_BYTE_CACHE_TTL, '字节缓存时长'],
+        [
+            'publicByteCacheMaxBytes',
+            MIN_PUBLIC_BYTE_CACHE_MAX_BYTES,
+            MAX_PUBLIC_BYTE_CACHE_MAX_BYTES,
+            '字节缓存文件上限'
+        ]
+    ];
+    for (const [field, min, max, label] of ranges) {
+        if (input[field] === undefined) continue;
+        const num = Number(input[field]);
+        if (!Number.isFinite(num)) {
+            return { error: `perf.${field} 必须是数值。` };
+        }
+        if (num < min || num > max) {
+            return { error: `${label}需在 ${min} ~ ${max} 之间。` };
+        }
+    }
+
+    const value = {};
+    for (const field of flags) {
+        if (input[field] !== undefined) value[field] = input[field] === true;
+    }
+    for (const [field] of ranges) {
+        if (input[field] !== undefined) value[field] = Math.round(Number(input[field]));
+    }
+
+    return { ok: true, value };
+}
+
 export async function onRequestGet(context) {
     const { env } = context;
     try {
@@ -519,9 +610,10 @@ export async function onRequestPost(context) {
     const webdavInput = body?.webdav;
     const mcpInput = body?.mcp;
     const thumbInput = body?.thumb;
+    const perfInput = body?.perf;
 
-    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput && !mcpInput && !thumbInput) {
-        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav / mcp / thumb）。' }, 400);
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput && !mcpInput && !thumbInput && !perfInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav / mcp / thumb / perf）。' }, 400);
     }
 
     // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
@@ -535,6 +627,7 @@ export async function onRequestPost(context) {
     if (webdavInput) checks.push(['webdav', validateWebdavServer(webdavInput), webdavInput]);
     if (mcpInput) checks.push(['mcp', validateMcp(mcpInput), mcpInput]);
     if (thumbInput) checks.push(['thumb', validateThumb(thumbInput, env), thumbInput]);
+    if (perfInput) checks.push(['perf', validatePerf(perfInput), perfInput]);
 
     for (const [, result] of checks) {
         if (result.error) return json({ error: result.error }, 400);

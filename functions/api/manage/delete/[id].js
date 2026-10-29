@@ -15,6 +15,7 @@ import {
 } from '../../../utils/file-record.js';
 import { cleanupShareSlugMapping } from '../../../utils/share-options.js';
 import { deleteThumb } from '../../../utils/thumb-store.js';
+import { purgeByteCache } from '../../../utils/byte-cache.js';
 
 // 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
 function getRecordWithKey(env, fileId) {
@@ -54,7 +55,7 @@ export async function onRequest(context) {
 
       await env.R2_BUCKET.delete(r2Key);
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
 
       return jsonResponse({
         success: true,
@@ -74,7 +75,7 @@ export async function onRequest(context) {
         console.error('S3 delete error (best-effort):', error);
       }
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
 
       return jsonResponse({
         success: true,
@@ -99,7 +100,7 @@ export async function onRequest(context) {
       }
 
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
 
       return jsonResponse({
         success: true,
@@ -120,7 +121,7 @@ export async function onRequest(context) {
       }
 
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
 
       return jsonResponse({
         success: true,
@@ -142,7 +143,7 @@ export async function onRequest(context) {
       }
 
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
 
       return jsonResponse({
         success: true,
@@ -162,7 +163,7 @@ export async function onRequest(context) {
       }
 
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
 
       return jsonResponse({
         success: true,
@@ -186,7 +187,7 @@ export async function onRequest(context) {
       console.error('Telegram deleteMessage threw:', error);
     } finally {
         await cleanupRecordArtifacts(env, metadata, kvKey);
-      await purgeEdgeCache(request, fileId);
+      await purgeEdgeCache(request, fileId, kvKey);
     }
 
     return jsonResponse({
@@ -236,7 +237,20 @@ async function deleteTelegramMessage(messageId, env) {
   }
 }
 
-async function purgeEdgeCache(request, fileId) {
+/**
+ * 清除边缘上与该文件相关的副本。
+ *
+ * 两条链路要分别清：
+ *   1. `/file/<id>` —— 响应头缓存（PUBLIC_DOWNLOAD_CACHE 开启时）
+ *   2. `/__kvault-bytecache/<id>` —— 字节缓存（默认开启）
+ *
+ * 第 2 条不是可选项：字节缓存的键带着存储前缀的各种写法（`r2:c.png` /
+ * `c.png`），只删 `/file/<id>` 会留下「后台已删除、链接仍能完整下载」的
+ * 副本，直到 TTL 到期。purgeByteCache 内部会展开所有等价写法。
+ *
+ * 清理失败不影响删除结果 —— 残留副本仍会随 TTL 自然过期。
+ */
+async function purgeEdgeCache(request, fileId, kvKey) {
   try {
     const cache = caches.default;
     const origin = new URL(request.url).origin;
@@ -247,6 +261,7 @@ async function purgeEdgeCache(request, fileId) {
     for (const url of urlsToPurge) {
       await cache.delete(new Request(url));
     }
+    await purgeByteCache(origin, [fileId, kvKey || '']);
   } catch (error) {
     console.warn('Edge cache purge failed (non-critical):', error.message);
   }

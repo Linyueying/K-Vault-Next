@@ -17,6 +17,8 @@
  *   - upload   分片上传暂存后端（auto / r2 / kv）
  *   - storage  存储回滚模式（是否继续把文件元数据写进 KV）
  *   - branding 站点品牌（网站显示名 siteName / 浏览器标题 siteTitle）
+ *   - airdrop  / webdav / mcp / thumb  各自的主题配置
+ *   - perf     下载链路性能优化开关 —— 在此之前这四项只能在部署期改环境变量
  *
  * ============================================================================
  * storage 组：为什么它是一个「回滚模式」而不是「迁移开关」
@@ -88,8 +90,20 @@ export const MCP_CONFIG_KEY = 'config:mcp';
  */
 export const THUMB_CONFIG_KEY = 'config:thumb';
 
+/**
+ * perf 组：下载链路的性能优化开关。
+ *
+ * 存 `{ tgFilePathPersist, recordCache, recordCacheTtl, publicByteCache,
+ *       publicByteCacheTtl, publicByteCacheMaxBytes, warmOnUpload }`。
+ *
+ * 与前面几组的差别在于：**这些都是纯性能优化**，关掉任何一项都不会导致
+ * 功能不可用，只是变回原来的慢路径。所以它们适合放在后台随时开关 ——
+ * 排查线上问题时，「先把它全关掉验证是不是缓存引起的」是最有价值的手段。
+ */
+export const PERF_CONFIG_KEY = 'config:perf';
+
 /** 所有配置组的名字，供后台设置接口遍历 */
-export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav', 'mcp', 'thumb'];
+export const CONFIG_GROUPS = ['guest', 'cors', 'upload', 'storage', 'branding', 'airdrop', 'webdav', 'mcp', 'thumb', 'perf'];
 
 const DEFAULT_GUEST_MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_GUEST_DAILY_LIMIT = 10;
@@ -150,6 +164,42 @@ export const DEFAULT_THUMB_QUALITY = 0.72;
 // 所以默认值永远可用，用户不必先配别的东西才能用上缩略图。
 // 想省 KV 写额度的部署可显式切到 d1 / r2（后台可改，即时生效）。
 export const DEFAULT_THUMB_BACKEND = 'kv';
+
+// ── 性能优化（perf 组）默认值 ────────────────────────────────
+// Telegram file_path 持久化：把 once-per-download 的跨洋 Bot API 调用
+// （200–1200ms）换成一次 KV 读。默认**开启** —— 它不改变任何语义，
+// file_path 只是个指针，且上游取字节失败时会自动清缓存重解析兜底。
+export const DEFAULT_TG_FILE_PATH_PERSIST = true;
+// 记录定位快路径 L2：跳过每次下载前那次跨洋 D1 SELECT。默认**开启** ——
+// 缓存写入侧有硬闸门（isCacheableRecord：带密码 / 有效期 / 次数上限的文件
+// 一律不进缓存），因此缓存里恒等于「公开无条件的定位信息」，剩下的陈旧窗口
+// 只涉及文件名这类展示字段，且写路径（改名 / 删除 / 改分享设置）都会主动失效。
+export const DEFAULT_RECORD_CACHE = true;
+// KV 侧记录缓存时长（秒）。下限 10 秒是为了避免"刚改完就刷新"的困惑，
+// 上限 1 小时是因为再长就失去定期校正陈旧数据的意义。
+export const DEFAULT_RECORD_CACHE_TTL = 60;
+export const MIN_RECORD_CACHE_TTL = 10;
+export const MAX_RECORD_CACHE_TTL = 3600;
+// 公开文件字节缓存：命中后不碰 D1/KV/Telegram，PoP 本地直出。默认**开启** ——
+// 只对「公开 + 无密码 + 无有效期 + 无配额 + 非签名直链」的文件生效
+// （判定见 file/[[path]].js 的 isImmutablePublic），受保护文件永远不进缓存。
+// 删除 / 改名会通过 purgeByteCache 精确清除条目，因此「删了还能下」这个
+// 唯一的语义风险被收敛到极小；真要在删除后立即全站不可见，把开关关掉即可。
+export const DEFAULT_PUBLIC_BYTE_CACHE = true;
+// 字节缓存 TTL（秒）。下限 1 分钟、上限 24 小时（Cloudflare Cache API 上限）。
+export const DEFAULT_PUBLIC_BYTE_CACHE_TTL = 3600;
+export const MIN_PUBLIC_BYTE_CACHE_TTL = 60;
+export const MAX_PUBLIC_BYTE_CACHE_TTL = 86400;
+// 单文件进字节缓存的上限（字节）。默认 64MB 远低于平台的 512MB：
+// `response.clone()` 分流时消费速度不一致会让 workerd 缓冲，
+// 天花板应按 128MB 的 isolate 内存来定才安全。
+export const DEFAULT_PUBLIC_BYTE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+export const MIN_PUBLIC_BYTE_CACHE_MAX_BYTES = 1024 * 1024;
+export const MAX_PUBLIC_BYTE_CACHE_MAX_BYTES = 512 * 1024 * 1024;
+// 上传后预热：上传侧后台跑一趟把字节塞进缓存，消除"第一次总是最慢"。
+// 默认**开启**（无字节缓存时自动短路，不产生任何请求）；超过单文件上限的
+// 文件也不会预热 —— 那等于白跑一趟整份下载。
+export const DEFAULT_WARM_ON_UPLOAD = true;
 /**
  * 缩略图允许的后端取值 —— 三者平级，由用户显式指定，**不做自动降级**。
  *
@@ -347,9 +397,46 @@ const GUEST_ENV_MAP = {
  */
 function toBool(value, fallback) {
   if (typeof value === 'boolean') return value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
   return fallback;
+}
+
+/**
+ * 解析「功能开关」型环境变量。
+ *
+ * 与 toBool 的区别：这里接受 `1 / 0 / on / off / yes / no` 这六种常见写法。
+ *
+ * 为什么不能统一用 toBool：perf 组的四个开关最初就是按 `XXX=1` 的写法
+ * 上线并写进文档的，用户很可能已经在 Dashboard 配好了。若改用严格的
+ * toBool（只认真布尔与字面量 'true' / 'false'），`RECORD_CACHE=1` 会落到
+ * fallback（= false），表现为**升级后开关静默失效**；更糟的是
+ * `TG_FILE_PATH_PERSIST=0`（文档里的关闭示例）会因为 '0' 不是 'false'
+ * 而回落到默认 true —— 管理员以为关了，实际还开着，方向正好相反。
+ *
+ * 后台保存走 JSON，传来的都是真布尔值，两个函数都支持，因此这里放宽
+ * 解析不会影响后台语义，只是让环境变量保持向后兼容。
+ */
+function toFeatureFlag(value, fallback) {
+  if (typeof value === 'boolean') return value;
+  if (value === null || value === undefined) return fallback;
+  const raw = String(value).trim().toLowerCase();
+  if (raw === '') return fallback;
+  if (raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes') return true;
+  if (raw === '0' || raw === 'false' || raw === 'off' || raw === 'no') return false;
+  return fallback;
+}
+
+/**
+ * 把配置数值夹逼到 [min, max]，非法值回落 fallback。
+ *
+ * 与 normalizeThumbMaxEdge 同源，但提取成通用形式供 perf 组的三个
+ * 数值字段复用（TTL 秒数 / 字节上限的量级差异不影响夹取逻辑）。
+ */
+function clampPerfInt(value, fallback, min, max) {
+  const num = Math.round(Number(value));
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  return Math.min(Math.max(num, min), max);
 }
 
 const GROUPS = {
@@ -450,6 +537,38 @@ const GROUPS = {
       backend: normalizeThumbBackend(env?.THUMB_BACKEND)
     }),
     normalize: (raw, base) => normalizeThumbConfig(raw, base)
+  },
+  perf: {
+    key: PERF_CONFIG_KEY,
+    // 环境变量基线。开关用 toFeatureFlag 而非 toBool —— 理由是这些开关
+    // 最初就是按 `=1` / `=0` 的写法上线的（且文档里也是这么写的），
+    // 换成 toBool 会把已存在的 `RECORD_CACHE=1` 静默解析成 false，
+    // 即「用户明明开了、升级后却变成关」。见 toFeatureFlag 的说明。
+    fromEnv: (env) => ({
+      tgFilePathPersist: toFeatureFlag(env?.TG_FILE_PATH_PERSIST, DEFAULT_TG_FILE_PATH_PERSIST),
+      recordCache: toFeatureFlag(env?.RECORD_CACHE, DEFAULT_RECORD_CACHE),
+      recordCacheTtl: clampPerfInt(
+        env?.RECORD_CACHE_TTL,
+        DEFAULT_RECORD_CACHE_TTL,
+        MIN_RECORD_CACHE_TTL,
+        MAX_RECORD_CACHE_TTL
+      ),
+      publicByteCache: toFeatureFlag(env?.PUBLIC_BYTE_CACHE, DEFAULT_PUBLIC_BYTE_CACHE),
+      publicByteCacheTtl: clampPerfInt(
+        env?.PUBLIC_BYTE_CACHE_TTL,
+        DEFAULT_PUBLIC_BYTE_CACHE_TTL,
+        MIN_PUBLIC_BYTE_CACHE_TTL,
+        MAX_PUBLIC_BYTE_CACHE_TTL
+      ),
+      publicByteCacheMaxBytes: clampPerfInt(
+        env?.PUBLIC_BYTE_CACHE_MAX_BYTES,
+        DEFAULT_PUBLIC_BYTE_CACHE_MAX_BYTES,
+        MIN_PUBLIC_BYTE_CACHE_MAX_BYTES,
+        MAX_PUBLIC_BYTE_CACHE_MAX_BYTES
+      ),
+      warmOnUpload: toFeatureFlag(env?.WARM_ON_UPLOAD, DEFAULT_WARM_ON_UPLOAD)
+    }),
+    normalize: (raw, base) => normalizePerfConfig(raw, base)
   }
 };
 
@@ -700,6 +819,74 @@ export function normalizeThumbConfig(raw, fallback) {
     quality: normalizeThumbQuality(raw.quality, base.quality),
     backend: normalizeThumbBackend(raw.backend ?? base.backend)
   };
+}
+
+/**
+ * 归一化一份性能优化配置。
+ *
+ * 四个开关用 toFeatureFlag —— 环境变量侧保持 `=1 / =0` 的向后兼容语义
+ * （见 toFeatureFlag 的说明），后台侧传来的真布尔同样被正确处理。
+ *
+ * ⚠️ 每个字段的 fallback 都取 base 而不是字面量默认值：base 已经由
+ * fromEnv 兜成了「环境变量基线 + 默认值」。若这里写成
+ * `toFeatureFlag(raw.recordCache, false)`，那么一份"只改了字节缓存开关"的
+ * KV 记录会把其它三项静默重置 —— 保存一个开关等于关掉另外三个，这正是
+ * normalizeAirdropConfig 里 guestReceiveAllowed 踩过的同一类坑。
+ *
+ * @param {unknown} raw
+ * @param {object} [fallback]
+ */
+export function normalizePerfConfig(raw, fallback) {
+  const base = fallback || {
+    tgFilePathPersist: DEFAULT_TG_FILE_PATH_PERSIST,
+    recordCache: DEFAULT_RECORD_CACHE,
+    recordCacheTtl: DEFAULT_RECORD_CACHE_TTL,
+    publicByteCache: DEFAULT_PUBLIC_BYTE_CACHE,
+    publicByteCacheTtl: DEFAULT_PUBLIC_BYTE_CACHE_TTL,
+    publicByteCacheMaxBytes: DEFAULT_PUBLIC_BYTE_CACHE_MAX_BYTES,
+    warmOnUpload: DEFAULT_WARM_ON_UPLOAD
+  };
+  if (!raw || typeof raw !== 'object') return { ...base };
+  return {
+    tgFilePathPersist: toFeatureFlag(raw.tgFilePathPersist, base.tgFilePathPersist),
+    recordCache: toFeatureFlag(raw.recordCache, base.recordCache),
+    recordCacheTtl: clampPerfInt(
+      raw.recordCacheTtl,
+      base.recordCacheTtl,
+      MIN_RECORD_CACHE_TTL,
+      MAX_RECORD_CACHE_TTL
+    ),
+    publicByteCache: toFeatureFlag(raw.publicByteCache, base.publicByteCache),
+    publicByteCacheTtl: clampPerfInt(
+      raw.publicByteCacheTtl,
+      base.publicByteCacheTtl,
+      MIN_PUBLIC_BYTE_CACHE_TTL,
+      MAX_PUBLIC_BYTE_CACHE_TTL
+    ),
+    publicByteCacheMaxBytes: clampPerfInt(
+      raw.publicByteCacheMaxBytes,
+      base.publicByteCacheMaxBytes,
+      MIN_PUBLIC_BYTE_CACHE_MAX_BYTES,
+      MAX_PUBLIC_BYTE_CACHE_MAX_BYTES
+    ),
+    warmOnUpload: toFeatureFlag(raw.warmOnUpload, base.warmOnUpload)
+  };
+}
+
+/** 从环境变量读取性能优化配置（部署期基线） */
+export function readPerfConfigFromEnv(env) {
+  return GROUPS.perf.fromEnv(env);
+}
+
+/**
+ * 读取性能优化配置（KV 覆盖 > 环境变量基线）。
+ *
+ * 刻意**吃 getRuntimeConfig 的 30 秒进程内缓存**：perf 组处在下载热路径，
+ * 每个请求都回源 KV 的话等于给自己加一跳。关掉某个优化最坏的结果是多用
+ * 一段时间缓存，不涉及任何放行 / 拒绝判定 —— 与 thumb 组同理。
+ */
+export async function getPerfConfig(env) {
+  return getRuntimeConfig(env, 'perf');
 }
 
 /**

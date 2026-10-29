@@ -1,10 +1,6 @@
 ﻿import { createS3Client } from '../utils/s3client.js';
-import {
-  buildByteCacheKey,
-  byteCacheMaxAge,
-  byteCacheMaxBytes,
-  isByteCacheEnabled,
-} from '../utils/byte-cache.js';
+import { buildByteCacheKey, getByteCachePolicy } from '../utils/byte-cache.js';
+import { getPerfConfig, readPerfConfigFromEnv } from '../utils/runtime-config.js';
 import { envValue } from '../utils/env-config.js';
 import { getDiscordFileUrl } from '../utils/discord.js';
 import { getHuggingFaceFile } from '../utils/huggingface.js';
@@ -102,7 +98,11 @@ export async function onRequest(context) {
   // 这是「国内用户 + Telegram 后端」唯一能把 TTFB 从跨洋降到 PoP 本地的手段。
   let response = await tryByteCacheMatch(context);
   const fromByteCache = Boolean(response);
-  if (!response) response = await handleRequest(context);
+  if (response) {
+    response = conditionalFromByteCache(context, response);
+  } else {
+    response = await handleRequest(context);
+  }
 
   /* HEAD 在进计次之前就脱掉 body：下游的 trackDownloadsIfNeeded 拿不到流，
      也就不会为一次「只问在不在」的探测去做流包装。 */
@@ -120,7 +120,7 @@ export async function onRequest(context) {
 
   // 入缓存的是**未经 disposition 改写**的那份：键里不带 ?dl=1，
   // 预览与下载共用同一份字节，差异在交付前逐请求改写。
-  storeByteCache(context, cacheable);
+  await storeByteCache(context, cacheable);
   flushBackground(context);
 
   return withTiming(context, final, startedAt);
@@ -263,15 +263,49 @@ function flushBackground(context) {
 // 所以做成显式开关而非默认行为。
 
 /**
+ * 取本次请求的性能配置快照（KV 覆盖 > 环境变量基线）。
+ *
+ * 挂到 context 上是为了让同一请求内的多处判定共用一次读取 ——
+ * `getRuntimeConfig` 虽有 30 秒进程内缓存，但缓存正巧过期时，
+ * 一次下载里连续三四次 await 会各自打一次 KV。
+ *
+ * 读取失败降级到**环境变量基线**而不是「全关」：这一组里
+ * `tgFilePathPersist` 默认为 true，一律按 false 处理会让一次短暂的 KV
+ * 抖动变成「优化全部静默失效」；回落到基线的行为则与平时完全一致。
+ *
+ * @param {object} context
+ * @returns {Promise<object>} perf 配置
+ */
+async function perfSnapshot(context) {
+  if (context?.__kvPerfConfig) return context.__kvPerfConfig;
+
+  // context 可能缺位（单测直接调用、或某个辅助路径没传下来），此时退化成
+  // 「只读一次、不缓存」。宁可每次都读，也不能因为取不到 context 就把整条
+  // 优化链当成全关 —— 那同样会让滚轮抖动变成「优化全部失效」。
+  let value;
+  try {
+    value = await getPerfConfig(context?.env);
+  } catch (error) {
+    console.warn('perf config read failed, falling back to env baseline:', error?.message || error);
+    value = readPerfConfigFromEnv(context?.env);
+  }
+  if (context) context.__kvPerfConfig = value;
+  return value;
+}
+
+/**
  * 尝试从边缘缓存取字节。命中则后续完全不必碰任何后端。
  *
  * @returns {Promise<Response|null>} 命中返回可直接交付的响应，否则 null
  */
 async function tryByteCacheMatch(context) {
-  const { request, env } = context;
+  const { request } = context;
   context.__kvByteCache = 'BYPASS';
 
-  if (!isByteCacheEnabled(env)) return null;
+  if (!(await perfSnapshot(context)).publicByteCache) return null;
+  // 运行环境没有 Cache API（本地 node 测试、非 Worker 运行时）时静默跳过：
+  // 打到这里的每一次都记一条 warn 只会把真正的异常淹掉。
+  if (typeof caches === 'undefined' || !caches?.default) return null;
   if (String(request.method || '').toUpperCase() !== 'GET') return null;
   if (context.__kvBundleAccess || context.__kvSignedLink) return null;
   // Range 请求暂不进缓存。理想形态是让 Worker 返回完整 200、由 Cloudflare
@@ -294,26 +328,53 @@ async function tryByteCacheMatch(context) {
 }
 
 /**
+ * 命中字节缓存后仍然支持条件请求。
+ *
+ * 回源路径在拿到 metadata 时就判了 `If-None-Match`，但缓存命中路径**没有
+ * metadata**（这正是它快的原因），只能靠缓存副本自带的 ETag 判断。
+ * 少了这一步，重复访问虽然不用回源，却仍要把整个 body 再传一遍 ——
+ * 而 304 的体积是 0，对「同一文件被反复打开的网盘场景」差距很明显。
+ *
+ * @param {object} context
+ * @param {Response} cached
+ * @returns {Response} 命中条件请求时返回 304，否则原样返回
+ */
+function conditionalFromByteCache(context, cached) {
+  try {
+    const tag = cached?.headers?.get('ETag');
+    if (!tag) return cached;
+    const noneMatch = parseETagList(context?.request?.headers?.get('If-None-Match'));
+    if (noneMatch.has('*') || noneMatch.has(tag)) return notModifiedResponse(tag);
+    return cached;
+  } catch (error) {
+    console.warn('conditional byte cache check failed:', error?.message || error);
+    return cached;
+  }
+}
+
+/**
  * 把响应写进边缘缓存（只在「确实该缓存」时调用）。
  *
  * clone() 会把流分成两路，消费速度不一致时会缓冲 —— 所以这个文件体积上限
  * 定得比 Cloudflare 的 512MB 保守得多，避免大文件把 isolate 内存顶穿。
  */
-function storeByteCache(context, response) {
-  const { request, env } = context;
+async function storeByteCache(context, response) {
+  const { request } = context;
 
-  if (!isByteCacheEnabled(env)) return;
+  const perf = await perfSnapshot(context);
+  if (!perf.publicByteCache) return;
+  if (typeof caches === 'undefined' || !caches?.default) return;
   if (context.__kvByteCache !== 'MISS') return;   // 只有这次真的回源了才需要写
   if (!context.__kvPublicCacheable) return;       // 闸门判定：必须公开不可变
   if (Number(response?.status) !== 200) return;
 
   const declared = Number(response.headers.get('Content-Length'));
-  if (Number.isFinite(declared) && declared > byteCacheMaxBytes(env)) return;
+  if (Number.isFinite(declared) && declared > Number(perf.publicByteCacheMaxBytes)) return;
 
   try {
     const copy = response.clone();
     const headers = new Headers(copy.headers);
-    headers.set('Cache-Control', `public, max-age=${byteCacheMaxAge(env)}`);
+    headers.set('Cache-Control', `public, max-age=${Number(perf.publicByteCacheTtl)}`);
     const toCache = new Response(copy.body, { status: 200, headers });
 
     ensureBackground(context).push(
@@ -1641,14 +1702,17 @@ const TG_PATH_KV_PREFIX = 'tgpath:';
 const TG_PATH_KV_TTL_SECONDS = 7 * 24 * 3600;
 
 /**
- * 是否启用 file_path 的 KV 持久化。
+ * 是否启用 file_path 的 KV 持久化（后台「性能优化」面板可在线切换）。
  *
  * 默认开启：这是纯加速项，且有明确的兜底 —— 一旦解析出的路径失效，
  * `fetchTelegramUpstream` 会失效重解析（见 `invalidateTelegramFilePath`）。
+ *
+ * 签名改用 context 而非 env：perf 快照挂在 context 上，同一请求内多处
+ * 判定共用一次读取（见 perfSnapshot）。
  */
-function isTgPathPersistEnabled(env) {
-  const raw = String(envValue(env, 'TG_FILE_PATH_PERSIST') || '').trim().toLowerCase();
-  return raw !== '0' && raw !== 'off' && raw !== 'false' && raw !== 'no';
+async function isTgPathPersistEnabled(context) {
+  const perf = await perfSnapshot(context);
+  return perf.tgFilePathPersist !== false;
 }
 
 /** 把任务挂到 waitUntil；没有 context 时火后不管（写失败只会让下次 miss）。 */
@@ -1713,7 +1777,7 @@ export async function getTelegramFilePathCached(env, fileId, context = null) {
   }
 
   // ---- L2：KV（跨 isolate / 跨 PoP 共享，边缘读 ~5-20ms） ----
-  const persist = isTgPathPersistEnabled(env) && Boolean(env?.img_url);
+  const persist = (await isTgPathPersistEnabled(context)) && Boolean(env?.img_url);
   const kvCacheKey = `${TG_PATH_KV_PREFIX}${fileId}`;
   if (persist) {
     try {

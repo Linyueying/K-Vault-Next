@@ -559,7 +559,7 @@ export async function getRecordWithKey(env, fileId, options = {}) {
     const id = deriveIndexId(value, prefixes);
     const hit = await getFileRecord(env, id);
     if (hit) {
-      writeRecordCache(env, value, hit, options.background);
+      await writeRecordCache(env, value, hit, options.background);
       if (typeof options.onIndexHit === 'function') {
         options.onIndexHit({ indexed: true, kvKey: hit.kvKey });
       }
@@ -578,7 +578,7 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   if (hasStoragePrefix(value, prefixes) && !options.forceAll) {
     const record = await env.img_url.getWithMetadata(value);
     if (record?.metadata) {
-      writeRecordCache(env, value, { record, kvKey: value }, options.background);
+      await writeRecordCache(env, value, { record, kvKey: value }, options.background);
       return { record, kvKey: value };
     }
     return { record: null, kvKey: value };
@@ -597,7 +597,7 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   const hitIndex = probed.findIndex((record) => record?.metadata);
   if (hitIndex !== -1) {
     const key = candidateKeys[hitIndex];
-    writeRecordCache(
+    await writeRecordCache(
       env,
       value,
       { record: probed[hitIndex], kvKey: key },

@@ -1,5 +1,6 @@
 import { getRecordWithKey as findRecordWithKey, deriveIndexId, putKvFileMetadata, registerFileRecord } from '../../../utils/file-record.js';
 import { updateFileMetadataFields } from '../../../utils/metadata-d1.js';
+import { purgeByteCache } from '../../../utils/byte-cache.js';
 
 function decodeFileId(raw) {
   try {
@@ -52,6 +53,18 @@ export async function onRequest(context) {
     fileName: requestedName,
   };
 
+  /**
+   * 改名成功的统一出口。
+   *
+   * 必须清字节缓存：缓存的是**整个响应**（含 Content-Disposition 里的文件名），
+   * 命中时不会重新读元数据。不清的话，改名后点下载拿到的还是旧文件名，
+   * 直到 TTL 到期 —— 而默认 TTL 是一小时。
+   */
+  const done = async () => {
+    await purgeByteCache(new URL(request.url).origin, [fileId, kvKey]);
+    return jsonResponse({ success: true, fileName: metadata.fileName, key: kvKey });
+  };
+
   // ---------- 路径 A：D1 ----------
   // 读侧 getRecordWithKey 是 D1 优先，所以这里必须同步写 D1。
   // 此前只写 KV，导致 D1 接管读侧后"改名成功但列表还是旧名字"。
@@ -64,7 +77,7 @@ export async function onRequest(context) {
       // 同步 KV（若绑定了）：受「存储回滚模式」开关控制，
       // 关闭后 KV 不再是数据源，D1 就是唯一事实。
       await putKvFileMetadata(env, kvKey, metadata);
-      return jsonResponse({ success: true, fileName: metadata.fileName, key: kvKey });
+      return await done();
     }
     /* updated === 0：D1 里没有这一行。
        典型来源是 D1 引入**之前**上传的历史文件 —— 记录只在 KV，
@@ -79,7 +92,7 @@ export async function onRequest(context) {
       const upsert = await registerFileRecord(env, kvKey, metadata, { indexId: id });
       if (upsert.ok) {
         await putKvFileMetadata(env, kvKey, metadata);
-        return jsonResponse({ success: true, fileName: metadata.fileName, key: kvKey });
+        return await done();
       }
       // 补插也失败 → 落到 KV 兜底，不让一次 D1 抖动阻断改名
       console.warn('editName: D1 backfill failed, falling back to KV:', upsert.error);

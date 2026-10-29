@@ -25,13 +25,18 @@
  * 剩下的不一致窗口只有文件名之类的展示型字段，用主动失效收敛。
  *
  * ============================================================================
- * 为什么默认关闭
+ * 为什么默认开启
  * ============================================================================
- * 它终究是一次「可用性换一致性」的取舍，所以是显式开关而非默认行为。
- * L1 是零成本的，因此始终生效；L2 需要 `RECORD_CACHE=1`。
+ * 上文的 `isCacheableRecord` 已经把「带保护属性」的记录挡在缓存之外，于是
+ * 缓存内容恒等于「公开、无条件的定位信息」—— 陈旧几十秒唯一的可见后果是
+ * 文件名之类的展示字段没及时刷新，而所有写路径都会主动 `forgetRecordCache`。
+ * 代价（一次跨洋 SELECT，80–300ms）却是每个下载请求都要付的，因此默认开。
+ *
+ * 仍然保留开关：把元数据库放在跨洋位置的部署若发现改名后有短暂不一致，
+ * 可以在后台一键关掉，不必改环境变量重新部署。
  */
 
-import { envValue } from './env-config.js';
+import { getPerfConfig, readPerfConfigFromEnv } from './runtime-config.js';
 
 /** L1 存活时长：短到足以让「改完立刻刷新」几乎总能看到新值。 */
 const RECORD_CACHE_TTL_MS = 30 * 1000;
@@ -43,17 +48,32 @@ const RECORD_CACHE_MAX_JSON_BYTES = 64 * 1024;
 /** fileId -> { payload, expiresAt } */
 const recordCache = new Map();
 
-/** 记录缓存的 L2（KV）是否启用（RECORD_CACHE=1）。 */
-export function isRecordCacheEnabled(env) {
-  const raw = String(envValue(env, 'RECORD_CACHE') || '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
-}
-
-/** KV 侧缓存时长（秒），默认 60。 */
-function recordCacheTtlSeconds(env) {
-  const parsed = Number(envValue(env, 'RECORD_CACHE_TTL'));
-  if (!Number.isFinite(parsed) || parsed <= 0) return 60;
-  return Math.min(Math.floor(parsed), 3600);
+/**
+ * 记录缓存策略（KV 覆盖 > 环境变量基线）。
+ *
+ * 整份返回的原因与 byte-cache 的同名函数一致：调用方通常同时需要
+ * 「开关 + TTL」，一次读取比两次 async 更省，也避免缓存过期瞬间
+ * 连续打多次 KV。
+ *
+ * 读取失败降级到环境变量基线而不是「直接关掉」：基线本身已经是安全值
+ * （写入侧有 isCacheableRecord 兜底），而把一次配置读取抖动变成「所有
+ * 下载都退回跨洋 SELECT」并不划算。
+ *
+ * @param {any} env
+ * @returns {Promise<{enabled: boolean, ttlSeconds: number}>}
+ */
+export async function getRecordCachePolicy(env) {
+  let perf;
+  try {
+    perf = await getPerfConfig(env);
+  } catch (error) {
+    console.warn('perf config read failed, falling back to env baseline:', error?.message || error);
+    perf = readPerfConfigFromEnv(env);
+  }
+  return {
+    enabled: perf?.recordCache === true,
+    ttlSeconds: perf?.recordCacheTtl || 60
+  };
 }
 
 /**
@@ -129,7 +149,8 @@ export async function forgetRecordCache(env, value) {
   // KV 里有东西的前提是 L2 曾经开启过。开关没开 + L1 也没命中
   // → 根本不可能有副本，不必为一个从未缓存过的记录付 ~12 次 KV 写。
   // 这一层判断让「上传 / 改名」这类低频写操作在默认配置下几乎零开销。
-  const worthTouchingKv = keys.size > 0 || isRecordCacheEnabled(env);
+  const policy = await getRecordCachePolicy(env);
+  const worthTouchingKv = keys.size > 0 || policy.enabled;
   if (!worthTouchingKv || !env?.img_url?.delete) return;
 
   if (keys.size === 0) {
@@ -160,7 +181,8 @@ export async function lookupRecordCache(env, value) {
     recordCache.delete(String(value));
   }
 
-  if (!isRecordCacheEnabled(env) || !env?.img_url?.get) return null;
+  const policy = await getRecordCachePolicy(env);
+  if (!policy.enabled || !env?.img_url?.get) return null;
 
   try {
     const raw = await env.img_url.get(`${RECORD_CACHE_KV_PREFIX}${value}`, { type: 'json' });
@@ -194,13 +216,15 @@ function rememberInMemory(key, payload) {
  * @param {{record: any, kvKey: string}} result - 真实返回值
  * @param {Array<Promise>|null} background - 非空时把 KV 写入挂进去由调用方 waitUntil
  */
-export function writeRecordCache(env, value, result, background = null) {
+export async function writeRecordCache(env, value, result, background = null) {
   const key = String(value || '');
   // 找不到记录不缓存：刚上传 / D1 尚未登记的情况下缓存 miss，
   // 会让文件在 TTL 内一直 404 —— 那是最难排查的一类故障。
   if (!key || !result?.record?.metadata) return;
   if (!isCacheableRecord(result.record.metadata)) return;
 
+  // 序列化排在「是否可缓存」判定之后：这一步是整段里最贵的一跳
+  // （大 metadata 可能几十 KB），能提前排除就别做。
   let serialized;
   try {
     serialized = JSON.stringify(result);
@@ -209,12 +233,16 @@ export function writeRecordCache(env, value, result, background = null) {
   }
   if (!serialized || serialized.length > RECORD_CACHE_MAX_JSON_BYTES) return;
 
+  // L1 无条件填上：它是零成本的，不需要查任何开关。
   rememberInMemory(key, result);
 
-  if (!isRecordCacheEnabled(env) || !env?.img_url?.put) return;
+  // L2 才需要开关 + 可写 KV。
+  const policy = await getRecordCachePolicy(env);
+  if (!policy.enabled || !env?.img_url?.put) return;
+
   const write = env.img_url
     .put(`${RECORD_CACHE_KV_PREFIX}${key}`, serialized, {
-      expirationTtl: recordCacheTtlSeconds(env),
+      expirationTtl: policy.ttlSeconds,
     })
     .catch((error) => console.warn('Failed to write record cache:', error?.message || error));
 
