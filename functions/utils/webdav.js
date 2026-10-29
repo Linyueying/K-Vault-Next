@@ -223,6 +223,44 @@ export async function uploadToWebDAV(arrayBuffer, storagePath, contentType, env 
   };
 }
 
+/**
+ * HEAD 探测：只取响应头，不下载字节。
+ *
+ * 下载路由对 HEAD 原本也是照着 GET 跑一遍（外层再脱 body），于是每个
+ * 「文件还在不在」的探测都要把整个对象从 WebDAV 拉下来。批量失效检测
+ * 这类场景会被放大成一次次全文读取。
+ *
+ * @param {string} storagePath - WebDAV 存储路径
+ * @param {any} env - Pages 环境
+ * @returns {Promise<{contentLength:number, contentType:string}|null>}
+ *   不存在返回 null；其他失败抛错交由调用方转成 502。
+ */
+export async function headWebDAVFile(storagePath, env = {}) {
+  const config = getWebDAVConfig(env);
+  if (!config.baseUrl) {
+    throw new Error('WebDAV base URL is not configured.');
+  }
+  if (authMode(config) === 'none') {
+    throw new Error('WebDAV auth is not configured.');
+  }
+
+  let firstFailure = null;
+  for (const mode of buildAuthAttemptModes(config)) {
+    const response = await fetchDavWithAuthMode(config, 'HEAD', storagePath, mode);
+    if (response.ok) {
+      return {
+        contentLength: Number(response.headers.get('Content-Length') || 0) || 0,
+        contentType: response.headers.get('Content-Type') || '',
+      };
+    }
+    if (response.status === 404) {
+      return null;
+    }
+    firstFailure = firstFailure || response.status;
+  }
+  throw new Error(`WebDAV HEAD failed (${firstFailure || 'unknown'})`);
+}
+
 export async function getWebDAVFile(storagePath, env = {}, options = {}) {
   const config = getWebDAVConfig(env);
   if (!config.baseUrl) {

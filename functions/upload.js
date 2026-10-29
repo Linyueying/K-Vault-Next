@@ -29,8 +29,19 @@ import {
   parseShareOptions,
   validateShareOptions,
 } from "./utils/share-options.js";
+import { MAX_IN_MEMORY_ASSEMBLY } from "./utils/chunk-limits.js";
 
 const MB = 1024 * 1024;
+
+// 直传统一上限：与 MAX_IN_MEMORY_ASSEMBLY（内存拼装安全上限）对齐。
+// 各直传分支仍然先解析 multipart 再分字节到后端，100MB 的文件会同时以
+// multipart File / arrayBuffer / 后端请求体多种形态驻留内存，逼近
+// 128MB isolate 上限 —— 宁可把大文件推去分片通道，也不冒 OOM 风险。
+const DIRECT_UPLOAD_MAX_BYTES = MAX_IN_MEMORY_ASSEMBLY;
+
+// multipart 边界与表单字段的体积余量：Content-Length 早期门禁用它
+// 区分「可能合法」与「必然超限」。
+const DIRECT_UPLOAD_LENGTH_SLACK = 1 * MB;
 
 async function serveUploadPage(context, headOnly = false) {
   const { request, env } = context;
@@ -74,6 +85,22 @@ export async function onRequestPost(context) {
        被允许上传 —— 被拒的访客白白消耗一次完整请求（文件体 + 内存），前端还会因为
        任务被标记成可重试而反复重发，形成「拒绝 → 重排 → 再拒绝」的无限循环。
        现在未登录访客直接在此处短路：不读 body、不写 KV、不触碰任何存储后端。 */
+
+    /* 大小门禁同样前置到解析 multipart 之前：Content-Length 超过
+       「直传上限 + 表单余量」的请求，无论目标存储是什么都必然超限，
+       没有理由把整个文件体读进 Worker 再拒绝一次。
+       （存储级精确上限仍由 validateDirectUpload 在拿到表单后判定。） */
+    const declaredLength = Number(request.headers.get("Content-Length") || 0);
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > DIRECT_UPLOAD_MAX_BYTES + DIRECT_UPLOAD_LENGTH_SLACK
+    ) {
+      return errorResponse(
+        `上传体积超过直传上限 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，请改用分片上传。`,
+        413
+      );
+    }
+
     if (!isAdmin) {
       // 访客上传 IP 级节流（防匿名滥用 / 刷存储），发生在解析 multipart 之前，省资源。
       // 已认证用户（isAdmin）不受此限。
@@ -325,6 +352,12 @@ async function attachShareOptions(env, response, options) {
 }
 
 function validateDirectUpload(storageMode, fileSize) {
+  // r2/s3/webdav/github 原为 100MB，但直传实现是「multipart 解析 →
+  // arrayBuffer() → 后端请求体」，100MB 文件在 128MB isolate 里会
+  // 同时存在多份拷贝，直接逼近 OOM。统一收口到 MAX_IN_MEMORY_ASSEMBLY
+  // （40MB）：更大的文件应走分片通道（R2 原生 multipart 可到 10GB）。
+  // R2 分支本身不再经 arrayBuffer（Blob 直传 put），但上限保持一致，
+  // 避免「同一后端直传与分片的上限语义互相矛盾」。
   const limits = {
     telegram: {
       maxBytes: 20 * MB,
@@ -341,10 +374,26 @@ function validateDirectUpload(storageMode, fileSize) {
       status: 413,
       message: "HuggingFace regular upload is capped at 35MB in K-Vault. Use another storage backend for larger files.",
     },
-    r2: { maxBytes: 100 * MB, status: 413, message: "R2 上传上限为 100MB。" },
-    s3: { maxBytes: 100 * MB, status: 413, message: "S3 上传上限为 100MB。" },
-    webdav: { maxBytes: 100 * MB, status: 413, message: "WebDAV 上传上限为 100MB。" },
-    github: { maxBytes: 100 * MB, status: 413, message: "GitHub 上传上限为 100MB。" },
+    r2: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `R2 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传（支持至 10GB）。`,
+    },
+    s3: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `S3 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传。`,
+    },
+    webdav: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `WebDAV 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传。`,
+    },
+    github: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `GitHub 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传。`,
+    },
   };
   const limit = limits[storageMode] || limits.telegram;
   if (Number(fileSize || 0) > limit.maxBytes) {
@@ -555,9 +604,10 @@ async function uploadToR2(file, fileName, fileExtension, env, folderPath = "") {
   try {
     const fileId = randomId("r2");
     const objectKey = `${fileId}.${fileExtension}`;
-    const arrayBuffer = await file.arrayBuffer();
 
-    await env.R2_BUCKET.put(objectKey, arrayBuffer, {
+    // File 本身就是合法的 put 入参：直接传 Blob，省掉 arrayBuffer()
+    // 这一次整文件拷贝（100MB 文件在 isolate 里就少驻留一份）。
+    await env.R2_BUCKET.put(objectKey, file, {
       httpMetadata: { contentType: file.type },
       customMetadata: { fileName, uploadTime: Date.now().toString() },
     });

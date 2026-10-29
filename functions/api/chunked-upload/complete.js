@@ -47,6 +47,29 @@
  *   与 chunk-limits.js / chunk.js 保持一致。
  *
  * ================================================================
+ * 【本次变更】R2 complete 重入状态机（取代旧「已知限制 3」）
+ *
+ * 旧缺口：mp.complete() 成功后任何一步失败（head 瞬时失败 / 元数据写入
+ * 失败），客户端重发 complete 会再次调用 mp.complete() —— uploadId 已
+ * 失效，必然失败并触发 abort，用户被迫全量重传。
+ *
+ * 新状态机（KV 任务记录持久化相位，与任务同 TTL）：
+ *
+ *   uploading → object_ready → (元数据写入) → done
+ *
+ *   · mp.complete() 成功后立即把 completionPhase=object_ready 写回任务
+ *     KV —— 哪怕后续 head / 元数据失败，重入时也跳过 complete。
+ *   · mp.complete() 抛错时先 head 判定对象是否其实已合并（「结果未知」
+ *     ≠「确实失败」）：已合并且大小相符 → 直接进入 object_ready；
+ *     无法判定 → 不 abort，保留任务返回 503 可重试；
+ *     确认不存在 → 才 abort 清理。
+ *   · object_ready 相位下元数据写入失败不再回滚删除对象：对象保留、
+ *     任务保留，重试 complete 直接从「写元数据」这一步续跑。
+ *   · 全部成功后写入 upload-done:<uploadId>（10 分钟 TTL）保存最终
+ *     响应快照；任务 KV 删除后 10 分钟内的重复 complete 会重放同一
+ *     响应，而不是报「任务不存在」。
+ *
+ * ================================================================
  * ⚠️ 已知限制：
  *
  * 1. Discord 回滚需要 DISCORD_BOT_TOKEN。
@@ -54,10 +77,6 @@
  *
  * 2. shareOptions 分支的 metadata 大小校验由
  *    utils/share-options.js 负责。
- *
- * 3. 【P1-5 衍生】R2_HEAD_RETRY 分支返回 503 后，若用户重发 complete，
- *    由于 mp.complete() 已成功执行过，再次调用 mp.complete() 可能失败
- *    （uploadId 已失效）。本文件当前未处理该重入场景，属后续迭代边界。
  *
  * ================================================================
  * ⚠️ 部署方须知：
@@ -130,6 +149,14 @@ const VALID_STORAGE_TYPES = ['telegram', 'r2', 's3', 'discord', 'huggingface', '
 
 // 用户状态 KV TTL（与 init.js 保持一致）
 const USER_STATE_TTL = 86400 * 2;
+
+// 任务 KV TTL（与 init.js 的 TASK_TTL_SECONDS 对齐）：相位回写时必须
+// 带上同样的 TTL，否则相位键会变成永不过期的孤儿。
+const TASK_TTL_SECONDS = 90 * 60;
+
+// 成功完成后的响应快照 TTL：任务 KV 删除后，重复 complete 在该窗口内
+// 重放同一响应。10 分钟足以覆盖客户端的自动重试，又不会长期占用 KV。
+const DONE_SNAPSHOT_TTL_SECONDS = 10 * 60;
 
 // 【P0-3】KV metadata 安全上限（Cloudflare 硬限制 1024 字节，留安全余量）
 export const KV_METADATA_SAFE_LIMIT = 1000;
@@ -207,6 +234,16 @@ export async function onRequestPost(context) {
     // ============================================
     taskData = await env.img_url.get(`upload:${uploadId}`, { type: 'json' });
     if (!taskData) {
+      // 任务已删除 ≠ 一定失败：成功完成后的 10 分钟内留有响应快照。
+      // 网络抖动导致客户端没收到首次响应而重发 complete 时，
+      // 这里重放同一结果，而不是让用户面对「任务不存在」去全量重传。
+      const doneSnapshot = await env.img_url.get(`upload-done:${uploadId}`, {
+        type: 'json',
+      });
+      if (doneSnapshot && Number.isFinite(Number(doneSnapshot.expiresAt)) &&
+          Date.now() < Number(doneSnapshot.expiresAt)) {
+        return jsonResponse(doneSnapshot.body || { error: '完成快照损坏' });
+      }
       return jsonResponse({ error: '上传任务不存在或已过期' }, 404);
     }
 
@@ -258,90 +295,162 @@ export async function onRequestPost(context) {
         );
       }
 
-      // ---- 校验 parts ----
-      // ============================================================
-      // 服务端级续传兜底：前端 parts 不全时，用服务端持久化的 etag 补全
-      //
-      // 场景：用户在 A 设备传到一半，换到 B 设备续传。B 没有 localStorage
-      // 快照，body.parts 是空的；但 etag 已经由 chunk.js 落在 KV 里了。
-      // 没有这段兜底，跨设备续传会卡在"分片都在 R2，却凑不出 parts"上，
-      // 只能全量重传。
-      // ============================================================
-      let rawParts =
-        Array.isArray(body?.parts) && body.parts.length
-          ? body.parts
-          : Array.isArray(taskData.uploadedParts)
-            ? taskData.uploadedParts
-            : [];
-
-      if (rawParts.length < totalChunks) {
-        const serverParts = await listUploadedParts(env, uploadId);
-        if (serverParts.length) {
-          rawParts = mergeParts(serverParts, rawParts);
-          console.log(
-            `Complete: merged ${serverParts.length} server-side part(s) for uploadId=${uploadId}`
-          );
-        }
-      }
-
-      const parts = rawParts
-        .filter(
-          (p) =>
-            p &&
-            Number.isInteger(p.partNumber) &&
-            p.partNumber > 0 &&
-            typeof p.etag === 'string' &&
-            p.etag.length > 0
-        )
-        .map((p) => ({ partNumber: p.partNumber, etag: p.etag }))
-        .sort((a, b) => a.partNumber - b.partNumber);
-
-      const uniquePartNumbers = new Set(parts.map((p) => p.partNumber));
-      if (parts.length !== totalChunks || uniquePartNumbers.size !== totalChunks) {
-        return jsonResponse(
-          {
-            error:
-              `分片信息不完整或重复：预期 ${totalChunks} 个，` +
-              `实际有效 ${parts.length} 个，去重后 ${uniquePartNumbers.size} 个`,
-          },
-          400
-        );
-      }
-
-      for (let i = 1; i <= totalChunks; i++) {
-        if (!uniquePartNumbers.has(i)) {
-          return jsonResponse({ error: `缺少 partNumber ${i}` }, 400);
-        }
-      }
-
-      const mp = env.R2_BUCKET.resumeMultipartUpload(
-        taskData.r2Multipart.key,
-        taskData.r2Multipart.uploadId
-      );
-
-      // ---- 执行 complete ----
-      try {
-        await mp.complete(parts);
+      // ---- 相位判定：object_ready 表示对象已合并，重入时跳过 complete ----
+      // 上一轮已在 mp.complete() 成功后把相位写回任务 KV；此后无论 head
+      // 校验还是元数据写入失败，重试都不应再次调用 mp.complete()
+      // （uploadId 已失效，二次调用必然抛错并误触发 abort）。
+      const completionPhase = taskData.completionPhase || 'uploading';
+      if (completionPhase === 'object_ready') {
         r2Completed = true;
         uploadedFileInfo = {
           type: 'r2',
           key: taskData.r2Multipart.key,
         };
-      } catch (err) {
-        console.error('R2 multipart complete error:', err);
-        // complete 失败 → 尝试 abort，避免存储泄漏
-        try {
-          await mp.abort();
-          r2Aborted = true;
-          await removePendingMultipart(env, ownerId, uploadId).catch((e) => {
-            console.error('removePendingMultipart after abort failed:', e);
-          });
-        } catch (abortErr) {
-          console.error('R2 multipart abort error:', abortErr);
+        console.log(
+          `Complete: resume from object_ready phase for uploadId=${uploadId}`
+        );
+      } else {
+        // ---- 校验 parts ----
+        // ============================================================
+        // 服务端级续传兜底：前端 parts 不全时，用服务端持久化的 etag 补全
+        //
+        // 场景：用户在 A 设备传到一半，换到 B 设备续传。B 没有 localStorage
+        // 快照，body.parts 是空的；但 etag 已经由 chunk.js 落在 KV 里了。
+        // 没有这段兜底，跨设备续传会卡在"分片都在 R2，却凑不出 parts"上，
+        // 只能全量重传。
+        // ============================================================
+        let rawParts =
+          Array.isArray(body?.parts) && body.parts.length
+            ? body.parts
+            : Array.isArray(taskData.uploadedParts)
+              ? taskData.uploadedParts
+              : [];
+
+        if (rawParts.length < totalChunks) {
+          const serverParts = await listUploadedParts(env, uploadId);
+          if (serverParts.length) {
+            rawParts = mergeParts(serverParts, rawParts);
+            console.log(
+              `Complete: merged ${serverParts.length} server-side part(s) for uploadId=${uploadId}`
+            );
+          }
         }
-        return jsonResponse(
-          { error: `R2 合并失败: ${err.message || err}` },
-          500
+
+        const parts = rawParts
+          .filter(
+            (p) =>
+              p &&
+              Number.isInteger(p.partNumber) &&
+              p.partNumber > 0 &&
+              typeof p.etag === 'string' &&
+              p.etag.length > 0
+          )
+          .map((p) => ({ partNumber: p.partNumber, etag: p.etag }))
+          .sort((a, b) => a.partNumber - b.partNumber);
+
+        const uniquePartNumbers = new Set(parts.map((p) => p.partNumber));
+        if (parts.length !== totalChunks || uniquePartNumbers.size !== totalChunks) {
+          return jsonResponse(
+            {
+              error:
+                `分片信息不完整或重复：预期 ${totalChunks} 个，` +
+                `实际有效 ${parts.length} 个，去重后 ${uniquePartNumbers.size} 个`,
+            },
+            400
+          );
+        }
+
+        for (let i = 1; i <= totalChunks; i++) {
+          if (!uniquePartNumbers.has(i)) {
+            return jsonResponse({ error: `缺少 partNumber ${i}` }, 400);
+          }
+        }
+
+        const mp = env.R2_BUCKET.resumeMultipartUpload(
+          taskData.r2Multipart.key,
+          taskData.r2Multipart.uploadId
+        );
+
+        // ---- 执行 complete ----
+        // ============================================================
+        // 「结果未知」≠「确实失败」：mp.complete() 抛错可能只是响应丢失，
+        // 合并其实已成功（也可能是并发重入 —— uploadId 已被上一轮用掉）。
+        // 直接 abort 会把已合并 / 正在被另一请求处理的对象拆掉。
+        // 因此先 head 目标对象，用「对象是否存在 + 大小是否相符」判定：
+        //   · 存在且大小相符 → 视为已合并，落 object_ready 相位继续
+        //   · head 本身失败（瞬时错误）→ 不 abort，保留任务，503 可重试
+        //   · 确认不存在 → 真失败，才 abort 清理
+        // ============================================================
+        try {
+          await mp.complete(parts);
+        } catch (err) {
+          console.error('R2 multipart complete error:', err);
+
+          let headObj = null;
+          let headErr = null;
+          try {
+            headObj = await env.R2_BUCKET.head(taskData.r2Multipart.key);
+          } catch (e) {
+            headErr = e;
+          }
+
+          if (headErr) {
+            // 无法判定对象状态：绝不 abort（对象可能已合并成功），
+            // 保留任务让客户端稍后重试 —— 重试会回到这段判定逻辑。
+            console.error(
+              'R2 head after complete error failed, preserving task for retry:',
+              headErr
+            );
+            return jsonResponse(
+              {
+                error: `R2 合并结果暂无法确认，请稍后重试: ${err.message || err}`,
+                code: 'R2_COMPLETE_RETRY',
+              },
+              503
+            );
+          }
+
+          if (headObj && Number(headObj.size) === fileSizeNum) {
+            // 合并其实已成功（结果未知的 complete / 并发重入）—— 继续
+            console.warn(
+              `Complete: mp.complete threw but object exists with matching size, ` +
+                `treating as merged (uploadId=${uploadId})`
+            );
+          } else if (headObj) {
+            // 存在但大小不符：异常态对象，删除后走 abort 清理
+            try {
+              await env.R2_BUCKET.delete(taskData.r2Multipart.key);
+            } catch (delErr) {
+              console.error('R2 delete mismatched object error:', delErr);
+            }
+          } else {
+            // 对象确实不存在 → complete 是真失败，abort 避免存储泄漏
+            try {
+              await mp.abort();
+              r2Aborted = true;
+              await removePendingMultipart(env, ownerId, uploadId).catch((e) => {
+                console.error('removePendingMultipart after abort failed:', e);
+              });
+            } catch (abortErr) {
+              console.error('R2 multipart abort error:', abortErr);
+            }
+            return jsonResponse(
+              { error: `R2 合并失败: ${err.message || err}` },
+              500
+            );
+          }
+        }
+
+        // ---- complete 成功（或已判定合并成功）：立即落 object_ready 相位 ----
+        // 这是状态机的提交点：写相位失败不影响本轮继续，但重入时会回到
+        // 上面的 head 判定兜底，不会造成数据损坏。
+        r2Completed = true;
+        uploadedFileInfo = {
+          type: 'r2',
+          key: taskData.r2Multipart.key,
+        };
+        await persistTaskPhase(env, uploadId, taskData, 'object_ready').catch(
+          (e) => console.warn('persistTaskPhase(object_ready) failed:', e)
         );
       }
 
@@ -728,8 +837,15 @@ export async function onRequestPost(context) {
         );
 
         // 回滚已上传目标文件
-        if (uploadedFileInfo) {
+        // 【状态机】R2 分支在 object_ready 相位下**不回滚对象**：
+        // 任务 KV 与相位已保留，客户端重试 complete 会从「写元数据」
+        // 这一步续跑；此时删对象等于销毁已合并的数据，重试将永远失败。
+        // 非 R2 分支不受影响：分片仍在，回滚目标文件后重试会重新拼装上传。
+        const keepObjectForRetry = storageType === 'r2' && r2Completed;
+        if (uploadedFileInfo && !keepObjectForRetry) {
           await rollbackUploadedFile(uploadedFileInfo, env);
+          uploadedFileInfo = null;
+        } else if (keepObjectForRetry) {
           uploadedFileInfo = null;
         }
 
@@ -794,16 +910,10 @@ export async function onRequestPost(context) {
 
     // ============================================
     // 10. 清理主任务跟踪记录 + 待处理 multipart 记录
+    //     成功响应写入 10 分钟快照（upload-done:<uploadId>）后再删任务，
+    //     保证客户端因网络抖动重发 complete 时能重放同一结果。
     // ============================================
-    await env.img_url.delete(`upload:${uploadId}`).catch(() => {});
-    await removePendingMultipart(env, ownerId, uploadId).catch((e) => {
-      console.error('removePendingMultipart on success failed:', e);
-    });
-
-    // 防御性兜底（正常情况下第 7 步已清空）
-    uploadedFileInfo = null;
-
-    return jsonResponse({
+    const finalResponse = {
       success: true,
       src: `/file/${responseFileKey}`,
       fileName: taskData.fileName,
@@ -812,7 +922,25 @@ export async function onRequestPost(context) {
       // 依然拿得到短链。未设置分享时 buildShareSummary 返回 null，
       // 这里展开后等同于不含任何字段，老客户端不受影响。
       ...(buildShareSummary(storedMetadata, metadataKey) || {}),
+    };
+
+    await env.img_url
+      .put(
+        `upload-done:${uploadId}`,
+        JSON.stringify({ body: finalResponse, expiresAt: Date.now() + DONE_SNAPSHOT_TTL_SECONDS * 1000 }),
+        { expirationTtl: DONE_SNAPSHOT_TTL_SECONDS }
+      )
+      .catch((e) => console.warn('write done snapshot failed:', e));
+
+    await env.img_url.delete(`upload:${uploadId}`).catch(() => {});
+    await removePendingMultipart(env, ownerId, uploadId).catch((e) => {
+      console.error('removePendingMultipart on success failed:', e);
     });
+
+    // 防御性兜底（正常情况下第 7 步已清空）
+    uploadedFileInfo = null;
+
+    return jsonResponse(finalResponse);
   } catch (error) {
     // ============================================
     // 异常兜底
@@ -997,6 +1125,23 @@ async function cleanupUploadTask(uploadId, totalChunks, chunkBackend, env) {
   } catch (error) {
     console.error('Cleanup error:', error);
   }
+}
+
+/**
+ * 把完成相位写回任务 KV（uploading → object_ready）。
+ *
+ * 相位与任务同 TTL（TASK_TTL_SECONDS）：不带 expirationTtl 的话，
+ * 相位键会在任务本应过期之后变成永不过期的孤儿。
+ * 写失败由调用方兜底：重入时回到 complete-错误分支的 head 判定，
+ * 不会造成数据损坏，只是多一次探测。
+ */
+async function persistTaskPhase(env, uploadId, taskData, phase) {
+  if (!env?.img_url || !uploadId) return;
+  await env.img_url.put(
+    `upload:${uploadId}`,
+    JSON.stringify({ ...taskData, completionPhase: phase }),
+    { expirationTtl: TASK_TTL_SECONDS }
+  );
 }
 
 /**

@@ -398,15 +398,16 @@ export async function getHuggingFaceFile(pathInRepo, env, options = {}) {
 
     // 服务端代理 fetch：禁止自动跟随重定向（否则可能被上游 302 诱导到
     // 内网 / 元数据地址造成 SSRF）。改为手动校验每一跳目标主机后再跟随。
-    return fetchWithSafeRedirect(url, headers);
+    // method 由调用方指定：HEAD 探测不需要下载字节。
+    return fetchWithSafeRedirect(url, headers, 5, options.method || 'GET');
 }
 
 /**
  * 手动跟随重定向，并对每一跳的 Location 重新跑 SSRF 校验。
  * 复用 ssrf-guard 的 validateRedirectLocation（校验私有 / 环回 / 元数据地址与端口）。
  */
-async function fetchWithSafeRedirect(url, headers, redirectBudget = 5) {
-    const response = await fetch(url, { headers, redirect: 'manual' });
+async function fetchWithSafeRedirect(url, headers, redirectBudget = 5, method = 'GET') {
+    const response = await fetch(url, { headers, method, redirect: 'manual' });
 
     // 非重定向（含 200/206/4xx/5xx）直接透传给调用方。
     if (response.status < 300 || response.status >= 400) {

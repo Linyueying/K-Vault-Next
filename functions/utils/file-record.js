@@ -383,7 +383,13 @@ export async function registerFileRecord(env, kvKey, metadata, options = {}) {
  * @param {{prefixes?: string[], indexId?: string, metadata?: object}} options
  */
 export async function putRecordIndex(env, kvKey, options = {}) {
-  if (!isD1Enabled(env) || !kvKey) return;
+  if (!kvKey) return;
+
+  // 记录刚登记/更新 → 该 ID 的「不存在」结论立即作废，
+  // 免得负缓存把一次 15 秒窗口内的新上传钉成 404。
+  forgetNotFound(String(kvKey));
+
+  if (!isD1Enabled(env)) return;
 
   // 快路径：metadata 已在手边，直接写
   if (options && options.metadata) {
@@ -430,6 +436,53 @@ export async function removeFileRecord(env, id) {
 // 读取侧
 // ============================================================================
 
+// ============================================================================
+// 未命中负缓存（isolate 内存）
+// ============================================================================
+// 为什么不用 KV 存负缓存：KV 写入额度有限（免费版 1000 次/天），
+// 而「不存在的 ID」几乎无穷多 —— 把负路径写进 KV 等于把放大攻击
+// 从「KV 读」转移到更稀缺的「KV 写」。isolate 内存天然按 isolate 收敛，
+// 且进程回收即清空，不需要额外清理逻辑。
+//
+// 上限刻意压得很小：它只服务于「同一个失效链接被反复访问」这类热点，
+// 随机 ID 扫站不会命中，也不该被缓存占用内存。
+const NOT_FOUND_TTL_MS = 15 * 1000;
+const NOT_FOUND_MAX_ENTRIES = 256;
+const notFoundCache = new Map(); // fileId -> expiresAt
+
+/** 该 ID 是否刚被确认不存在。 */
+function isNotFoundCached(value) {
+  if (!value) return false;
+  const expiresAt = notFoundCache.get(value);
+  if (expiresAt === undefined) return false;
+  if (expiresAt > Date.now()) return true;
+  notFoundCache.delete(value);
+  return false;
+}
+
+/** 让某个 ID 的负缓存结论失效（写入 / 删除后立即调用）。 */
+function forgetNotFound(value) {
+  if (!value) return;
+  notFoundCache.delete(value);
+  // 带前缀的键可能对应裸 ID 的探测结果（如 `r2:x.jpg` ← `x.jpg`），
+  // 这里顺带清掉按前缀剥离后的形态，避免刚写的记录在裸 ID 路径被挡住。
+  const idx = String(value).indexOf(':');
+  if (idx > 0 && idx < String(value).length - 1) {
+    notFoundCache.delete(String(value).slice(idx + 1));
+  }
+}
+
+/** 记下「这个 ID 不存在」。 */
+function rememberNotFound(value) {
+  if (!value) return;
+  if (notFoundCache.size >= NOT_FOUND_MAX_ENTRIES) {
+    // Map 保持插入顺序，第一个即最旧 —— 淘汰它维持上限
+    const oldest = notFoundCache.keys().next().value;
+    if (oldest !== undefined) notFoundCache.delete(oldest);
+  }
+  notFoundCache.set(value, Date.now() + NOT_FOUND_TTL_MS);
+}
+
 /**
  * 带 D1 优先的记录定位。
  *
@@ -452,6 +505,20 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   const value = String(fileId || '');
   const prefixes = Array.isArray(options.prefixes) ? options.prefixes : STORAGE_PREFIXES;
 
+  // ---------- 路径 0：未命中负缓存（isolate 内存） ----------
+  // 一个不存在的裸 ID 会被展开成约 11 个 KV 候选键并发探测 —— 也就是说
+  // 扫站/旧链接反复刷新这类「负路径」比正常下载更贵。这里给「确定不存在」
+  // 的 ID 一个很短的记忆窗口，让重复请求退化成 O(1)。
+  //
+  // TTL 刻意只有 15 秒：它是**优化**而非权威判定，窗口过长会让
+  // 「刚上传完立刻访问」之类的边界出现假 404。
+  if (!options.forceAll && isNotFoundCached(value)) {
+    if (typeof options.onIndexHit === 'function') {
+      options.onIndexHit({ indexed: false, kvKey: value });
+    }
+    return { record: null, kvKey: value };
+  }
+
   // ---------- 路径 A：D1 优先 ----------
   if (isD1Enabled(env) && !options.skipIndex) {
     const id = deriveIndexId(value, prefixes);
@@ -465,7 +532,11 @@ export async function getRecordWithKey(env, fileId, options = {}) {
     // miss → 继续走 KV 兜底（D1 写入失败 / 记录尚未登记）
   }
 
-  if (!env?.img_url) return { record: null, kvKey: value };
+  if (!env?.img_url) {
+    // 没有 KV 兜底可查，D1 又未命中 → 确实不存在
+    rememberNotFound(value);
+    return { record: null, kvKey: value };
+  }
 
   // ---------- 路径 B：带前缀，直查 KV ----------
   if (hasStoragePrefix(value, prefixes) && !options.forceAll) {
@@ -495,6 +566,8 @@ export async function getRecordWithKey(env, fileId, options = {}) {
     return { record: probed[hitIndex], kvKey: key };
   }
 
+  // 全候选键均未命中 → 该 ID 确实不存在，记入负缓存
+  rememberNotFound(value);
   if (typeof options.onIndexHit === 'function') {
     options.onIndexHit({ indexed: false, kvKey: value });
   }

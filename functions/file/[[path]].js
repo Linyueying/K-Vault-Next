@@ -1,7 +1,8 @@
 ﻿import { createS3Client } from '../utils/s3client.js';
+import { envValue } from '../utils/env-config.js';
 import { getDiscordFileUrl } from '../utils/discord.js';
 import { getHuggingFaceFile } from '../utils/huggingface.js';
-import { getWebDAVFile } from '../utils/webdav.js';
+import { getWebDAVFile, headWebDAVFile } from '../utils/webdav.js';
 import { getGitHubFile } from '../utils/github.js';
 import {
   getRecordWithKey as findRecordWithKey,
@@ -18,10 +19,12 @@ import {
   shouldWriteTelegramMetadata,
 } from '../utils/telegram.js';
 import {
+  consumeBundleDownloadQuota,
   incrementBundleDownloadCount,
   isBundleExpired,
   isBundleExhausted,
   readBundle,
+  refundBundleDownloadQuota,
   verifyBundlePassword,
 } from '../utils/share-bundle.js';
 
@@ -92,7 +95,74 @@ export async function onRequest(context) {
      也就不会为一次「只问在不在」的探测去做流包装。 */
   const headless = stripBodyForHead(context.request, response);
   const tracked = await trackDownloadsIfNeeded(context, headless);
-  return applyDownloadDisposition(context, tracked);
+  const cacheable = applyPublicCache(context, tracked);
+  return applyDownloadDisposition(context, cacheable);
+}
+
+// 公共文件缓存时长（秒）。刻意不长：删除后最多残留这么久的边缘副本。
+const PUBLIC_CACHE_MAX_AGE = 300;
+
+/**
+ * 给「不可变的公开文件」开放短时缓存。
+ *
+ * 默认关闭（需 PUBLIC_DOWNLOAD_CACHE=1）：缓存是**可用性换一致性**的取舍，
+ * 而文件托管的一致性预期高于静态资源 —— 用户删掉文件后，边缘副本最多
+ * 还会存在 5 分钟。因此只对「无任何保护、无配额」的文件开放，并且是
+ * 显式开关而非默认行为。
+ *
+ * 为什么必须逐个文件判定而不是整站开关：
+ *   带密码 / 有有效期 / 有下载次数上限的文件一旦进 CDN，
+ *   闸门就绕过去了 —— 边缘会直接把内容递给没有密码的人。
+ *   这类文件即便开关打开也保持 no-store。
+ */
+function applyPublicCache(context, response) {
+  try {
+    if (!response || Number(response.status) !== 200) return response;
+    if (String(context?.request?.method || '').toUpperCase() !== 'GET') return response;
+    // 分段响应（206/Range）与带 Range 的请求不进：缓存键里没有 Range，
+    // 不同区间的响应会互相污染。
+    if (context.request.headers.get('Range')) return response;
+    // 合集成员文件受合集密码与配额保护；签名直链自带有效期 —— 都不缓存。
+    if (context.__kvBundleAccess || context.__kvSignedLink) return response;
+    if (!isPublicCacheEnabled(context.env)) return response;
+    if (!isImmutablePublic(context.__kvFileMetadata)) return response;
+
+    const headers = new Headers(response.headers);
+    headers.set('Cache-Control', `public, max-age=${PUBLIC_CACHE_MAX_AGE}`);
+    headers.set('CDN-Cache-Control', `public, max-age=${PUBLIC_CACHE_MAX_AGE}`);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (error) {
+    console.warn('Failed to apply public cache headers:', error?.message || error);
+    return response;
+  }
+}
+
+/** 公共下载缓存开关（默认关闭）。 */
+function isPublicCacheEnabled(env) {
+  const raw = String(envValue(env, 'PUBLIC_DOWNLOAD_CACHE') || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'on';
+}
+
+/**
+ * 该文件是否可以安全地当作不可变公共资源缓存。
+ *
+ * 三条排除规则，任一命中就禁缓存：
+ *   · 有有效期（shareExpiresAt）
+ *   · 有密码（sharePasswordHash）
+ *   · 有下载次数上限（shareMaxDownloads > 0）
+ * 这三者都是「闸门」，而闸门一旦被边缘缓存跳过就形同虚设。
+ */
+function isImmutablePublic(metadata) {
+  if (!metadata || typeof metadata !== 'object') return false;
+  if (metadata.isFolder === true) return false;
+  if (Number(metadata.shareExpiresAt || 0) > 0) return false;
+  if (metadata.sharePasswordHash) return false;
+  if (Number(metadata.shareMaxDownloads || 0) > 0) return false;
+  return true;
 }
 
 /**
@@ -147,25 +217,23 @@ async function trackDownloadsIfNeeded(context, response) {
   if (!pending || !response) return response;
   if (!pending.file && !pending.bundle) return response;
 
-  // 关于上游 5xx 的取舍：它同样计入配额。理由是这个 500 来自「拿不到上游
-  // 文件路径」，而分享页此时已经通过 /api/share-info 确认过文件存在，
-  // 也就是说这是一次针对有效文件的、真实的访问尝试 —— 与「链接猜错了」
-  // 不同。不计数等于给出一个绕过配额的入口：反复请求让它 500 即可无限访问，
-  // 上游一旦恢复就白拿。宁可让偶发的上游抖动消耗一次配额。
+  // 【语义】只有真正开始交付字节（200 / 206）才消耗配额。
+  // 上游 5xx、416 等失败响应一个字节都没交付，客户端重试是合理行为，
+  // 因此预占的那一次必须退还（见下方的回滚分支）。
   //
-  // 真正不该计数的是「响应都没生成」的情况（404 文件不存在、401/403/410
-  // 被闸门拦下、OPTIONS 预检）—— 那些在 shouldCountAsDownload 里已排除。
+  // 「反复制造失败来绕过配额」这个担心不成立：绕过配额的前提是拿到字节，
+  // 而拿到字节的那一次必然是 200/206，必然计数。
   const counting = shouldCountAsDownload(context.request, response);
 
   // ---------------------------------------------------------------------------
-  // 预占回滚：D1 原子预占发生在响应生成之前，若最终响应属于「不该计数」的
-  // 情况（404 路径不存在 / 上游 5xx），预占的那一次配额必须补回 ——
-  // 否则用户会为一次失败的访问白付配额。
+  // 预占回滚：D1 原子预占发生在响应生成之前，若最终响应不属于「已交付」
+  // （404 路径不存在 / 上游 5xx / 416 / 闸门拦下），预占的那一次配额
+  // 必须补回 —— 否则用户会为一次失败的访问白付配额。
   //
   // 注意这与旧实现的一个细微差异：旧实现是「成功才计数」，天然不会白吃；
   // 新实现是「先占后核」，因此需要显式回滚。回滚失败只告警，不影响响应。
   // ---------------------------------------------------------------------------
-  if (context.__kvQuotaConsumed && !counting) {
+  if ((context.__kvQuotaConsumed || context.__kvBundleQuotaConsumed) && !counting) {
     if (typeof context.waitUntil === 'function') {
       context.waitUntil(refundCheckout(context, pending).catch(() => {}));
     }
@@ -189,18 +257,32 @@ async function trackDownloadsIfNeeded(context, response) {
  * @param pending - 暂存对象（需带 file.kvKey）。
  */
 async function refundCheckout(context, pending) {
-  const kvKey = pending?.file?.kvKey;
-  if (!kvKey) return;
+  const env = pending?.env || context.env;
+  const jobs = [];
 
-  const env = pending.env || context.env;
-  if (!env?.DB || typeof env.DB.prepare !== 'function') return;
-
-  try {
-    const { refundQuota } = await import('../utils/file-record.js');
-    await refundQuota(env, kvKey);
-  } catch (error) {
-    console.warn('Failed to refund download quota:', error?.message || error);
+  if (pending?.file?.kvKey && context.__kvQuotaConsumed) {
+    jobs.push(
+      (async () => {
+        const { refundQuota } = await import('../utils/file-record.js');
+        await refundQuota(env, pending.file.kvKey);
+      })().catch((error) => {
+        console.warn('Failed to refund download quota:', error?.message || error);
+      })
+    );
   }
+
+  // 合集预占同样要退还：否则一次 500 会吃掉合集的下载次数，
+  // 而用户什么都没拿到。
+  if (pending?.bundle?.slug && context.__kvBundleQuotaConsumed) {
+    jobs.push(
+      refundBundleDownloadQuota(env, pending.bundle.slug).catch((error) => {
+        console.warn('Failed to refund bundle quota:', error?.message || error);
+      })
+    );
+  }
+
+  if (!jobs.length) return;
+  await Promise.allSettled(jobs);
 }
 
 /**
@@ -247,7 +329,8 @@ async function settleTrackCounts(context, pending) {
   if (pending.file && !context.__kvQuotaConsumed) {
     jobs.push(incrementShareDownloadCount(env, pending.file.kvKey, pending.file.metadata));
   }
-  if (pending.bundle) {
+  // 合集与文件同一把尺子：D1 已原子预占过就不再重复 +1。
+  if (pending.bundle && !context.__kvBundleQuotaConsumed) {
     jobs.push(incrementBundleDownloadCount(env, pending.bundle.slug));
   }
   if (!jobs.length) return;
@@ -279,9 +362,13 @@ if (!fileId) {
     // 自带密码与独立配额：过期/超次/密码不对时，没必要再去读文件元数据。
     const bundleAccess = await verifyBundleAccess(context);
     if (bundleAccess.response) return bundleAccess.response;
+    // 合集成员文件：受合集自身的密码与配额保护，公共缓存必须让路
+    if (bundleAccess?.slug) context.__kvBundleAccess = true;
 
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
+      // 签名直链自带有效期，同样不进公共缓存
+      context.__kvSignedLink = true;
       // Signed links must go through the same share controls as the regular
       // path. Previously this branch returned before any of them ran, so
       // expiry / password / download cap were all silently bypassed.
@@ -310,6 +397,9 @@ if (!fileId) {
     const recordResult = await getRecordWithKey(env, fileId);
     const record = recordResult?.record;
     const kvKey = recordResult?.kvKey || fileId;
+
+    // 供外层判定「能否安全缓存」（见 applyPublicCache）
+    context.__kvFileMetadata = record?.metadata || null;
 
     if (env.img_url && !record?.metadata) {
       return errorResponse('File not found', 404);
@@ -417,6 +507,25 @@ function errorResponse(message, status = 500) {
   return new Response(message, { status, headers });
 }
 
+/** 请求是否为 HEAD（只问元数据、不要字节）。 */
+function isHeadRequest(request) {
+  return String(request?.method || '').toUpperCase() === 'HEAD';
+}
+
+/**
+ * 构造只有响应头、没有 body 的 HEAD 响应。
+ *
+ * 外层 stripBodyForHead 已经能脱掉 body，但那是**下载之后**再丢掉：
+ * 上游的字节已经跨网络走了一趟。真正的省法是在存储分支里就不要发起
+ * 下载 —— 本函数是那些分支的统一收口。
+ */
+function headOnlyResponse(fileName, mimeType, contentLength) {
+  const headers = new Headers();
+  addResponseHeaders(headers, fileName, mimeType);
+  headers.set('Content-Length', String(Number(contentLength) || 0));
+  return new Response(null, { status: 200, headers });
+}
+
 async function getRecordWithKey(env, fileId) {
   // 统一走 utils/file-record.js：带前缀 ID 行为不变，裸 ID 走索引加速
   return findRecordWithKey(env, fileId);
@@ -492,6 +601,13 @@ async function verifyShareAccess(context, metadata = {}, kvKey = '') {
       if (quota.ok) {
         // 原子预占成功：标记已计次，外层不再重复落账
         context.__kvQuotaConsumed = true;
+        // 与合集同理：预占后可能被后续闸门提前返回，
+        // 先把记账目标挂上，保证失败时能退款。
+        context.__kvTrackPending = {
+          env: context.env,
+          file: { kvKey, metadata },
+          bundle: context.__kvTrackPending?.bundle || null,
+        };
       } else {
         // D1 未绑定 / 记录不在 D1 → 回落旧的「读-判断」逻辑
         const currentDownloads = await readDownloadCount(context.env, kvKey, metadata);
@@ -546,10 +662,17 @@ async function verifyBundleAccess(context) {
   if (isBundleExpired(bundle)) {
     return { response: errorResponse('Bundle link has expired', 410), trackDownload: false, slug };
   }
-  if (isBundleExhausted(bundle)) {
-    return { response: errorResponse('Bundle download limit reached', 410), trackDownload: false, slug };
-  }
 
+  // ---------------------------------------------------------------------------
+  // 配额：显式下载走 D1 原子预占，与文件级同一套语义
+  //
+  // 旧实现是「先读 bundle 判断是否超限 → 放行 → 事后 +1」，两步分离，
+  // 并发请求可以同时通过「未超限」判断而超发。新的 consumeBundleDownloadQuota
+  // 用一条 UPDATE 把「判上限」与「+1」压在一起（详见 utils/bundle-store.js）。
+  //
+  // 密码校验必须排在配额之前：密码不对不应消耗任何配额。
+  // 预览（非 dl=1）只做只读校验，不吃配额。
+  // ---------------------------------------------------------------------------
   const verdict = await verifyBundlePassword(bundle, getSharePassword(context.request));
   if (verdict === 'missing') {
     return { response: errorResponse('Bundle password required', 401), trackDownload: false, slug };
@@ -558,8 +681,39 @@ async function verifyBundleAccess(context) {
     return { response: errorResponse('Bundle password invalid', 403), trackDownload: false, slug };
   }
 
-  // 无条件计次：配额的比较发生在下一次请求，所以只要放行就必须记一笔，
-  // 否则「上限 1 次」会变成「上限 1 次 + 若干次免费」。
+  const explicit = isExplicitDownload(context.request);
+
+  if (explicit) {
+    const quota = await consumeBundleDownloadQuota(context.env, slug);
+    if (quota.limited) {
+      return { response: errorResponse('Bundle download limit reached', 410), trackDownload: false, slug };
+    }
+    if (quota.ok) {
+      // 原子预占成功：标记已计次，外层不再重复 +1；若最终响应未交付字节，
+      // 外层的回滚会把这一次补回。
+      context.__kvBundleQuotaConsumed = true;
+      // 【关键】立刻把记账目标挂到 context 上。
+      // 预占之后请求可能被引擎提前返回（文件级 410 超限 / 401 缺密码 /
+      // 404 路径不存在），那些 return 发生在 rememberTrackTargets 之前 ——
+      // 若只依赖后者，pending 为空，退款逻辑找不到目标，这一次配额就泄漏了。
+      context.__kvTrackPending = {
+        env: context.env,
+        file: context.__kvTrackPending?.file || null,
+        bundle: { slug },
+      };
+      return { response: null, trackDownload: true, slug };
+    }
+    // disabled（D1 未绑定）/ error：回落到旧的读-判断。
+    // error 不能被当成 limited —— 那是把存储故障伪装成「配额用完了」。
+    if (quota.error) {
+      console.warn('Bundle quota consume failed, falling back to read check:', quota.error);
+    }
+  }
+
+  if (isBundleExhausted(bundle)) {
+    return { response: errorResponse('Bundle download limit reached', 410), trackDownload: false, slug };
+  }
+
   return { response: null, trackDownload: true, slug };
 }
 
@@ -588,9 +742,12 @@ function shouldCountAsDownload(request, response) {
   if (String(request?.method || '').toUpperCase() !== 'GET') return false;
   if (!response) return false;
   if (!isExplicitDownload(request)) return false;
-  // 只排除「闸门拦下」与「路径本来就不存在」：那些不是访问尝试，
-  // 计数等于把猜链接的代价转嫁给分享者。
-  return ![401, 403, 404, 410].includes(Number(response.status));
+  // 只有字节真的开始交付（200 全量 / 206 分段）才算一次下载。
+  // 闸门拦下（401/403/410）、路径不存在（404）、上游失败（5xx）、
+  // Range 不合法（416）都没有交付任何字节 —— 它们不该消耗配额，
+  // 而客户端的自动重试也不该因此把用户的配额刷光。
+  const status = Number(response.status);
+  return status === 200 || status === 206;
 }
 
 /** 请求是否显式要求下载（`?dl=1`）。 */
@@ -708,7 +865,7 @@ async function handleTelegramFile(context, fileId, record = null) {
   // chunked-upload / v1/import.js 均会写入该字段）。
   const telegramFileId =
     metadata.telegramFileId || String(fileId).split('.')[0];
-  const filePath = await getTelegramFilePath(env, telegramFileId);
+  const filePath = await getTelegramFilePathCached(env, telegramFileId);
   if (!filePath) {
     return errorResponse('Failed to get file path from Telegram', 500);
   }
@@ -740,7 +897,7 @@ async function handleTelegramFile(context, fileId, record = null) {
 async function handleSignedTelegramFile(context, signedMeta) {
   const { request, env } = context;
 
-  const filePath = await getTelegramFilePath(env, signedMeta.fileId);
+  const filePath = await getTelegramFilePathCached(env, signedMeta.fileId);
   if (!filePath) {
     return errorResponse('Failed to get file path from Telegram', 500);
   }
@@ -954,6 +1111,19 @@ async function handleS3File(context, fileId, record = null) {
   const mimeType = getMimeType(fileName);
 
   const s3 = createS3Client(env);
+
+  // HEAD 只问「在不在、多大」：走 S3 的 HeadObject，不要把整个对象拉回来。
+  if (isHeadRequest(request)) {
+    try {
+      const meta = await s3.headObject(s3Key);
+      if (!meta) return errorResponse('File not found in S3', 404);
+      return headOnlyResponse(fileName, mimeType, meta.contentLength);
+    } catch (error) {
+      console.warn('S3 headObject failed:', error?.message || error);
+      return errorResponse(`S3 元数据探测失败: ${error?.message || error}`, 502);
+    }
+  }
+
   const rangeHeader = request.headers.get('Range');
   const upstream = await s3.getObject(s3Key, rangeHeader ? { range: rangeHeader } : {});
 
@@ -983,6 +1153,24 @@ async function handleDiscordFile(context, fileId, record = null) {
 
   const fileInfo = await getDiscordFileUrl(discordChannelId, discordMessageId, env);
   if (!fileInfo) return errorResponse('File not found on Discord', 404);
+
+  // HEAD 只问元数据：对附件直链发 HEAD，不下载字节
+  if (isHeadRequest(request)) {
+    try {
+      const probe = await fetch(fileInfo.url, { method: 'HEAD' });
+      if (!probe.ok && probe.status !== 206) {
+        return errorResponse('File not found on Discord', probe.status === 404 ? 404 : 502);
+      }
+      return headOnlyResponse(
+        record.metadata.fileName || fileInfo.filename || fileId,
+        getMimeType(record.metadata.fileName || fileInfo.filename || fileId),
+        Number(probe.headers.get('Content-Length') || 0) || 0
+      );
+    } catch (error) {
+      console.warn('Discord HEAD failed:', error?.message || error);
+      return errorResponse(`Discord 元数据探测失败: ${error?.message || error}`, 502);
+    }
+  }
 
   const rangeHeader = request.headers.get('Range');
   const upstream = await fetch(fileInfo.url, {
@@ -1016,6 +1204,19 @@ async function handleHFFile(context, fileId, record = null) {
   const hfPath = record.metadata.hfPath;
   if (!hfPath) return errorResponse('HuggingFace path missing', 500);
 
+  // HEAD 只问元数据
+  if (isHeadRequest(request)) {
+    const probe = await getHuggingFaceFile(hfPath, env, { method: 'HEAD' });
+    if (!probe.ok && probe.status !== 206) {
+      return errorResponse('File not found on HuggingFace', probe.status || 404);
+    }
+    return headOnlyResponse(
+      record.metadata.fileName || fileId,
+      getMimeType(record.metadata.fileName || fileId),
+      Number(probe.headers.get('Content-Length') || 0) || 0
+    );
+  }
+
   const rangeHeader = request.headers.get('Range');
   const upstream = await getHuggingFaceFile(hfPath, env, rangeHeader ? { range: rangeHeader } : {});
 
@@ -1045,6 +1246,18 @@ async function handleWebDAVFile(context, fileId, record = null) {
 
   const webdavPath = record.metadata.webdavPath || fileId.replace(/^webdav:/, '');
   if (!webdavPath) return errorResponse('WebDAV path missing', 500);
+
+  // HEAD 只取响应头，不下载字节
+  if (isHeadRequest(request)) {
+    try {
+      const meta = await headWebDAVFile(webdavPath, env);
+      if (!meta) return errorResponse('File not found on WebDAV', 404);
+      return headOnlyResponse(record.metadata.fileName || fileId, getMimeType(record.metadata.fileName || fileId), meta.contentLength);
+    } catch (error) {
+      console.warn('WebDAV HEAD failed:', error?.message || error);
+      return errorResponse(`WebDAV 元数据探测失败: ${error?.message || error}`, 502);
+    }
+  }
 
   const rangeHeader = request.headers.get('Range');
   const upstream = await getWebDAVFile(webdavPath, env, rangeHeader ? { range: rangeHeader } : {});
@@ -1103,6 +1316,60 @@ async function findRecordByPrefixes(env, fileId, prefixes = []) {
     keys.map((key) => env.img_url.getWithMetadata(key).catch(() => null))
   );
   return probed.find((record) => record?.metadata) || null;
+}
+
+// ============================================================================
+// Telegram file_path 短期缓存 + single-flight
+// ============================================================================
+// 每次 GET / HEAD / Range 都要先调一次 Bot API 的 getFile 才能拿到真实
+// 下载路径：一个正在拖动进度条的视频预览会把它放大成几十次同样的调用，
+// 既拖慢响应（每次多一跳伦敦/新加坡往返），又白白吃掉 Bot 的配额。
+//
+// file_path 在 Telegram 侧有稳定的有效期（远超这里的 10 分钟），且它只是
+// 一个**指针**，不含任何权限信息 —— 缓存它不会绕过任何访问控制，
+// 真正的权限判定全在本文件的闸门里完成。
+const TG_FILE_PATH_TTL_MS = 10 * 60 * 1000;
+const TG_FILE_PATH_MAX_ENTRIES = 256;
+const tgFilePathCache = new Map();      // fileId -> { path, expiresAt }
+const tgFilePathInFlight = new Map();   // fileId -> Promise（single-flight）
+
+/**
+ * 带缓存与并发去重的 getFile 封装。
+ *
+ * 同一 fileId 的并发请求合并成一次真实调用（single-flight），
+ * 后续请求命中 isolate 内存缓存。缓存只存成功的解析结果：
+ * 失败不缓存，避免一次抖动把文件钉死 10 分钟。
+ */
+async function getTelegramFilePathCached(env, fileId) {
+  if (!fileId) return null;
+
+  const cached = tgFilePathCache.get(fileId);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) return cached.path;
+    tgFilePathCache.delete(fileId);
+  }
+
+  // 同一 fileId 的并发请求共用同一个 Promise：N 个并发只打一次 Bot API。
+  let pending = tgFilePathInFlight.get(fileId);
+  if (!pending) {
+    pending = getTelegramFilePath(env, fileId).finally(() => {
+      tgFilePathInFlight.delete(fileId);
+    });
+    tgFilePathInFlight.set(fileId, pending);
+  }
+
+  const path = await pending;
+  if (!path) return null;
+
+  if (tgFilePathCache.size >= TG_FILE_PATH_MAX_ENTRIES) {
+    // Map 保持插入顺序，第一个就是最旧的 —— 淘汰它以维持上限，
+    // 避免长期运行的 isolate 被冷门文件 ID 撑爆。
+    const oldest = tgFilePathCache.keys().next().value;
+    if (oldest !== undefined) tgFilePathCache.delete(oldest);
+  }
+  tgFilePathCache.set(fileId, { path, expiresAt: Date.now() + TG_FILE_PATH_TTL_MS });
+
+  return path;
 }
 
 async function getTelegramFilePath(env, fileId) {

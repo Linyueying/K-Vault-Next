@@ -49,6 +49,8 @@ import {
   deleteBundleRecord,
   listBundleRecords,
   incrementBundleCount,
+  consumeBundleQuota,
+  refundBundleQuota,
   isSlugTaken,
 } from './bundle-store.js';
 
@@ -531,6 +533,25 @@ export function isBundleExhausted(bundle = {}) {
  */
 export function isBundleActive(bundle = {}) {
   return !isBundleExpired(bundle) && !isBundleExhausted(bundle);
+}
+
+/**
+ * 通过 D1 原子预占一次合集下载配额。
+ *
+ * 本门面不在 D1 disabled 时自行回退 KV：调用方必须根据 disabled 明确选择
+ * 是否使用 KV 的近似配额逻辑；error 原样返回，不能当作 limited/notFound。
+ *
+ * @param env - Pages 环境。
+ * @param slug - 合集 slug。
+ * @returns `{ok, limited, notFound, disabled, count, error?}`。
+ */
+export async function consumeBundleDownloadQuota(env, slug) {
+  return consumeBundleQuota(env, slug);
+}
+
+/** 通过 D1 原子归还一次预占配额，D1 disabled/error 均明确返回。 */
+export async function refundBundleDownloadQuota(env, slug) {
+  return refundBundleQuota(env, slug);
 }
 
 /**

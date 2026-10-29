@@ -1416,7 +1416,10 @@
          task 传了就把当前 xhr 挂到任务上，暂停时可直接 abort。
          注意：abort 与 timeout 语义分开 —— abort 视为「用户主动暂停」，
          timeout 视为「可续传的失败」，两者绝不能互相冒充。 */
-      xhrUpload(url, formData, onProgress, timeoutMs, task) {
+      /* contentType 非空时显式设置请求头：分片通道用原始字节（无需 multipart
+         边界），服务端据此在解析前就能校验 Content-Length。
+         FormData 上传必须让浏览器自己带 boundary，故不传该参数。 */
+      xhrUpload(url, formData, onProgress, timeoutMs, task, contentType) {
         let xhrRef = null;
         const p = new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
@@ -1424,6 +1427,7 @@
           if (task) task.xhr = xhr;
           xhr.open("POST", url);
           xhr.withCredentials = true;
+          if (contentType) xhr.setRequestHeader("Content-Type", contentType);
           if (timeoutMs && timeoutMs > 0) xhr.timeout = timeoutMs;
           if (xhr.upload && onProgress) {
             xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); };
@@ -2764,13 +2768,19 @@
         merged.sort((a, b) => a.partNumber - b.partNumber).forEach((p) => target.push(p));
         return target;
       },
-      async uploadChunkWithRetry(item, formData, index, ctx) {
+      /* 分片走「原始字节 body + 查询参数坐标」：
+     uploadId / chunkIndex 进 URL，服务端先读任务、校验归属与分片大小，
+     全部通过后才读取 body —— 无效请求不再付出一次完整分片字节的解析成本。 */
+      async uploadChunkWithRetry(item, body, index, ctx, uploadId) {
         const MAX = 3;
+        const chunkUrl = uploadId
+          ? `${this.baseURL}/api/chunked-upload/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${index}`
+          : `${this.baseURL}/api/chunked-upload/chunk`;
         let lastErr = null;
         for (let attempt = 1; attempt <= MAX; attempt++) {
           this.assertTaskRunning(item, ctx.token);
           try {
-            const pr = this.xhrUpload(`${this.baseURL}/api/chunked-upload/chunk`, formData, (loadedChunk) => {
+            const pr = this.xhrUpload(chunkUrl, body, (loadedChunk) => {
               if (item.runToken !== ctx.token) return;
               /* 分片并行后每片都在各自的连接里回调进度。若继续按「已完成字节 + 本片」
                  各自计算，多路会互相覆盖 item.progress，而速度只反映其中一路 ——
@@ -2787,7 +2797,7 @@
                 ctx.lastLoaded = currentTotal;
               }
               setQueueView(item, patch);
-            }, this.estimateTimeout(formData.get("chunk")?.size || 0), item);
+            }, this.estimateTimeout(body?.size || 0), item, uploadId ? "application/octet-stream" : null);
             const resp = await pr;
             this.assertTaskRunning(item, ctx.token);
             return resp;
@@ -2937,16 +2947,13 @@
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize, file.size);
             const chunkBytes = end - start;
-            const fd = new FormData();
-            fd.append("chunk", file.slice(start, end));
-            fd.append("uploadId", uploadId);
-            fd.append("chunkIndex", i);
+            const chunkBlob = file.slice(start, end);
             inflight.set(i, 0);
             try {
-              const chunkResp = await this.uploadChunkWithRetry(item, fd, i, {
+              const chunkResp = await this.uploadChunkWithRetry(item, chunkBlob, i, {
                 uploadedBase, lastTime: Date.now(), lastLoaded: uploadedBase,
                 fileSize: file.size, token, track,
-              });
+              }, uploadId);
               this.assertTaskRunning(item, token);
               if (chunkResp && typeof chunkResp.etag === "string" && Number.isInteger(chunkResp.partNumber)) {
                 collectedParts.push({ partNumber: chunkResp.partNumber, etag: chunkResp.etag });

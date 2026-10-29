@@ -14,9 +14,9 @@ import { ensureSchema } from './schema.js';
  * 2. **形状兼容**：`rowToBundle()` 产出的对象与 `readBundle()` 的返回值
  *    逐字段一致，调用方拿到后无感。
  *
- * 3. **计数原子化**：合集下载计数同样**不做** read-modify-write。
+ * 3. **计数与配额原子化**：合集下载计数同样**不做** read-modify-write。
  *    原 KV 实现是「读合集 → +1 → 写回」，并发下丢计数（源码注释已承认）。
- *    这里用单条 UPDATE 完成，与原 file 级计数保持一致。
+ *    预占配额时用带上限条件的单条 UPDATE，避免并发请求同时通过前置检查。
  *
  * 4. **成员顺序稳定**：快照型合集的成员存在 bundle_files 表，靠 position
  *    保序；不依赖 SQL 的隐式行序。
@@ -267,6 +267,119 @@ export async function listBundleRecords(env) {
   } catch (error) {
     console.warn('D1 listBundleRecords failed:', error?.message || error);
     return { bundles: [], error: error?.message };
+  }
+}
+
+/**
+ * 原子预占一次合集下载配额。
+ *
+ * 上限判断与自增必须在同一条 UPDATE 中完成；若先 SELECT 再 UPDATE，并发请求
+ * 会同时读到未达上限的旧值而超发。max_downloads = 0 表示不限次数。
+ *
+ * @param {any} env
+ * @param {string} slug
+ * @returns {Promise<{ok: boolean, limited: boolean, notFound: boolean,
+ *   disabled: boolean, count: number, error?: string}>}
+ *   ok=true：预占成功，count 为回读到的最新计数；
+ *   limited=true：合集存在但已达上限，未增加计数；
+ *   notFound=true：合集不存在；
+ *   disabled=true：D1 未绑定，由调用方决定是否使用 KV 近似回退；
+ *   error：D1 执行失败，不作为限额或不存在处理。
+ */
+export async function consumeBundleQuota(env, slug) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env)) {
+    return { ok: false, limited: false, notFound: false, disabled: true, count: 0 };
+  }
+  if (!slug) {
+    return { ok: false, limited: false, notFound: true, disabled: false, count: 0 };
+  }
+
+  const normalized = String(slug);
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE bundles
+       SET download_count = download_count + 1, updated_at = ?
+       WHERE slug = ? AND (max_downloads = 0 OR download_count < max_downloads)`
+    ).bind(now(), normalized).run();
+    if (result?.success === false) {
+      throw new Error(result?.error || 'd1-consume-quota-failed');
+    }
+
+    const row = await env.DB.prepare('SELECT download_count FROM bundles WHERE slug = ?')
+      .bind(normalized).first();
+    const count = Number(row?.download_count) || 0;
+
+    if ((Number(result?.meta?.changes) || 0) > 0) {
+      return { ok: true, limited: false, notFound: false, disabled: false, count };
+    }
+    if (!row) {
+      return { ok: false, limited: false, notFound: true, disabled: false, count: 0 };
+    }
+    return { ok: false, limited: true, notFound: false, disabled: false, count };
+  } catch (error) {
+    console.warn('D1 consumeBundleQuota failed:', error?.message || error);
+    return {
+      ok: false,
+      limited: false,
+      notFound: false,
+      disabled: false,
+      count: 0,
+      error: error?.message || 'd1-consume-quota-failed',
+    };
+  }
+}
+
+/**
+ * 原子归还一次已预占的合集下载配额，计数最低为 0。
+ *
+ * @param {any} env
+ * @param {string} slug
+ * @returns {Promise<{ok: boolean, limited: boolean, notFound: boolean,
+ *   disabled: boolean, count: number, error?: string}>}
+ */
+export async function refundBundleQuota(env, slug) {
+  await ensureSchema(env);
+  if (!isD1Enabled(env)) {
+    return { ok: false, limited: false, notFound: false, disabled: true, count: 0 };
+  }
+  if (!slug) {
+    return { ok: false, limited: false, notFound: true, disabled: false, count: 0 };
+  }
+
+  const normalized = String(slug);
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE bundles
+       SET download_count = MAX(download_count - 1, 0), updated_at = ?
+       WHERE slug = ?`
+    ).bind(now(), normalized).run();
+    if (result?.success === false) {
+      throw new Error(result?.error || 'd1-refund-quota-failed');
+    }
+
+    const row = await env.DB.prepare('SELECT download_count FROM bundles WHERE slug = ?')
+      .bind(normalized).first();
+    if (!row) {
+      return { ok: false, limited: false, notFound: true, disabled: false, count: 0 };
+    }
+    return {
+      ok: true,
+      limited: false,
+      notFound: false,
+      disabled: false,
+      count: Number(row.download_count) || 0,
+    };
+  } catch (error) {
+    console.warn('D1 refundBundleQuota failed:', error?.message || error);
+    return {
+      ok: false,
+      limited: false,
+      notFound: false,
+      disabled: false,
+      count: 0,
+      error: error?.message || 'd1-refund-quota-failed',
+    };
   }
 }
 

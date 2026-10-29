@@ -500,6 +500,7 @@ npm run check
 | [`docs/guides/storage-backends.md`](docs/guides/storage-backends.md) | 七种后端逐步配置 + WebDAV 主机 |
 | [`docs/reference/architecture.md`](docs/reference/architecture.md) | 技术架构详情 |
 | [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md) | Agent / 脚本接入指南 |
+| [`docs/reference/upload-download-optimization.md`](docs/reference/upload-download-optimization.md) | 上传 / 下载链路改造记录（正确性、内存、配额、延迟） |
 | [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml) | API v1 机器可读定义 |
 | [`docs/agents/AI-OPERATIONS.md`](docs/agents/AI-OPERATIONS.md) | 写给 AI Agent 的操作手册 |
 

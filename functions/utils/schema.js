@@ -451,6 +451,36 @@ const M0013_FILE_THUMBS = [
 )`,
 ];
 
+// ============================================================================
+// Migration 0014 — API v1 幂等表
+// ============================================================================
+
+/**
+ * 把「同一 token + 同一 Idempotency-Key 只允许一次真实上传」变成数据库约束。
+ *
+ * 之前幂等快照只存 KV：并发同 key 可以各传一份（KV 无条件写），
+ * 且 32 位 FNV 哈希键存在碰撞与泄露风险。本表用 (token_id, idem_key)
+ * 主键做原子 INSERT 预占，processing / completed 两个状态支撑
+ * 「进行中 → 完成 → 24h 内重放」的完整状态机（见 utils/idempotency.js）。
+ *
+ * updated_at 兼任租约：超过 15 分钟未推进的 processing 记录可被
+ * 条件 UPDATE 接管，接管后旧持有者无法再 complete/release。
+ */
+const M0014_API_IDEMPOTENCY = [
+  `CREATE TABLE IF NOT EXISTS api_idempotency (
+  token_id      TEXT    NOT NULL,
+  idem_key      TEXT    NOT NULL,
+  request_hash  TEXT    NOT NULL,
+  state         TEXT    NOT NULL,
+  status        INTEGER,
+  response_json TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  PRIMARY KEY(token_id, idem_key)
+)`,
+];
+
 export const MIGRATIONS = [
   { id: '0001_files', statements: M0001_FILES },
   {
@@ -497,8 +527,10 @@ export const MIGRATIONS = [
     guard: { type: 'column', table: 'airdrop_stats', column: 'sender_ip' },
     statements: M0012_AIRDROP_STATS_DETAIL,
   },
-  // 纯 CREATE TABLE IF NOT EXISTS，天然幂等，不需要 guard
+// 纯 CREATE TABLE IF NOT EXISTS，天然幂等，不需要 guard
   { id: '0013_file_thumbs', statements: M0013_FILE_THUMBS },
+  // 纯 CREATE TABLE IF NOT EXISTS，天然幂等，不需要 guard
+  { id: '0014_api_idempotency', statements: M0014_API_IDEMPOTENCY },
 ];
 
 // ============================================================================
