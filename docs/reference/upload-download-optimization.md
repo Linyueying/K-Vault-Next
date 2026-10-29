@@ -152,6 +152,21 @@ WHERE slug = ? AND (max_downloads = 0 OR download_count < max_downloads)
 现在「能不能缓存」只在 `markPublicCacheable()` 里判一次，判定结论
 （`context.__kvPublicCacheable`）同时被存取两侧读取，不存在两处漂移。
 
+### 缓存写入绝不能碰客户端那条流
+
+写入侧**不用** `response.clone()`。`clone()` 内部是 `tee()`，两条分支共享
+同一条管道：`cache.put()` 一旦失败（Cache API 拒绝、体积超限、isolate 被
+回收），它会 cancel 自己那一支，而 tee 的 cancel 会传导到客户端正在读的
+那一支 —— 下载当场断开。`catch` 救不了，因为断的是流，不是 Promise。
+
+正确做法是在客户端那条流上截获（`pipeThrough` 一个累积型 `TransformStream`）：
+客户端是唯一消费者，缓存只是旁路，写失败最多是没命中，不可能再影响下载。
+累积到 64MB 就丢弃，绝不无界缓冲。
+
+同源问题还有**旧缓存条目**：Cache API 不会因代码更新而失效。键里带一个版本段
+（`BYTE_CACHE_VERSION`），改动写入逻辑时加一版，旧条目自然过期 —— 否则
+「代码修好了，用户下载还是坏的，直到 TTL 到期」。
+
 ---
 
 ## 六、API v1 幂等改为强原子

@@ -47,6 +47,18 @@ export function getByteCachePolicy() {
 }
 
 /**
+ * 缓存键的版本段。
+ *
+ * Cache API 里的条目**不会**因为代码更新而失效 —— 换了缓存策略、修了写入
+ * 逻辑，旧条目仍会按原 TTL 继续被命中。如果旧逻辑写进去的是截断的字节，
+ * 表现就是「代码已经修好，用户下载还是坏的」，直到 TTL 到期为止。
+ *
+ * 所以每次改动缓存内容的生成方式，就把这里 +1：新键与旧键不重叠，
+ * 旧条目自然过期，不需要也不可能逐个清理（键在边缘、数量未知）。
+ */
+const BYTE_CACHE_VERSION = 'v2';
+
+/**
  * 构造字节缓存键。
  *
  * 键里**刻意不带查询串**：带上 `?dl=1` 会让「预览」和「下载」各存一份同样的
@@ -56,7 +68,7 @@ export function getByteCachePolicy() {
 export function buildByteCacheKey(requestUrl, fileId) {
   const url = new URL(requestUrl);
   url.search = '';
-  url.pathname = `/__kvault-bytecache/${encodeURIComponent(String(fileId || ''))}`;
+  url.pathname = `/__kvault-bytecache/${BYTE_CACHE_VERSION}/${encodeURIComponent(String(fileId || ''))}`;
   return new Request(url.toString(), { method: 'GET' });
 }
 

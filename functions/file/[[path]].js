@@ -118,11 +118,14 @@ export async function onRequest(context) {
   // 而它必须在同一请求内、拿到响应之后才能判（要算 status / Range）。
   markPublicCacheable(context, tagged);
 
-  const final = applyDownloadDisposition(context, tagged);
+  // 顺序不能反：storeByteCache 会把「累积字节」挂在响应流上并返回新的
+  // 响应对象，disposition 必须基于**它返回的**那份改写 —— 否则两份响应
+  // 会去读同一条流，后读的必然拿到空 body。
+  const streamed = await storeByteCache(context, tagged);
 
   // 入缓存的是**未经 disposition 改写**的那份：键里不带 ?dl=1，
   // 预览与下载共用同一份字节，差异在交付前逐请求改写。
-  await storeByteCache(context, tagged);
+  const final = applyDownloadDisposition(context, streamed);
   flushBackground(context);
 
   return withTiming(context, final, startedAt);
@@ -322,36 +325,88 @@ function conditionalFromByteCache(context, cached) {
 }
 
 /**
- * 把响应写进边缘缓存（只在「确实该缓存」时调用）。
+ * 把响应接进边缘缓存，并返回**供客户端消费**的响应。
  *
- * clone() 会把流分成两路，消费速度不一致时会缓冲 —— 所以这个文件体积上限
- * 定得比 Cloudflare 的 512MB 保守得多，避免大文件把 isolate 内存顶穿。
+ * ============================================================================
+ * 为什么不是 clone() + 后台 put
+ * ============================================================================
+ * 早期写的是 `response.clone()` 再 `put(copy.body)`。它有个致命副作用：
+ * `clone()` 内部是 `tee()`，两条分支共享同一条管道 —— 只要 `put()` 失败
+ * （Cache API 拒绝该响应、体积超限、isolate 被回收），它会 **cancel 自己
+ * 那一支**，而 tee 的 cancel 会**传导到另一支**，客户端正在读的流随之断开。
+ * 现象就是「文件全部下载失败」，且 `catch` 救不了 —— 断的是流，不是 Promise。
+ *
+ * 现在改成「在客户端这条流上截获」：`pipeThrough` 后只有**一条**流，
+ * 客户端是它唯一的消费者，缓存只是旁路累积字节。缓存写失败最多是没缓存，
+ * 不可能再影响正在进行的下载。
+ *
+ * ============================================================================
+ * 体积控制
+ * ============================================================================
+ * 累积到 BYTE_CACHE_MAX_BYTES 就放弃（清空已攒的块），后续字节只透传。
+ * 有 Content-Length 时提前判掉；没有时靠这个上限兜底 —— 绝不无界缓冲。
+ *
+ * @param {object} context
+ * @param {Response} response
+ * @returns {Promise<Response>} 可能与入参相同，也可能是包了截获流的响应
  */
 async function storeByteCache(context, response) {
   const { request } = context;
 
-  if (typeof caches === 'undefined' || !caches?.default) return;
-  if (context.__kvByteCache !== 'MISS') return;   // 只有这次真的回源了才需要写
-  if (!context.__kvPublicCacheable) return;       // 闸门判定：必须公开不可变
-  if (Number(response?.status) !== 200) return;
+  if (typeof caches === 'undefined' || !caches?.default) return response;
+  if (context.__kvByteCache !== 'MISS') return response;   // 只有这次真的回源了才需要写
+  if (!context.__kvPublicCacheable) return response;       // 闸门判定：必须公开不可变
+  if (Number(response?.status) !== 200) return response;
+  if (!response.body) return response;
 
   const declared = Number(response.headers.get('Content-Length'));
-  if (Number.isFinite(declared) && declared > BYTE_CACHE_MAX_BYTES) return;
+  if (Number.isFinite(declared) && declared > BYTE_CACHE_MAX_BYTES) return response;
 
-  try {
-    const copy = response.clone();
-    const headers = new Headers(copy.headers);
-    headers.set('Cache-Control', `public, max-age=${BYTE_CACHE_TTL_SECONDS}`);
-    const toCache = new Response(copy.body, { status: 200, headers });
+  // 单流截获：变换里先 enqueue 再累积，客户端永远不等缓存。
+  const chunks = [];
+  let total = 0;
+  let overflow = false;
 
-    ensureBackground(context).push(
-      caches.default
-        .put(buildByteCacheKey(request.url, requestFileId(context)), toCache)
-        .catch((error) => console.warn('byte cache put failed:', error?.message || error))
-    );
-  } catch (error) {
-    console.warn('byte cache clone failed:', error?.message || error);
-  }
+  const tap = new TransformStream({
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+      if (overflow) return;
+      total += chunk.byteLength;
+      if (total > BYTE_CACHE_MAX_BYTES) {
+        // 超限：丢掉已攒的块，之后只透传。声明大小可能缺失或撒谎。
+        overflow = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
+    },
+    flush() {
+      if (overflow || total <= 0) return;
+      try {
+        const headers = new Headers(response.headers);
+        headers.set('Cache-Control', `public, max-age=${BYTE_CACHE_TTL_SECONDS}`);
+        // 用实际累积长度覆写：上游可能给的是压缩前长度或干脆没给。
+        headers.set('Content-Length', String(total));
+        const job = caches.default
+          .put(
+            buildByteCacheKey(request.url, requestFileId(context)),
+            new Response(new Blob(chunks), { status: 200, headers })
+          )
+          .catch((error) => console.warn('byte cache put failed:', error?.message || error));
+        // 流结束时请求上下文还活着，这里挂 waitUntil 才不会被提前回收。
+        if (typeof context.waitUntil === 'function') context.waitUntil(job);
+        else ensureBackground(context).push(job);
+      } catch (error) {
+        console.warn('byte cache put failed:', error?.message || error);
+      }
+    },
+  });
+
+  return new Response(response.body.pipeThrough(tap), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 /**
@@ -616,7 +671,10 @@ if (!fileId) {
       `${signedTelegramMeta.fileId}.${signedTelegramMeta.fileExtension || 'bin'}`,
       { background }
     );
-      const signedMetadata = signedRecord?.metadata || null;
+      // getRecordWithKey 返回 { record, kvKey }，其中 record 才是
+      // getWithMetadata 的 { value, metadata }。少一层 .record 会让
+      // signedMetadata 恒为 null —— 分享闸门全部静默跳过。
+      const signedMetadata = signedRecord?.record?.metadata || null;
 
       let signedShareAccess = null;
       if (signedMetadata) {

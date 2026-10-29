@@ -385,5 +385,137 @@ console.log('\n[F] 下载主链路端到端冒烟（onRequest）');
   }
 }
 
+// ============================================================================
+console.log('\n[H] 缓存写入失败/超限都不能影响下载本身');
+{
+  // 这一段的由来：早期实现是 `response.clone()` 再 `put(copy.body)`。
+  // clone() 内部是 tee，两条分支共享同一条管道 —— put 一旦失败就会 cancel
+  // 自己那一支，而 tee 的 cancel 会传导到客户端正在读的那一支，表现为
+  // 「文件全部下载失败」。这里把 put 固定成抛错，钉住「缓存坏了下载也不能坏」。
+  const originalCaches = globalThis.caches;
+  const originalFetch = globalThis.fetch;
+
+  const payload = new Uint8Array(256 * 1024).fill(7);
+  let putCalls = 0;
+
+  globalThis.caches = {
+    default: {
+      async match() { return undefined; },
+      async put() { putCalls += 1; throw new Error('cache refused this response'); },
+      async delete() { return true; },
+    },
+  };
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/file/bot')) {
+      return new Response(payload, {
+        status: 200,
+        headers: { 'Content-Length': String(payload.byteLength) },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/x.jpg' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const metadata = {
+      fileName: 'big.bin',
+      fileSize: payload.byteLength,
+      storageType: 'telegram',
+      telegramFileId: 'tg',
+    };
+    const kv = {
+      async get() { return null; },
+      async put() {},
+      async delete() {},
+      async getWithMetadata() { return { value: '', metadata }; },
+    };
+    const env = { img_url: kv, TG_BOT_TOKEN: 'token' };
+
+    const jobs = [];
+    const context = {
+      params: { path: 'big.bin' },
+      request: new Request('https://vault.example.com/file/big.bin'),
+      env,
+      waitUntil: (job) => jobs.push(job),
+    };
+    const res = await onRequest(context);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    await Promise.allSettled(jobs);
+
+    check('缓存写入抛错时仍返回 200', res.status === 200, `实际 ${res.status}`);
+    check(
+      '缓存写入抛错时字节长度不变',
+      buf.byteLength === payload.byteLength,
+      `${buf.byteLength} / ${payload.byteLength}`
+    );
+    check('缓存写入抛错时首尾字节完好', buf[0] === 7 && buf[buf.byteLength - 1] === 7);
+    check('确实尝试过写缓存', putCalls === 1, `put ${putCalls} 次`);
+  } finally {
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+    globalThis.fetch = originalFetch;
+  }
+
+  // 声明体积超过单文件上限：不进缓存，但字节照样完整透传
+  const originalCaches2 = globalThis.caches;
+  const originalFetch2 = globalThis.fetch;
+  let putCalls2 = 0;
+  const small = new TextEncoder().encode('small-but-declared-huge');
+
+  globalThis.caches = {
+    default: {
+      async match() { return undefined; },
+      async put() { putCalls2 += 1; },
+      async delete() { return true; },
+    },
+  };
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/file/bot')) {
+      return new Response(small, {
+        status: 200,
+        headers: { 'Content-Length': String(999 * 1024 * 1024) },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { file_path: 'photos/x.jpg' } }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const metadata = {
+      fileName: 'huge.bin',
+      fileSize: 999 * 1024 * 1024,
+      storageType: 'telegram',
+      telegramFileId: 'tg2',
+    };
+    const kv = {
+      async get() { return null; },
+      async put() {},
+      async delete() {},
+      async getWithMetadata() { return { value: '', metadata }; },
+    };
+    const jobs = [];
+    const context = {
+      params: { path: 'huge.bin' },
+      request: new Request('https://vault.example.com/file/huge.bin'),
+      env: { img_url: kv, TG_BOT_TOKEN: 'token' },
+      waitUntil: (job) => jobs.push(job),
+    };
+    const res = await onRequest(context);
+    const text = await res.text();
+    await Promise.allSettled(jobs);
+
+    check('声明超限时仍正常交付', res.status === 200 && text === 'small-but-declared-huge', `${res.status} / ${text}`);
+    check('声明超限时不写缓存', putCalls2 === 0, `put ${putCalls2} 次`);
+  } finally {
+    if (originalCaches2 === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches2;
+    globalThis.fetch = originalFetch2;
+  }
+}
+
 console.log(`\n===== 结果: ${pass} 通过 / ${fail} 失败 =====`);
 if (fail > 0) process.exit(1);
