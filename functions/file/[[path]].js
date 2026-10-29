@@ -1,4 +1,10 @@
 ﻿import { createS3Client } from '../utils/s3client.js';
+import {
+  buildByteCacheKey,
+  byteCacheMaxAge,
+  byteCacheMaxBytes,
+  isByteCacheEnabled,
+} from '../utils/byte-cache.js';
 import { envValue } from '../utils/env-config.js';
 import { getDiscordFileUrl } from '../utils/discord.js';
 import { getHuggingFaceFile } from '../utils/huggingface.js';
@@ -90,17 +96,235 @@ const MIME_TYPES = {
  *      所以连同文件级一起挪到最外层，用同一把尺子量。
  */
 export async function onRequest(context) {
-  const response = await handleRequest(context);
+  const startedAt = Date.now();
+
+  // ---- 字节缓存：命中就完全不必碰 D1 / KV / Telegram ----
+  // 这是「国内用户 + Telegram 后端」唯一能把 TTFB 从跨洋降到 PoP 本地的手段。
+  let response = await tryByteCacheMatch(context);
+  const fromByteCache = Boolean(response);
+  if (!response) response = await handleRequest(context);
+
   /* HEAD 在进计次之前就脱掉 body：下游的 trackDownloadsIfNeeded 拿不到流，
      也就不会为一次「只问在不在」的探测去做流包装。 */
   const headless = stripBodyForHead(context.request, response);
-  const tracked = await trackDownloadsIfNeeded(context, headless);
-  const cacheable = applyPublicCache(context, tracked);
-  return applyDownloadDisposition(context, cacheable);
+
+  // 命中字节缓存时不落统计：能进缓存的文件全是「公开 + 无配额」的，
+  // 它们的下载次数统计价值远低于首字节延迟，这里优先保速度。
+  const tracked = fromByteCache
+    ? headless
+    : await trackDownloadsIfNeeded(context, headless);
+
+  const tagged = await applyEntityTag(context, tracked);
+  const cacheable = applyPublicCache(context, tagged);
+  const final = applyDownloadDisposition(context, cacheable);
+
+  // 入缓存的是**未经 disposition 改写**的那份：键里不带 ?dl=1，
+  // 预览与下载共用同一份字节，差异在交付前逐请求改写。
+  storeByteCache(context, cacheable);
+  flushBackground(context);
+
+  return withTiming(context, final, startedAt);
+}
+
+/**
+ * 生成稳定的实体标签（延迟优化 P1-2）。
+ *
+ * 输入刻意只用「标识字节内容」的字段，不含当前时间这类每次都变的量 ——
+ * 否则 ETag 永远无法命中，304 形同虚设。
+ */
+/** @internal 供测试使用 */
+export async function entityTagFor(metadata, kvKey) {
+  const seed = [
+    String(kvKey || ''),
+    String(metadata?.fileSize || ''),
+    String(metadata?.updatedAt || metadata?.uploadTime || metadata?.uploadedAt || ''),
+    String(
+      metadata?.telegramFileId ||
+        metadata?.r2Key ||
+        metadata?.s3Key ||
+        metadata?.webdavPath ||
+        metadata?.hfPath ||
+        metadata?.githubPath ||
+        ''
+    ),
+  ].join('|');
+  return `"${(await sha256Hex(seed)).slice(0, 16)}"`;
+}
+
+/** 解析 If-None-Match：支持 `*`、多值与 `W/` 前缀。 */
+/** @internal 供测试使用 */
+export function parseETagList(raw) {
+  const set = new Set();
+  const value = String(raw || '').trim();
+  if (!value) return set;
+  for (const part of value.split(',')) {
+    const token = part.trim();
+    if (!token) continue;
+    set.add(token);
+    if (token.startsWith('W/')) set.add(token.slice(2));
+  }
+  return set;
+}
+
+/** 304 响应：只有标签与缓存语义，不带 body。 */
+function notModifiedResponse(entityTag) {
+  const headers = new Headers();
+  addCorsHeaders(headers);
+  headers.set('ETag', entityTag);
+  headers.set('Cache-Control', 'no-cache');
+  headers.set('Server-Timing', 'app;dur=0');
+  return new Response(null, { status: 304, headers });
+}
+
+/** 给 200 响应补上 ETag，让下一次请求有机会走 304。 */
+async function applyEntityTag(context, response) {
+  const tag = context?.__kvEntityTag;
+  if (!tag || !response || Number(response.status) !== 200) return response;
+  if (response.headers.get('ETag')) return response;
+  try {
+    const headers = new Headers(response.headers);
+    headers.set('ETag', tag);
+    return new Response(response.body, { status: 200, headers });
+  } catch (error) {
+    console.warn('Failed to attach ETag:', error?.message || error);
+    return response;
+  }
+}
+
+/**
+ * 附加耗时与缓存命中观测头。
+ *
+ * `Server-Timing` 是标准头，浏览器 DevTools 直接可读；两个 X- 头用于
+ * 判断这一次到底省下了哪一跳 —— 没有它们，线上就只能靠感觉判断优化是否生效。
+ */
+function withTiming(context, response, startedAt) {
+  try {
+    if (!response?.headers) return response;
+    const headers = new Headers(response.headers);
+    headers.set('Server-Timing', `app;dur=${Date.now() - startedAt}`);
+    if (context.__kvByteCache) headers.set('X-KVault-Byte-Cache', context.__kvByteCache);
+    if (context.__kvTgPathSource) headers.set('X-KVault-TgPath', context.__kvTgPathSource);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  } catch (error) {
+    console.warn('Failed to attach timing headers:', error?.message || error);
+    return response;
+  }
 }
 
 // 公共文件缓存时长（秒）。刻意不长：删除后最多残留这么久的边缘副本。
 const PUBLIC_CACHE_MAX_AGE = 300;
+
+/** 取请求的文件 ID（params.path 可能是数组）。 */
+function requestFileId(context) {
+  let fileId = context?.params?.path;
+  if (Array.isArray(fileId)) fileId = fileId.join('/');
+  return String(fileId || '');
+}
+
+/**
+ * 后台任务收集器。
+ *
+ * Worker 在被回收前会等 waitUntil 的任务跑完 —— 记录缓存回填、字节缓存
+ * 写入这类「丢了只是下次 miss、不影响正确性」的活挂在这里最合适：
+ * 既不阻塞首字节，又不会因为 Worker 被提前回收而白白丢掉。
+ */
+function ensureBackground(context) {
+  if (!Array.isArray(context.__kvBackground)) context.__kvBackground = [];
+  return context.__kvBackground;
+}
+
+function flushBackground(context) {
+  const jobs = context.__kvBackground;
+  if (Array.isArray(jobs) && jobs.length && typeof context.waitUntil === 'function') {
+    context.waitUntil(Promise.allSettled(jobs));
+  }
+}
+
+// ============================================================================
+// 字节缓存（延迟优化 P0-3）
+// ============================================================================
+//
+// 前面几项优化砍掉的是「定位」那一跳；这一项砍的是**取字节本身** ——
+// 对「国内用户 + Telegram 后端」来说，那是一次实打实的跨洋 GET。
+//
+// 命中后：不读 D1、不读 KV、不调 Telegram，由 PoP 本地直接吐字节，
+// TTFB 从「跨洋两跳」降到「本地一跳」。
+//
+// 安全红线：只有「公开 + 无密码 + 无有效期 + 无配额 + 非合集 + 非签名链」
+// 的文件会进缓存（判定见 isImmutablePublic）。闸门一旦能被边缘缓存跳过
+// 就形同虚设，所以这里是硬条件而非启发式。
+//
+// 为什么默认关闭：这是「可用性换一致性」的取舍 —— 删除文件后，边缘副本
+// 最多还会残留 MAX_AGE 秒。文件托管对一致性的预期高于静态资源，
+// 所以做成显式开关而非默认行为。
+
+/**
+ * 尝试从边缘缓存取字节。命中则后续完全不必碰任何后端。
+ *
+ * @returns {Promise<Response|null>} 命中返回可直接交付的响应，否则 null
+ */
+async function tryByteCacheMatch(context) {
+  const { request, env } = context;
+  context.__kvByteCache = 'BYPASS';
+
+  if (!isByteCacheEnabled(env)) return null;
+  if (String(request.method || '').toUpperCase() !== 'GET') return null;
+  if (context.__kvBundleAccess || context.__kvSignedLink) return null;
+  // Range 请求暂不进缓存。理想形态是让 Worker 返回完整 200、由 Cloudflare
+  // 自行切片（那时 Range 也能命中），但那要求 7 个存储分支都不再转发 Range，
+  // 改动面与风险都大了好几倍 —— 先把「完整下载」这条主路径做干净。
+  if (request.headers.get('Range')) return null;
+
+  try {
+    const cached = await caches.default.match(buildByteCacheKey(request.url, requestFileId(context)));
+    if (!cached) {
+      context.__kvByteCache = 'MISS';
+      return null;
+    }
+    context.__kvByteCache = 'HIT';
+    return cached;
+  } catch (error) {
+    console.warn('byte cache match failed:', error?.message || error);
+    return null;
+  }
+}
+
+/**
+ * 把响应写进边缘缓存（只在「确实该缓存」时调用）。
+ *
+ * clone() 会把流分成两路，消费速度不一致时会缓冲 —— 所以这个文件体积上限
+ * 定得比 Cloudflare 的 512MB 保守得多，避免大文件把 isolate 内存顶穿。
+ */
+function storeByteCache(context, response) {
+  const { request, env } = context;
+
+  if (!isByteCacheEnabled(env)) return;
+  if (context.__kvByteCache !== 'MISS') return;   // 只有这次真的回源了才需要写
+  if (!context.__kvPublicCacheable) return;       // 闸门判定：必须公开不可变
+  if (Number(response?.status) !== 200) return;
+
+  const declared = Number(response.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > byteCacheMaxBytes(env)) return;
+
+  try {
+    const copy = response.clone();
+    const headers = new Headers(copy.headers);
+    headers.set('Cache-Control', `public, max-age=${byteCacheMaxAge(env)}`);
+    const toCache = new Response(copy.body, { status: 200, headers });
+
+    ensureBackground(context).push(
+      caches.default
+        .put(buildByteCacheKey(request.url, requestFileId(context)), toCache)
+        .catch((error) => console.warn('byte cache put failed:', error?.message || error))
+    );
+  } catch (error) {
+    console.warn('byte cache clone failed:', error?.message || error);
+  }
+}
 
 /**
  * 给「不可变的公开文件」开放短时缓存。
@@ -115,7 +339,8 @@ const PUBLIC_CACHE_MAX_AGE = 300;
  *   闸门就绕过去了 —— 边缘会直接把内容递给没有密码的人。
  *   这类文件即便开关打开也保持 no-store。
  */
-function applyPublicCache(context, response) {
+/** @internal 供测试使用 */
+export function applyPublicCache(context, response) {
   try {
     if (!response || Number(response.status) !== 200) return response;
     if (String(context?.request?.method || '').toUpperCase() !== 'GET') return response;
@@ -124,8 +349,15 @@ function applyPublicCache(context, response) {
     if (context.request.headers.get('Range')) return response;
     // 合集成员文件受合集密码与配额保护；签名直链自带有效期 —— 都不缓存。
     if (context.__kvBundleAccess || context.__kvSignedLink) return response;
-    if (!isPublicCacheEnabled(context.env)) return response;
     if (!isImmutablePublic(context.__kvFileMetadata)) return response;
+
+    // 走到这里说明**文件本身**确实公开且不可变 —— 这是与任何开关无关的
+    // 事实判定。响应头缓存与字节缓存各有自己的开关，但共用这一个结论，
+    // 免得同一份事实在两处各判一遍而漂移（也避免为了开字节缓存
+    // 被迫先开旧的响应头缓存）。
+    context.__kvPublicCacheable = true;
+
+    if (!isPublicCacheEnabled(context.env)) return response;
 
     const headers = new Headers(response.headers);
     headers.set('Cache-Control', `public, max-age=${PUBLIC_CACHE_MAX_AGE}`);
@@ -372,10 +604,11 @@ if (!fileId) {
       // Signed links must go through the same share controls as the regular
       // path. Previously this branch returned before any of them ran, so
       // expiry / password / download cap were all silently bypassed.
-      const signedRecord = await getRecordWithKey(
-        env,
-        `${signedTelegramMeta.fileId}.${signedTelegramMeta.fileExtension || 'bin'}`
-      );
+    const signedRecord = await getRecordWithKey(
+      env,
+      `${signedTelegramMeta.fileId}.${signedTelegramMeta.fileExtension || 'bin'}`,
+      { background }
+    );
       const signedMetadata = signedRecord?.metadata || null;
 
       let signedShareAccess = null;
@@ -394,7 +627,11 @@ if (!fileId) {
       return signedResponse;
     }
 
-    const recordResult = await getRecordWithKey(env, fileId);
+    // background 收集器：把「记录缓存回填」这类后台写挂到 waitUntil 上，
+    // 既不阻塞响应，又保证 Worker 不会在写完之前被回收。
+    const background = ensureBackground(context);
+
+    const recordResult = await getRecordWithKey(env, fileId, { background });
     const record = recordResult?.record;
     const kvKey = recordResult?.kvKey || fileId;
 
@@ -410,6 +647,19 @@ if (!fileId) {
       shareAccess = await verifyShareAccess(context, record.metadata, kvKey);
       if (shareAccess?.response) {
         return shareAccess.response;
+      }
+    }
+
+    // ---- 条件请求：ETag 命中就不必再打扰上游 ----
+    // 浏览器或下载器重复请求同一文件时，这一条能省掉整条链路 ——
+    // 对 Telegram 尤其明显（那是一跳跨洋 GET），直接返回 304。
+    const requestMethod = String(request.method || '').toUpperCase();
+    if (record?.metadata && (requestMethod === 'GET' || requestMethod === 'HEAD')) {
+      const entityTag = await entityTagFor(record.metadata, kvKey);
+      context.__kvEntityTag = entityTag;
+      const noneMatch = parseETagList(request.headers.get('If-None-Match'));
+      if (noneMatch.has('*') || noneMatch.has(entityTag)) {
+        return notModifiedResponse(entityTag);
       }
     }
 
@@ -865,23 +1115,26 @@ async function handleTelegramFile(context, fileId, record = null) {
   // chunked-upload / v1/import.js 均会写入该字段）。
   const telegramFileId =
     metadata.telegramFileId || String(fileId).split('.')[0];
-  const filePath = await getTelegramFilePathCached(env, telegramFileId);
+
+  const filePath = await getTelegramFilePathCached(env, telegramFileId, context);
   if (!filePath) {
     return errorResponse('Failed to get file path from Telegram', 500);
   }
 
-  const rangeHeader = request.headers.get('Range');
-  const fetchHeaders = new Headers();
-  if (rangeHeader) fetchHeaders.set('Range', rangeHeader);
+  let upstream = await fetchTelegramUpstream(env, context.request, filePath);
 
-  const upstream = await fetch(buildTelegramFileUrl(env, filePath), {
-    method: request.method === 'HEAD' ? 'HEAD' : 'GET',
-    headers: fetchHeaders,
-    cf: { cacheTtl: 0, cacheEverything: false },
-  });
+  // 路径失效兜底：Telegram 偶尔会轮换 file_path，此时 persist 下来的旧值
+  // 会让每一次后续下载都失败 —— 失效后重新解析一次，而不是直接报错。
+  if (!telegramUpstreamOk(upstream)) {
+    await invalidateTelegramFilePath(env, telegramFileId);
+    const refreshed = await getTelegramFilePathCached(env, telegramFileId, context);
+    if (refreshed && refreshed !== filePath) {
+      upstream = await fetchTelegramUpstream(env, context.request, refreshed);
+    }
+  }
 
-  if (!upstream.ok && upstream.status !== 206) {
-    return errorResponse('Failed to fetch file from Telegram', upstream.status);
+  if (!telegramUpstreamOk(upstream)) {
+    return errorResponse('Failed to fetch file from Telegram', upstream?.status || 502);
   }
 
   const headers = new Headers();
@@ -897,7 +1150,7 @@ async function handleTelegramFile(context, fileId, record = null) {
 async function handleSignedTelegramFile(context, signedMeta) {
   const { request, env } = context;
 
-  const filePath = await getTelegramFilePathCached(env, signedMeta.fileId);
+  const filePath = await getTelegramFilePathCached(env, signedMeta.fileId, context);
   if (!filePath) {
     return errorResponse('Failed to get file path from Telegram', 500);
   }
@@ -907,18 +1160,17 @@ async function handleSignedTelegramFile(context, signedMeta) {
   const fileName = signedMeta.fileName || `${signedMeta.fileId}.${signedMeta.fileExtension || 'bin'}`;
   const mimeType = signedMeta.mimeType || getMimeType(fileName);
 
-  const rangeHeader = request.headers.get('Range');
-  const fetchHeaders = new Headers();
-  if (rangeHeader) fetchHeaders.set('Range', rangeHeader);
+  let upstream = await fetchTelegramUpstream(env, request, filePath);
+  if (!telegramUpstreamOk(upstream)) {
+    await invalidateTelegramFilePath(env, signedMeta.fileId);
+    const refreshed = await getTelegramFilePathCached(env, signedMeta.fileId, context);
+    if (refreshed && refreshed !== filePath) {
+      upstream = await fetchTelegramUpstream(env, request, refreshed);
+    }
+  }
 
-  const upstream = await fetch(buildTelegramFileUrl(env, filePath), {
-    method: request.method === 'HEAD' ? 'HEAD' : 'GET',
-    headers: fetchHeaders,
-    cf: { cacheTtl: 0, cacheEverything: false },
-  });
-
-  if (!upstream.ok && upstream.status !== 206) {
-    return errorResponse('Failed to fetch file from Telegram', upstream.status);
+  if (!telegramUpstreamOk(upstream)) {
+    return errorResponse('Failed to fetch file from Telegram', upstream?.status || 502);
   }
 
   const headers = new Headers();
@@ -928,6 +1180,41 @@ async function handleSignedTelegramFile(context, signedMeta) {
     status: upstream.status,
     statusText: upstream.statusText,
     headers,
+  });
+}
+
+/**
+ * 上游 Telegram 响应是否可用（200 / 206 都算成功）。
+ *
+ * @param {Response|null} response
+ * @returns {boolean}
+ */
+function telegramUpstreamOk(response) {
+  return Boolean(response) && (response.ok || Number(response.status) === 206);
+}
+
+/**
+ * 向 Telegram 取文件字节（或 HEAD）。
+ *
+ * `cf.cacheTtl: 0`：不让 Cloudflare 在这一跳上自行缓存 —— 字节是否该缓存
+ * 由本文件的字节缓存（Cache API）统一决定，避免两处缓存互相打架。
+ *
+ * @param env - Pages 环境。
+ * @param request - 原始请求（取 Range 与方法）。
+ * @param filePath - 已解析的 file_path。
+ * @returns {Promise<Response>}
+ */
+async function fetchTelegramUpstream(env, request, filePath) {
+  const rangeHeader = request.headers.get('Range');
+  const fetchHeaders = new Headers();
+  if (rangeHeader) fetchHeaders.set('Range', rangeHeader);
+
+  const isHead = String(request?.method || '').toUpperCase() === 'HEAD';
+
+  return fetch(buildTelegramFileUrl(env, filePath), {
+    method: isHead ? 'HEAD' : 'GET',
+    headers: fetchHeaders,
+    cf: { cacheTtl: 0, cacheEverything: false },
   });
 }
 
@@ -1333,23 +1620,115 @@ const TG_FILE_PATH_MAX_ENTRIES = 256;
 const tgFilePathCache = new Map();      // fileId -> { path, expiresAt }
 const tgFilePathInFlight = new Map();   // fileId -> Promise（single-flight）
 
+// ============================================================================
+// Telegram file_path 的 KV 持久化（延迟优化 P0-1）
+// ============================================================================
+//
+// 为什么必须落到 KV 而不是只留 isolate 内存：
+//   isolate 缓存的命中率远低于直觉 —— 请求会被分配到不同 PoP，同一 PoP 内
+//   也有多个 isolate，且 isolate 会被回收。对「国内用户 + Telegram 后端」
+//   这种每次 getFile 都要跨洋往返的场景，命中率不够就等于没优化，
+//   用户感受到的依然是「点了之后很久才开始下」。
+//
+// 为什么用独立 KV 键而不是写回文件元数据：
+//   getRecordWithKey 是 **D1 优先**，记录一旦从 D1 返回，写进 KV metadata
+//   的字段根本不会被读到 —— 持久化等于白做。独立键与记录来源解耦，
+//   无论记录从 D1 还是 KV 来都能命中。
+//
+// file_path 只是一个指针，不含任何权限信息：缓存它不会绕过任何访问控制，
+// 真正的权限判定全在本文件的闸门里完成。
+const TG_PATH_KV_PREFIX = 'tgpath:';
+const TG_PATH_KV_TTL_SECONDS = 7 * 24 * 3600;
+
 /**
- * 带缓存与并发去重的 getFile 封装。
+ * 是否启用 file_path 的 KV 持久化。
  *
- * 同一 fileId 的并发请求合并成一次真实调用（single-flight），
- * 后续请求命中 isolate 内存缓存。缓存只存成功的解析结果：
- * 失败不缓存，避免一次抖动把文件钉死 10 分钟。
+ * 默认开启：这是纯加速项，且有明确的兜底 —— 一旦解析出的路径失效，
+ * `fetchTelegramUpstream` 会失效重解析（见 `invalidateTelegramFilePath`）。
  */
-async function getTelegramFilePathCached(env, fileId) {
+function isTgPathPersistEnabled(env) {
+  const raw = String(envValue(env, 'TG_FILE_PATH_PERSIST') || '').trim().toLowerCase();
+  return raw !== '0' && raw !== 'off' && raw !== 'false' && raw !== 'no';
+}
+
+/** 把任务挂到 waitUntil；没有 context 时火后不管（写失败只会让下次 miss）。 */
+function background(context, promise) {
+  const settled = Promise.resolve(promise).catch(() => {});
+  if (context && typeof context.waitUntil === 'function') {
+    context.waitUntil(settled);
+  }
+}
+
+/** 写入 isolate 内存缓存（含 LRU 淘汰）。 */
+function rememberTgFilePath(fileId, path) {
+  if (tgFilePathCache.size >= TG_FILE_PATH_MAX_ENTRIES) {
+    // Map 保持插入顺序，第一个就是最旧的 —— 淘汰它以维持上限，
+    // 避免长期运行的 isolate 被冷门文件 ID 撑爆。
+    const oldest = tgFilePathCache.keys().next().value;
+    if (oldest !== undefined) tgFilePathCache.delete(oldest);
+  }
+  tgFilePathCache.set(fileId, { path, expiresAt: Date.now() + TG_FILE_PATH_TTL_MS });
+}
+
+/**
+ * 丢弃某个 fileId 的缓存解析结果（isolate 内存 + KV）。
+ *
+ * 触发时机：用该路径去取文件却失败了。此时多半是 Telegram 侧的路径轮换，
+ * 而不是文件真的没了 —— 清掉后下一次访问会重新走一次 getFile。
+ */
+async function invalidateTelegramFilePath(env, fileId) {
+  if (!fileId) return;
+  tgFilePathCache.delete(fileId);
+  if (!env?.img_url) return;
+  try {
+    await env.img_url.delete(`${TG_PATH_KV_PREFIX}${fileId}`);
+  } catch (error) {
+    console.warn('Failed to invalidate tgpath cache:', error?.message || error);
+  }
+}
+
+/**
+ * 三级解析 file_id → file_path：isolate 内存 → KV → Bot API。
+ *
+ * 同一 fileId 的并发请求合并成一次真实调用（single-flight）。
+ * 只缓存成功的解析结果：失败不缓存，避免一次抖动把文件钉死。
+ *
+ * @param env - Pages 环境。
+ * @param fileId - Telegram file_id。
+ * @param context - 请求上下文，用于 waitUntil 挂后台写入（可空）。
+ * @returns {Promise<string|null>} file_path。
+ */
+/** @internal 供测试使用 */
+export async function getTelegramFilePathCached(env, fileId, context = null) {
   if (!fileId) return null;
 
+  // ---- L1：isolate 内存（零往返） ----
   const cached = tgFilePathCache.get(fileId);
   if (cached) {
-    if (cached.expiresAt > Date.now()) return cached.path;
+    if (cached.expiresAt > Date.now()) {
+      if (context) context.__kvTgPathSource = 'memory';
+      return cached.path;
+    }
     tgFilePathCache.delete(fileId);
   }
 
-  // 同一 fileId 的并发请求共用同一个 Promise：N 个并发只打一次 Bot API。
+  // ---- L2：KV（跨 isolate / 跨 PoP 共享，边缘读 ~5-20ms） ----
+  const persist = isTgPathPersistEnabled(env) && Boolean(env?.img_url);
+  const kvCacheKey = `${TG_PATH_KV_PREFIX}${fileId}`;
+  if (persist) {
+    try {
+      const stored = await env.img_url.get(kvCacheKey);
+      if (stored) {
+        rememberTgFilePath(fileId, stored);
+        if (context) context.__kvTgPathSource = 'kv';
+        return stored;
+      }
+    } catch (error) {
+      console.warn('Failed to read tgpath cache:', error?.message || error);
+    }
+  }
+
+  // ---- L3：Bot API（唯一可能跨洋的一跳） ----
   let pending = tgFilePathInFlight.get(fileId);
   if (!pending) {
     pending = getTelegramFilePath(env, fileId).finally(() => {
@@ -1361,13 +1740,18 @@ async function getTelegramFilePathCached(env, fileId) {
   const path = await pending;
   if (!path) return null;
 
-  if (tgFilePathCache.size >= TG_FILE_PATH_MAX_ENTRIES) {
-    // Map 保持插入顺序，第一个就是最旧的 —— 淘汰它以维持上限，
-    // 避免长期运行的 isolate 被冷门文件 ID 撑爆。
-    const oldest = tgFilePathCache.keys().next().value;
-    if (oldest !== undefined) tgFilePathCache.delete(oldest);
+  rememberTgFilePath(fileId, path);
+  if (context) context.__kvTgPathSource = 'api';
+
+  // 回填 KV，让**后续任何 PoP、任何 isolate** 都不再付这一跳。
+  if (persist) {
+    background(
+      context,
+      env.img_url
+        .put(kvCacheKey, path, { expirationTtl: TG_PATH_KV_TTL_SECONDS })
+        .catch((error) => console.warn('Failed to persist tgpath:', error?.message || error))
+    );
   }
-  tgFilePathCache.set(fileId, { path, expiresAt: Date.now() + TG_FILE_PATH_TTL_MS });
 
   return path;
 }

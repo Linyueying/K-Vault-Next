@@ -30,6 +30,7 @@ import {
   validateShareOptions,
 } from "./utils/share-options.js";
 import { MAX_IN_MEMORY_ASSEMBLY } from "./utils/chunk-limits.js";
+import { scheduleWarm } from "./utils/byte-cache.js";
 
 const MB = 1024 * 1024;
 
@@ -259,6 +260,29 @@ export async function onRequestPost(context) {
         return await attachShareOptions(env, result, shareOptions);
       }
       return result;
+    }
+
+    // -----------------------------------------------------------------------
+    // 上传成功后预热字节缓存（延迟优化 P1-1）
+    //
+    // 字节缓存是「首次付费、后续白嫖」的模型，而典型场景「上传完立刻把链接
+    // 甩到群里」恰好撞在最慢的那一次上。上传者先自己跑一趟把缓存填上，
+    // 之后谁点都是命中。失败不影响上传结果，所以整段包在 try 里。
+    //
+    // 用 clone() 读 body：result 是要返回给客户端的 Response，直接 json()
+    // 会把它的流消费掉。
+    // -----------------------------------------------------------------------
+    try {
+      const probe = typeof result?.clone === 'function' ? result.clone() : null;
+      if (probe?.ok) {
+        const body = await probe.json().catch(() => null);
+        const uploadedKey = body ? extractUploadKey(body) : null;
+        if (uploadedKey) {
+          scheduleWarm(env, context, new URL(request.url).origin, uploadedKey);
+        }
+      }
+    } catch (error) {
+      console.warn('schedule warm failed:', error?.message || error);
     }
 
     return result;

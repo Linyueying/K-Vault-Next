@@ -55,6 +55,11 @@ import {
   clearFolderPath,
 } from './metadata-d1.js';
 import { shouldWriteKvLegacySync } from './runtime-config.js';
+import {
+  forgetRecordCache,
+  lookupRecordCache,
+  writeRecordCache,
+} from './record-cache.js';
 
 /**
  * 存储前缀列表。顺序与调用点原有实现保持一致（v1/upload.js 另有顺序，
@@ -141,6 +146,11 @@ export async function putKvFileMetadata(env, kvKey, metadata) {
   }
 
   await env.img_url.put(kvKey, '', { metadata });
+
+  // 元数据刚变（多为分享设置改动）：作废记录快路径缓存，
+  // 否则「已改密码」在 TTL 内不生效。
+  await forgetRecordCache(env, String(kvKey)).catch(() => {});
+
   return true;
 }
 
@@ -389,6 +399,10 @@ export async function putRecordIndex(env, kvKey, options = {}) {
   // 免得负缓存把一次 15 秒窗口内的新上传钉成 404。
   forgetNotFound(String(kvKey));
 
+  // 同理作废记录快路径缓存：元数据刚变（可能是新登记，可能是改了分享设置），
+  // 旧副本必须立刻失效，否则下载会在 TTL 内读到过期元数据。
+  await forgetRecordCache(env, [String(kvKey), options?.id]).catch(() => {});
+
   if (!isD1Enabled(env)) return;
 
   // 快路径：metadata 已在手边，直接写
@@ -429,7 +443,10 @@ export async function deleteRecordIndex(env, fileId) {
  * @returns {Promise<boolean>}
  */
 export async function removeFileRecord(env, id) {
-  return deleteFileRecord(env, id);
+  const removed = await deleteFileRecord(env, id);
+  // 删除必须同步失效 —— 否则缓存副本会让已删文件在 TTL 内继续可下载。
+  await forgetRecordCache(env, String(id || '')).catch(() => {});
+  return removed;
 }
 
 // ============================================================================
@@ -498,6 +515,7 @@ function rememberNotFound(value) {
  *   forceAll?: boolean,
  *   skipIndex?: boolean,   // 兼容旧参数；D1 模式下表示"跳过 D1 直查 KV"
  *   onIndexHit?: (info: {indexed: boolean, kvKey: string}) => void
+ *   background?: Array<Promise>  // 收集记录缓存的后台写入，由调用方 waitUntil
  * }} options
  * @returns {Promise<{record: any, kvKey: string}>}
  */
@@ -519,11 +537,29 @@ export async function getRecordWithKey(env, fileId, options = {}) {
     return { record: null, kvKey: value };
   }
 
+  // ---------- 路径 0.5：记录快路径缓存（延迟优化 P0-2） ----------
+  // 命中即省掉一次 D1 跨洋 SELECT —— 这正是「点了之后很久才开始下」里
+  // 最先该砍掉的一跳。forceAll 表示调用方要**权威结果**，一律跳过。
+  //
+  // 注意：只有「无密码 / 无有效期 / 无配额」的记录会被缓存
+  // （判定见 record-cache.js 的 isCacheableRecord），受保护文件的闸门
+  // 永远走真实数据源，不存在陈旧读取绕过权限的可能。
+  if (!options.forceAll) {
+    const cached = await lookupRecordCache(env, value);
+    if (cached?.record?.metadata) {
+      if (typeof options.onIndexHit === 'function') {
+        options.onIndexHit({ indexed: true, kvKey: cached.kvKey });
+      }
+      return cached;
+    }
+  }
+
   // ---------- 路径 A：D1 优先 ----------
   if (isD1Enabled(env) && !options.skipIndex) {
     const id = deriveIndexId(value, prefixes);
     const hit = await getFileRecord(env, id);
     if (hit) {
+      writeRecordCache(env, value, hit, options.background);
       if (typeof options.onIndexHit === 'function') {
         options.onIndexHit({ indexed: true, kvKey: hit.kvKey });
       }
@@ -542,6 +578,7 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   if (hasStoragePrefix(value, prefixes) && !options.forceAll) {
     const record = await env.img_url.getWithMetadata(value);
     if (record?.metadata) {
+      writeRecordCache(env, value, { record, kvKey: value }, options.background);
       return { record, kvKey: value };
     }
     return { record: null, kvKey: value };
@@ -560,6 +597,12 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   const hitIndex = probed.findIndex((record) => record?.metadata);
   if (hitIndex !== -1) {
     const key = candidateKeys[hitIndex];
+    writeRecordCache(
+      env,
+      value,
+      { record: probed[hitIndex], kvKey: key },
+      options.background
+    );
     if (typeof options.onIndexHit === 'function') {
       options.onIndexHit({ indexed: false, kvKey: key });
     }

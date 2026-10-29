@@ -1,5 +1,6 @@
 import { changedCount } from './d1-result.js';
 import { ensureSchema } from './schema.js';
+import { forgetRecordCache } from './record-cache.js';
 import { inferFileType } from './file-type.js';
 
 /**
@@ -250,6 +251,10 @@ export async function putFileRecord(env, id, kvKey, metadata) {
       c.share_title, c.share_description,
       ts, ts
     ).run();
+
+    // 记录内容刚被整体重写（可能是改名、换存储键、改分享设置）→
+    // 记录快路径缓存里的旧副本必须立刻作废，否则读侧会在 TTL 内继续拿到旧值。
+    await forgetRecordCache(env, [String(id), String(kvKey || '')]).catch(() => {});
 
     return { ok: true };
   } catch (error) {
@@ -658,6 +663,8 @@ export async function deleteFileRecord(env, id) {
 
   try {
     await env.DB.prepare('DELETE FROM files WHERE id = ?').bind(String(id)).run();
+    // 删除后缓存副本若存活，等于文件「复活」—— 必须同步失效。
+    await forgetRecordCache(env, String(id)).catch(() => {});
     return true;
   } catch (error) {
     console.warn('D1 deleteFileRecord failed:', error?.message || error);
@@ -697,6 +704,9 @@ export async function updateShareOptions(env, id, sharePatch = {}) {
       now(),
       String(id)
     ).run();
+
+    // 密码 / 有效期 / 配额刚变：这是最不能陈旧的一类数据。
+    await forgetRecordCache(env, String(id)).catch(() => {});
 
     return { ok: true };
   } catch (error) {
@@ -772,6 +782,7 @@ export async function updateFileMetadataFields(env, id, patch = {}) {
     const res = await env.DB.prepare(
       `UPDATE files SET ${assignments.join(', ')} WHERE id = ?`
     ).bind(...values).run();
+    await forgetRecordCache(env, String(id)).catch(() => {});
     return { ok: true, updated: changedCount(res) };
   } catch (error) {
     console.warn('D1 updateFileMetadataFields failed:', error?.message || error);

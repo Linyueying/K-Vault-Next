@@ -134,6 +134,7 @@ import {
   deriveIndexId,
   STORAGE_PREFIXES,
 } from '../../utils/file-record.js';
+import { scheduleWarm } from '../../utils/byte-cache.js';
 
 const TEMP_CHUNK_PREFIX = 'chunk-upload';
 const MB = 1024 * 1024;
@@ -939,6 +940,14 @@ export async function onRequestPost(context) {
 
     // 防御性兜底（正常情况下第 7 步已清空）
     uploadedFileInfo = null;
+
+    // 上传成功后预热字节缓存（延迟优化 P1-1）：见 upload.js 同名的说明。
+    // 分片场景更值得预热 —— 能走到这里的通常都是大文件，慢的那一次更贵。
+    try {
+      scheduleWarm(env, context, new URL(request.url).origin, responseFileKey);
+    } catch (error) {
+      console.warn('schedule warm failed:', error?.message || error);
+    }
 
     return jsonResponse(finalResponse);
   } catch (error) {
