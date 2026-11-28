@@ -854,6 +854,203 @@
   }
 
   /* ================================================================== *
+   * 多端合并：按条目级 LWW + 软删/硬删墓碑做确定性合并（纯函数）
+   *   - 不同条目的并发增删改自动保留，绝不整库覆盖丢记录
+   *   - 同一条目并发修改取 updatedAt 更新者，并合并 passwordHistory 去重并集
+   *   - 回收站（deleted）与彻底清除（purged）按时间戳与活跃态比较，防止幽灵复活
+   *   - 文件夹同样支持 LWW + deletedFolders 墓碑，并清理悬空 folderId
+   * ================================================================== */
+
+  function cloneJson(v) {
+    return JSON.parse(JSON.stringify(v));
+  }
+
+  function mergePasswordHistory(a, b, limit) {
+    var cap = Math.max(1, Number(limit) || 5);
+    var combined = (Array.isArray(a) ? a : []).concat(Array.isArray(b) ? b : []);
+    combined.sort(function (x, y) { return (Number(y && y.updatedAt) || 0) - (Number(x && x.updatedAt) || 0); });
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < combined.length; i += 1) {
+      var h = combined[i];
+      if (!h || !h.password) continue;
+      var k = String(h.password);
+      if (seen[k]) continue;
+      seen[k] = true;
+      out.push({ password: h.password, updatedAt: Number(h.updatedAt) || 0 });
+      if (out.length >= cap) break;
+    }
+    return out;
+  }
+
+  function itemStamp(it) {
+    if (!it) return 0;
+    return Math.max(Number(it.updatedAt) || 0, Number(it.createdAt) || 0);
+  }
+
+  function deletedStamp(it) {
+    if (!it) return 0;
+    return Math.max(Number(it.deletedAt) || 0, Number(it.updatedAt) || 0, Number(it.createdAt) || 0);
+  }
+
+  function mergeVaultDocs(localDoc, remoteDoc) {
+    if (!localDoc && !remoteDoc) {
+      return {
+        schema: 1,
+        vaultId: uuid(),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        settings: {},
+        folders: [],
+        deletedFolders: [],
+        items: [],
+        deleted: [],
+        purged: [],
+      };
+    }
+    if (!localDoc) return cloneJson(remoteDoc);
+    if (!remoteDoc) return cloneJson(localDoc);
+
+    var loc = cloneJson(localDoc);
+    var rem = cloneJson(remoteDoc);
+
+    // 1) 设置项：以整体 updatedAt 较新的一方覆盖，缺省字段补全
+    var locDocTs = Number(loc.updatedAt) || 0;
+    var remDocTs = Number(rem.updatedAt) || 0;
+    var settings = locDocTs >= remDocTs
+      ? Object.assign({}, rem.settings || {}, loc.settings || {})
+      : Object.assign({}, loc.settings || {}, rem.settings || {});
+    var historyLimit = Number(settings.passwordHistoryLimit) || 5;
+
+    // 2) 文件夹与文件夹墓碑合并
+    var folderState = {};
+    function touchFolder(id, state, ts, payload) {
+      if (!id) return;
+      var cur = folderState[id];
+      if (!cur || ts > cur.ts || (ts === cur.ts && state === "active" && cur.state !== "active")) {
+        folderState[id] = { state: state, ts: ts, payload: payload };
+      }
+    }
+    (rem.folders || []).forEach(function (f) {
+      touchFolder(f && f.id, "active", Math.max(Number(f && f.updatedAt) || 0, Number(f && f.createdAt) || 0), f);
+    });
+    (loc.folders || []).forEach(function (f) {
+      touchFolder(f && f.id, "active", Math.max(Number(f && f.updatedAt) || 0, Number(f && f.createdAt) || 0), f);
+    });
+    (rem.deletedFolders || []).forEach(function (t) {
+      touchFolder(t && t.id, "deleted", Number(t && t.deletedAt) || 0, t);
+    });
+    (loc.deletedFolders || []).forEach(function (t) {
+      touchFolder(t && t.id, "deleted", Number(t && t.deletedAt) || 0, t);
+    });
+
+    var mergedFolders = [];
+    var mergedDeletedFolders = [];
+    var validFolderIds = {};
+    Object.keys(folderState).forEach(function (id) {
+      var entry = folderState[id];
+      if (entry.state === "active" && entry.payload) {
+        mergedFolders.push(entry.payload);
+        validFolderIds[id] = true;
+      } else {
+        mergedDeletedFolders.push({ id: id, deletedAt: entry.ts });
+      }
+    });
+    mergedDeletedFolders.sort(function (a, b) { return b.deletedAt - a.deletedAt; });
+    if (mergedDeletedFolders.length > 200) mergedDeletedFolders = mergedDeletedFolders.slice(0, 200);
+
+    // 3) 条目、回收站、永久清除墓碑合并
+    var itemRecords = {};
+    function ensureRec(id) {
+      if (!itemRecords[id]) {
+        itemRecords[id] = { active: null, activeTs: -1, deleted: null, deletedTs: -1, purgedTs: -1, histories: [] };
+      }
+      return itemRecords[id];
+    }
+
+    function absorbActive(it) {
+      if (!it || !it.id) return;
+      var rec = ensureRec(it.id);
+      var ts = itemStamp(it);
+      if (Array.isArray(it.passwordHistory)) rec.histories.push(it.passwordHistory);
+      if (!rec.active || ts >= rec.activeTs) {
+        rec.active = it;
+        rec.activeTs = ts;
+      }
+    }
+    function absorbDeleted(it) {
+      if (!it || !it.id) return;
+      var rec = ensureRec(it.id);
+      var ts = deletedStamp(it);
+      if (Array.isArray(it.passwordHistory)) rec.histories.push(it.passwordHistory);
+      if (!rec.deleted || ts >= rec.deletedTs) {
+        rec.deleted = it;
+        rec.deletedTs = ts;
+      }
+    }
+    function absorbPurged(t) {
+      if (!t || !t.id) return;
+      var rec = ensureRec(t.id);
+      var ts = Number(t.purgedAt) || 0;
+      if (ts > rec.purgedTs) rec.purgedTs = ts;
+    }
+
+    (rem.items || []).forEach(absorbActive);
+    (loc.items || []).forEach(absorbActive);
+    (rem.deleted || []).forEach(absorbDeleted);
+    (loc.deleted || []).forEach(absorbDeleted);
+    (rem.purged || []).forEach(absorbPurged);
+    (loc.purged || []).forEach(absorbPurged);
+
+    var mergedItems = [];
+    var mergedDeleted = [];
+    var mergedPurged = [];
+
+    Object.keys(itemRecords).forEach(function (id) {
+      var rec = itemRecords[id];
+      var bestTs = Math.max(rec.activeTs, rec.deletedTs, rec.purgedTs);
+      // 同时间戳优先保活（active > deleted > purged），避免边界丢失数据
+      if (rec.active && rec.activeTs === bestTs) {
+        var win = rec.active;
+        if (rec.histories.length > 1) {
+          win.passwordHistory = mergePasswordHistory(rec.histories[0], rec.histories[1], historyLimit);
+        }
+        if (win.folderId && !validFolderIds[win.folderId]) win.folderId = null;
+        win.deletedAt = null;
+        mergedItems.push(win);
+      } else if (rec.deleted && rec.deletedTs === bestTs) {
+        var del = rec.deleted;
+        if (rec.histories.length > 1) {
+          del.passwordHistory = mergePasswordHistory(rec.histories[0], rec.histories[1], historyLimit);
+        }
+        if (del.folderId && !validFolderIds[del.folderId]) del.folderId = null;
+        mergedDeleted.push(del);
+      } else if (rec.purgedTs >= 0) {
+        mergedPurged.push({ id: id, purgedAt: rec.purgedTs });
+      }
+    });
+
+    mergedItems.sort(function (a, b) { return itemStamp(b) - itemStamp(a); });
+    mergedDeleted.sort(function (a, b) { return deletedStamp(b) - deletedStamp(a); });
+    mergedPurged.sort(function (a, b) { return b.purgedAt - a.purgedAt; });
+    if (mergedPurged.length > 500) mergedPurged = mergedPurged.slice(0, 500);
+
+    var createdCandidates = [Number(loc.createdAt) || 0, Number(rem.createdAt) || 0].filter(Boolean);
+    return {
+      schema: 1,
+      vaultId: rem.vaultId || loc.vaultId || uuid(),
+      createdAt: createdCandidates.length ? Math.min.apply(null, createdCandidates) : Date.now(),
+      updatedAt: Math.max(locDocTs, remDocTs, Date.now()),
+      settings: settings,
+      folders: mergedFolders,
+      deletedFolders: mergedDeletedFolders,
+      items: mergedItems,
+      deleted: mergedDeleted,
+      purged: mergedPurged,
+    };
+  }
+
+  /* ================================================================== *
    * 导出
    * ================================================================== */
 
@@ -889,6 +1086,8 @@
     // security
     isWeakPassword: isWeakPassword,
     analyzePasswords: analyzePasswords,
+    // sync merge
+    mergeVaultDocs: mergeVaultDocs,
     // portable
     TYPE_TO_BW: TYPE_TO_BW,
     BW_TO_TYPE: BW_TO_TYPE,

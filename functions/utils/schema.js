@@ -544,6 +544,21 @@ const M0020_TRASH_INDEXES = [
   `DROP INDEX IF EXISTS idx_files_content_sha`,
 ];
 
+// ============================================================================
+// Migration 0021 — 密码库独立存储（替代借道 Pastebin，支持乐观锁 revision）
+// ============================================================================
+
+const M0021_VAULT_RECORDS = [
+  `CREATE TABLE IF NOT EXISTS vault_records (
+  vault_key   TEXT    PRIMARY KEY,
+  revision    INTEGER NOT NULL DEFAULT 1,
+  envelope    TEXT    NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  updated_by  TEXT,
+  byte_size   INTEGER NOT NULL DEFAULT 0
+)`,
+];
+
 export const MIGRATIONS = [
   { id: '0001_files', statements: M0001_FILES },
   {
@@ -608,6 +623,7 @@ export const MIGRATIONS = [
     statements: M0019_FILE_TRASH,
   },
   { id: '0020_trash_indexes', statements: M0020_TRASH_INDEXES },
+  { id: '0021_vault_records', statements: M0021_VAULT_RECORDS },
 ];
 
 // ============================================================================

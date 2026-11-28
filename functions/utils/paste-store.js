@@ -174,7 +174,12 @@ export async function createPaste(
 
   // ---------- 路径 A：D1 ----------
   const d1 = await putPasteRecord(env, record);
-  if (!d1.disabled) return summarize(record);
+  if (!d1.disabled) {
+    if (!d1.ok) {
+      throw new Error(d1.error || 'Failed to save paste record in D1.');
+    }
+    return summarize(record);
+  }
 
   // ---------- 路径 B：KV 兜底 ----------
   const kvOptions = {
@@ -379,7 +384,12 @@ export async function deletePasteById(id, env) {
   // 用 DELETE 的 changes 判断存在性，省掉一次 SELECT。
   // 注意不能像 KV 那样"先查后删"：并发下两次查询之间记录可能已被别的请求删掉。
   const d1 = await deletePasteRecord(env, pasteId);
-  if (!d1.disabled) return (d1.deleted || 0) > 0;
+  if (!d1.disabled) {
+    if (!d1.ok) {
+      throw new Error(d1.error || 'Failed to delete paste record in D1.');
+    }
+    return (d1.deleted || 0) > 0;
+  }
 
   // ---------- 路径 B：KV 兜底 ----------
   ensureKv(env);

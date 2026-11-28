@@ -15,6 +15,7 @@
 <script src="/assets/js/app-core.js"></script>
 <script src="/assets/js/vault-wordlist.js"></script>
 <script src="/assets/js/vault-core.js"></script>
+<script src="/assets/js/vault-sync.js"></script>
 <style>
 /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 design-system.css */
 
@@ -152,6 +153,14 @@ html[data-theme="dark"] .chip-ok{color:#6ee7b7}
 .search-clear:hover{background:rgba(var(--primary-rgb),.12);color:var(--primary)}
 .list-actions{display:flex;align-items:center;gap:8px}
 .list-actions .select{flex:1;min-width:0}
+.sync-trigger{
+  display:inline-flex;align-items:center;gap:6px;padding:3px 8px;margin-left:-8px;
+  border:0;border-radius:var(--r-pill);background:transparent;color:var(--text-muted);
+  font-size:.76rem;cursor:pointer;transition:background .16s ease,color .16s ease;
+}
+.sync-trigger:hover:not(:disabled){background:rgba(var(--primary-rgb),.1);color:var(--primary)}
+.sync-trigger:disabled{opacity:.65;cursor:default}
+.sync-trigger i{font-size:.7rem;opacity:.8}
 .btn--sm-icon{width:var(--h-ctrl);padding:0;border-radius:var(--radius-sm)}
 .vault-items{overflow:auto;display:flex;flex-direction:column;gap:8px;padding-right:2px}
 .vault-item{
@@ -386,7 +395,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
       <div class="hint" style="margin-top:10px" v-if="unlockGuard.fails > 0 && unlockLockedSeconds === 0">
         <i class="fas fa-triangle-exclamation"></i> 已连续失败 {{ unlockGuard.fails }} 次，剩余 {{ unlockFailsLeft }} 次尝试后进入冷却。
       </div>
-      <div class="hint" style="margin-top:12px">密码库位置：{{ pasteId ? '云端已同步' : '仅本地' }} · {{ envelope && envelope.meta ? (envelope.meta.itemCount||0) : 0 }} 条记录</div>
+      <div class="hint" style="margin-top:12px">密码库位置：{{ syncRevision > 0 ? ('云端已同步 · v' + syncRevision) : '仅本地' }} · {{ envelope && envelope.meta ? (envelope.meta.itemCount||0) : 0 }} 条记录</div>
     </section>
 
     <!-- ===== 已解锁：主壳 ===== -->
@@ -466,7 +475,13 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
             <button class="btn btn--sm" style="flex:1" @click="showSettings=true"><i class="fas fa-gear"></i>设置</button>
           </div>
           <div class="list-actions" style="justify-content:space-between">
-            <span class="hint"><span :class="syncDotClass"></span> {{ syncText }}</span>
+            <button type="button" class="sync-trigger" :disabled="syncState==='syncing'"
+                    @click="syncNow({ manual: true })"
+                    :title="syncRevision > 0 ? ('云端版本 v' + syncRevision + ' · 点击立即与云端双向同步') : '点击立即同步到云端'">
+              <span :class="syncDotClass"></span>
+              <span>{{ syncText }}</span>
+              <i class="fas fa-rotate" :class="{'fa-spin': syncState==='syncing'}"></i>
+            </button>
             <span class="hint">{{ visibleItems.length }} / {{ liveTotal }} 项</span>
           </div>
         </div>
@@ -1028,13 +1043,11 @@ setTimeout(function () {
 (function () {
   "use strict";
 
-  var API_BASE = "./api/manage/paste";
-  var VAULT_LANGUAGE = "kvault-vault-v1";
-  var LS_PASTE_ID = "kvault.vault.pasteId";
-  var LS_ENVELOPE = "kvault.vault.envelope";
+  var VAULT_API = "./api/manage/vault";
   var LS_SETTINGS = "kvault.vault.uiSettings";
   var LS_ICONS = "kvault.vault.iconCache";
   var ICON_ERR_TTL = 24 * 3600 * 1000; // 网站图标加载失败后 24h 内不再重试
+  var SYNC_POLL_INTERVAL_MS = 30 * 1000; // 已解锁且前台可见时，30s 轻量轮询 ?metaOnly=1
 
   // 主密码尝试限流：前 UNLOCK_FREE_ATTEMPTS 次失败不冷却，之后指数退避（封顶 15 分钟）
   var LS_UNLOCK_GUARD = "kvault.vault.unlockGuard";
@@ -1070,6 +1083,9 @@ setTimeout(function () {
   }
 
   var READ = typeof VaultCore !== "undefined" && VaultCore || null;
+  var SYNC = typeof VaultSync !== "undefined" && VaultSync
+    ? VaultSync.createClient({ endpoint: VAULT_API, core: READ })
+    : null;
 
   var vaultApp = Vue.createApp({
     data: function () {
@@ -1081,7 +1097,9 @@ setTimeout(function () {
 
         // 密钥材料（仅内存）
         envelope: null,
-        pasteId: null,
+        syncRevision: 0,
+        lastSyncedAt: 0,
+        hasPendingLocalChanges: false,
         key: null,
         kdf: null,
         doc: null,
@@ -1220,7 +1238,11 @@ setTimeout(function () {
         return n > 0 ? n : 0;
       },
       syncText: function () {
-        return { idle: "已同步", syncing: "同步中…", synced: "刚刚同步", failed: "同步失败（本地已保存）" }[this.syncState] || "";
+        if (this.syncState === "syncing") return "同步中…";
+        if (this.syncState === "synced") return this.syncRevision > 0 ? ("已同步 v" + this.syncRevision) : "刚刚同步";
+        if (this.syncState === "failed") return "同步失败（点此重试）";
+        if (this.hasPendingLocalChanges) return "待同步…";
+        return this.syncRevision > 0 ? ("已同步 v" + this.syncRevision) : "未同步到云端";
       },
       syncDotClass: function () {
         return "sync-dot is-" + (this.syncState === "synced" ? "synced" : this.syncState === "failed" ? "failed" : this.syncState === "syncing" ? "syncing" : "idle");
@@ -1253,20 +1275,36 @@ setTimeout(function () {
 
     mounted: function () {
       var self = this;
-      this._enqueueSave = KVault.debounce(function () { self._runSave(); }, 1200);
+      this._enqueueSave = KVault.debounce(function () { self._runSave(); }, 900);
       this.restoreUi();
       this.restoreIconCache();
       this.restoreUnlockGuard();
       this.init();
       setInterval(function () { self.tick(); }, 1000);
+      setInterval(function () {
+        if (document.visibilityState === "visible" && self.phase === "unlocked" && self.syncState !== "syncing") {
+          self.syncNow({ silent: true });
+        }
+      }, SYNC_POLL_INTERVAL_MS);
       ["mousemove", "keydown", "click", "touchstart"].forEach(function (ev) {
         document.addEventListener(ev, function () { self.resetAutoLock(); }, { passive: true });
       });
-      window.addEventListener("online", function () { if (self.phase === "unlocked") self._enqueueSave(); });
-      document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "hidden" && self.phase === "unlocked") self._runSave();
+      window.addEventListener("online", function () {
+        if (self.phase === "unlocked") self.syncNow({ silent: true });
+        else if (self.phase === "locked" || self.phase === "setup") self.refreshLockedFromCloud();
       });
-      window.addEventListener("beforeunload", function () { if (self.phase === "unlocked") self._flushSave(); });
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") {
+          // 仅在确实有未落云的本地修改时才冲刷，绝不把陈旧内存状态写回云端覆盖其他设备
+          if (self.phase === "unlocked" && self.hasPendingLocalChanges) self._flushSave();
+        } else if (document.visibilityState === "visible") {
+          if (self.phase === "unlocked") self.syncNow({ silent: true });
+          else if (self.phase === "locked" || self.phase === "setup") self.refreshLockedFromCloud();
+        }
+      });
+      window.addEventListener("pagehide", function () {
+        if (self.phase === "unlocked" && self.hasPendingLocalChanges) self._flushSave();
+      });
     },
 
     methods: {
@@ -1430,23 +1468,76 @@ setTimeout(function () {
       init: async function () {
         await this.checkAuth();
         if (!this.authenticated) return;
-        if (!this.cryptoOk) { this.phase = "unsupported"; return; }
-        var localEnv = this.readLocalEnvelope();
-        var cloud = await this.fetchCloudVault();
-        var chosen = localEnv, chosenId = this.readLocalPasteId();
-        if (cloud && (!localEnv || num(cloud.envelope.meta && cloud.envelope.meta.updatedAt) > num(localEnv.meta && localEnv.meta.updatedAt))) {
-          chosen = cloud.envelope;
-          chosenId = cloud.pasteId;
+        if (!this.cryptoOk || !SYNC) { this.phase = "unsupported"; return; }
+
+        var localState = SYNC.readLocalState();
+        var cloud = null;
+        try {
+          cloud = await SYNC.pull({ metaOnly: false });
+        } catch (e) {
+          cloud = null;
         }
-        if (chosen && chosen.v === 1) {
-          this.envelope = chosen;
-          this.pasteId = chosenId || null;
-          this.writeLocalEnvelope(chosen);
-          if (chosenId) this.writeLocalPasteId(chosenId);
+
+        // 版本号优先于设备本地时钟，避免多端时钟偏差误选旧版本；
+        // 若本地有尚未推送的离线修改（pendingPush），先保留本地信封，解锁后立刻自动与云端合并推送。
+        var chosenEnv = localState.envelope;
+        var chosenRev = localState.revision;
+        var pending = localState.pendingPush;
+
+        if (cloud && cloud.exists && cloud.envelope) {
+          if (!localState.envelope || (!localState.pendingPush && cloud.revision >= localState.revision)) {
+            chosenEnv = cloud.envelope;
+            chosenRev = cloud.revision;
+            pending = false;
+            SYNC.writeLocalState({
+              revision: chosenRev,
+              envelope: chosenEnv,
+              updatedAt: cloud.updatedAt,
+              pendingPush: false
+            });
+          }
+        } else if (cloud && !cloud.exists && localState.envelope) {
+          // 云端为空但本地有数据：标记待推，解锁后补传到云端
+          chosenRev = 0;
+          pending = true;
+          SYNC.writeLocalState({
+            revision: 0,
+            envelope: chosenEnv,
+            updatedAt: localState.updatedAt,
+            pendingPush: true
+          });
+        }
+
+        if (chosenEnv && chosenEnv.v === 1) {
+          this.envelope = chosenEnv;
+          this.syncRevision = chosenRev;
+          this.hasPendingLocalChanges = pending;
           this.phase = "locked";
         } else {
+          this.envelope = null;
+          this.syncRevision = 0;
+          this.hasPendingLocalChanges = false;
           this.phase = "setup";
         }
+      },
+      refreshLockedFromCloud: async function () {
+        if (!SYNC || !this.authenticated) return;
+        try {
+          var cloud = await SYNC.pull({ metaOnly: false });
+          if (!cloud || !cloud.exists || !cloud.envelope) return;
+          var localState = SYNC.readLocalState();
+          if (!localState.pendingPush && (!this.envelope || cloud.revision > this.syncRevision)) {
+            this.envelope = cloud.envelope;
+            this.syncRevision = cloud.revision;
+            SYNC.writeLocalState({
+              revision: cloud.revision,
+              envelope: cloud.envelope,
+              updatedAt: cloud.updatedAt,
+              pendingPush: false
+            });
+            if (this.phase === "setup") this.phase = "locked";
+          }
+        } catch (e) { /* 静默等待下次网络恢复 */ }
       },
       checkAuth: async function () {
         try {
@@ -1460,15 +1551,7 @@ setTimeout(function () {
         }
       },
 
-      /* ---------------- 本地存取 ---------------- */
-      readLocalEnvelope: function () {
-        try { var s = localStorage.getItem(LS_ENVELOPE); return s ? JSON.parse(s) : null; } catch (e) { return null; }
-      },
-      writeLocalEnvelope: function (env) {
-        try { localStorage.setItem(LS_ENVELOPE, JSON.stringify(env)); } catch (e) {}
-      },
-      readLocalPasteId: function () { try { return localStorage.getItem(LS_PASTE_ID); } catch (e) { return null; } },
-      writeLocalPasteId: function (id) { try { id ? localStorage.setItem(LS_PASTE_ID, id) : localStorage.removeItem(LS_PASTE_ID); } catch (e) {} },
+      /* ---------------- 本地 UI 偏好 ---------------- */
       restoreUi: function () {
         try {
           var s = JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}");
@@ -1480,80 +1563,101 @@ setTimeout(function () {
         try { localStorage.setItem(LS_SETTINGS, JSON.stringify({ sort: this.sort, gen: this.gen })); } catch (e) {}
       },
 
-      /* ---------------- 云端发现 / 同步 ---------------- */
-      fetchCloudVault: async function () {
-        try {
-          var id = this.readLocalPasteId();
-          if (id) {
-            try {
-              var one = await KVault.fetchJSON(API_BASE + "/" + encodeURIComponent(id));
-              if (one && one.ok && one.paste && one.paste.content) {
-                return { envelope: JSON.parse(one.paste.content), pasteId: id };
-              }
-            } catch (e) { /* 指针失效 → 扫描 */ }
-          }
-          var list = await KVault.fetchJSON(API_BASE + "?limit=50&cursor=0");
-          var items = (list && list.items) || [];
-          var vaults = items.filter(function (it) { return it.language === VAULT_LANGUAGE; });
-          if (!vaults.length) return null;
-          vaults.sort(function (a, b) { return num(b.createdAt) - num(a.createdAt); });
-          var target = vaults[0];
-          var rec = await KVault.fetchJSON(API_BASE + "/" + encodeURIComponent(target.id));
-          if (rec && rec.ok && rec.paste && rec.paste.content) {
-            return { envelope: JSON.parse(rec.paste.content), pasteId: target.id };
-          }
-          return null;
-        } catch (e) { return null; }
-      },
-
+      /* ---------------- 云端双向同步（乐观锁 + 冲突合并） ---------------- */
       _runSave: function () {
-        var self = this;
-        this._saveChain = this._saveChain.then(function () { return self.doSave(); }).catch(function () {});
+        return this.syncNow({ push: true, silent: true });
       },
       _flushSave: function () {
         if (this._enqueueSave && this._enqueueSave.flush) this._enqueueSave.flush();
+        else if (this.hasPendingLocalChanges) this._runSave();
       },
       markDirty: function () {
         if (this.phase !== "unlocked") return;
+        this.hasPendingLocalChanges = true;
+        if (this.doc) this.doc.updatedAt = Date.now();
         if (this._enqueueSave) this._enqueueSave();
       },
-      doSave: async function () {
-        if (!this.doc || !this.key) return;
-        this.doc.updatedAt = Date.now();
-        var env;
-        try {
-          env = await READ.encryptVault(this.doc, this.key, this.kdf);
-        } catch (e) {
-          this.showToast("本地加密失败：" + e.message, "error");
-          return;
-        }
-        this.writeLocalEnvelope(env);
-        this.envelope = env;
+      syncNow: function (opts) {
+        var self = this;
+        var o = opts || {};
+        this._saveChain = this._saveChain
+          .then(function () { return self._performSync(o); })
+          .catch(function () {});
+        return this._saveChain;
+      },
+      _performSync: async function (opts) {
+        var doc = (opts && opts.doc) || this.doc;
+        var key = (opts && opts.key) || this.key;
+        var kdf = (opts && opts.kdf) || this.kdf;
+        var detached = Boolean(opts && opts.detached);
+        if (!SYNC || !doc || !key || !kdf) return null;
+        var manual = Boolean(opts && opts.manual);
+        var silent = Boolean(opts && opts.silent);
+        var force = Boolean(opts && opts.force);
+        var shouldPush = Boolean(opts && opts.push) || this.hasPendingLocalChanges || force;
+
         this.syncState = "syncing";
         try {
-          await this.pushCloud(env);
+          var result = await SYNC.sync({
+            doc: doc,
+            key: key,
+            kdf: kdf,
+            revision: (opts && opts.revision != null) ? opts.revision : this.syncRevision,
+            hasLocalChanges: shouldPush,
+            force: force
+          });
+
+          if (result.action === "reauth_required") {
+            this.envelope = result.envelope || this.envelope;
+            this.syncRevision = result.revision || this.syncRevision;
+            this.syncState = "idle";
+            if (!detached) {
+              this.lock();
+              this.showToast("主密码已在其他设备变更，请使用新主密码重新解锁", "info");
+            }
+            return result;
+          }
+
+          if (!detached && result.doc) {
+            this.doc = normalizeDoc(result.doc);
+            if (this.selectedId && !this.doc.items.concat(this.doc.deleted).some(function (x) { return x.id === this.selectedId; }, this)) {
+              this.selectedId = null;
+              if (this.uiView === "detail") this.uiView = "list";
+            }
+          }
+          if (result.envelope) this.envelope = result.envelope;
+          if (result.revision != null) this.syncRevision = result.revision;
+          if (result.updatedAt) this.lastSyncedAt = result.updatedAt;
+          this.hasPendingLocalChanges = false;
+
+          if (!detached && (result.action === "pulled" || result.action === "merged")) {
+            this.tickTotp();
+          }
+
           this.syncState = "synced";
           var self = this;
           setTimeout(function () { if (self.syncState === "synced") self.syncState = "idle"; }, 2200);
+
+          if (!detached) {
+            if (manual) {
+              if (result.action === "pulled") this.showToast("已拉取云端最新记录（v" + this.syncRevision + "）", "success");
+              else if (result.action === "merged") this.showToast("已与云端合并并同步（v" + this.syncRevision + "）", "success");
+              else if (result.action === "pushed") this.showToast("已同步到云端（v" + this.syncRevision + "）", "success");
+              else this.showToast("已是最新版本（v" + this.syncRevision + "）", "success");
+            } else if (result.action === "pulled" && !silent) {
+              this.showToast("已自动同步其他设备的更新", "info");
+            } else if (result.action === "merged") {
+              this.showToast("已自动合并多端修改并同步（v" + this.syncRevision + "）", "success");
+            }
+          }
+          return result;
         } catch (e) {
           this.syncState = "failed";
-          this.showToast("云端同步失败（已保存在本地）：" + e.message, "error");
-        }
-      },
-      pushCloud: async function (env) {
-        var content = JSON.stringify(env);
-        var bytes = new TextEncoder().encode(content).byteLength;
-        if (bytes > 1024 * 1024) {
-          throw new Error("密码库超过 1 MiB 上限，无法同步到云端，请先导出备份");
-        }
-        var created = await KVault.fetchJSON(API_BASE, { method: "POST", body: { content: content, language: VAULT_LANGUAGE } });
-        var newId = created && created.paste && created.paste.id;
-        if (!newId) throw new Error("云端未返回新记录 ID");
-        var oldId = this.pasteId;
-        this.pasteId = newId;
-        this.writeLocalPasteId(newId);
-        if (oldId && oldId !== newId) {
-          try { await KVault.fetchJSON(API_BASE + "/" + encodeURIComponent(oldId), { method: "DELETE" }); } catch (e) {}
+          if (shouldPush) this.hasPendingLocalChanges = true;
+          if (!detached && (!silent || manual || shouldPush)) {
+            this.showToast("云端同步失败（已保存在本地）：" + (e && e.message ? e.message : "网络错误"), "error");
+          }
+          return null;
         }
       },
 
@@ -1609,16 +1713,37 @@ setTimeout(function () {
         if (this.masterPassword !== this.masterPassword2) { this.lockError = "两次输入的主密码不一致。"; return; }
         this.busy = true;
         try {
+          // 创建前再次检查云端是否已在另一台设备建库，防止双端各自建空库分叉
+          var existingCloud = await SYNC.pull({ metaOnly: false });
+          if (existingCloud && existingCloud.exists && existingCloud.envelope) {
+            this.envelope = existingCloud.envelope;
+            this.syncRevision = existingCloud.revision;
+            SYNC.writeLocalState({
+              revision: existingCloud.revision,
+              envelope: existingCloud.envelope,
+              updatedAt: existingCloud.updatedAt,
+              pendingPush: false
+            });
+            this.phase = "locked";
+            this.masterPassword = ""; this.masterPassword2 = "";
+            this.showToast("检测到云端已有密码库，请直接输入主密码解锁", "info");
+            return;
+          }
+
           var doc = emptyDoc();
           var sealed = await READ.sealVault(doc, this.masterPassword, READ.KDF_ITERATIONS);
           this.key = sealed.key; this.kdf = sealed.kdf; this.envelope = sealed.envelope; this.doc = doc;
-          this.writeLocalEnvelope(sealed.envelope);
+          this.syncRevision = 0;
+          this.hasPendingLocalChanges = true;
+          SYNC.writeLocalState({ revision: 0, envelope: sealed.envelope, updatedAt: doc.updatedAt, pendingPush: true });
           this.resetUnlockGuard();
           this.phase = "unlocked";
           this.masterPassword = ""; this.masterPassword2 = "";
           this.afterUnlock();
-          this.doSave();
-          this.showToast("密码库已创建", "success");
+          await this.syncNow({ push: true });
+          if (!this.hasPendingLocalChanges) {
+            this.showToast("密码库已创建并同步至云端", "success");
+          }
         } catch (e) {
           this.lockError = "创建失败：" + e.message;
         } finally { this.busy = false; }
@@ -1638,6 +1763,8 @@ setTimeout(function () {
           this.phase = "unlocked";
           this.masterPassword = "";
           this.afterUnlock();
+          // 解锁后立即与云端核对版本并拉取/合并，保证切换设备后立刻看到最新记录
+          this.syncNow({ silent: true });
         } catch (e) {
           this.unlockGuard.fails += 1;
           var wait = this.unlockBackoffMs(this.unlockGuard.fails);
@@ -1654,6 +1781,17 @@ setTimeout(function () {
         if (this.uiView === "editor") { this.editor = null; this.draft = null; this.uiView = "list"; }
       },
       lock: function () {
+        if (this.hasPendingLocalChanges && this.doc && this.key && this.kdf) {
+          this.syncNow({
+            push: true,
+            silent: true,
+            detached: true,
+            doc: this.doc,
+            key: this.key,
+            kdf: this.kdf,
+            revision: this.syncRevision
+          });
+        }
         this.doc = null; this.key = null; this.kdf = null;
         this.selectedId = null; this.editor = null; this.draft = null; this.revealed = {};
         this.totpMap = {};
@@ -1678,13 +1816,21 @@ setTimeout(function () {
         if (this.newMaster !== this.newMaster2) { this.settingsError = "两次输入的新主密码不一致。"; return; }
         this.busy = true;
         try {
+          // 更换主密码前先与云端同步合并，确保不丢失其他设备刚写入的条目
+          await this.syncNow({ silent: true });
+          if (this.phase !== "unlocked" || !this.doc) return;
+
           var sealed = await READ.sealVault(this.doc, this.newMaster, READ.KDF_ITERATIONS);
           this.key = sealed.key; this.kdf = sealed.kdf; this.envelope = sealed.envelope;
-          this.writeLocalEnvelope(sealed.envelope);
+          this.hasPendingLocalChanges = true;
           this.newMaster = ""; this.newMaster2 = "";
-          await this.doSave();
-          this.showToast("主密码已更新", "success");
-          this.showSettings = false;
+          var res = await this.syncNow({ push: true, force: true });
+          if (res && (res.action === "pushed" || res.action === "merged")) {
+            this.showToast("主密码已更新并同步至云端", "success");
+            this.showSettings = false;
+          } else {
+            this.settingsError = "本地主密码已更新，但云端同步失败，请稍后重试同步。";
+          }
         } catch (e) {
           this.settingsError = "重设失败：" + e.message;
         } finally { this.busy = false; }
@@ -1765,7 +1911,9 @@ setTimeout(function () {
         var it = this.doc.items.find(function (x) { return x.id === id; });
         if (!it) return;
         if (!window.confirm("删除「" + (it.name || "未命名") + "」？将移入回收站。")) return;
-        it.deletedAt = Date.now();
+        var now = Date.now();
+        it.deletedAt = now;
+        it.updatedAt = now;
         this.doc.items = this.doc.items.filter(function (x) { return x.id !== id; });
         this.doc.deleted.unshift(it);
         if (this.selectedId === id) { this.selectedId = null; this.uiView = "list"; }
@@ -1775,6 +1923,7 @@ setTimeout(function () {
       },
       toggleFavorite: function (it) {
         it.favorite = !it.favorite;
+        it.updatedAt = Date.now();
         this.markDirty();
       },
 
@@ -1798,9 +1947,12 @@ setTimeout(function () {
       },
       deleteFolder: function (f) {
         if (!window.confirm("删除文件夹「" + f.name + "」？其中的项目会移到「无文件夹」。")) return;
+        var now = Date.now();
         this.doc.folders = this.doc.folders.filter(function (x) { return x.id !== f.id; });
+        if (!Array.isArray(this.doc.deletedFolders)) this.doc.deletedFolders = [];
+        this.doc.deletedFolders.unshift({ id: f.id, deletedAt: now });
         var fid = f.id;
-        this.doc.items.forEach(function (it) { if (it.folderId === fid) it.folderId = null; });
+        this.doc.items.forEach(function (it) { if (it.folderId === fid) { it.folderId = null; it.updatedAt = now; } });
         if (this.filterFolder === f.id) this.filterFolder = null;
         this.markDirty();
       },
@@ -1954,8 +2106,10 @@ setTimeout(function () {
       updatedAt: Date.now(),
       settings: { autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: true },
       folders: [],
+      deletedFolders: [],
       items: [],
-      deleted: []
+      deleted: [],
+      purged: []
     };
   }
 
@@ -1967,8 +2121,10 @@ setTimeout(function () {
     doc.updatedAt = num(doc.updatedAt) || Date.now();
     doc.settings = Object.assign({ autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: true }, doc.settings || {});
     doc.folders = Array.isArray(doc.folders) ? doc.folders : [];
+    doc.deletedFolders = Array.isArray(doc.deletedFolders) ? doc.deletedFolders : [];
     doc.items = Array.isArray(doc.items) ? doc.items : [];
     doc.deleted = Array.isArray(doc.deleted) ? doc.deleted : [];
+    doc.purged = Array.isArray(doc.purged) ? doc.purged : [];
     doc.items.concat(doc.deleted).forEach(function (it) {
       it.id = it.id || READ.uuid();
       it.type = ["login", "card", "identity", "note"].includes(it.type) ? it.type : "login";
