@@ -1,0 +1,670 @@
+import { envValue } from './env-config.js';
+const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
+
+const MIME_EXTENSION_MAP = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/svg+xml": "svg",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "video/x-matroska": "mkv",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/ogg": "ogg",
+  "audio/wav": "wav",
+  "audio/flac": "flac",
+  "audio/aac": "aac",
+  "audio/mp4": "m4a",
+  "application/pdf": "pdf",
+  "application/zip": "zip",
+  "application/x-7z-compressed": "7z",
+  "application/x-rar-compressed": "rar",
+  "text/plain": "txt",
+  "application/json": "json",
+};
+
+function normalizeTelegramApiBase(raw) {
+  if (!raw || typeof raw !== "string") return DEFAULT_TELEGRAM_API_BASE;
+  const trimmed = raw.trim();
+  if (!trimmed) return DEFAULT_TELEGRAM_API_BASE;
+
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return DEFAULT_TELEGRAM_API_BASE;
+  }
+}
+
+export function getTelegramApiBase(env) {
+  return normalizeTelegramApiBase(env?.CUSTOM_BOT_API_URL);
+}
+
+export function buildTelegramBotApiUrl(env, method) {
+  const base = getTelegramApiBase(env);
+  const normalizedMethod = String(method || "").replace(/^\/+/, "");
+  return `${base}/bot${envValue(env, 'TG_BOT_TOKEN')}/${normalizedMethod}`;
+}
+
+export function buildTelegramFileUrl(env, filePath) {
+  const base = getTelegramApiBase(env);
+  const normalizedPath = String(filePath || "").replace(/^\/+/, "");
+  return `${base}/file/bot${envValue(env, 'TG_BOT_TOKEN')}/${normalizedPath}`;
+}
+
+export function getTelegramUploadMethodAndField(contentType = "") {
+  const type = String(contentType || "").toLowerCase();
+  if (type.startsWith("image/")) {
+    return { method: "sendDocument", field: "document" };
+  }
+  if (type.startsWith("audio/")) {
+    return { method: "sendAudio", field: "audio" };
+  }
+  if (type.startsWith("video/")) {
+    return { method: "sendVideo", field: "video" };
+  }
+  return { method: "sendDocument", field: "document" };
+}
+
+export function pickTelegramFileId(responseData) {
+  if (!responseData?.ok || !responseData.result) return null;
+  const result = responseData.result;
+  if (Array.isArray(result.photo) && result.photo.length) {
+    return result.photo.reduce((prev, current) =>
+      (prev?.file_size || 0) > (current?.file_size || 0) ? prev : current
+    )?.file_id;
+  }
+  if (result.document?.file_id) return result.document.file_id;
+  if (result.video?.file_id) return result.video.file_id;
+  if (result.audio?.file_id) return result.audio.file_id;
+  if (result.voice?.file_id) return result.voice.file_id;
+  if (result.sticker?.file_id) return result.sticker.file_id;
+  if (result.animation?.file_id) return result.animation.file_id;
+  if (result.video_note?.file_id) return result.video_note.file_id;
+  return null;
+}
+
+export function guessExtensionFromMimeType(mimeType, fallback = "bin") {
+  const normalized = String(mimeType || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  return MIME_EXTENSION_MAP[normalized] || fallback;
+}
+
+export function getFileExtension(fileName, mimeType, fallback = "bin") {
+  const fromName = String(fileName || "").split(".").pop()?.toLowerCase();
+  if (fromName && fromName !== fileName?.toLowerCase()) {
+    return sanitizeFileExtension(fromName, fallback);
+  }
+  if (String(fileName || "").includes(".")) {
+    return sanitizeFileExtension(fromName, fallback);
+  }
+  return sanitizeFileExtension(
+    guessExtensionFromMimeType(mimeType, fallback),
+    fallback
+  );
+}
+
+export function sanitizeFileExtension(ext, fallback = "bin") {
+  const normalized = String(ext || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  if (!normalized) return fallback;
+  return normalized.slice(0, 10);
+}
+
+function base64UrlEncode(input) {
+  const bytes =
+    typeof input === "string" ? new TextEncoder().encode(input) : input;
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecodeToBytes(input) {
+  const base64 = String(input || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4 || 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function base64UrlDecodeToString(input) {
+  return new TextDecoder().decode(base64UrlDecodeToBytes(input));
+}
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function signPayload(payload, secret) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(payload)
+  );
+  return base64UrlEncode(new Uint8Array(sig));
+}
+
+export function shouldUseSignedTelegramLinks(env) {
+  const mode = String(env?.TELEGRAM_LINK_MODE || "").toLowerCase();
+  if (mode === "signed") return true;
+  return env?.MINIMIZE_KV_WRITES === "true";
+}
+
+export function shouldWriteTelegramMetadata(env) {
+  const metadataMode = String(env?.TELEGRAM_METADATA_MODE || "")
+    .trim()
+    .toLowerCase();
+  if (["off", "none", "disable", "disabled", "minimal"].includes(metadataMode)) {
+    return false;
+  }
+  if (["on", "full", "always", "enable", "enabled"].includes(metadataMode)) {
+    return true;
+  }
+
+  const skipMetadata = String(env?.TELEGRAM_SKIP_METADATA || "")
+    .trim()
+    .toLowerCase();
+  if (["1", "true", "yes", "on"].includes(skipMetadata)) {
+    return false;
+  }
+
+  // Default to writing lightweight metadata so admin list and management actions keep working.
+  return true;
+}
+
+function normalizeBaseUrl(raw) {
+  if (!raw) return "";
+  try {
+    return new URL(String(raw)).toString().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function formatFileSize(bytes) {
+  const numeric = Number(bytes || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "0 B";
+  if (numeric < 1024) return `${numeric} B`;
+  if (numeric < 1024 * 1024) return `${(numeric / 1024).toFixed(2)} KB`;
+  if (numeric < 1024 * 1024 * 1024) {
+    return `${(numeric / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  return `${(numeric / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function isFlagEnabled(rawValue, defaultValue) {
+  const normalized = String(rawValue ?? "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return defaultValue;
+  if (["1", "true", "yes", "on", "enable", "enabled"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off", "disable", "disabled"].includes(normalized)) {
+    return false;
+  }
+  return defaultValue;
+}
+
+export function shouldNotifyTelegramUpload(env) {
+  return isFlagEnabled(envValue(env, 'TG_UPLOAD_NOTIFY'), true);
+}
+
+export function buildTelegramDirectLink(env, directId, fallbackOrigin = "") {
+  const publicBase = normalizeBaseUrl(env?.PUBLIC_BASE_URL);
+  const fallbackBase = normalizeBaseUrl(fallbackOrigin);
+  const base = publicBase || fallbackBase;
+  if (!base) return `/file/${directId}`;
+  return `${base}/file/${directId}`;
+}
+
+export function buildTelegramUploadNoticeText({
+  directLink,
+  fileId,
+  messageId,
+  fileName,
+  fileSize,
+}) {
+  const safeName = truncateFileName(fileName || "", 120) || "unnamed";
+  const lines = [
+    "Upload completed",
+    `Name: ${safeName}`,
+    `Size: ${formatFileSize(fileSize)}`,
+    `Direct Link: ${directLink}`,
+    `File ID: ${fileId}`,
+  ];
+  if (messageId) lines.push(`Message ID: ${messageId}`);
+  return lines.join("\n");
+}
+
+async function postTelegramMessage(payload, env) {
+  const response = await fetch(buildTelegramBotApiUrl(env, "sendMessage"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok && data?.ok, data };
+}
+
+export async function sendTelegramUploadNotice(
+  {
+    chatId,
+    replyToMessageId,
+    directLink,
+    fileId,
+    messageId,
+    fileName,
+    fileSize,
+    text,
+  },
+  env
+) {
+  if (!shouldNotifyTelegramUpload(env)) {
+    return { ok: false, skipped: true, reason: "disabled" };
+  }
+
+  const targetChatId = chatId || envValue(env, 'TG_CHAT_ID');
+  if (!targetChatId || !envValue(env, 'TG_BOT_TOKEN')) {
+    return { ok: false, skipped: true, reason: "missing-config" };
+  }
+
+  const finalText =
+    text ||
+    buildTelegramUploadNoticeText({
+      directLink,
+      fileId,
+      messageId,
+      fileName,
+      fileSize,
+    });
+
+  const payload = {
+    chat_id: targetChatId,
+    text: finalText,
+    disable_web_page_preview: true,
+  };
+
+  if (replyToMessageId) {
+    payload.reply_to_message_id = Number(replyToMessageId);
+    payload.allow_sending_without_reply = true;
+  }
+
+  try {
+    let result = await postTelegramMessage(payload, env);
+    if (!result.ok && payload.reply_to_message_id) {
+      // Some channel configurations reject replies. Retry once without reply target.
+      const fallbackPayload = {
+        chat_id: targetChatId,
+        text: finalText,
+        disable_web_page_preview: true,
+      };
+      result = await postTelegramMessage(fallbackPayload, env);
+    }
+    return result;
+  } catch (error) {
+    return { ok: false, error: error.message };
+  }
+}
+
+/**
+ * 缺少签名密钥时的统一错误说明，供各调用点复用。
+ *
+ * 刻意**不**在日志或响应里回显候选环境变量的实际值，只说明「缺哪个」。
+ */
+export const SIGNED_LINK_SECRET_MISSING_MESSAGE =
+  'Telegram 签名直链未启用：未配置 FILE_URL_SECRET（或 TG_BOT_TOKEN）。' +
+  '为避免生成可被伪造的直链，本次请求已按 fail-closed 处理。';
+
+/**
+ * 列出可用于签名 / 验签 Telegram 直链的密钥。
+ *
+ * ## 这里曾经有过两个硬编码兜底常量
+ *
+ * 旧实现在环境变量之外额外塞了 `"k-vault-default-secret"` 与
+ * `"tgbed-default-secret"`，注释写着「保留历史链接可用」。问题是：
+ *
+ *   本仓库是**公开仓库**，且整个仓库就是 Pages 的部署目录 —— 这两个字符串
+ *   既在 GitHub 上公开，也随部署产物分发给每一个访客。
+ *
+ * 于是 `parseSignedTelegramFileId()` 的「任一候选密钥匹配即通过」变成了
+ * **任何人都能离线算出合法签名**：不知道真实密钥照样能伪造任意 `tgs_` 直链，
+ * 指向任意 Telegram file_id 并带上自己编造的文件名与 MIME。
+ *
+ * 结论：签名密钥没有「安全的默认值」这种东西。现在只认环境变量，
+ * 一个都没配就返回空数组，由调用方 fail-closed。
+ *
+ * @param {object} env
+ * @returns {string[]} 候选密钥；未配置任何密钥时为空数组（不是默认值）
+ */
+function getFileLinkSecrets(env) {
+  const candidates = [
+    // envValue 已覆盖 FILE_URL_SECRET 的兼容名 TG_FILE_URL_SECRET
+    envValue(env, 'FILE_URL_SECRET'),
+    envValue(env, 'TG_BOT_TOKEN'),
+  ];
+
+  return [...new Set(candidates
+    .map((item) => (item == null ? "" : String(item).trim()))
+    .filter(Boolean))];
+}
+
+/**
+ * 是否具备签发 / 校验签名直链的能力。
+ *
+ * 给调用方一个便宜的前置判断，避免先生成半截产物再失败。
+ *
+ * @param {object} env
+ * @returns {boolean}
+ */
+export function hasTelegramSigningSecret(env) {
+  return getFileLinkSecrets(env).length > 0;
+}
+
+function truncateFileName(fileName, limit = 180) {
+  if (!fileName) return "";
+  const str = String(fileName);
+  if (str.length <= limit) return str;
+  return str.slice(0, limit);
+}
+
+export async function createSignedTelegramFileId(
+  { fileId, fileExtension, fileName, mimeType, fileSize, messageId },
+  env
+) {
+  const ext = sanitizeFileExtension(fileExtension || "bin");
+  const payloadObj = {
+    v: 1,
+    f: String(fileId || ""),
+    e: ext,
+    n: truncateFileName(fileName || ""),
+    m: String(mimeType || ""),
+    s: Number(fileSize || 0),
+    t: Date.now(),
+    mid: messageId ? Number(messageId) : undefined,
+  };
+  const payload = base64UrlEncode(JSON.stringify(payloadObj));
+  const [primarySecret] = getFileLinkSecrets(env);
+
+  // Fail closed：没有配置密钥就**不签发**，返回 null 交由调用方报错。
+  //
+  // 回退到内置常量等于把密钥写进公开仓库（见 getFileLinkSecrets 的说明），
+  // 这里宁可让上传失败、也不能发出一条任何人都能伪造的直链。
+  if (!primarySecret) {
+    console.error(
+      'createSignedTelegramFileId: no signing secret configured; refusing to sign. ' +
+      'Set FILE_URL_SECRET (or TG_BOT_TOKEN) to enable signed Telegram links.'
+    );
+    return null;
+  }
+
+  const signature = await signPayload(payload, primarySecret);
+  return `tgs_${payload}.${signature}.${ext}`;
+}
+
+export async function parseSignedTelegramFileId(id, env) {
+  const raw = String(id || "");
+  const match = /^tgs_([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)(?:\.([A-Za-z0-9]+))?$/.exec(
+    raw
+  );
+  if (!match) return null;
+
+  const payload = match[1];
+  const signature = match[2];
+  const extFromSuffix = sanitizeFileExtension(match[3] || "bin");
+  const secrets = getFileLinkSecrets(env);
+
+  // Fail closed：没有配置任何密钥时，任何 `tgs_` 直链都不予认可。
+  // 空候选列表会让下面的循环自然判否，这里显式早退只为留一条排障日志。
+  if (!secrets.length) {
+    console.error(
+      'parseSignedTelegramFileId: no signing secret configured; rejecting all signed links.'
+    );
+    return null;
+  }
+
+  let isValid = false;
+
+  for (const secret of secrets) {
+    const expected = await signPayload(payload, secret);
+    if (timingSafeEqual(signature, expected)) {
+      isValid = true;
+      break;
+    }
+  }
+
+  if (!isValid) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(base64UrlDecodeToString(payload));
+  } catch {
+    return null;
+  }
+  if (!parsed?.f) return null;
+
+  return {
+    version: parsed.v || 1,
+    fileId: String(parsed.f),
+    fileExtension: sanitizeFileExtension(parsed.e || extFromSuffix || "bin"),
+    fileName: parsed.n ? String(parsed.n) : "",
+    mimeType: parsed.m ? String(parsed.m) : "",
+    fileSize: Number(parsed.s || 0),
+    timestamp: Number(parsed.t || 0),
+    messageId: parsed.mid ? Number(parsed.mid) : null,
+  };
+}
+
+export function getTelegramFileFromMessage(message) {
+  if (!message) return null;
+
+  if (Array.isArray(message.photo) && message.photo.length) {
+    const photo = message.photo.reduce((prev, current) =>
+      (prev?.file_size || 0) > (current?.file_size || 0) ? prev : current
+    );
+    const ext = "jpg";
+    const fileName = `photo_${message.message_id || Date.now()}.${ext}`;
+    return {
+      kind: "photo",
+      fileId: photo.file_id,
+      fileUniqueId: photo.file_unique_id || "",
+      mimeType: "image/jpeg",
+      fileSize: Number(photo.file_size || 0),
+      fileExtension: ext,
+      fileName,
+      messageId: Number(message.message_id || 0),
+    };
+  }
+
+  const candidates = [
+    { key: "document", fallbackName: "document", fallbackMime: "application/octet-stream" },
+    { key: "video", fallbackName: "video", fallbackMime: "video/mp4" },
+    { key: "audio", fallbackName: "audio", fallbackMime: "audio/mpeg" },
+    { key: "voice", fallbackName: "voice", fallbackMime: "audio/ogg" },
+    { key: "animation", fallbackName: "animation", fallbackMime: "video/mp4" },
+    { key: "video_note", fallbackName: "video_note", fallbackMime: "video/mp4" },
+    { key: "sticker", fallbackName: "sticker", fallbackMime: "image/webp" },
+  ];
+
+  for (const item of candidates) {
+    const data = message[item.key];
+    if (!data?.file_id) continue;
+
+    const mimeType = data.mime_type || item.fallbackMime;
+    const ext = getFileExtension(data.file_name, mimeType, "bin");
+    const fileName = data.file_name || `${item.fallbackName}_${message.message_id || Date.now()}.${ext}`;
+    return {
+      kind: item.key,
+      fileId: data.file_id,
+      fileUniqueId: data.file_unique_id || "",
+      mimeType,
+      fileSize: Number(data.file_size || 0),
+      fileExtension: ext,
+      fileName,
+      messageId: Number(message.message_id || 0),
+    };
+  }
+
+  return null;
+}
+
+const TG_DELETE_BATCH_MAX = 100;
+
+async function postTelegramDelete(url, payload) {
+  const body = JSON.stringify(payload);
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      const data = await response.json().catch(() => ({ ok: false }));
+      if (response.ok && data?.ok) {
+        return { ok: true, status: response.status, data };
+      }
+      if (attempt < 2 && (response.status === 429 || response.status >= 500)) {
+        const retrySec = Number(data?.parameters?.retry_after) || 0;
+        const waitMs = response.status === 429
+          ? Math.min(2000, Math.max(300, Math.round(retrySec * 1000)))
+          : 300;
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      return { ok: false, status: response.status, data };
+    } catch (error) {
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 250));
+        continue;
+      }
+      return { ok: false, status: 0, error };
+    }
+  }
+  return { ok: false, status: 0 };
+}
+
+/**
+ * 批量删除 Telegram 频道消息（优先 Bot API 7.0+ deleteMessages，单次最多删 100 条）。
+ *
+ * 为什么必须优先 deleteMessages：
+ *   Cloudflare Workers 免费版单次请求硬上限 50 个子请求。2GB 虚拟分片文件有 114 条消息，
+ *   逐条调 deleteMessage 会直接耗尽子请求配额留下大量孤儿消息；用 deleteMessages 仅需 2 个子请求。
+ *   若上游（如旧版自建 Bot API）不支持 deleteMessages，自动降级到有界单条 deleteMessage（默认最多 36 条，
+ *   留足子请求余量避免打爆 Worker）。
+ */
+export async function deleteTelegramMessagesBatch(env, rawMessageIds, options = {}) {
+  const token = envValue(env, "TG_BOT_TOKEN");
+  const chatId = envValue(env, "TG_CHAT_ID");
+  const ids = [];
+  const seen = new Set();
+
+  for (const raw of Array.isArray(rawMessageIds) ? rawMessageIds : []) {
+    if (raw === null || raw === undefined || raw === "") continue;
+    const numeric = Number(raw);
+    const normalized = Number.isInteger(numeric) && numeric > 0 ? numeric : raw;
+    const key = String(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ids.push(normalized);
+  }
+
+  if (!ids.length || !token || !chatId) {
+    return { deleted: 0, total: ids.length, method: "none", truncated: false };
+  }
+
+  const singleUrl = buildTelegramBotApiUrl(env, "deleteMessage");
+  if (ids.length === 1) {
+    const res = await postTelegramDelete(singleUrl, {
+      chat_id: chatId,
+      message_id: ids[0],
+    });
+    return { deleted: res.ok ? 1 : 0, total: 1, method: "single", truncated: false };
+  }
+
+  const batchUrl = buildTelegramBotApiUrl(env, "deleteMessages");
+  const maxFallback = Math.max(1, Number(options.maxFallbackMessages) || 36);
+  let deleted = 0;
+  let fallbackIds = [];
+  let usedBatch = false;
+  let batchSupported = true;
+
+  for (let i = 0; i < ids.length; i += TG_DELETE_BATCH_MAX) {
+    const chunk = ids.slice(i, i + TG_DELETE_BATCH_MAX);
+    if (!batchSupported) {
+      fallbackIds.push(...chunk);
+      continue;
+    }
+    const res = await postTelegramDelete(batchUrl, {
+      chat_id: chatId,
+      message_ids: chunk,
+    });
+    if (res.ok) {
+      usedBatch = true;
+      deleted += chunk.length;
+      continue;
+    }
+    // 404 / 方法不支持 / 未知异常：本批与后续批次统一回落单条 deleteMessage
+    const desc = String(res.data?.description || res.error?.message || "").toLowerCase();
+    if (
+      res.status === 404 ||
+      res.status === 0 ||
+      /not found|unknown method|unexpected fetch url/i.test(desc)
+    ) {
+      batchSupported = false;
+    }
+    fallbackIds.push(...chunk);
+  }
+
+  let truncated = false;
+  if (fallbackIds.length > 0) {
+    if (fallbackIds.length > maxFallback) {
+      fallbackIds = fallbackIds.slice(0, maxFallback);
+      truncated = true;
+    }
+    const CONCURRENCY = 4;
+    for (let i = 0; i < fallbackIds.length; i += CONCURRENCY) {
+      const group = fallbackIds.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        group.map((msgId) =>
+          postTelegramDelete(singleUrl, {
+            chat_id: chatId,
+            message_id: msgId,
+          })
+        )
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value?.ok) deleted += 1;
+      }
+    }
+  }
+
+  return {
+    deleted,
+    total: ids.length,
+    method: usedBatch && fallbackIds.length === 0 ? "batch" : "fallback",
+    truncated,
+  };
+}
+

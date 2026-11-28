@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN" data-show-style="journal">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="在 K-Vault Show 浏览精选图片和视频。">
+  <meta name="theme-color" content="#f7f3eb">
+  <title>Show · K-Vault</title>
+  <script>
+    (() => {
+      const VALID_STYLES = ['journal', 'gallery', 'filmstrip'];
+      const THEME_COLORS = { journal: '#f7f3eb', gallery: '#11100e', filmstrip: '#f4f5f2' };
+      const preview = new URLSearchParams(location.search).get('preview_style');
+      const applyEarlyStyle = (style) => {
+        const chosen = VALID_STYLES.includes(preview) ? preview : (VALID_STYLES.includes(style) ? style : 'journal');
+        document.documentElement.dataset.showStyle = chosen;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = THEME_COLORS[chosen] || THEME_COLORS.journal;
+      };
+      if (VALID_STYLES.includes(preview)) applyEarlyStyle(preview);
+      window.showStartup = fetch('/api/show', { cache: 'no-store' }).then(async response => {
+        if (!response.ok) return null;
+        const page = await response.json();
+        applyEarlyStyle(page.settings?.style);
+        const first = Array.isArray(page.items) ? page.items[0] : null;
+        let coverImage = null;
+        if (first?.kind === 'image') {
+          const image = new Image();
+          image.fetchPriority = 'high';
+          image.addEventListener('error', () => { image.dataset.failed = 'true'; }, { once: true });
+          image.src = first.src;
+          coverImage = { id: first.id, image };
+        }
+        return { page, coverImage };
+      }).catch(() => null);
+    })();
+  </script>
+  <link rel="icon" href="/assets/img/favicon.ico">
+  <link rel="stylesheet" href="/assets/css/design-system.css">
+  <link rel="stylesheet" href="/assets/css/show.css">
+  <script defer src="/assets/js/app-core.js"></script>
+  <script defer src="/assets/js/show.js"></script>
+</head>
+<body>
+  <header class="show-header" id="show-header">
+    <div class="show-header__inner wrap">
+      <a class="home-link" id="show-home-link" href="/">K-Vault</a>
+      <span class="show-header__title" id="show-nav-title" aria-hidden="true">Show<span>.</span></span>
+      <div class="share-tools" id="share-tools">
+        <button class="pill" id="share-page" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 15V3m-4 4 4-4 4 4M7 11H5v9h14v-9h-2"/>
+          </svg>
+          分享 Show
+        </button>
+        <span id="share-status" class="share-status" role="status"></span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="cover" id="show-cover">
+      <div id="show-cover-copy" class="cover__copy">
+        <p class="cover__tag" id="show-eyebrow">影像手记</p>
+        <div class="cover__wordmark" id="show-title-anchor">
+          <h1 id="show-wordmark">Show<span aria-hidden="true">.</span></h1>
+        </div>
+        <p class="cover__intro" id="show-intro">用照片和视频记录值得分享的片刻。</p>
+        <dl class="cover__meta" id="show-cover-meta" aria-label="展厅统计">
+          <div class="cover__stat">
+            <dt>WORKS</dt>
+            <dd id="show-stat-works">00</dd>
+          </div>
+          <div class="cover__stat">
+            <dt>SERIES</dt>
+            <dd id="show-stat-groups">00</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="cover__work" id="cover-work"></div>
+    </div>
+
+    <nav class="show-filter" id="show-filter-bar" aria-label="按标签筛选作品" hidden></nav>
+
+    <section class="journal" aria-labelledby="journal-title" id="journal" hidden>
+      <div class="journal__header">
+        <h2 id="journal-title">影像集</h2>
+      </div>
+      <div class="journal__grid" id="journal-grid"></div>
+    </section>
+
+    <div class="show-status">
+      <p id="gallery-status" role="status">正在加载作品…</p>
+      <button id="more-work" class="pill" type="button" hidden>查看更多</button>
+      <noscript><p>开启 JavaScript 后即可浏览作品。</p></noscript>
+    </div>
+  </main>
+
+  <footer class="show-footer wrap">
+    <a href="/">K-Vault</a>
+    <span class="show-footer__style" id="show-footer-style"></span>
+  </footer>
+
+  <template id="stack-template">
+    <article class="photo-stack">
+      <div class="stack__heading">
+        <h3></h3>
+      </div>
+      <div class="stack__pile" role="group" aria-roledescription="照片叠" aria-keyshortcuts="ArrowLeft ArrowRight"></div>
+      <div class="stack__details">
+        <div class="stack__text" aria-live="polite" aria-atomic="true">
+          <strong class="stack__title"></strong>
+          <p class="stack__caption" hidden></p>
+        </div>
+        <div class="stack__controls" hidden>
+          <button class="stack__arrow" type="button" data-step="-1" aria-label="上一张">‹</button>
+          <span class="stack__count"></span>
+          <button class="stack__arrow" type="button" data-step="1" aria-label="下一张">›</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <dialog class="show-lightbox" aria-labelledby="lightbox-title" id="show-lightbox">
+    <div class="lightbox__stage">
+      <div class="lightbox__bar">
+        <span class="lightbox__count"></span>
+        <div class="lightbox__bar-actions">
+          <a class="lightbox__button lightbox__download" id="lightbox-download" aria-label="下载原文件" title="下载原文件" download hidden>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/>
+            </svg>
+          </a>
+          <button class="lightbox__button" type="button" aria-label="关闭放大预览" data-close autofocus>×</button>
+        </div>
+      </div>
+      <div class="lightbox__media-wrap">
+        <div class="lightbox__media"></div>
+      </div>
+      <div class="lightbox__footer">
+        <div class="lightbox__text" aria-live="polite" aria-atomic="true">
+          <h2 id="lightbox-title"></h2>
+          <p hidden></p>
+        </div>
+        <div class="lightbox__controls" hidden>
+          <button class="lightbox__button" type="button" data-step="-1" aria-label="上一张">‹</button>
+          <button class="lightbox__button" type="button" data-step="1" aria-label="下一张">›</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

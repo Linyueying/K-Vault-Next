@@ -1,0 +1,652 @@
+/**
+ * 运行时设置读写 API
+ *
+ *   GET    /api/manage/settings            → 读取当前设置（含来源标记：kv / env）
+ *   POST   /api/manage/settings            → 保存设置（写入 KV，覆盖环境变量基线）
+ *   DELETE /api/manage/settings            → 清除 guest 组的 KV 覆盖，回退环境变量
+ *   DELETE /api/manage/settings?group=cors → 清除指定分组（cors / upload / storage）
+ *
+ * 可管理分组见 runtime-config.js 的 CONFIG_GROUPS：
+ *   - guest    访客上传开关 / 单文件大小 / 每日上限
+ *   - cors     API CORS 来源白名单（替代环境变量 API_CORS_ORIGINS）
+ *   - upload   分片上传暂存后端（替代环境变量 CHUNK_BACKEND）
+ *   - storage  存储回滚模式（writeKvLegacy，替代环境变量 KV_LEGACY_WRITE）
+ *   - branding 站点品牌（siteName / siteTitle，替代环境变量 SITE_NAME / SITE_TITLE）
+ *   - mcp      MCP 端点开关 + 工具级禁用清单（替代环境变量 MCP_ENABLED）
+ *
+ * 这些分组写入 KV 后即时生效，不必改环境变量并重新部署。
+ *
+ * 鉴权由 api/manage/_middleware.js 统一兜底（要求 BASIC_USER/BASIC_PASS，
+ * 未配置时 fail-closed 返回 503），因此这里不再重复校验。
+ */
+import {
+    getRuntimeConfig,
+    saveRuntimeConfig,
+    resetRuntimeConfig,
+    readGuestConfigFromEnv,
+    readStorageConfigFromEnv,
+    readBrandingConfigFromEnv,
+    readAirdropConfigFromEnv,
+    readWebdavServerConfigFromEnv,
+    readMcpConfigFromEnv,
+    readThumbConfigFromEnv,
+    readShowConfigFromEnv,
+    WEBDAV_BACKENDS,
+    THUMB_BACKENDS,
+    SHOW_STYLES,
+    MIN_SHOW_PAGE_SIZE,
+    MAX_SHOW_PAGE_SIZE,
+    MAX_AIRDROP_STATS_RETENTION,
+    MCP_TOOL_IDS,
+    CONFIG_GROUPS
+} from '../../utils/runtime-config.js';
+import { availableThumbBackends } from '../../utils/thumb-store.js';
+
+const MAX_FILE_SIZE_LIMIT = 100 * 1024 * 1024; // 与直传上限对齐，避免设出无意义的巨值
+const MAX_DAILY_LIMIT = 10000;
+
+function json(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store'
+        }
+    });
+}
+
+/** 组装给前端的完整视图 */
+async function buildView(env) {
+    const [guest, cors, upload, storage, branding, airdrop, webdav, mcp, thumb, show] = await Promise.all([
+        getRuntimeConfig(env, 'guest'),
+        getRuntimeConfig(env, 'cors'),
+        getRuntimeConfig(env, 'upload'),
+        getRuntimeConfig(env, 'storage'),
+        getRuntimeConfig(env, 'branding'),
+        getRuntimeConfig(env, 'airdrop'),
+        getRuntimeConfig(env, 'webdav'),
+        getRuntimeConfig(env, 'mcp'),
+        getRuntimeConfig(env, 'thumb'),
+        getRuntimeConfig(env, 'show')
+    ]);
+
+    return {
+        guest: {
+            enabled: guest.enabled,
+            maxFileSize: guest.maxFileSize,
+            dailyLimit: guest.dailyLimit,
+            source: guest.source
+        },
+        cors: {
+            origins: Array.isArray(cors.origins) ? cors.origins : [],
+            source: cors.source
+        },
+        upload: {
+            chunkBackend: upload.chunkBackend,
+            source: upload.source
+        },
+        storage: {
+            writeKvLegacy: storage.writeKvLegacy !== false,
+            source: storage.source
+        },
+        branding: {
+            siteName: branding.siteName || 'K-Vault-NEXT',
+            siteTitle: branding.siteTitle || 'K-Vault-NEXT',
+            source: branding.source
+        },
+        airdrop: {
+            enabled: airdrop.enabled !== false,
+            guestAllowed: airdrop.guestAllowed === true,
+            // 缺省 true（与 guestAllowed 相反），所以判据是 `!== false`
+            // 而不是 `=== true` —— 用后者会在字段缺失时把"能收"显示成"不能收"
+            guestReceiveAllowed: airdrop.guestReceiveAllowed !== false,
+            maxFileSize: airdrop.maxFileSize,
+            dailyLimit: airdrop.dailyLimit,
+            ttlMinutes: airdrop.ttlMinutes,
+            statsRetention: airdrop.statsRetention,
+            source: airdrop.source
+        },
+        // WebDAV 服务端：**绝不回传密码明文**，只给出「是否已设置」的布尔，
+        // 让前端能够显示"已配置 / 未配置"而不把凭据暴露在响应体里。
+        webdav: {
+            enabled: webdav.enabled === true,
+            username: webdav.username || '',
+            hasPassword: Boolean(webdav.password),
+            readOnly: webdav.readOnly === true,
+            backend: webdav.backend || 'telegram',
+            source: webdav.source
+        },
+        // MCP 端点：开关 + 工具级禁用清单。
+        //
+        // `tools` 一并下发**完整工具目录**（名字 + 是否被禁用），这样前端
+        // 不必自己维护一份工具名清单 —— 那是最容易与后端漂移的地方。
+        // 目录来自 MCP_TOOL_IDS（与 tools.js 的 TOOL_DEFINITIONS 同源）。
+        mcp: {
+            enabled: mcp.enabled === true,
+            disabledTools: Array.isArray(mcp.disabledTools) ? mcp.disabledTools : [],
+            tools: MCP_TOOL_IDS.map((name) => ({
+                name,
+                enabled: !(Array.isArray(mcp.disabledTools) && mcp.disabledTools.includes(name))
+            })),
+            source: mcp.source
+        },
+        // 图片缩略图：纯增强能力，缺省开启（判据用 `!== false`，
+        // 否则老配置里没有该字段时会把"默认开"显示成"关"）。
+        //
+        // `available` 是**该部署实际可用**的后端列表 —— 后台据此只渲染
+        // 「配得上的」下拉项，从源头上避免用户选到一个运行时写不进去的后端。
+        // 判据与 thumb-store 内部完全同源（同一个函数），不会出现
+        // 「后台说能用、运行时说 no-backend」的错配。
+        thumb: {
+            enabled: thumb.enabled !== false,
+            maxEdge: thumb.maxEdge,
+            quality: thumb.quality,
+            backend: thumb.backend || 'kv',
+            source: thumb.source,
+            available: availableThumbBackends(env)
+        },
+        show: {
+            enabled: show.enabled !== false,
+            style: show.style,
+            title: show.title,
+            eyebrow: show.eyebrow,
+            intro: show.intro,
+            pageSize: show.pageSize,
+            showShareButton: show.showShareButton !== false,
+            showTagFilter: show.showTagFilter !== false,
+            showCaptions: show.showCaptions !== false,
+            allowDownload: show.allowDownload === true,
+            source: show.source
+        },
+        // 兼容既有前端：它只认 guest 的环境变量基线
+        envBaseline: readGuestConfigFromEnv(env),
+        // 存储回滚模式的环境变量基线（KV_LEGACY_WRITE，缺省 true）
+        storageEnvBaseline: readStorageConfigFromEnv(env),
+        // 站点品牌的环境变量基线（SITE_NAME / SITE_TITLE，缺省 K-Vault-NEXT）
+        brandingEnvBaseline: readBrandingConfigFromEnv(env),
+        // 隔空投送的环境变量基线
+        airdropEnvBaseline: readAirdropConfigFromEnv(env),
+        // WebDAV 服务端的环境变量基线（不返回密码明文）
+        webdavEnvBaseline: (() => {
+            const base = readWebdavServerConfigFromEnv(env);
+            return {
+                enabled: base.enabled,
+                username: base.username,
+                hasPassword: Boolean(base.password),
+                readOnly: base.readOnly,
+                backend: base.backend
+            };
+        })(),
+        // MCP 的环境变量基线（MCP_ENABLED，缺省 false）。
+        // 工具级禁用清单没有环境变量形态，故基线里不含该字段。
+        mcpEnvBaseline: (() => {
+            const base = readMcpConfigFromEnv(env);
+            return { enabled: base.enabled === true };
+        })(),
+        // 缩略图的环境变量基线（THUMB_*，缺省 enabled=true / 400 / 0.72 / auto）
+        thumbEnvBaseline: readThumbConfigFromEnv(env),
+        // Show 公开影像展的环境变量基线
+        showEnvBaseline: readShowConfigFromEnv(env),
+        hasKvBinding: Boolean(env?.img_url),
+        // D1 是否绑定 —— 回滚模式关闭后 D1 是唯一数据源，前端据此给出风险提示
+        hasD1Binding: Boolean(env?.DB && typeof env.DB.prepare === 'function')
+    };
+}
+
+function validateGuest(input) {
+    if (!input || typeof input !== 'object') return { error: 'guest 必须是对象。' };
+    // 数值字段校验：拒绝 NaN / 负数 / 超上限，避免把访客限制设成无效值
+    if (input.maxFileSize !== undefined) {
+        const size = Number(input.maxFileSize);
+        if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_SIZE_LIMIT) {
+            return { error: `单文件上限需为 1 字节 ~ ${MAX_FILE_SIZE_LIMIT / 1024 / 1024}MB 之间的数值。` };
+        }
+    }
+    if (input.dailyLimit !== undefined) {
+        const limit = Number(input.dailyLimit);
+        if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_DAILY_LIMIT) {
+            return { error: `每日次数需为 1 ~ ${MAX_DAILY_LIMIT} 之间的整数。` };
+        }
+    }
+    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+        return { error: 'enabled 必须是布尔值。' };
+    }
+    return { ok: true };
+}
+
+/**
+ * 校验隔空投送配置。
+ *
+ * 房间有效期卡在 1~1440 分钟（最长一天）：临时文件在房间存活期间一直占着
+ * 中转节点，允许设成"永不过期"等于给存储泄漏开一个口子。
+ */
+function validateAirdrop(input) {
+    if (!input || typeof input !== 'object') return { error: 'airdrop 必须是对象。' };
+    for (const field of ['enabled', 'guestAllowed', 'guestReceiveAllowed']) {
+        if (input[field] !== undefined && typeof input[field] !== 'boolean') {
+            return { error: `${field} 必须是布尔值。` };
+        }
+    }
+    if (input.maxFileSize !== undefined) {
+        const size = Number(input.maxFileSize);
+        if (!Number.isFinite(size) || size <= 0 || size > MAX_FILE_SIZE_LIMIT) {
+            return { error: `单文件上限需为 1 字节 ~ ${MAX_FILE_SIZE_LIMIT / 1024 / 1024}MB 之间的数值。` };
+        }
+    }
+    if (input.dailyLimit !== undefined) {
+        const limit = Number(input.dailyLimit);
+        if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_DAILY_LIMIT) {
+            return { error: `每日次数需为 1 ~ ${MAX_DAILY_LIMIT} 之间的整数。` };
+        }
+    }
+    if (input.ttlMinutes !== undefined) {
+        const ttl = Number(input.ttlMinutes);
+        if (!Number.isInteger(ttl) || ttl < 1 || ttl > 1440) {
+            return { error: '房间有效期需为 1 ~ 1440 分钟之间的整数。' };
+        }
+    }
+    if (input.statsRetention !== undefined) {
+        const retention = Number(input.statsRetention);
+        // 0 是合法值（= 不自动清理），所以下界是 0 而不是 1
+        if (!Number.isInteger(retention) || retention < 0 || retention > MAX_AIRDROP_STATS_RETENTION) {
+            return { error: `使用记录保留条数需为 0 ~ ${MAX_AIRDROP_STATS_RETENTION} 之间的整数（0 表示不自动清理）。` };
+        }
+    }
+    return { ok: true };
+}
+
+function validateCors(input) {
+    if (!input || typeof input !== 'object') return { error: 'cors 必须是对象。' };
+    if (input.origins === undefined) return { ok: true, value: {} };
+
+    if (!Array.isArray(input.origins)) return { error: 'cors.origins 必须是数组。' };
+
+    const origins = [];
+    for (const item of input.origins) {
+        const value = String(item ?? '').trim();
+        if (!value) continue;
+        if (value === '*') { origins.push('*'); continue; }
+        if (!/^https?:\/\/[^\s/]+$/i.test(value)) {
+            return { error: `无效的来源「${value}」：需为 https://domain 形式，或 * 表示任意来源。` };
+        }
+        origins.push(value);
+    }
+    return { ok: true, value: { origins } };
+}
+
+function validateUpload(input) {
+    if (!input || typeof input !== 'object') return { error: 'upload 必须是对象。' };
+    if (input.chunkBackend === undefined) return { ok: true, value: {} };
+
+    const mode = String(input.chunkBackend).trim().toLowerCase();
+    if (!['auto', 'r2', 'kv'].includes(mode)) {
+        return { error: 'upload.chunkBackend 必须是 auto / r2 / kv 之一。' };
+    }
+    return { ok: true, value: { chunkBackend: mode } };
+}
+
+/**
+ * 校验存储回滚模式。
+ *
+ * `writeKvLegacy` 必须是真布尔值 —— 不接受 `'false'` / `0` / `null` 这类
+ * "假值"。因为这个开关决定**KV 会不会被写**，一旦把用户明确输入的
+ * `'false'` 当假值放行、又在归一化时按 `=== false` 之外的处理回退成默认
+ * `true`，就会出现「后台关了但 KV 还在写」的静默错配。
+ * 显式要求布尔，让前端传错类型时立刻 400，而不是悄悄按默认值走。
+ */
+function validateStorage(input) {
+    if (!input || typeof input !== 'object') return { error: 'storage 必须是对象。' };
+    if (input.writeKvLegacy === undefined) return { ok: true, value: {} };
+    if (typeof input.writeKvLegacy !== 'boolean') {
+        return { error: 'storage.writeKvLegacy 必须是布尔值（true / false）。' };
+    }
+    return { ok: true, value: { writeKvLegacy: input.writeKvLegacy } };
+}
+
+/**
+ * 校验站点品牌配置。
+ *
+ * 两个字段都是自由文本，但必须落在合理长度内（1 ~ 120 字符，空白会被归一化
+ * 层 trim / 截断）。这里只负责"非字符串 / 超长"这类硬错误；空串在归一化时
+ * 回落到环境变量基线（= K-Vault-NEXT），所以不算错误 —— 那是"恢复默认"的正常操作。
+ */
+function validateBranding(input) {
+    if (!input || typeof input !== 'object') return { error: 'branding 必须是对象。' };
+    if (input.siteName === undefined && input.siteTitle === undefined) {
+        return { ok: true, value: {} };
+    }
+    const check = (val, field) => {
+        if (val === undefined) return null;
+        if (typeof val !== 'string') return `branding.${field} 必须是字符串。`;
+        if (val.trim().length === 0) return null; // 空 = 恢复默认，放行
+        if (val.length > 120) return `branding.${field} 不能超过 120 个字符。`;
+        return null;
+    };
+    const errName = check(input.siteName, 'siteName');
+    if (errName) return { error: errName };
+    const errTitle = check(input.siteTitle, 'siteTitle');
+    if (errTitle) return { error: errTitle };
+    return { ok: true, value: {} };
+}
+
+/**
+ * 校验 WebDAV 服务端配置。
+ *
+ * 关键规则：
+ *   · enabled / readOnly 必须是真布尔值。
+ *   · username 必须能作为 Basic 用户名使用（限缩到安全字符集），
+ *     且仅在「启用」时强制非空 —— 关闭状态下允许留空。
+ *   · password 仅在「启用且本次确实要改」时校验长度；**空串 = 保持不变**
+ *     （前端拿不到明文，留空即"不修改"），由归一化层解释。
+ *   · backend 必须在白名单内。
+ */
+function validateWebdavServer(input) {
+    if (!input || typeof input !== 'object') return { error: 'webdav 必须是对象。' };
+
+    for (const field of ['enabled', 'readOnly']) {
+        if (input[field] !== undefined && typeof input[field] !== 'boolean') {
+            return { error: `webdav.${field} 必须是布尔值。` };
+        }
+    }
+
+    const username = input.username === undefined ? undefined : String(input.username).trim();
+    if (username !== undefined && username.length > 64) {
+        return { error: 'webdav.username 不能超过 64 个字符。' };
+    }
+    if (username && !/^[A-Za-z0-9._@-]+$/.test(username)) {
+        return { error: 'webdav.username 只能包含字母、数字与 . _ @ - 。' };
+    }
+
+    // password 允许 undefined 或空串（都表示"不修改"）；
+    // 非空时要求达到最低长度，避免设出"1"这种形同虚设的凭据。
+    if (input.password !== undefined && input.password !== null) {
+        if (typeof input.password !== 'string') {
+            return { error: 'webdav.password 必须是字符串。' };
+        }
+        if (input.password.length > 128) {
+            return { error: 'webdav.password 不能超过 128 个字符。' };
+        }
+        if (input.password.length > 0 && input.password.length < 6) {
+            return { error: 'webdav.password 至少需要 6 个字符。' };
+        }
+    }
+
+    if (input.backend !== undefined) {
+        const backend = String(input.backend).trim().toLowerCase();
+        if (!WEBDAV_BACKENDS.includes(backend)) {
+            return { error: `webdav.backend 必须是 ${WEBDAV_BACKENDS.join(' / ')} 之一。` };
+        }
+    }
+
+    // 归一化后的落库值。
+    //
+    // ⚠️ 必须显式回填 —— 不能像 validateAirdrop 那样省略 `value`（那种写法只有
+    // 在「原样保存 input」时才对）。这里有三处需要变换：
+    //   · username 去空白
+    //   · backend 转小写
+    //   · password 只在非空时下发：空串代表「保持已保存的密码不变」，
+    //     若把空串原样写进 KV，会把已有密码静默清空。
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.readOnly !== undefined) value.readOnly = input.readOnly === true;
+    if (input.username !== undefined) value.username = String(input.username).trim();
+    if (input.backend !== undefined) value.backend = String(input.backend).trim().toLowerCase();
+    if (typeof input.password === 'string' && input.password.length > 0) {
+        value.password = input.password;
+    }
+
+    return { ok: true, value };
+}
+
+/**
+ * 校验 MCP 端点配置。
+ *
+ * 规则：
+ *   · enabled 必须是真布尔值 —— 与 storage.writeKvLegacy 同理，这个开关
+ *     决定「一个网络面是否对公网开放」，把 `'false'` 当假值放行、又在归一化
+ *     时回退成默认值，会出现「后台关了但端点还开着」的静默错配。
+ *   · disabledTools 必须是数组，且每个元素都在 MCP_TOOL_IDS 白名单内。
+ *     未知名字**报错而不是丢弃**：归一化层虽然会丢弃，但在 API 层直接 400
+ *     能让「前端传了个拼错的工具名」立刻暴露，而不是变成一个静默无效的开关。
+ *     这里与归一化层的宽严差异是有意的 —— 归一化面向"可能被手改过的 KV"，
+ *     校验面向"正在提交的请求"，后者理应有更严的要求。
+ */
+function validateMcp(input) {
+    if (!input || typeof input !== 'object') return { error: 'mcp 必须是对象。' };
+
+    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+        return { error: 'mcp.enabled 必须是布尔值（true / false）。' };
+    }
+
+    if (input.disabledTools !== undefined) {
+        if (!Array.isArray(input.disabledTools)) {
+            return { error: 'mcp.disabledTools 必须是数组。' };
+        }
+        const unknown = [];
+        const seen = new Set();
+        for (const item of input.disabledTools) {
+            const name = String(item ?? '').trim();
+            if (!name || seen.has(name)) continue;
+            if (!MCP_TOOL_IDS.includes(name)) { unknown.push(name); continue; }
+            seen.add(name);
+        }
+        if (unknown.length > 0) {
+            return { error: `mcp.disabledTools 含未知工具名：${unknown.join('、')}。` };
+        }
+    }
+
+    // 归一化后的落库值：显式回填，保证类型与去重后的结果一致。
+    // disabledTools 只在请求带了这个字段时才下发 —— 与 webdav.password 同理，
+    // 「字段缺席」表示"不修改已保存的清单"，不能被当成"清空"。
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.disabledTools !== undefined) {
+        value.disabledTools = [...new Set(
+            input.disabledTools.map((item) => String(item ?? '').trim()).filter(Boolean)
+        )];
+    }
+
+    return { ok: true, value };
+}
+
+/**
+ * 校验缩略图配置。
+ *
+ *   · enabled 必须是真布尔值。
+ *   · maxEdge 夹在 64 ~ 2048：下界避免糊图，上界避免"缩略图比原图还大"。
+ *   · quality 落在 0.1 ~ 1。
+ *   · backend 必须在 THUMB_BACKENDS 白名单内（kv / d1 / r2），**且该后端在本
+ *     部署上确实已绑定**。后者不是多余的：后台下拉项虽然已经按可用性渲染，
+ *     但 API 是可以被直接调用的；放行一个没绑定的后端就会存下一份「后台显示
+ *     已配置、运行时却写不进去」的假配置 —— 这正是本项目一贯要避免的东西
+ *     （参见 .env.example 里 MCP 那段「避免出现配了却不生效的假配置项」）。
+ *
+ * 与 normalizeThumbConfig 的宽严差异是有意的：归一化面向"可能被手改过的 KV"，
+ * 校验面向"正在提交的请求"，后者理应更严。
+ *
+ * @param {unknown} input
+ * @param {any} env - 用于判定该部署实际可用的后端
+ */
+export function validateThumb(input, env) {
+    if (!input || typeof input !== 'object') return { error: 'thumb 必须是对象。' };
+
+    if (input.enabled !== undefined && typeof input.enabled !== 'boolean') {
+        return { error: 'thumb.enabled 必须是布尔值（true / false）。' };
+    }
+    if (input.maxEdge !== undefined) {
+        const edge = Number(input.maxEdge);
+        if (!Number.isInteger(edge) || edge < 64 || edge > 2048) {
+            return { error: '缩略图最长边需为 64 ~ 2048 之间的整数。' };
+        }
+    }
+    if (input.quality !== undefined) {
+        const quality = Number(input.quality);
+        if (!Number.isFinite(quality) || quality < 0.1 || quality > 1) {
+            return { error: '缩略图质量需为 0.1 ~ 1 之间的数值。' };
+        }
+    }
+    if (input.backend !== undefined) {
+        const backend = String(input.backend).trim().toLowerCase();
+        if (!THUMB_BACKENDS.includes(backend)) {
+            return { error: `thumb.backend 必须是 ${THUMB_BACKENDS.join(' / ')} 之一。` };
+        }
+        const available = availableThumbBackends(env);
+        if (!available.includes(backend)) {
+            const names = { kv: 'KV', d1: 'D1', r2: 'R2' };
+            const usable = available.map((item) => names[item] || item).join(' / ') || '（无）';
+            return {
+                error: `当前部署没有绑定 ${names[backend] || backend}，无法把缩略图存到那里。可选：${usable}。`
+            };
+        }
+    }
+
+    // 显式回填落库值：类型收敛 + maxEdge 取整 + backend 转小写。
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.maxEdge !== undefined) value.maxEdge = Math.round(Number(input.maxEdge));
+    if (input.quality !== undefined) value.quality = Number(input.quality);
+    if (input.backend !== undefined) value.backend = String(input.backend).trim().toLowerCase();
+
+    return { ok: true, value };
+}
+
+/**
+ * 校验 Show 公开影像展配置。
+ */
+export function validateShow(input) {
+    if (!input || typeof input !== 'object') return { error: 'show 必须是对象。' };
+
+    for (const field of ['enabled', 'showShareButton', 'showTagFilter', 'showCaptions', 'allowDownload']) {
+        if (input[field] !== undefined && typeof input[field] !== 'boolean') {
+            return { error: `show.${field} 必须是布尔值（true / false）。` };
+        }
+    }
+
+    if (input.style !== undefined) {
+        if (typeof input.style !== 'string' || !SHOW_STYLES.includes(input.style.trim().toLowerCase())) {
+            return { error: `show.style 必须是 ${SHOW_STYLES.join(' / ')} 之一。` };
+        }
+    }
+
+    const textLimits = [
+        ['title', 40],
+        ['eyebrow', 40],
+        ['intro', 160]
+    ];
+    for (const [field, limit] of textLimits) {
+        if (input[field] !== undefined) {
+            if (typeof input[field] !== 'string') {
+                return { error: `show.${field} 必须是字符串。` };
+            }
+            if (input[field].length > limit) {
+                return { error: `show.${field} 不能超过 ${limit} 个字符。` };
+            }
+        }
+    }
+
+    if (input.pageSize !== undefined) {
+        const size = Number(input.pageSize);
+        if (!Number.isInteger(size) || size < MIN_SHOW_PAGE_SIZE || size > MAX_SHOW_PAGE_SIZE) {
+            return { error: `每页加载作品数需为 ${MIN_SHOW_PAGE_SIZE} ~ ${MAX_SHOW_PAGE_SIZE} 之间的整数。` };
+        }
+    }
+
+    const value = {};
+    if (input.enabled !== undefined) value.enabled = input.enabled === true;
+    if (input.style !== undefined) value.style = input.style.trim().toLowerCase();
+    if (input.title !== undefined) value.title = input.title.trim();
+    if (input.eyebrow !== undefined) value.eyebrow = input.eyebrow.trim();
+    if (input.intro !== undefined) value.intro = input.intro.trim();
+    if (input.pageSize !== undefined) value.pageSize = Math.round(Number(input.pageSize));
+    if (input.showShareButton !== undefined) value.showShareButton = input.showShareButton === true;
+    if (input.showTagFilter !== undefined) value.showTagFilter = input.showTagFilter === true;
+    if (input.showCaptions !== undefined) value.showCaptions = input.showCaptions === true;
+    if (input.allowDownload !== undefined) value.allowDownload = input.allowDownload === true;
+
+    return { ok: true, value };
+}
+
+export async function onRequestGet(context) {
+    const { env } = context;
+    try {
+        return json(await buildView(env));
+    } catch (error) {
+        console.error('Settings read error:', error);
+        return json({ error: error.message || '读取设置失败' }, 500);
+    }
+}
+
+export async function onRequestPost(context) {
+    const { request, env } = context;
+
+    let body;
+    try {
+        body = await request.json();
+    } catch {
+        return json({ error: '请求体必须是 JSON。' }, 400);
+    }
+
+    const guestInput = body?.guest;
+    const corsInput = body?.cors;
+    const uploadInput = body?.upload;
+    const storageInput = body?.storage;
+    const brandingInput = body?.branding;
+    const airdropInput = body?.airdrop;
+    const webdavInput = body?.webdav;
+    const mcpInput = body?.mcp;
+    const thumbInput = body?.thumb;
+    const showInput = body?.show;
+
+    if (!guestInput && !corsInput && !uploadInput && !storageInput && !brandingInput && !airdropInput && !webdavInput && !mcpInput && !thumbInput && !showInput) {
+        return json({ error: '缺少要保存的配置分组（guest / cors / upload / storage / branding / airdrop / webdav / mcp / thumb / show）。' }, 400);
+    }
+
+    // 先做全量校验，避免「前半组写进去、后半组校验失败」的半更新状态
+    const checks = [];
+    if (guestInput) checks.push(['guest', validateGuest(guestInput), guestInput]);
+    if (corsInput) checks.push(['cors', validateCors(corsInput), corsInput]);
+    if (uploadInput) checks.push(['upload', validateUpload(uploadInput), uploadInput]);
+    if (storageInput) checks.push(['storage', validateStorage(storageInput), storageInput]);
+    if (brandingInput) checks.push(['branding', validateBranding(brandingInput), brandingInput]);
+    if (airdropInput) checks.push(['airdrop', validateAirdrop(airdropInput), airdropInput]);
+    if (webdavInput) checks.push(['webdav', validateWebdavServer(webdavInput), webdavInput]);
+    if (mcpInput) checks.push(['mcp', validateMcp(mcpInput), mcpInput]);
+    if (thumbInput) checks.push(['thumb', validateThumb(thumbInput, env), thumbInput]);
+    if (showInput) checks.push(['show', validateShow(showInput), showInput]);
+
+    for (const [, result] of checks) {
+        if (result.error) return json({ error: result.error }, 400);
+    }
+
+    if (!env?.img_url) {
+        return json({ error: '当前部署缺少 KV 绑定 img_url，无法保存运行时设置。' }, 503);
+    }
+
+    try {
+        for (const [group, result, input] of checks) {
+            await saveRuntimeConfig(env, group, result.value || input);
+        }
+        return json({ success: true, ...(await buildView(env)) });
+    } catch (error) {
+        console.error('Settings save error:', error);
+        return json({ error: error.message || '保存设置失败' }, 500);
+    }
+}
+
+export async function onRequestDelete(context) {
+    const { request, env } = context;
+
+    // 兼容既有前端：不带 group 时重置 guest（原语义就是「恢复访客上传默认设置」）
+    const group = new URL(request.url).searchParams.get('group') || 'guest';
+    if (!CONFIG_GROUPS.includes(group)) {
+        return json({ error: `未知的配置分组：${group}` }, 400);
+    }
+
+    try {
+        await resetRuntimeConfig(env, group);
+        return json({ success: true, ...(await buildView(env)) });
+    } catch (error) {
+        console.error('Settings reset error:', error);
+        return json({ error: error.message || '重置设置失败' }, 500);
+    }
+}

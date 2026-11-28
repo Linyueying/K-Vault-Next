@@ -1,0 +1,935 @@
+import { envValue } from './utils/env-config.js';
+import { checkAuthentication, isAuthRequired } from "./utils/auth.js";
+import { checkGuestUpload, incrementGuestCount } from "./utils/guest.js";
+import { getClientIp, fixedWindowRateLimit } from "./utils/ratelimit.js";
+import { createS3Client } from "./utils/s3client.js";
+import { uploadToDiscord } from "./utils/discord.js";
+import { hasHuggingFaceConfig, uploadToHuggingFace } from "./utils/huggingface.js";
+import { hasWebDAVConfig, normalizeWebDAVPath, uploadToWebDAV } from "./utils/webdav.js";
+import { hasGitHubConfig, normalizeGitHubStoragePath, uploadToGitHub } from "./utils/github.js";
+import { putRecordIndex, putKvFileMetadata } from "./utils/file-record.js";
+import { normalizeFolderPath } from "./utils/file-list.js";
+import {
+  buildTelegramDirectLink,
+  buildTelegramBotApiUrl,
+  createSignedTelegramFileId,
+  getTelegramUploadMethodAndField,
+  pickTelegramFileId,
+  sendTelegramUploadNotice,
+  shouldUseSignedTelegramLinks,
+  shouldWriteTelegramMetadata,
+  SIGNED_LINK_SECRET_MISSING_MESSAGE,
+} from "./utils/telegram.js";
+import {
+  applyShareOptions,
+  attachShareSummary,
+  buildShareSummary,
+  extractUploadKey,
+  findShareSlugOwner,
+  hasShareOptions,
+  parseShareOptions,
+  validateShareOptions,
+} from "./utils/share-options.js";
+import { MAX_IN_MEMORY_ASSEMBLY } from "./utils/chunk-limits.js";
+import { scheduleWarm } from "./utils/byte-cache.js";
+import { retryR2Op } from "./utils/r2-retry.js";
+
+const MB = 1024 * 1024;
+
+// 直传统一上限：与 MAX_IN_MEMORY_ASSEMBLY（内存拼装安全上限）对齐。
+// 各直传分支仍然先解析 multipart 再分字节到后端，100MB 的文件会同时以
+// multipart File / arrayBuffer / 后端请求体多种形态驻留内存，逼近
+// 128MB isolate 上限 —— 宁可把大文件推去分片通道，也不冒 OOM 风险。
+const DIRECT_UPLOAD_MAX_BYTES = MAX_IN_MEMORY_ASSEMBLY;
+
+// multipart 边界与表单字段的体积余量：Content-Length 早期门禁用它
+// 区分「可能合法」与「必然超限」。
+const DIRECT_UPLOAD_LENGTH_SLACK = 1 * MB;
+
+async function serveUploadPage(context, headOnly = false) {
+  const { request, env } = context;
+
+  if (env?.ASSETS?.fetch) {
+    const assetUrl = new URL("/upload.html", request.url);
+    const assetRequest = new Request(assetUrl.toString(), {
+      method: headOnly ? "HEAD" : "GET",
+      headers: request.headers,
+    });
+    return env.ASSETS.fetch(assetRequest);
+  }
+
+  if (typeof context.next === "function") {
+    return context.next();
+  }
+
+  return Response.redirect(new URL("/", request.url).toString(), 302);
+}
+
+export async function onRequestGet(context) {
+  return serveUploadPage(context);
+}
+
+export async function onRequestHead(context) {
+  return serveUploadPage(context, true);
+}
+
+export async function onRequestPost(context, {
+  parsedForm,
+  writeMetadata = persistUploadMetadata,
+} = {}) {
+  const { request, env } = context;
+
+  try {
+    // API v1 token-authenticated requests should bypass guest limits.
+    const isApiTokenRequest = Boolean(context?.data?.apiToken);
+    // 仅当「要求认证」且用户真实登录（或持有 API token）时才视为管理员；
+    // 未配置认证（开放实例）时匿名访客走普通访客流程，禁止被当成管理员。
+    const isAdmin = isApiTokenRequest || (isAuthRequired(env) && await isUserAuthenticated(context));
+
+    /* 访客门禁必须发生在解析 multipart 之前。
+       旧实现先 `request.clone().formData()` 把整个文件体读进内存，之后才判断访客是否
+       被允许上传 —— 被拒的访客白白消耗一次完整请求（文件体 + 内存），前端还会因为
+       任务被标记成可重试而反复重发，形成「拒绝 → 重排 → 再拒绝」的无限循环。
+       现在未登录访客直接在此处短路：不读 body、不写 KV、不触碰任何存储后端。 */
+
+    /* 大小门禁同样前置到解析 multipart 之前：Content-Length 超过
+       「直传上限 + 表单余量」的请求，无论目标存储是什么都必然超限，
+       没有理由把整个文件体读进 Worker 再拒绝一次。
+       （存储级精确上限仍由 validateDirectUpload 在拿到表单后判定。） */
+    const declaredLength = Number(request.headers.get("Content-Length") || 0);
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > DIRECT_UPLOAD_MAX_BYTES + DIRECT_UPLOAD_LENGTH_SLACK
+    ) {
+      return errorResponse(
+        `上传体积超过直传上限 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，请改用分片上传。`,
+        413
+      );
+    }
+
+    if (!isAdmin) {
+      // 访客上传 IP 级节流（防匿名滥用 / 刷存储），发生在解析 multipart 之前，省资源。
+      // 已认证用户（isAdmin）不受此限。
+      const guestIpRl = await fixedWindowRateLimit({
+        env, key: getClientIp(request), namespace: 'guest-upload-ip',
+        windowMs: 60 * 1000, max: 20,
+      });
+      if (!guestIpRl.allowed) {
+        const retryAfter = Math.ceil(guestIpRl.retryAfterMs / 1000);
+        return new Response(
+          JSON.stringify({
+            error: '上传过于频繁，请稍后再试。',
+            code: 'RATE_LIMITED',
+            retryAfterMs: guestIpRl.retryAfterMs,
+          }),
+          {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Retry-After': String(retryAfter),
+            },
+          }
+        );
+      }
+      const guestCheck = await checkGuestUpload(request, env, 0);
+      if (!guestCheck.allowed) {
+        return new Response(
+          JSON.stringify({
+            error: guestCheck.reason,
+            code: guestCheck.code || "GUEST_UPLOAD_FORBIDDEN",
+            requireLogin: true,
+          }),
+          {
+            status: guestCheck.status || 403,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
+    const formData = parsedForm ?? await request.clone().formData();
+
+    const uploadFile = formData.get("file");
+    if (!uploadFile) {
+      throw new Error("未选择上传文件");
+    }
+
+    const fileName = String(uploadFile.name || "upload.bin");
+    const fileExtension = normalizeFileExtension(fileName);
+    const folderPath = normalizeFolderPath(formData.get("folderPath"));
+
+    // 访客已被上面的前置门禁放行后，这里只补做与文件大小相关的限制校验。
+    if (!isAdmin) {
+      const guestCheck = await checkGuestUpload(request, env, uploadFile.size);
+      if (!guestCheck.allowed) {
+        return new Response(
+          JSON.stringify({
+            error: guestCheck.reason,
+            code: guestCheck.code || "GUEST_UPLOAD_FORBIDDEN",
+            requireLogin: true,
+          }),
+          {
+            status: guestCheck.status || 403,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
+
+    // Optional share settings: expiry / password / download cap / custom short
+    // link. Only administrators may set them, so a guest can neither squat a
+    // slug nor hand out a protected link. `/api/v1/upload` delegates the actual
+    // upload here and applies the very same fields itself afterwards, so that
+    // path is skipped to avoid writing the metadata twice.
+    const shareOptions =
+      isAdmin && !isApiTokenRequest ? parseShareOptions(formData) : null;
+
+    const storageMode = String(formData.get("storageMode") || "telegram").toLowerCase();
+    const uploadValidation = validateDirectUpload(storageMode, uploadFile.size);
+    if (!uploadValidation.ok) {
+      return errorResponse(uploadValidation.message, uploadValidation.status);
+    }
+
+    if (hasShareOptions(shareOptions)) {
+      const shareOptionError = validateShareOptions(shareOptions);
+      if (shareOptionError) {
+        return errorResponse(shareOptionError, 400);
+      }
+      if (shareOptions.slug && (await findShareSlugOwner(env, shareOptions.slug))) {
+        return errorResponse("自定义短链标识已被占用。", 409);
+      }
+      // Telegram can be configured to skip the KV metadata record
+      // (TELEGRAM_METADATA_MODE=off / TELEGRAM_SKIP_METADATA=1), and the share
+      // fields live in exactly that record. Reject up front instead of storing a
+      // file whose "protection" silently does not exist.
+      if (storageMode === "telegram" && !shouldWriteTelegramMetadata(env)) {
+        return errorResponse(
+          "当前 Telegram 元数据写入已关闭（TELEGRAM_METADATA_MODE=off 或 TELEGRAM_SKIP_METADATA=1），无法设置有效期 / 密码 / 下载次数 / 短链。请改用其他存储后端，或恢复元数据写入。",
+          409
+        );
+      }
+    }
+
+    let result;
+
+    if (storageMode === "r2") {
+      if (!env.R2_BUCKET) {
+        return errorResponse("R2 未配置。");
+      }
+      result = await uploadToR2(uploadFile, fileName, fileExtension, env, folderPath, writeMetadata);
+    } else if (storageMode === "s3") {
+      if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY_ID) {
+        return errorResponse("S3 未配置。");
+      }
+      result = await uploadToS3(uploadFile, fileName, fileExtension, env, folderPath, writeMetadata);
+    } else if (storageMode === "discord") {
+      if (!env.DISCORD_WEBHOOK_URL && !env.DISCORD_BOT_TOKEN) {
+        return errorResponse("Discord 未配置。");
+      }
+      result = await uploadToDiscordStorage(uploadFile, fileName, fileExtension, env, folderPath, writeMetadata);
+    } else if (storageMode === "huggingface") {
+      if (!hasHuggingFaceConfig(env)) {
+        return errorResponse("HuggingFace 未配置。");
+      }
+      result = await uploadToHFStorage(uploadFile, fileName, fileExtension, env, folderPath, writeMetadata);
+    } else if (storageMode === "webdav") {
+      if (!hasWebDAVConfig(env)) {
+        return errorResponse("WebDAV 未配置。");
+      }
+      result = await uploadToWebDAVStorage(uploadFile, fileName, fileExtension, env, folderPath, writeMetadata);
+    } else if (storageMode === "github") {
+      if (!hasGitHubConfig(env)) {
+        return errorResponse("GitHub 未配置。");
+      }
+      result = await uploadToGitHubStorage(uploadFile, fileName, fileExtension, env, folderPath, writeMetadata);
+    } else {
+      result = await uploadToTelegramStorage(
+        uploadFile,
+        fileName,
+        fileExtension,
+        env,
+        new URL(request.url).origin,
+        folderPath,
+        writeMetadata
+      );
+    }
+
+    if (result instanceof Response) {
+      if (!isAdmin) {
+        const status = result.status;
+        if (status >= 200 && status < 300) {
+          await incrementGuestCount(request, env);
+        }
+      }
+      if (result.ok && hasShareOptions(shareOptions)) {
+        return await attachShareOptions(env, result, shareOptions);
+      }
+      return result;
+    }
+
+    // -----------------------------------------------------------------------
+    // 上传成功后预热字节缓存（延迟优化 P1-1）
+    //
+    // 字节缓存是「首次付费、后续白嫖」的模型，而典型场景「上传完立刻把链接
+    // 甩到群里」恰好撞在最慢的那一次上。上传者先自己跑一趟把缓存填上，
+    // 之后谁点都是命中。失败不影响上传结果，所以整段包在 try 里。
+    //
+    // 用 clone() 读 body：result 是要返回给客户端的 Response，直接 json()
+    // 会把它的流消费掉。
+    // -----------------------------------------------------------------------
+    try {
+      const probe = typeof result?.clone === 'function' ? result.clone() : null;
+      if (probe?.ok) {
+        const body = await probe.json().catch(() => null);
+        const uploadedKey = body ? extractUploadKey(body) : null;
+        if (uploadedKey) {
+          // 响应体里没有文件大小，用请求体的 Content-Length 当上界：
+          // multipart 请求体必然 ≥ 文件本身，超上限时跳过预热是安全的方向。
+          const declared = Number(request.headers.get('Content-Length'));
+          await scheduleWarm(env, context, new URL(request.url).origin, uploadedKey, {
+            size: Number.isFinite(declared) && declared > 0 ? declared : undefined,
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('schedule warm failed:', error?.message || error);
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Upload error:", error);
+    return errorResponse(error.message);
+  }
+}
+
+async function isUserAuthenticated(context) {
+  const { env } = context;
+  if (!isAuthRequired(env)) return true;
+  try {
+    const auth = await checkAuthentication(context);
+    return auth.authenticated;
+  } catch {
+    return false;
+  }
+}
+
+function errorResponse(message, status = 500) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * Publish the requested share settings on a file that has just been uploaded.
+ *
+ * The per-backend uploader owns the KV record, so this step only merges the
+ * share fields into it; `functions/file/[id].js` enforces them on every read.
+ *
+ * It additionally appends a canonical share summary (`sharePath` & friends) to
+ * the response body. The `src`/`fileName`/`size` fields stay untouched, so
+ * existing clients are unaffected, while the browser UI can now recover the
+ * short link from the response instead of relying on its own memory — which is
+ * what made the link disappear after a refresh or a history restore.
+ *
+ * @param env - Cloudflare Pages environment (needs the `img_url` KV binding).
+ * @param response - Successful uploader response (`[{ "src": "/file/<key>" }]`).
+ * @param options - Parsed share options.
+ * @returns The original response (with the summary merged in), or an explicit
+ *   error when the settings could not be attached — failing loudly beats
+ *   handing back a link the user believes is protected when it is not.
+ */
+async function attachShareOptions(env, response, options) {
+  if (!env?.img_url) {
+    return errorResponse("当前部署缺少 KV 绑定，无法设置有效期 / 密码 / 短链。", 500);
+  }
+
+  let payload = null;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = null;
+  }
+
+  const key = extractUploadKey(payload);
+  if (!key) {
+    return errorResponse("无法定位刚上传的文件，分享设置未生效。", 502);
+  }
+
+  const record = await env.img_url.getWithMetadata(key);
+  if (!record?.metadata) {
+    return errorResponse(
+      "该存储未写入元数据（可能启用了低 KV 写入模式），无法设置有效期 / 密码 / 短链。",
+      409
+    );
+  }
+
+  let metadata;
+  try {
+    metadata = await applyShareOptions(env, key, record.metadata, options);
+  } catch (error) {
+    return errorResponse(error?.message || "写入分享设置失败。", 409);
+  }
+
+  const summary = buildShareSummary(metadata, key);
+  if (!summary) return response;
+
+  attachShareSummary(payload, summary);
+
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(payload), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function validateDirectUpload(storageMode, fileSize) {
+  // r2/s3/webdav/github 原为 100MB，但直传实现是「multipart 解析 →
+  // arrayBuffer() → 后端请求体」，100MB 文件在 128MB isolate 里会
+  // 同时存在多份拷贝，直接逼近 OOM。统一收口到 MAX_IN_MEMORY_ASSEMBLY
+  // （40MB）：更大的文件应走分片通道（R2 原生 multipart 可到 10GB）。
+  // R2 分支本身不再经 arrayBuffer（Blob 直传 put），但上限保持一致，
+  // 避免「同一后端直传与分片的上限语义互相矛盾」。
+  const limits = {
+    telegram: {
+      maxBytes: 20 * MB,
+      status: 413,
+      message: "Cloudflare Pages 上的 Telegram 网页上传限制为 20MB。较大的浏览器上传请使用 R2、S3、WebDAV 或 GitHub，或直接把文件发到 Telegram 后使用 Webhook 回链。",
+    },
+    discord: {
+      maxBytes: 25 * MB,
+      status: 413,
+      message: "Discord 上传上限受服务器加成影响，K-Vault 默认按 25MB 保守处理。",
+    },
+    huggingface: {
+      maxBytes: 35 * MB,
+      status: 413,
+      message: "HuggingFace regular upload is capped at 35MB in K-Vault. Use another storage backend for larger files.",
+    },
+    r2: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `R2 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传（支持至 10GB）。`,
+    },
+    s3: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `S3 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传。`,
+    },
+    webdav: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `WebDAV 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传。`,
+    },
+    github: {
+      maxBytes: DIRECT_UPLOAD_MAX_BYTES,
+      status: 413,
+      message: `GitHub 网页直传上限为 ${DIRECT_UPLOAD_MAX_BYTES / MB}MB，更大文件请使用分片上传。`,
+    },
+  };
+  const limit = limits[storageMode] || limits.telegram;
+  if (Number(fileSize || 0) > limit.maxBytes) {
+    return { ok: false, status: limit.status, message: limit.message };
+  }
+  return { ok: true };
+}
+
+function normalizeFileExtension(fileName) {
+  const ext = String(fileName || "")
+    .split(".")
+    .pop()
+    ?.toLowerCase()
+    ?.replace(/[^a-z0-9]/g, "");
+  return ext || "bin";
+}
+
+function joinStoragePath(folderPath, fileName) {
+  const base = normalizeFolderPath(folderPath);
+  if (!base) return fileName;
+  return `${base}/${fileName}`;
+}
+
+function randomId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+}
+
+function appendCommonMetadata(metadata, folderPath) {
+  if (!folderPath) return metadata;
+  return {
+    ...metadata,
+    folderPath,
+  };
+}
+
+async function persistUploadMetadata(env, key, metadata) {
+  if (metadata.storageType === "telegram") {
+    await env.img_url.put(key, "", { metadata });
+  } else {
+    await putKvFileMetadata(env, key, metadata);
+  }
+  await putRecordIndex(env, key, { metadata });
+}
+
+async function uploadToTelegramStorage(
+  uploadFile,
+  fileName,
+  fileExtension,
+  env,
+  fallbackOrigin,
+  folderPath,
+  writeMetadata
+) {
+  const telegramFormData = new FormData();
+  telegramFormData.append("chat_id", envValue(env, 'TG_CHAT_ID'));
+
+  const { method: apiEndpoint, field } = getTelegramUploadMethodAndField(uploadFile.type);
+  telegramFormData.append(field, uploadFile);
+
+  const result = await sendToTelegram(telegramFormData, apiEndpoint, env);
+
+  if (!result.success) {
+    throw new Error(result.error);
+  }
+
+  const fileId = pickTelegramFileId(result.data);
+  const messageId = result.messageId || result.data?.result?.message_id;
+
+  if (!fileId) {
+    throw new Error("Telegram 已接收文件，但未返回可用的文件 ID。");
+  }
+
+  const directId = await buildTelegramDirectId(
+    fileId,
+    fileExtension,
+    fileName,
+    uploadFile.type,
+    uploadFile.size,
+    messageId,
+    env
+  );
+
+  if (env.img_url && shouldWriteTelegramMetadata(env)) {
+    const telegramKvKey = `${fileId}.${fileExtension}`;
+    // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+    const recordMetadata = appendCommonMetadata(
+      {
+        TimeStamp: Date.now(),
+        ListType: "None",
+        Label: "None",
+        liked: false,
+        fileName,
+        fileSize: uploadFile.size,
+        storageType: "telegram",
+        telegramFileId: fileId,
+        telegramMessageId: messageId || undefined,
+        signedLink: shouldUseSignedTelegramLinks(env),
+      },
+      folderPath
+    );
+    await writeMetadata(env, telegramKvKey, recordMetadata);
+  }
+
+  const directLink = buildTelegramDirectLink(env, directId, fallbackOrigin);
+  try {
+    const noticeResult = await sendTelegramUploadNotice(
+      {
+        chatId: envValue(env, 'TG_CHAT_ID'),
+        replyToMessageId: messageId || undefined,
+        directLink,
+        fileId,
+        messageId,
+        fileName,
+        fileSize: uploadFile.size,
+      },
+      env
+    );
+    if (!noticeResult?.ok && !noticeResult?.skipped) {
+      console.warn(
+        "Telegram upload notice failed:",
+        noticeResult?.data?.description || noticeResult?.error || "unknown error"
+      );
+    }
+  } catch (error) {
+    console.warn("Telegram upload notice error:", error.message);
+  }
+
+  return new Response(JSON.stringify([{ src: `/file/${directId}` }]), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function sendToTelegram(formData, apiEndpoint, env, retryCount = 0) {
+  const maxRetries = 3;
+  const apiUrl = buildTelegramBotApiUrl(env, apiEndpoint);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    let response;
+    try {
+      response = await fetch(apiUrl, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const responseData = await response.json();
+
+    if (response.ok) {
+      return { success: true, data: responseData, messageId: responseData?.result?.message_id };
+    }
+
+    if (response.status === 429) {
+      const retryAfter = responseData.parameters?.retry_after || 5;
+      if (retryCount < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+        return sendToTelegram(formData, apiEndpoint, env, retryCount + 1);
+      }
+      return { success: false, error: `Rate limited. Retry after ${retryAfter}s.` };
+    }
+
+    if (response.status === 413) {
+      return { success: false, error: "Telegram 文件大小超过限制。" };
+    }
+
+    if (retryCount < maxRetries && apiEndpoint === "sendAudio") {
+      const newFormData = new FormData();
+      newFormData.append("chat_id", formData.get("chat_id"));
+      newFormData.append("document", formData.get("audio"));
+      return sendToTelegram(newFormData, "sendDocument", env, retryCount + 1);
+    }
+
+    return {
+      success: false,
+      error: responseData.description || "上传到 Telegram 失败",
+    };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      if (retryCount < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 2000 * (retryCount + 1)));
+        return sendToTelegram(formData, apiEndpoint, env, retryCount + 1);
+      }
+      return { success: false, error: "Telegram 请求超时。" };
+    }
+
+    if (retryCount < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+      return sendToTelegram(formData, apiEndpoint, env, retryCount + 1);
+    }
+    return { success: false, error: "上传到 Telegram 时网络异常。" };
+  }
+}
+
+async function uploadToR2(file, fileName, fileExtension, env, folderPath, writeMetadata) {
+  let objectKey = null;
+  let objectWritten = false;
+  try {
+    const fileId = randomId("r2");
+    objectKey = `${fileId}.${fileExtension}`;
+
+    // File 本身就是合法的 put 入参：直接传 Blob，省掉 arrayBuffer()
+    // 这一次整文件拷贝；加上有界瞬态重试抵御边缘抖动。
+    await retryR2Op(
+      () => env.R2_BUCKET.put(objectKey, file, {
+        httpMetadata: { contentType: file.type },
+        customMetadata: { fileName, uploadTime: Date.now().toString() },
+      }),
+      {
+        maxAttempts: 3,
+        baseDelayMs: 200,
+        maxDelayMs: 1200,
+        onRetry: (err, attempt, delayMs) => {
+          console.warn(`R2 direct put retry ${attempt} (wait=${delayMs}ms):`, err?.message || err);
+        },
+      }
+    );
+    objectWritten = true;
+
+    if (env.img_url) {
+      // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+      const recordMetadata = appendCommonMetadata(
+        {
+          TimeStamp: Date.now(),
+          ListType: "None",
+          Label: "None",
+          liked: false,
+          fileName,
+          fileSize: file.size,
+          storageType: "r2",
+          r2Key: objectKey,
+        },
+        folderPath
+      );
+      await writeMetadata(env, `r2:${objectKey}`, recordMetadata);
+    }
+
+    return new Response(JSON.stringify([{ src: `/file/r2:${objectKey}` }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    // 元数据写入失败时回滚已写入的 R2 对象，避免孤儿文件占用空间
+    if (objectWritten && objectKey && env.R2_BUCKET && typeof env.R2_BUCKET.delete === "function") {
+      await env.R2_BUCKET.delete(objectKey).catch((delErr) => {
+        console.warn(`R2 direct upload rollback delete failed (${objectKey}):`, delErr?.message || delErr);
+      });
+    }
+    console.error("R2 upload error:", error);
+    return errorResponse(`R2 upload failed: ${error.message}`);
+  }
+}
+
+async function uploadToS3(file, fileName, fileExtension, env, folderPath, writeMetadata) {
+  try {
+    const s3 = createS3Client(env);
+    const fileId = randomId("s3");
+    const objectKey = `${fileId}.${fileExtension}`;
+    const arrayBuffer = await file.arrayBuffer();
+
+    await s3.putObject(objectKey, arrayBuffer, {
+      contentType: file.type || "application/octet-stream",
+      metadata: {
+        "x-amz-meta-filename": fileName,
+        "x-amz-meta-uploadtime": Date.now().toString(),
+      },
+    });
+
+    if (env.img_url) {
+      // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+      const recordMetadata = appendCommonMetadata(
+        {
+          TimeStamp: Date.now(),
+          ListType: "None",
+          Label: "None",
+          liked: false,
+          fileName,
+          fileSize: file.size,
+          storageType: "s3",
+          s3Key: objectKey,
+        },
+        folderPath
+      );
+      await writeMetadata(env, `s3:${objectKey}`, recordMetadata);
+    }
+
+    return new Response(JSON.stringify([{ src: `/file/s3:${objectKey}` }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("S3 upload error:", error);
+    return errorResponse(`S3 upload failed: ${error.message}`);
+  }
+}
+
+async function uploadToDiscordStorage(file, fileName, fileExtension, env, folderPath, writeMetadata) {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await uploadToDiscord(arrayBuffer, fileName, file.type, env);
+
+    if (!result.success) {
+      return errorResponse(`Discord upload failed: ${result.error}`);
+    }
+
+    const fileId = randomId("discord");
+    const kvKey = `discord:${fileId}.${fileExtension}`;
+
+    if (env.img_url) {
+      // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+      const recordMetadata = appendCommonMetadata(
+        {
+          TimeStamp: Date.now(),
+          ListType: "None",
+          Label: "None",
+          liked: false,
+          fileName,
+          fileSize: file.size,
+          storageType: "discord",
+          discordChannelId: result.channelId,
+          discordMessageId: result.messageId,
+          discordAttachmentId: result.attachmentId,
+          discordUploadMode: result.mode,
+          discordSourceUrl: result.sourceUrl,
+        },
+        folderPath
+      );
+      await writeMetadata(env, kvKey, recordMetadata);
+    }
+
+    return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("Discord upload error:", error);
+    return errorResponse(`Discord upload failed: ${error.message}`);
+  }
+}
+
+async function uploadToHFStorage(file, fileName, fileExtension, env, folderPath, writeMetadata) {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const fileId = randomId("hf");
+    const hfPath = joinStoragePath(folderPath, `${fileId}.${fileExtension}`);
+
+    const result = await uploadToHuggingFace(arrayBuffer, hfPath, fileName, env);
+
+    if (!result.success) {
+      return errorResponse(`HuggingFace upload failed: ${result.error}`);
+    }
+
+    const kvKey = `hf:${fileId}.${fileExtension}`;
+
+    if (env.img_url) {
+      // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+      const recordMetadata = appendCommonMetadata(
+        {
+          TimeStamp: Date.now(),
+          ListType: "None",
+          Label: "None",
+          liked: false,
+          fileName,
+          fileSize: file.size,
+          storageType: "huggingface",
+          hfPath,
+        },
+        folderPath
+      );
+      await writeMetadata(env, kvKey, recordMetadata);
+    }
+
+    return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("HuggingFace upload error:", error);
+    return errorResponse(`HuggingFace upload failed: ${error.message}`);
+  }
+}
+
+async function uploadToWebDAVStorage(file, fileName, fileExtension, env, folderPath, writeMetadata) {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const fileId = randomId("wd");
+    const publicId = `${fileId}.${fileExtension}`;
+    const webdavPath = joinStoragePath(folderPath, publicId);
+
+    const result = await uploadToWebDAV(arrayBuffer, webdavPath, file.type || "application/octet-stream", env);
+
+    const kvKey = `webdav:${publicId}`;
+    if (env.img_url) {
+      // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+      const recordMetadata = appendCommonMetadata(
+        {
+          TimeStamp: Date.now(),
+          ListType: "None",
+          Label: "None",
+          liked: false,
+          fileName,
+          fileSize: file.size,
+          storageType: "webdav",
+          webdavPath: normalizeWebDAVPath(result.path || webdavPath),
+          webdavEtag: result.etag || undefined,
+        },
+        folderPath
+      );
+      await writeMetadata(env, kvKey, recordMetadata);
+    }
+
+    return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("WebDAV upload error:", error);
+    return errorResponse(`WebDAV upload failed: ${error.message}`);
+  }
+}
+
+async function uploadToGitHubStorage(file, fileName, fileExtension, env, folderPath, writeMetadata) {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const fileId = randomId("github");
+    const publicId = `${fileId}.${fileExtension}`;
+    const githubStorageKey = joinStoragePath(folderPath, publicId);
+
+    const result = await uploadToGitHub(
+      arrayBuffer,
+      normalizeGitHubStoragePath(githubStorageKey),
+      fileName,
+      file.type || "application/octet-stream",
+      env
+    );
+
+    const kvKey = `github:${publicId}`;
+    if (env.img_url) {
+      // 先算出 metadata 再写：KV 与 D1 共用同一份，省掉 D1 登记时的 KV 回读
+      const recordMetadata = appendCommonMetadata(
+        {
+          TimeStamp: Date.now(),
+          ListType: "None",
+          Label: "None",
+          liked: false,
+          fileName,
+          fileSize: file.size,
+          storageType: "github",
+          githubStorageKey: normalizeGitHubStoragePath(result.storagePath || githubStorageKey),
+          ...(result.metadata || {}),
+        },
+        folderPath
+      );
+      await writeMetadata(env, kvKey, recordMetadata);
+    }
+
+    return new Response(JSON.stringify([{ src: `/file/${kvKey}` }]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("GitHub upload error:", error);
+    return errorResponse(`GitHub upload failed: ${error.message}`);
+  }
+}
+
+async function buildTelegramDirectId(
+  fileId,
+  fileExtension,
+  fileName,
+  mimeType,
+  fileSize,
+  messageId,
+  env
+) {
+  if (!shouldUseSignedTelegramLinks(env)) {
+    return `${fileId}.${fileExtension}`;
+  }
+
+  const signedId = await createSignedTelegramFileId(
+    {
+      fileId,
+      fileExtension,
+      fileName,
+      mimeType,
+      fileSize,
+      messageId,
+    },
+    env
+  );
+
+  // createSignedTelegramFileId 在未配置 FILE_URL_SECRET / TG_BOT_TOKEN 时
+  // 返回 null（fail-closed，不再回退到内置常量密钥）。此时必须中断，
+  // 否则会把 `null` 当成直链 ID 写进 KV 元数据。
+  if (!signedId) {
+    throw new Error(SIGNED_LINK_SECRET_MISSING_MESSAGE);
+  }
+
+  return signedId;
+}

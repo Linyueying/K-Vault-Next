@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-brand-title-prefix="登录 · ">登录 · K-Vault-NEXT</title>
+  <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
+  <link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+  <link rel="shortcut icon" href="/assets/img/favicon.ico">
+  <link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
+  <link rel="stylesheet" href="/assets/vendor/glassfx/glass.css">
+  <link rel="stylesheet" href="/assets/css/design-system.css">
+  <link rel="stylesheet" href="/assets/css/theme.css">
+  <script src="/assets/js/theme.js?v=20260305"></script>
+  <script src="/assets/js/app-core.js"></script>
+  <script defer src="/assets/js/branding.js"></script>
+  <style>
+    /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      position: relative;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 420px;
+      animation: riseInSm 0.44s var(--ease-fluid);
+    }
+
+    .login-card {
+      background: var(--glass-surface);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border-radius: var(--radius-lg);
+      padding: 48px 40px;
+      box-shadow: var(--shadow-soft), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+      text-align: center;
+      border: 1px solid var(--glass-border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* 顶部高光条：与 index 的 .liquid-card 保持一致 */
+    .login-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--glass-specular), transparent);
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .logo {
+      width: 56px;
+      height: 56px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto var(--sp-4);
+      border-radius: var(--r-md);
+      background: #EBF2FA;
+    }
+    .logo img { width: 36px; height: 36px; object-fit: contain; }
+
+    .title {
+      font-size: 1.9em;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 10px;
+      letter-spacing: -0.5px;
+      overflow-wrap: anywhere;
+    }
+
+    .subtitle {
+      color: var(--text-sub);
+      margin-bottom: 36px;
+      font-size: 0.95em;
+      line-height: 1.5;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+      text-align: left;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.9em;
+      color: var(--text-sub);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .input-wrapper {
+      position: relative;
+    }
+
+    .input-wrapper i {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 1em;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 14px 16px 14px 44px;
+      border: 1.5px solid var(--glass-border-ice);
+      border-radius: var(--radius-md);
+      font-size: 1em;
+      color: var(--text-main);
+      transition: var(--transition);
+      background: var(--glass-subtle);
+    }
+
+    .form-input.has-toggle {
+      padding-right: 56px;
+    }
+
+    .form-input:focus {
+      border-color: var(--primary);
+      outline: none;
+      box-shadow: 0 0 0 3px var(--primary-surface);
+    }
+
+    .form-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .password-toggle {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      border-radius: 8px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0;
+      z-index: 2;
+    }
+
+    .password-toggle:hover {
+      color: var(--primary);
+    }
+
+    .remember-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .remember-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 0.9em;
+      color: var(--text-sub);
+    }
+
+    .remember-label input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--primary);
+    }
+
+    .login-btn {
+      width: 100%;
+      min-height: var(--h-ctrl-lg);
+      font-size: var(--fs-lg);
+    }
+
+    .error-message {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 20px;
+      font-size: 0.9em;
+      display: none;
+    }
+
+    .error-message.show {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .footer-text {
+      margin-top: 24px;
+      color: var(--text-muted);
+      font-size: 0.85em;
+    }
+
+    .footer-text a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .footer-text a:hover {
+      text-decoration: underline;
+    }
+
+    /* 入场编排：riseInSm / riseIn 等关键帧统一由 design-system.css 提供 */
+
+    /* 响应式 */
+    @media (max-width: 768px) {
+      body {
+        padding: 20px;
+      }
+
+      .login-card {
+        max-width: 100%;
+        padding: 40px 28px;
+      }
+
+      .title {
+        font-size: 1.8em;
+      }
+
+      .subtitle {
+        font-size: 0.95em;
+      }
+
+      .form-input {
+        padding: 14px 18px;
+        font-size: 1em;
+      }
+
+      .form-input.has-toggle {
+        padding-right: 52px;
+      }
+
+      .password-toggle {
+        right: 9px;
+        width: 32px;
+        height: 32px;
+      }
+
+      .submit-btn {
+        padding: 14px;
+        font-size: 1em;
+      }
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 12px;
+        align-items: flex-start;
+        padding-top: 10vh;
+      }
+
+      .login-card {
+        padding: 30px 20px;
+        border-radius: 20px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      }
+
+      .title {
+        font-size: 1.4em;
+        margin-bottom: 6px;
+      }
+
+      .subtitle {
+        font-size: 0.85em;
+      }
+
+      .login-form {
+        gap: 16px;
+        margin-top: 24px;
+      }
+
+      .form-group {
+        margin-bottom: 0;
+      }
+
+      .form-group label {
+        font-size: 0.85em;
+        margin-bottom: 6px;
+      }
+
+      .form-input {
+        padding: 12px 14px;
+        font-size: 0.95em;
+        border-radius: 10px;
+      }
+
+      .form-input.has-toggle {
+        padding-right: 48px;
+      }
+
+      .password-toggle {
+        right: 8px;
+        width: 30px;
+        height: 30px;
+        font-size: 0.9em;
+      }
+
+      .submit-btn {
+        padding: 12px;
+        font-size: 0.95em;
+        border-radius: 10px;
+        margin-top: 4px;
+      }
+
+      .links {
+        margin-top: 20px;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .links a {
+        font-size: 0.85em;
+      }
+
+      /* Element UI 消息优化 */
+      .el-message {
+        min-width: auto !important;
+        max-width: 90% !important;
+        padding: 10px 14px !important;
+      }
+
+      .el-message__content {
+        font-size: 13px !important;
+      }
+    }
+
+    @media (max-width: 360px) {
+      body {
+        padding: 10px;
+        padding-top: 8vh;
+      }
+
+      .login-card {
+        padding: 24px 16px;
+        border-radius: 16px;
+      }
+
+      .title {
+        font-size: 1.25em;
+      }
+
+      .form-input {
+        padding: 10px 12px;
+        font-size: 0.9em;
+      }
+
+      .submit-btn {
+        padding: 10px;
+        font-size: 0.9em;
+      }
+    }
+
+    /* 深色模式支持 */
+  </style>
+  <link rel="stylesheet" href="/assets/css/mobile-refactor.css">
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <div class="login-card">
+      <div class="logo">
+        <img src="/assets/img/logo-64.png" alt="" width="36" height="36">
+      </div>
+      <h1 class="title" data-brand-name>K-Vault-NEXT</h1>
+      <p class="subtitle">请登录以继续使用文件托管服务</p>
+
+      <div class="error-message" id="errorMessage">
+        <i class="fas fa-exclamation-circle"></i>
+        <span id="errorText">用户名或密码错误</span>
+      </div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label for="username">用户名</label>
+          <div class="input-wrapper">
+            <i class="fas fa-user"></i>
+            <input type="text" id="username" class="form-input" placeholder="请输入用户名" required autofocus>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">密码</label>
+          <div class="input-wrapper">
+            <i class="fas fa-lock"></i>
+            <input type="password" id="password" class="form-input has-toggle" placeholder="请输入密码" required>
+            <button type="button" class="password-toggle" onclick="togglePassword()">
+              <i class="fas fa-eye" id="passwordToggleIcon"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="remember-row">
+          <label class="remember-label">
+            <input type="checkbox" id="remember" checked>
+            <span>记住登录状态</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn--primary login-btn" id="loginBtn">
+          <i class="fas fa-sign-in-alt"></i>
+          <span>登 录</span>
+        </button>
+      </form>
+
+      <p class="footer-text">
+        Powered by <a href="https://github.com/katelya77/K-Vault" target="_blank">K-Vault</a>
+      </p>
+    </div>
+  </div>
+
+  <script>
+    // 页面加载时检查认证状态
+    (async function() {
+      try {
+        const response = await fetch('/api/auth/check');
+        const data = await response.json();
+        
+        if (!data.authRequired) {
+          // 不需要认证，直接跳转
+          redirectToTarget();
+          return;
+        }
+        
+        if (data.authenticated) {
+          // 已认证，跳转到目标页面
+          redirectToTarget();
+        }
+      } catch (e) {
+        console.error('Auth check failed:', e);
+      }
+    })();
+
+    /**
+     * 把 `?redirect=` 收敛成一个**同源相对路径**。
+     *
+     * 修复前这里只做了「包含 login.html 就回退」这一处判断，然后原样交给
+     * `window.location.replace()`。于是 `?redirect=https://evil.com` 是一个
+     * 可直接利用的开放重定向（钓鱼链接长得完全像本站）；`?redirect=javascript:...`
+     * 更进一步，是登录页上的 XSS。
+     *
+     * 现在逐条挡掉：
+     *   · 协议相对写法 `//evil.com`、`/\evil.com`（浏览器会当成跨域绝对地址）
+     *   · 任何带 scheme 的写法（`javascript:`、`data:`、`https://evil.com`…）
+     *   · 解析后 origin 与本站不一致的地址
+     *   · 登录页本身（跳回去会造成死循环）
+     *
+     * 最终返回的是 pathname + 查询串 + hash，天然不含 origin。
+     */
+    function safeRedirectPath(raw) {
+      const value = String(raw || '').trim();
+      if (!value) return '/';
+
+      // 反斜杠在部分浏览器里等价于正斜杠，`/\evil.com` 会被当成协议相对地址
+      if (value.indexOf('\\') !== -1) return '/';
+      if (value.indexOf('//') === 0) return '/';
+      // 任何 scheme 一律拒绝（相对路径不可能以 scheme 开头）
+      if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return '/';
+
+      let url;
+      try {
+        url = new URL(value, window.location.origin);
+      } catch (e) {
+        return '/';
+      }
+
+      // 只接受同源目标
+      if (url.origin !== window.location.origin) return '/';
+
+      // 登录页自身：跳回去会死循环
+      const path = url.pathname || '/';
+      if (path === '/login' || path === '/login.html' || path.slice(-11) === '/login.html') {
+        return '/';
+      }
+
+      return path + (url.search || '') + (url.hash || '');
+    }
+
+    function redirectToTarget() {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = safeRedirectPath(params.get('redirect'));
+
+      // 使用 replace 防止用户回退到登录页
+      window.location.replace(redirect);
+    }
+
+    function togglePassword() {
+      const passwordInput = document.getElementById('password');
+      const icon = document.getElementById('passwordToggleIcon');
+      
+      if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+      } else {
+        passwordInput.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+      }
+    }
+
+    function showError(message) {
+      const errorDiv = document.getElementById('errorMessage');
+      const errorText = document.getElementById('errorText');
+      errorText.textContent = message;
+      errorDiv.classList.add('show');
+    }
+
+    function hideError() {
+      document.getElementById('errorMessage').classList.remove('show');
+    }
+
+    function setLoading(loading) {
+      const btn = document.getElementById('loginBtn');
+      if (loading) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner spinner--sm spinner--on-primary"></div><span>登录中...</span>';
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sign-in-alt"></i><span>登 录</span>';
+      }
+    }
+
+    async function handleLogin(event) {
+      event.preventDefault();
+      hideError();
+      
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      
+      if (!username || !password) {
+        showError('请输入用户名和密码');
+        return;
+      }
+      
+      setLoading(true);
+      
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // 登录成功，跳转
+          redirectToTarget();
+        } else {
+          showError(data.message || '登录失败');
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        showError('网络错误，请稍后重试');
+        setLoading(false);
+      }
+    }
+
+    // 回车键提交
+    document.getElementById('password').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        document.getElementById('loginForm').dispatchEvent(new Event('submit'));
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+{
+  "S1": {
+    "id": "S1",
+    "title": "首页上传队列（100 个小文件）",
+    "frames": 144,
+    "longFrames": 5,
+    "p95Frame": 49.9,
+    "maxFrame": 116.6,
+    "LayoutCount": 399,
+    "LayoutDuration": 138.3,
+    "RecalcStyleCount": 451,
+    "RecalcStyleDuration": 1722.7,
+    "gBCR": 4866,
+    "gCS": 155
+  },
+  "S2": {
+    "id": "S2",
+    "title": "交付结果列表 100 条（切换选择模式全量重渲染）",
+    "frames": 93,
+    "longFrames": 0,
+    "p95Frame": 16.8,
+    "maxFrame": 50,
+    "LayoutCount": 156,
+    "LayoutDuration": 43.1,
+    "RecalcStyleCount": 880,
+    "RecalcStyleDuration": 3401.2,
+    "gBCR": 300,
+    "gCS": 609,
+    "rows": 100,
+    "wallMs": 5747
+  },
+  "S4": {
+    "id": "S4",
+    "title": "后台文件列表滚动（毛玻璃卡片）",
+    "frames": 138,
+    "longFrames": 0,
+    "p95Frame": 16.8,
+    "maxFrame": 50,
+    "LayoutCount": 0,
+    "LayoutDuration": 0,
+    "RecalcStyleCount": 139,
+    "RecalcStyleDuration": 98.8,
+    "gBCR": 0,
+    "gCS": 0,
+    "rows": 24
+  },
+  "S3": {
+    "id": "S3",
+    "title": "本地历史 500 条（切视图 + 滚动）",
+    "frames": 88,
+    "longFrames": 7,
+    "p95Frame": 66.6,
+    "maxFrame": 183.3,
+    "LayoutCount": 2,
+    "LayoutDuration": 59.5,
+    "RecalcStyleCount": 91,
+    "RecalcStyleDuration": 137.6,
+    "gBCR": 0,
+    "gCS": 0,
+    "rows": 500
+  }
+}

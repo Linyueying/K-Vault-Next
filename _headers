@@ -1,0 +1,59 @@
+# ============================================================================
+# Cloudflare Pages 响应头规则
+# ============================================================================
+#
+# 为什么需要这个文件
+# ----------------------------------------------------------------------------
+# 项目的前端 JS/CSS 是**外置资源**（assets/js/*.js、assets/css/*.css），
+# 不带内容哈希（不是 index.a1b2c3.js 这种）。Cloudflare Pages 对静态资源
+# 默认会给较长的浏览器缓存，于是出现一个非常误导人的现象：
+#
+#   代码改了 → git push → Pages 重新部署成功 → 用户刷新 → **还是旧行为**
+#
+# 后端（/api/**）是 Functions，每次实时执行，改了立刻生效；前端却是被
+# 浏览器/边缘缓存住的。于是"后端明明修好了、前端却还在报旧错"——
+# 排查时极易误判成"改动没生效"。
+#
+# 策略：外置资源要求**每次带条件请求回源校验**（no-cache，不是 no-store）。
+# ----------------------------------------------------------------------------
+#   · no-cache = 允许缓存副本，但每次使用前必须回源校验（命中 304 才用缓存）。
+#     既拿到 ETag/Last-Modified 的带宽节省，又保证改动一定可见。
+#   · 不用 no-store：那会连 304 的省流量好处也丢掉，对移动端不友好。
+#
+# 注意：这里刻意**不给长 max-age**。本项目没有构建步骤、文件名无哈希，
+# 长缓存 + 无哈希 = 无法安全失效。等将来引入内容哈希再考虑 immutable。
+# ============================================================================
+
+# 外置脚本与样式：每次回源校验，保证改动即时可见
+/assets/*
+  Cache-Control: no-cache
+
+# HTML 入口：绝不缓存（页面里引用的资源版本会变）
+/*.html
+  Cache-Control: no-cache
+
+/
+  Cache-Control: no-cache
+
+# ============================================================================
+# 安全响应头（全站）
+# ============================================================================
+#
+# 为什么要在这里再写一遍
+# ----------------------------------------------------------------------------
+# `_headers` 只作用于**静态资源**；`functions/_middleware.js` 只作用于
+# `_routes.json` include 到的路径（我们把 /assets/* 排除了，省 Functions 调用）。
+# 两边有交集也有各自的盲区，同名条目取相同值，重复设置是安全的。
+#
+# CSP 里 'unsafe-inline' / 'unsafe-eval' 的说明见 _middleware.js 顶部注释：
+# 内联脚本块 + Vue 运行时编译器，去掉需要先做 nonce 化与模板预编译。
+# 摄像头（camera=(self)）必须留着，隔空投送扫码要用。
+# ============================================================================
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: SAMEORIGIN
+  Permissions-Policy: camera=(self), geolocation=(), microphone=(), payment=(), usb=(), serial=(), xr-spatial-tracking=(), interest-cohort=()
+  Strict-Transport-Security: max-age=31536000
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'

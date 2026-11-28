@@ -1,0 +1,274 @@
+﻿import {
+  normalizeFolderPath,
+  isFolderMarker,
+  shouldIncludeKey,
+  normalizeKey,
+  listAllKeys,
+  listFilesPage,
+  nodesFromFolderMap,
+  computeStats,
+} from '../../utils/file-list.js';
+
+function matchStorage(storageType, storageFilter) {
+  if (!storageFilter) return true;
+  if (storageFilter === 'kv' || storageFilter === 'telegram') return storageType === 'telegram';
+  return storageType === storageFilter;
+}
+
+function compareByTimestampDesc(a, b) {
+  const left = Number(a?.metadata?.TimeStamp || 0);
+  const right = Number(b?.metadata?.TimeStamp || 0);
+  return right - left;
+}
+
+function compareByFileSizeAsc(a, b) {
+  const left = Number(a?.metadata?.fileSize || 0);
+  const right = Number(b?.metadata?.fileSize || 0);
+  if (left !== right) return left - right;
+  const leftTs = Number(a?.metadata?.TimeStamp || 0);
+  const rightTs = Number(b?.metadata?.TimeStamp || 0);
+  return rightTs - leftTs;
+}
+
+function collectFolderPaths(files, folderMarkers = []) {
+  const paths = new Set();
+
+  for (const marker of folderMarkers) {
+    const metadataPath = normalizeFolderPath(marker?.metadata?.folderPath || marker?.metadata?.path || '');
+    const keyPath = String(marker?.name || '').startsWith('folder:')
+      ? normalizeFolderPath(String(marker.name).slice('folder:'.length))
+      : '';
+    const path = metadataPath || keyPath;
+    if (path) {
+      paths.add(path);
+      includeParentPaths(path, paths);
+    }
+  }
+
+  for (const file of files) {
+    const path = normalizeFolderPath(file?.metadata?.folderPath || '');
+    if (!path) continue;
+    paths.add(path);
+    includeParentPaths(path, paths);
+  }
+
+  return paths;
+}
+
+function includeParentPaths(pathValue, targetSet) {
+  const parts = normalizeFolderPath(pathValue).split('/').filter(Boolean);
+  for (let i = 1; i < parts.length; i += 1) {
+    targetSet.add(parts.slice(0, i).join('/'));
+  }
+}
+
+function buildFolderNodes(files, folderMarkers = []) {
+  const fileCountByFolder = new Map();
+  for (const file of files) {
+    const folderPath = normalizeFolderPath(file?.metadata?.folderPath || '');
+    if (!folderPath) continue;
+    fileCountByFolder.set(folderPath, (fileCountByFolder.get(folderPath) || 0) + 1);
+  }
+
+  const folderPaths = [...collectFolderPaths(files, folderMarkers)].sort((a, b) => {
+    const depthA = a.split('/').length;
+    const depthB = b.split('/').length;
+    if (depthA !== depthB) return depthA - depthB;
+    return a.localeCompare(b, 'en', { sensitivity: 'base' });
+  });
+
+  return folderPaths.map((pathValue) => {
+    const parts = pathValue.split('/');
+    const name = parts[parts.length - 1] || pathValue;
+    const parentPath = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+    return {
+      path: pathValue,
+      name,
+      parentPath,
+      depth: parts.length,
+      fileCount: fileCountByFolder.get(pathValue) || 0,
+    };
+  });
+}
+
+export async function onRequest(context) {
+  const { request, env } = context;
+  const url = new URL(request.url);
+
+  if (!env.img_url) {
+    return new Response(JSON.stringify({ error: 'KV binding img_url is not configured.' }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      },
+    });
+  }
+
+  const rawLimit = url.searchParams.get('limit');
+  let limit = parseInt(rawLimit || '100', 10);
+  if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+  if (limit > 1000) limit = 1000;
+
+  const offset = Math.max(0, parseInt(url.searchParams.get('cursor') || '0', 10) || 0);
+  const prefix = url.searchParams.get('prefix') || '';
+  const storageFilter = String(url.searchParams.get('storage') || '').toLowerCase();
+
+  // 修复：区分"没传 folderPath"和"传了空的 folderPath（=根目录）"
+  const rawFolderPath = url.searchParams.get('folderPath');
+  const rawFolderAlias = url.searchParams.get('folder');
+  const hasFolderFilter = rawFolderPath !== null || rawFolderAlias !== null;
+  const folderFilter = hasFolderFilter
+    ? normalizeFolderPath(rawFolderPath !== null ? rawFolderPath : (rawFolderAlias || ''))
+    : '';
+
+  const sort = String(url.searchParams.get('sort') || '').toLowerCase();
+  const includeStats = ['1', 'true', 'yes'].includes(
+    String(url.searchParams.get('includeStats') || url.searchParams.get('stats') || '').toLowerCase()
+  );
+  const includeFolders = ['1', 'true', 'yes'].includes(
+    String(url.searchParams.get('includeFolders') || '').toLowerCase()
+  );
+
+  const allKeys = await listFilesPage(env, {
+    limit,
+    offset,
+    prefix,
+    storage: storageFilter || undefined,
+    folderPath: hasFolderFilter ? folderFilter : undefined,
+    sort,
+  });
+  const isD1Source = allKeys.source === 'd1';
+
+  // ==========================================================================
+  // 下面按「数据源」分流，只为计算 stats / folders 这两个额外块。
+  //
+  // 为什么分开写而不强行统一：
+  //   · D1 路径下 stats 可以由 SQL 聚合，但它要遍历「过滤后的全集」而非当前页，
+  //     为保持与 KV 路径口径严格一致，这里统一回落到内存计算。
+  //     差别在于 D1 路径不必重扫 KV，仅多一次全量 SQL 查询（有索引）。
+  //   · folders（文件夹树）本质需要全集，无法靠单页推导。
+  // ==========================================================================
+
+  if (isD1Source) {
+    // D1 路径：分页已在 SQL 完成，此处只补齐 stats / folders
+    if (!includeStats && !includeFolders) {
+      return jsonResponse({
+        keys: allKeys.keys,
+        pageCount: allKeys.keys.length,
+        cursor: allKeys.cursor,
+        list_complete: allKeys.list_complete,
+        total: allKeys.total,
+        source: 'd1',
+      });
+    }
+
+    // ======================================================================
+    // stats / folders 全部下推给 SQL
+    //
+    // 旧实现是 listAllRecords() 把**全部行**取回内存再算。而 listAllRecords
+    // 按 200 一批 OFFSET 翻页、且每批都重跑一次 COUNT(*)，扫描量是 O(N²)
+    // ——1 万个文件就要约 75 万 rows read，一次列表请求就能烧掉免费额度的 15%。
+    //
+    // 现在：
+    //   · stats   → aggregateFileStats()，一条条件聚合 SQL 一次扫描算完
+    //   · folders → folderFileCounts()，本就是 GROUP BY
+    // 两者合计 rows read 为 O(N)，且不传输任何行数据。
+    // ======================================================================
+    const payload = {
+      keys: allKeys.keys,
+      pageCount: allKeys.keys.length,
+      cursor: allKeys.cursor,
+      list_complete: allKeys.list_complete,
+      total: allKeys.total,
+      source: 'd1',
+    };
+
+    // 兜底用的全量数据：只在 SQL 聚合失败时才真正加载。
+    // 正常路径不会走到 —— 分页能走 D1 说明 D1 可用，聚合没理由失败。
+    let fallbackFiles = null;
+    const loadFallbackFiles = async () => {
+      if (fallbackFiles) return fallbackFiles;
+      const { listAllRecords } = await import('../../utils/file-record.js');
+      const full = await listAllRecords(env, { storage: storageFilter || undefined, sort });
+      fallbackFiles = full.disabled ? allKeys.keys : full.files.map(normalizeKey);
+      return fallbackFiles;
+    };
+
+    if (includeStats) {
+      const { aggregateFileStats } = await import('../../utils/metadata-d1.js');
+      const agg = await aggregateFileStats(env, { storage: storageFilter || undefined });
+      // 回落到全量内存计算（而非当前页）——stats 的语义是全集统计，
+      // 用当前页算会让 total 变成页大小，与 KV 路径口径不一致。
+      payload.stats = agg.disabled ? computeStats(await loadFallbackFiles()) : agg.stats;
+    }
+
+    if (includeFolders) {
+      const { listFolderStats, listMarkers } = await import('../../utils/file-record.js');
+      const folderStats = await listFolderStats(env, { storage: storageFilter || undefined });
+      if (!folderStats.disabled) {
+        const markers = await listMarkers(env);
+        payload.folders = nodesFromFolderMap(folderStats.folders, markers.folders || []);
+      } else {
+        payload.folders = buildFolderNodes(await loadFallbackFiles(), []);
+      }
+    }
+
+    return jsonResponse(payload);
+  }
+
+  // ==========================================================================
+  // KV 兜底路径（原有逻辑，保持不变）
+  // ==========================================================================
+  const kvKeys = await listAllKeys(env, prefix);
+  const folderMarkers = kvKeys.filter(isFolderMarker);
+
+  const normalizedFiles = kvKeys
+    .filter(shouldIncludeKey)
+    .map(normalizeKey)
+    .filter((item) => matchStorage(item.metadata?.storageType, storageFilter));
+
+  const sorter = (sort === 'sizeasc' || sort === 'smallfirst')
+    ? compareByFileSizeAsc
+    : compareByTimestampDesc;
+
+  // 修复：folderPath 为空字符串时 → 只返回根目录文件（folderPath 也是空）
+  const filtered = normalizedFiles
+    .filter((item) => {
+      if (!hasFolderFilter) return true;
+      const itemFolder = normalizeFolderPath(item.metadata?.folderPath || '');
+      return itemFolder === folderFilter;
+    })
+    .sort(sorter);
+
+  const page = filtered.slice(offset, offset + limit);
+  const nextOffset = offset + limit < filtered.length ? offset + limit : null;
+
+  const payload = {
+    keys: page,
+    pageCount: page.length,
+    cursor: nextOffset == null ? null : String(nextOffset),
+    list_complete: nextOffset == null,
+    source: 'kv',
+  };
+
+  if (includeStats) {
+    payload.stats = computeStats(filtered);
+  }
+
+  if (includeFolders) {
+    payload.folders = buildFolderNodes(normalizedFiles, folderMarkers);
+  }
+
+  return jsonResponse(payload);
+}
+
+/** 统一的 JSON 响应（no-store，后台数据不得被 CDN 缓存）。 */
+function jsonResponse(payload) {
+  return new Response(JSON.stringify(payload), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    },
+  });
+}

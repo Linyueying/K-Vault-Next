@@ -1,0 +1,2238 @@
+/* ==========================================================================
+   一云 · Design System  (design-system.css)
+   --------------------------------------------------------------------------
+   全站「单一事实来源」：设计令牌 / 基础组件 / 动效关键帧 / Vue 过渡族 / 无障碍降级。
+
+   基线：index.html（所有分歧一律以 index.html 为准）。
+   引入顺序：design-system.css → theme.css（旧暗色兼容层）→ 页面内联 <style>。
+
+   用法：所有页面在 <head> 里最早引入本文件，然后删除自己内联里重复的
+        令牌块 / 组件块 / 关键帧块，避免两份定义打架。
+   ========================================================================== */
+
+/* glassfx（vendored @ /vendor/glassfx）—— 液态玻璃库：.glass 工具类提供
+   边缘高光 rim / 光标跟随 bloom / Chromium 真实折射（@supports 兜底到 frost）。
+   必须放在所有规则之前；本文件后续对 .card/.modal 等的定义会在源顺序上
+   覆盖 .glass 的 background/border/box-shadow/radius，从而保留项目既有设计，
+   只取它的 rim + bloom + 折射增强。 */
+/* ==========================================================================
+   1. Design Tokens —— 设计令牌
+   ========================================================================== */
+:root {
+  /* 品牌色 */
+  --primary: #0284c7;
+  --primary-rgb: 2, 132, 199;
+  --primary-light: #38bdf8;
+  --primary-dark: #0369a1;
+  --primary-surface: #e0f2fe;
+
+  /* 语义色 */
+  --c-danger: #e11d48;
+  --c-danger-soft: rgba(225, 29, 72, 0.1);
+  --c-warn: #f59e0b;
+  --c-success: #10b981;
+  --c-info: #0284c7;
+  --c-danger-strong: #ef4444;
+  --c-success-text: #15803d;
+
+  /* 背景与玻璃层 */
+  --bg-body: #F7FAFD;
+  --bg-gradient: var(--bg-body);
+  --action-bg: #0F1C2E;
+  --action-text: #F7FAFD;
+  --focus-ring: #2F6690;
+  --glass-surface: rgba(255, 255, 255, 0.84);
+  /* 无毛玻璃版的卡片底色：列表卡片/行要频繁进出场、整体随列表滚动，
+     每张都挂 backdrop-filter 等于每帧重算 N 层模糊（admin 列表实测是最大单项
+     开销）。这类大面积列表一律改用这个变量 —— 不透明度比 --glass-surface
+     高一档，用来补偿失去 blur 后背景光晕直接透上来造成的对比度损失。
+     玻璃感只保留给弹层/菜单/dock 这类一次性、数量 O(1) 的面。 */
+  --glass-surface-flat: rgba(255, 255, 255, 0.92);
+  --glass-elevated: rgba(255, 255, 255, 0.95);
+  --glass-subtle: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.95);
+  --glass-border-ice: rgba(186, 230, 253, 0.75);
+  --glass-specular: rgba(255, 255, 255, 0.95);
+
+  /* 文本 */
+  --text-main: #0f172a;
+  --text-sub: #334155;
+  --text-muted: #64748b;
+
+  /* 阴影 */
+  /* 最小档：选中态、徽章这类只要一点边界感的场合。此前 share.html 直接写
+     var(--shadow-sm, 0 1px 2px rgba(0,0,0,.12)) —— 靠 fallback 才没塌，
+     令牌本身并不存在。值沿用那个 fallback，浅色下渲染零变化。 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-soft: 0 8px 24px -4px rgba(2, 132, 199, 0.08), 0 2px 8px -2px rgba(0, 0, 0, 0.03);
+  --shadow-elevated: 0 16px 36px -6px rgba(2, 132, 199, 0.16), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+  --glow-primary: 0 3px 10px rgba(var(--primary-rgb), 0.26);
+
+  /* 圆角：只 5 档 */
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 16px;
+  --r-lg: 22px;
+  --r-pill: 9999px;
+
+  /* 间距：只用 4 的倍数 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  /* 字号：6 档 */
+  --fs-xs: 0.68rem;
+  --fs-sm: 0.78rem;
+  --fs-md: 0.88rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.15rem;
+  --fs-2xl: 1.35rem;
+
+  /* 控件高度 */
+  --h-ctrl-sm: 30px;
+  --h-ctrl: 36px;
+  --h-ctrl-lg: 44px;
+
+  /* ================================================
+     动效 —— Apple 风格缓动体系
+     ================================================ */
+  --ease-apple: cubic-bezier(0.32, 0.72, 0, 1);     /* 页面级大转场（iOS sheet） */
+  --ease-fluid: cubic-bezier(0.16, 1, 0.3, 1);      /* expo-out：元素入场 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* 回弹：开关 / 弹窗 */
+  --ease-press: cubic-bezier(0.4, 0, 0.2, 1);       /* 按压反馈 */
+  --dur-fast: 0.16s;
+  --dur-base: 0.24s;
+  --dur-slow: 0.34s;
+  --dur-enter: 0.5s;
+  /* L4：原本是 `all var(--dur-base) var(--ease-fluid)`。`all` 会让浏览器监听该元素
+     上**所有**属性的变化，其中 width / height / padding / margin 这类布局属性一旦
+     卷进过渡就是每帧 layout —— 而这套 open layer 里根本没有任何一处需要过渡布局
+     属性。改为显式清单后，视觉层面的过渡观感完全不变，布局属性不再被卷进来。
+     清单覆盖实测会用到的全部：hover/active/disabled 改的是 color / background-color
+     / border-color / box-shadow / opacity / transform，表单聚焦改的是 outline-color
+     与 border-color（background 简写里的 color 部分同样命中 background-color）。 */
+  --transition: color var(--dur-base) var(--ease-fluid),
+                background-color var(--dur-base) var(--ease-fluid),
+                border-color var(--dur-base) var(--ease-fluid),
+                outline-color var(--dur-base) var(--ease-fluid),
+                box-shadow var(--dur-base) var(--ease-fluid),
+                opacity var(--dur-base) var(--ease-fluid),
+                transform var(--dur-base) var(--ease-fluid);
+
+  /* —— Apple 风统一玻璃 / 缓动令牌（重构基线）——
+     saturate(1.8) == 180%；blur 统一 20px；移动端再降级到 14px。 */
+  --glass-blur: 20px;
+  --glass-saturate: 1.8;          /* = saturate(180%) */
+  --glass-brightness: 1.05;       /* 供 glassfx .glass 使用 */
+  --glass-rim: 0.5;
+  --glass-sheen: 0.14;
+  --glass-bloom: 255, 255, 255;
+  --glass-bloom-size: 220px;
+  --glass-radius: 24px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);   /* Apple 落地/卡片入场统一缓动 */
+  --r-xl: 28px;                                  /* 大面板/模态圆角上限（20–28px） */
+
+  /* 节点状态过渡（识别延迟 → 平滑收敛） */
+  --dur-resolve: 0.62s;
+
+  /* 字体 */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB',
+               'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ------------------------------------------------
+     兼容别名：旧页面仍在使用的历史命名，统一指向新令牌。
+     新代码请直接用左边的规范名。
+     ------------------------------------------------ */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-pill: var(--r-pill);
+
+  --primary-color: var(--primary);
+  --primary-text: var(--primary-dark);
+  --accent-color: var(--primary-surface);
+  --accent: var(--primary-surface);
+  --card-bg: var(--glass-surface);
+  --surface-1: var(--glass-surface);
+  --surface-2: var(--glass-elevated);
+  --shadow: var(--shadow-soft);
+  --shadow-hover: var(--shadow-elevated);
+  --shadow-lift: var(--shadow-elevated);
+
+  --success: var(--c-success);
+  --warn: var(--c-warn);
+  --danger: var(--c-danger);
+}
+
+html[data-theme="dark"] {
+  --primary: #38bdf8;
+  --primary-rgb: 56, 189, 248;
+  --primary-light: #7dd3fc;
+  --primary-dark: #0284c7;
+  --primary-surface: rgba(2, 132, 199, 0.18);
+  --bg-body: #080d16;
+  --action-bg: #C6E4F7;
+  --action-text: #0F1C2E;
+  --focus-ring: #A9D5F4;
+  --glass-surface: rgba(15, 27, 49, 0.85);
+  --glass-surface-flat: rgba(15, 27, 49, 0.92);
+  --glass-elevated: rgba(20, 36, 66, 0.95);
+  --glass-subtle: rgba(15, 27, 49, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-border-ice: rgba(56, 189, 248, 0.25);
+  --glass-specular: rgba(255, 255, 255, 0.2);
+  --text-main: #f8fafc;
+  --text-sub: #cbd5e1;
+  --text-muted: #94a3b8;
+  --c-success-text: #4ade80;
+  --shadow-soft: 0 10px 30px -6px rgba(0, 0, 0, 0.55);
+  --shadow-elevated: 0 18px 45px -6px rgba(0, 0, 0, 0.7);
+  /* 深色上 0.12 alpha 的黑阴影几乎不可见，选中态会"没有反馈"。提到 .45 才看得出。 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"]  { color-scheme: dark; }
+
+/* ==========================================================================
+   2. Reset & Base —— 只放全站一致、不会改变既有排版的部分
+      （刻意不做 margin/padding 全局清零：preview 等富文本页依赖浏览器默认间距）
+   ========================================================================== */
+[v-cloak] { display: none !important; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:where(a, button, input, textarea, select, summary):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+body {
+  background: var(--bg-body);
+  /* L7：fixed → scroll。fixed 让背景钉在视口上，滚动时无法走「背景整体平移」
+     的快路径，每帧都要重绘背景层；这里只是两层 radial 渐变 + 纯色，视觉上
+     的差别仅是光晕随页面拉伸一点点（body 高度 ≈ 1~2 个视口），几乎不可察。
+     移动端早在 mobile-refactor.css 里就强制 scroll 了，桌面端此处跟进对齐。 */
+  background-attachment: scroll;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.55s var(--ease-apple), color 0.55s var(--ease-apple);
+}
+
+/* ==========================================================================
+   3. 通用卡片
+   ========================================================================== */
+/* .liquid-card 是 .card 的历史别名（admin/gallery/paste 曾用），合并为同一实现 */
+.card,
+.liquid-card {
+  background: var(--glass-surface);
+  /* 这里原本带 backdrop-filter，已撤掉：卡片底色是 84% 不透明（深色档 85%），
+     透过它看到的背景几乎被底色盖满，模糊的视觉收益接近零，
+     但每帧都要重算一次 —— 首屏常驻多块 .card，是静止状态下也掉帧的来源之一。
+     真正需要透视感的浮层（dock / menu / modal / mask）仍保留模糊。 */
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+  border-radius: var(--r-lg);
+  transition: background-color 0.45s var(--ease-apple),
+              border-color 0.45s var(--ease-apple),
+              box-shadow 0.45s var(--ease-apple),
+              transform 0.45s var(--ease-out);
+  position: relative;
+}
+.card::before,
+.liquid-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--glass-specular), transparent);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  pointer-events: none;
+}
+.card--inset { border-radius: var(--r-md); box-shadow: none; }
+.card--inset::before { display: none; }
+.card__header,
+.liquid-card__header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-2); padding: var(--sp-4);
+}
+.card__body,
+.liquid-card__body { padding: 0 var(--sp-4) var(--sp-4); }
+
+/* ==========================================================================
+   4. 通用按钮：统一 BEM 修饰符（--primary / --danger / --ghost / --icon / --sm / --block）
+      形态：实心主按钮 = --primary，危险 = --danger，次要/描边 = 默认，无框 = --ghost
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  height: var(--h-ctrl);
+  padding: 0 var(--sp-4);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-surface);
+  color: var(--text-sub);
+  font: inherit;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: var(--transition);
+  -webkit-tap-highlight-color: transparent;
+  /* L6：原本这里有 will-change: transform，已删。按钮是全站数量最多、且几乎每张
+     版面都有一堆的元素 —— 给 .btn 常驻提层等于「每个按钮都占一个合成层」，
+     是本仓库最大的单点浪费。按下时的 scale 由过渡驱动，浏览器会在**动画进行中**
+     自动提升并在结束后回收，效果不变，只是不再提前预热那一帧。 */
+}
+.btn i { font-size: 0.76rem; }
+.btn:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: rgba(var(--primary-rgb), 0.42);
+  background: rgba(var(--primary-rgb), 0.06);
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.955);
+  transition-duration: 0.09s;
+  transition-timing-function: var(--ease-press);
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.btn--primary {
+  border-color: transparent;
+  background: var(--action-bg);
+  color: var(--action-text);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--action-bg);
+  color: var(--action-text);
+  box-shadow: var(--shadow-soft);
+}
+.btn--primary:disabled { background: rgba(100, 116, 139, 0.16); color: var(--text-muted); box-shadow: none; }
+
+.btn--danger { color: var(--c-danger); border-color: rgba(244, 63, 94, 0.3); }
+.btn--danger:hover:not(:disabled) {
+  color: var(--c-danger);
+  background: var(--c-danger-soft);
+  border-color: rgba(244, 63, 94, 0.5);
+}
+
+.btn--ghost { border-color: transparent; background: transparent; }
+.btn--ghost:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
+
+.btn--icon { width: var(--h-ctrl); padding: 0; border-radius: 50%; }
+.btn--icon.btn--sm { width: var(--h-ctrl-sm); }
+.btn--sm { height: var(--h-ctrl-sm); font-size: var(--fs-xs); padding: 0 var(--sp-3); }
+.btn--sm i { font-size: var(--fs-xs); }
+.btn--lg { height: var(--h-ctrl-lg); font-size: var(--fs-md); padding: 0 var(--sp-5); }
+.btn--block { width: 100%; }
+
+/* 文字按钮：无底、无边框，用于导航栏等轻量场景 */
+.text-btn {
+  border: none; background: none; padding: var(--sp-1) var(--sp-1);
+  font: inherit; font-size: var(--fs-md); font-weight: 590;
+  letter-spacing: -0.005em; color: var(--primary);
+  cursor: pointer; white-space: nowrap;
+  transition: opacity var(--dur-fast), transform 0.1s var(--ease-press), color var(--dur-fast);
+}
+.text-btn:active { opacity: 0.45; transform: scale(0.94); }
+.text-btn--strong { font-weight: 700; }
+.text-btn--danger { color: var(--c-danger); }
+.text-btn--danger.armed {
+  color: #fff; background: var(--c-danger);
+  border-radius: var(--r-xs); padding: var(--sp-1) var(--sp-3);
+  animation: pop 0.28s var(--ease-apple);
+}
+
+/* 兼容别名：旧页面用的单连字符写法 / 无修饰符写法，统一指向上面的实现。
+   新代码请一律用 .btn--primary 这类双连字符写法。 */
+.btn-primary,
+.btn.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: var(--glow-primary);
+}
+.btn-primary:hover:not(:disabled),
+.btn.primary:hover:not(:disabled) {
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(var(--primary-rgb), 0.36);
+}
+.btn-primary:disabled,
+.btn.primary:disabled { background: rgba(100, 116, 139, 0.16); color: var(--text-muted); box-shadow: none; }
+
+.btn-danger, .btn.danger { color: var(--c-danger); border-color: rgba(244, 63, 94, 0.3); }
+.btn-danger:hover:not(:disabled),
+.btn.danger:hover:not(:disabled) {
+  color: var(--c-danger);
+  background: var(--c-danger-soft);
+  border-color: rgba(244, 63, 94, 0.5);
+}
+
+.btn--ghost, .btn.ghost { border-color: transparent; background: transparent; }
+.btn--ghost:hover:not(:disabled),
+.btn.ghost:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.1); }
+
+.btn-block, .btn.block { width: 100%; }
+
+/* 危险操作的确认按钮：实心红，强化阻断感（以 index.html 的实现为基准，
+   admin.html 原先用 #ef4444→#b91c1c 的渐变，已统一到语义色 --c-danger） */
+.btn--danger-solid {
+  background: linear-gradient(135deg, var(--c-danger), #be123c);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.32);
+}
+.btn--danger-solid:hover:not(:disabled) {
+  background: linear-gradient(135deg, #f43f5e, #e11d48);
+  color: #fff;
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(225, 29, 72, 0.4);
+}
+.btn--danger-solid:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 0.09s;
+  transition-timing-function: var(--ease-press);
+}
+
+/* ==========================================================================
+   5. 表单控件
+   ========================================================================== */
+.input, .select, .textarea {
+  width: 100%;
+  height: var(--h-ctrl);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--glass-border-ice);
+  background: var(--glass-subtle);
+  color: var(--text-main);
+  font: inherit;
+  font-size: var(--fs-md);
+  transition: border-color var(--dur-base) var(--ease-apple),
+              box-shadow var(--dur-base) var(--ease-apple),
+              background var(--dur-base) var(--ease-apple);
+}
+.textarea { height: auto; min-height: 88px; padding: var(--sp-2) var(--sp-3); line-height: 1.6; resize: vertical; }
+.input:focus, .select:focus, .textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+}
+.input::placeholder, .textarea::placeholder { color: var(--text-muted); }
+.input:disabled, .select:disabled, .textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.field > label { font-size: var(--fs-xs); font-weight: 700; color: var(--text-sub); }
+.field__hint,
+.field-hint,
+.field-help { font-size: 0.7rem; color: var(--text-muted); line-height: 1.5; }
+
+/* ==========================================================================
+   6. 开关 —— 全站唯一实现（44×26，回弹 + 按压拉伸）
+   ========================================================================== */
+.switch {
+  position: relative;
+  width: 44px; height: 26px;
+  flex: none;
+  cursor: pointer;
+  display: inline-block;
+  -webkit-tap-highlight-color: transparent;
+}
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch__track {
+  position: absolute; inset: 0;
+  border-radius: 13px;
+  background: rgba(148, 163, 184, 0.38);
+  transition: background 0.34s var(--ease-apple);
+}
+html[data-theme="dark"] .switch__track { background: rgba(148, 163, 184, 0.28); }
+.switch__thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+  /* L4：原本这里还过渡 `width 0.2s` —— width 是布局属性，按下时逐帧 layout。
+        开关的「按压反馈」用 transform 表达即可，删掉 width 的那条。 */
+  transition: transform 0.38s var(--ease-spring);
+}
+/* L4：按下反馈原本是 `width: 24px` —— 布局属性，按下期间逐帧 layout。
+       改用 transform 表达（原位轻微缩小）。必须用 :not(:checked) 限定，
+       否则会和下面 checked 态那条 translateX 抢同一个 transform。 */
+.switch input:not(:checked):active + .switch__track + .switch__thumb { transform: scale(0.94); }
+.switch input:checked + .switch__track { background: var(--primary); }
+.switch input:checked + .switch__track + .switch__thumb { transform: translateX(18px); }
+.switch input:checked:active + .switch__track + .switch__thumb { transform: translateX(14px); }
+.switch input:focus-visible + .switch__track { box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.25); }
+
+/* ==========================================================================
+   7. 加载指示器 —— 全站唯一实现（34px，--sm 20px，--lg 44px）
+   ========================================================================== */
+.spinner {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(var(--primary-rgb), 0.18);
+  border-top-color: var(--primary);
+  animation: spin 0.8s linear infinite;
+}
+.spinner--sm { width: 20px; height: 20px; border-width: 2px; }
+.spinner--lg { width: 44px; height: 44px; animation-duration: 0.9s; }
+.spinner--on-primary {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+}
+/* 兼容别名 */
+.spinner-ring { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(var(--primary-rgb), 0.18); border-top-color: var(--primary); animation: spin 0.8s linear infinite; margin: 0 auto; }
+
+/* ==========================================================================
+   8. Toast —— 全站唯一实现（顶部居中、胶囊、玻璃拟态）
+      .toast-stack 是容器（多条时纵向堆叠），.toast 是单条。
+   ========================================================================== */
+.toast-stack {
+  position: fixed;
+  top: calc(20px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  pointer-events: none;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+}
+.toast {
+  /* 容器 .toast-stack 设了 pointer-events:none（避免整条胶囊栏挡住页面点击），
+     必须在这里把单条 toast 的指针事件收回来，否则「撤销」按钮点不动 ——
+     点击会穿透到 toast 下面的元素（例如顶栏的「上传中心」按钮）。 */
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px var(--sp-5);
+  border-radius: var(--r-pill);
+  background: var(--glass-elevated);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.4;
+  max-width: 100%;
+  /* 独立合成层：toast 是 position:fixed 容器里的浮层，且带 box-shadow，
+     低端设备上若不提前提层，每帧都要重新 raster，掉帧时肉眼可见抖动。
+     这里主动 translateZ(0) + will-change，把绘制成本前移。
+
+     L6 例外项：本站其余常驻 will-change（.btn / .progress__val / .photo-card）都是
+     「数量 = 列表长度」的元素，已按 anchored 层成本全部删除；而 toast 同时存在
+     的实例通常 ≤3 个、且生命周期只有几秒，层数是 O(1) 而非 O(N)，保留它用来
+     压住上面那个历史抖动是划算的。 */
+     注意：入场动画只由下面的 Vue 过渡族负责，此处**不再**挂 animation —— 两套
+     动画争同一个 transform/opacity 会让元素在掉帧时来回跳（历史 bug，见文件末注释）。 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+.toast i { font-size: 0.9rem; flex: none; }
+
+/* 语义色（同时支持 .toast--success 与旧写法 .toast.success） */
+.toast--success, .toast.success { color: var(--primary-dark); border-color: rgba(var(--primary-rgb), 0.4); }
+.toast--success i, .toast.success i { color: var(--primary); }
+
+.toast--error, .toast.error { color: #dc2626; border-color: rgba(239, 68, 68, 0.4); }
+.toast--error i, .toast.error i { color: #ef4444; }
+
+.toast--warn, .toast.warn { color: #b45309; border-color: rgba(245, 158, 11, 0.45); }
+.toast--warn i, .toast.warn i { color: var(--c-warn); }
+
+.toast--info, .toast.info { color: var(--primary-dark); border-color: rgba(var(--primary-rgb), 0.35); }
+.toast--info i, .toast.info i { color: var(--primary); }
+
+html[data-theme="dark"] .toast--error,
+html[data-theme="dark"] .toast.error { color: #fca5a5; }
+html[data-theme="dark"] .toast--success,
+html[data-theme="dark"] .toast.success { color: var(--primary-light); }
+html[data-theme="dark"] .toast--warn,
+html[data-theme="dark"] .toast.warn { color: #fbbf24; }
+html[data-theme="dark"] .toast--info,
+html[data-theme="dark"] .toast.info { color: var(--primary-light); }
+
+@media (max-width: 680px) {
+  .toast { padding: 9px var(--sp-4); font-size: var(--fs-sm); }
+  /* 移动端分级降模糊：20px → 14px、saturate 略降；不关模糊。
+     真正低端机仍走 html[data-perf="low"] 的 !important 全关规则。 */
+  :root {
+    --glass-blur: 14px;
+    --glass-saturate: 1.5;
+  }
+}
+
+/* ==========================================================================
+   9. 空状态
+   ========================================================================== */
+.empty-state {
+  padding: 56px var(--sp-5);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+}
+/* L5：原本这里的 floatSoft 无限浮动已删除 —— 常驻循环动画每帧都要走一遍样式与合成，
+   即使元素只有几十像素、即使屏幕上同时只存在一个。
+   .empty-state i { font-size: 2.4rem; opacity: 0.35; animation: floatSoft ... } */
+.empty-state i {
+  font-size: 2.4rem;
+  opacity: 0.35;
+}
+.empty-state .btn { margin-top: 2px; }
+.empty-state--sm { padding: var(--sp-6) var(--sp-4); }
+.empty-state--sm i { font-size: 1.7rem; }
+/* 兼容别名 */
+.result-empty {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* ==========================================================================
+   10. 选择圈 / 进度条
+   ========================================================================== */
+.check {
+  position: relative;
+  flex: none;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(100, 116, 139, 0.45);
+  /* L2：原先由 <transition name="check"> 在这里补间 width + margin-right +
+     border-width —— 三个都是布局属性，每帧都要 layout，而它挂在 v-for 里，
+     100 行就是 100 个 Transition 实例。
+     现在模板侧改成纯 v-if，挂载时由这条 animation 直接播 pop（只有 opacity
+     与 transform，纯合成）。代价是失去「宽度撑开」的补间，选择圈改为直接出现。 */
+  animation: pop 0.28s var(--ease-apple) both;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: transparent;
+  transition: background var(--dur-base) var(--ease-spring),
+              border-color var(--dur-base) var(--ease-spring),
+              color var(--dur-base) var(--ease-spring),
+              transform var(--dur-base) var(--ease-spring);
+}
+/* 44px 隐形热区：移动端更好点 */
+.check::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 44px; height: 44px;
+  transform: translate(-50%, -50%);
+}
+.check i { transform: scale(0.5); transition: transform var(--dur-base) var(--ease-spring); pointer-events: none; }
+.check.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.check.on i { transform: scale(1); animation: pop 0.32s var(--ease-spring); }
+.check:hover { border-color: var(--primary); }
+.check:active { transform: scale(0.9); }
+.check input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
+
+.progress {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: rgba(148, 163, 184, 0.2);
+  margin-top: 3px;
+  overflow: hidden;
+}
+.progress__val {
+  height: 100%; width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--primary-light), var(--primary));
+  transition: transform 0.4s var(--ease-fluid), background 0.3s var(--ease-apple);
+  /* L6：原本常驻 will-change: transform。进度条在上传队列里是「每条一个」，
+     一下上百个任务就是上百个合成层。scaleX 过渡进行中浏览器照样会临时提层。 */
+}
+.progress--lg { height: 8px; margin-top: var(--sp-2); }
+
+/* ==========================================================================
+   10.5 同步状态点 —— 全站唯一实现（.sync-dot）
+   ---------------------------------------------------------------------------
+   语义（四态，与「存储连接状态」的 .status-pulse 严格区分）：
+     is-idle     灰   — 尚无同步动作（初始态，不呼吸）
+     is-syncing  黄   — 同步中（向外扩散的警示环）
+     is-synced   绿   — 已同步（向外扩散的确认环，短暂停留后自然回到 idle）
+     is-failed   红   — 同步失败（重试耗尽；只做明暗呼吸，不扩散）
+
+   为什么必须放在共享层、而不是各页各写一份：
+     本组件在 admin.html 与 index.html 都要用，且外观必须一致。
+     一旦两页各写一份，就会重演历史上「改一页、另一页漂移」的老问题
+     （见 check_shared.py 的 [C]/[D] 检查）。
+
+   宿主：任意 inline-flex 容器即可。它是「纯展示 + 可点击」的原子组件，
+   状态机与重试逻辑在 app-core.js 的 KVault.createSyncTracker()，
+   CSS 只负责把状态映射成颜色与动画。 */
+.sync-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  transition: background var(--dur-base) var(--ease-apple),
+              box-shadow var(--dur-base) var(--ease-apple);
+}
+/* L5：三态的呼吸/告警 animation 已删除 —— box-shadow 的扩散动画不是合成器属性，
+   每帧都要重绘，而同步状态点常驻屏幕上。背景色是状态本体，务必保留。 */
+.sync-dot.is-syncing {
+  background: var(--c-warn);
+}
+.sync-dot.is-synced {
+  background: var(--c-success);
+}
+.sync-dot.is-failed {
+  background: var(--c-danger);
+}
+
+/* 可点击态：把圆点扩成一个有热区的按钮，避免 9px 难以点中。
+   注意热区靠 padding 撑开、视觉尺寸不变（内层仍是 .sync-dot）。 */
+.sync-dot-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px; margin: -6px;      /* 负 margin 抵消，视觉占位不变 */
+  border: 0; background: none; cursor: pointer;
+  border-radius: var(--r-pill);
+  line-height: 0;
+  transition: background var(--dur-base) var(--ease-apple),
+              opacity 0.25s var(--ease-apple);
+}
+.sync-dot-btn:hover { background: var(--glass-subtle); }
+.sync-dot-btn:active { transform: scale(0.92); transition-duration: 0.09s; }
+.sync-dot-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* idle（无同步动作）不显示：灰点只会让人疑惑「这是出问题了吗」。
+   只有黄/绿/红三种有含义的状态才出现。用 opacity + visibility 隐藏
+   （而非 display:none），占位保留，出现/消失时旁边的元素不会跳动。 */
+.sync-dot-btn.is-idle {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease-apple), visibility 0s linear 0.25s;
+}
+
+/* ==========================================================================
+   11. 关键帧 —— Apple 风格（全站共用，禁止页面再单独定义同名关键帧）
+   ========================================================================== */
+@keyframes riseIn {
+  from { opacity: 0; transform: translate3d(0, 16px, 0) scale(0.985); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes riseInSm {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes thinking-shimmer { 70%, 100% { transform: translateX(100%); } }
+@keyframes card-enter { from { opacity: 0; translate: 0 16px; } }
+@keyframes homePhotoSignal { to { stroke-dashoffset: -60; } }
+@keyframes heroAmbientShift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-18px, 14px, 0) scale(1.045); }
+}
+@keyframes heroFloatCenter {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(0, -6px, 0) rotate(0.25deg); }
+}
+@keyframes heroFloatTL {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-0.6deg); }
+  50% { transform: translate3d(4px, -8px, 0) rotate(0.7deg); }
+}
+@keyframes heroFloatTR {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0.6deg); }
+  50% { transform: translate3d(-5px, -7px, 0) rotate(-0.7deg); }
+}
+@keyframes heroFloatBL {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0.5deg); }
+  50% { transform: translate3d(5px, 7px, 0) rotate(-0.6deg); }
+}
+@keyframes heroFloatBR {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-0.5deg); }
+  50% { transform: translate3d(-4px, 8px, 0) rotate(0.6deg); }
+}
+@keyframes vchunkPacket {
+  0% { transform: translateX(-16px); opacity: 0; }
+  18% { opacity: 1; }
+  82% { opacity: 1; }
+  100% { transform: translateX(calc(100% + 16px)); opacity: 0; }
+}
+@keyframes vchunkPulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92) translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+}
+/* 上下文菜单：用 keyframes 而非 class 互换 —— 菜单是「插入 DOM + 切 class」
+   同帧发生，浏览器来不及建立起始状态，过渡会被整帧跳过。 */
+@keyframes menuIn {
+  from { opacity: 0; transform: scale(0.86) translate3d(0, -8px, 0); }
+  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+}
+@keyframes menuOut {
+  from { opacity: 1; transform: scale(1) translate3d(0, 0, 0); }
+  to   { opacity: 0; transform: scale(0.9) translate3d(0, -6px, 0); }
+}
+/* 行内操作按钮（复制/更多）：进出都要有动画，避免「直接没掉」 */
+@keyframes actionIn {
+  from { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes actionOut {
+  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  to   { opacity: 0; transform: translate3d(8px, 0, 0) scale(0.9); }
+}
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translate3d(0, 18px, 0) scale(0.94); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes dockIn {
+  from { opacity: 0; transform: translate3d(-50%, 96px, 0) scale(0.88); }
+  to   { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
+}
+/* adminDockIn（admin 后台 dock 首屏淡入关键帧）已删除。
+   演进史（三次实测踩坑后收敛，勿回退）：
+   1. 最初用 dockIn（上滑 96px）——与 translateX(-50%) 居中偏移叠加，
+      部分设备感知成位置抖动；
+   2. 改纯透明度淡入 —— 几何上不可能抖，但治不了本问题：
+      手机浏览器首帧以「全屏视口」布局（底部工具栏悬浮在内容上），
+      fixed bottom 的 dock 先被工具栏裁掉一截、视口收缩后再回弹归位
+      （用户实测截图）。入场动画无论怎么设计都发生在错误视口里。
+   3. 最终方案：视口稳定门控 —— dock 先整条隐藏，等布局视口高度连续
+      稳定后再以 opacity 过渡显现。实现移至 admin.html 的 .dock-hold
+      门控（CSS）+ mounted() 的视口监测（JS），此处不再需要任何关键帧。 */
+/* 底部批量操作栏（<transition name="bar">）的进出场。
+   这里刻意用 @keyframes 而不是 transition，理由与上方 menuIn/menuOut 相同：
+   底栏是「插入 DOM + 同帧切 class」出现的，浏览器来不及为 transition 建立
+   起始值 —— 实测在「选中后立刻取消」时，进场两帧都停在 opacity:0，
+   离场于是从 0 起算，表现为底栏瞬间消失（无任何可见过渡）。
+   keyframes 把两端写死在动画里，不依赖样式是否被提交过，因此不受该竞态影响。
+   translateX(-50%) 是底栏自身的水平居中偏移，两端都必须带上，否则进出场会横向跳位。 */
+@keyframes barIn {
+  from { opacity: 0; transform: translateX(-50%) translate3d(0, 18px, 0) scale(0.98); }
+  to   { opacity: 1; transform: translateX(-50%) translate3d(0, 0, 0) scale(1); }
+}
+@keyframes barOut {
+  from { opacity: 1; transform: translateX(-50%) translate3d(0, 0, 0) scale(1); }
+  to   { opacity: 0; transform: translateX(-50%) translate3d(0, 18px, 0) scale(0.98); }
+}
+@keyframes pop {
+  from { transform: scale(0.72); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+/* 文件名/标题入场：随整行错峰上浮淡入（克制、不抢戏）。
+   backwards 填充：动画结束后回落到无 transform 常态，不长期占用合成层。 */
+@keyframes titleIn {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes shakeIn {
+  0%   { opacity: 0; transform: translateX(0); }
+  20%  { opacity: 1; transform: translateX(-7px); }
+  40%  { transform: translateX(6px); }
+  60%  { transform: translateX(-4px); }
+  80%  { transform: translateX(2px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+/* ── L5：以下五个 keyframes 已连同全部引用一起删除 ────────────────────────
+   pulseRing(box-shadow 扩散) / orbFloat / floatSoft / bounceDown / settleBreathe
+   它们都是 infinite 常驻循环：无论屏幕上有几个实例，浏览器每帧都要为它们走一次
+   样式计算 + 绘制（pulseRing 的 box-shadow 甚至要逐帧重绘），属于「永不停歇的开销」。
+   删除后对应元素保留静态外观：背景光晕停在初始位置、状态点保持静态绿点、
+   空状态图标不再浮动 —— 都是纯装饰，无信息损失。
+   加载指示器（spin / .spinner / .fa-spin）与 airdrop 的倒计时脉冲不在其列。
+   ──────────────────────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 展开/收起：L4 改为纯合成属性。
+   原本这套 keyframes 插值 `grid-template-rows: 0fr → 1fr` —— 高度虽然平滑，但它是
+   布局属性，每一帧都要重新 layout 整棵子树（目录树多层展开时尤其贵）。
+   现在内容改为淡入淡出 + 轻微上移：**容器高度改为瞬变**，不再逐步增高。
+   观感上比原来略快一点，省掉的是每帧 layout。
+   保留 animation 而不是换成 transition —— Vue 的 getTransitionInfo 会读 computed
+   style 的时长来决定等多久，两种写法都能被嗅探，沿用原有结构改动最小。 */
+@keyframes treeGrowIn  { from { opacity: 0; transform: translate3d(0, -6px, 0); } to { opacity: 1; transform: none; } }
+@keyframes treeGrowOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(0, -4px, 0); } }
+@keyframes rowExpandIn  { from { opacity: 0; transform: translate3d(0, -6px, 0); } to { opacity: 1; transform: none; } }
+@keyframes rowExpandOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate3d(0, -4px, 0); } }
+
+/* 通用容器展开/收起（grid-template-rows 真插值，进出场都补齐，配 <transition name="collapse">）。
+   用于「出现/消失会带动容器高度变化」的面板（如 index 的交付结果），让「缩小」也走非线性缓动，
+   而非瞬间塌缩。结构约定（务必加一层无样式的 .collapse__inner 包裹，否则带 padding 的卡片
+   无法真正收到 0，会卡在内容最小高度）：
+     <transition name="collapse">
+       <div class="collapse" v-if="...">
+         <div class="collapse__inner"><section class="card panel">…</section></div>
+       </div>
+     </transition>
+   .collapse 为单格 grid，唯一子元素（.collapse__inner）在动画期间被 overflow:hidden 裁切，
+   grid-template-rows 在 0fr↔1fr 间插值。裁切仅限动画进行中（enter/leave-active 类随动画
+   起止由 Vue 自动加减）——静止时必须放开溢出，否则面板内的上拉菜单等溢出弹层会被裁掉。 */
+@keyframes collapseIn  { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
+@keyframes collapseOut { from { grid-template-rows: 1fr; } to { grid-template-rows: 0fr; } }
+.collapse { display: grid; grid-template-rows: 1fr; }
+.collapse > * { min-height: 0; min-width: 0; }
+.collapse-enter-active > *,
+.collapse-leave-active > * { overflow: hidden; }
+.collapse-enter-active { animation: collapseIn 0.5s var(--ease-apple) both; }
+.collapse-leave-active { animation: collapseOut 0.44s var(--ease-apple) both; }
+
+/* —— 离场中的节点必须停止响应指针（本项目最容易漏的一条）——
+   Vue 的 <transition> 在 leave 期间**不移除元素**：DOM 节点连同它的 opacity /
+   transform 动画一起留在页面上，直到动画播完才卸载。若不显式关掉 pointer-events，
+   这些「正在死去」的节点依然参与命中测试 —— 用户在动画窗口内点第二次，手指落的
+   还是同一个屏幕坐标，命中的却是那个正在离场的旧节点，刚退出的状态于是被重新唤起。
+   实测（交付结果里「完成」按钮，rAF 逐帧采样）：
+       t=9625ms  resultSelectMode=false，底栏开始 collapseOut 收拢
+       t=9652ms  同一坐标第二次点击，命中仍在 leave 的「完成」节点 → 模式翻回 true
+       t=9856ms  底栏高度 0 → 11 → 22 → 52 → 134，反向弹回
+   「先消失、再弹回」的整套抽搐全部出自这一条。注意分组里的历史欠账：list 与 rowAct
+   早就写了这行，collapse / ctrl / check 却漏了 —— 这里一次性收口，从此离场节点一律
+   不可点，免得同类问题在别的过渡上重演。新增过渡请比照此表登记。 */
+.collapse-leave-active,
+.ctrl-leave-active,
+.taskAct-leave-active,
+.menu-leave-active,
+.bar-leave-active,
+.count-leave-active { pointer-events: none; }
+
+/* —— 面板外阴影在展开/收起期间的「抽搐」 ——
+   上面那条 overflow:hidden 是收到 0 高度的必要条件，但它同时会裁掉面板的
+   **外**阴影（.card 的 --shadow-soft 扩散约 24px）。实测时序：
+       t=7ms   高度 0    overflow=hidden   阴影被裁
+       t=523ms 高度 134  overflow=visible  阴影瞬间蹦出
+   也就是说阴影被整整藏了 0.5s，然后在最后一帧硬切出来，没有任何过渡 ——
+   这就是用户报的那下「抽搐」。收起时反向同理（visible→hidden，阴影突然消失）。
+   解法：动画期间干脆不画外阴影，动画结束后由 .card / .liquid-card 自带的
+   transition: box-shadow 0.45s 平滑补上。这样「阴影出现」变成一段渐入，
+   而不是一次硬跳。inset 阴影不溢出、不受裁切影响，可以保留。
+   注：别想着用 overflow:clip + overflow-clip-margin 给阴影留边 ——
+   高度收到 0 时那圈 margin 会让内容残留几十像素，collapse 就收不干净了。 */
+.collapse-enter-active > * > .card,
+.collapse-leave-active > * > .card,
+.collapse-enter-active > * > .liquid-card,
+.collapse-leave-active > * > .liquid-card { box-shadow: none; }
+
+/* 数字/计数切换 */
+@keyframes countIn  { from { opacity: 0; transform: scale(0.6) translate3d(0, -6px, 0); } to { opacity: 1; transform: scale(1) translate3d(0, 0, 0); } }
+@keyframes countOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.6) translate3d(0, 6px, 0); } }
+
+/* 上传队列整卡进出 */
+@keyframes taskIn  { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(0.98); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
+@keyframes taskOut { from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } to { opacity: 0; transform: translate3d(0, -10px, 0) scale(0.98); } }
+
+/* 页签内容错峰 */
+@keyframes dropIn {
+  from { opacity: 0; transform: translate3d(0, -12px, 0) scale(0.97); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes paneItemIn { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+
+/* 兼容别名：旧页面用过的名字，统一在这里收口（新代码请用上面的规范名）。
+   dockRise 保留独立取值：画廊页的 dock 只上浮 26px，
+   而全站 dockIn 是 96px 的「从屏幕外升起」，两者语义不同。
+   原先还留着 fadeInUp / fadeUp / slideDown 三个别名，随各页面迁移到
+   riseIn / riseInSm 后已无任何引用，故删除（check_tokens.py 会拦这类死定义）。 */
+@keyframes fadeIn    { from { opacity: 0; } to { opacity: 1; } }
+
+/* 同步状态点（.sync-dot）——三态各自的呼吸/告警节奏，连同它们 keyframes 里的
+   box-shadow 扩散已在 L5 删除；三态改由纯背景色区分（.sync-dot.is-* 见 §10）。 */
+
+/* ==========================================================================
+   12. 入场编排 —— 首屏元素错峰浮现（替代各页面手写的 boot 规则）
+       .boot-rise / .boot-rise-sm / .boot-scale + --boot-delay 自定义延迟
+   ========================================================================== */
+.boot-rise    { animation: riseIn 0.52s var(--ease-fluid) backwards; }
+.boot-rise-sm { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+.boot-scale   { animation: scaleIn 0.46s var(--ease-spring) backwards; }
+.boot-dock    { animation: dockIn 0.72s var(--ease-fluid) 0.1s backwards; }
+[class*="boot-"] { animation-delay: var(--boot-delay, 0s); }
+
+/* ==========================================================================
+   13. Vue 过渡族 —— 进出场都补齐，禁止页面再单独定义同名过渡
+   ========================================================================== */
+.fade-enter-active { transition: opacity 0.24s var(--ease-apple); }
+.fade-leave-active { transition: opacity 0.18s var(--ease-press); }
+.fade-enter-from,
+.fade-leave-to     { opacity: 0; }
+
+.pop-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.26s var(--ease-spring); }
+.pop-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
+.pop-enter-from,
+.pop-leave-to     { opacity: 0; transform: scale(0.92) translateY(-6px); }
+
+.rise-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
+.rise-leave-active { transition: opacity 0.18s var(--ease-press), transform 0.24s var(--ease-press); }
+.rise-enter-from,
+.rise-leave-to     { opacity: 0; transform: translate3d(0, 14px, 0); }
+
+.drop-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.34s var(--ease-fluid); }
+.drop-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+.drop-enter-from,
+.drop-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0); }
+
+/* 底部批量操作栏：见 barIn / barOut 关键帧处的说明。
+   opacity 置 1 是为了让 class 交换不参与插值 —— 真正的起止值由 keyframes 提供，
+   与 .menu-enter-from / .menu-leave-to 同一套做法。 */
+.bar-enter-active { animation: barIn 0.34s var(--ease-spring) both; }
+.bar-leave-active { animation: barOut 0.2s var(--ease-press) both; }
+.bar-enter-from,
+.bar-leave-to     { opacity: 1; }
+
+/* 控件组互换（选择/清空 ↔ 全选/完成）：错峰淡入淡出，避免「啪」地互替 */
+.ctrl-enter-active { transition: opacity 0.2s var(--ease-apple), transform 0.28s var(--ease-spring); }
+.ctrl-leave-active { transition: opacity 0.14s var(--ease-press), transform 0.18s var(--ease-press); }
+.ctrl-enter-from   { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.96); }
+.ctrl-leave-to     { opacity: 0; transform: translate3d(0, -4px, 0) scale(0.98); }
+
+/* Toast：单条（顶部居中，容器自身带 translateX(-50%)）。
+   这是 toast 入场动画的**唯一**实现 —— 元素上不再挂 @keyframes，
+   两套动画争同一轨道会在掉帧时闪烁。起点/时长/缓动与原先的 toastIn 完全一致，
+   观感不变；额外补上 translateZ(0) 保持既有的独立合成层，避免过渡期间被降级。 */
+.toast-enter-active { transition: opacity 0.26s var(--ease-apple), transform 0.42s var(--ease-spring); }
+.toast-leave-active { transition: opacity 0.16s var(--ease-press), transform 0.2s var(--ease-press); }
+.toast-enter-from   { opacity: 0; transform: translate3d(0, -22px, 0) scale(0.9) translateZ(0); }
+.toast-leave-to     { opacity: 0; transform: translate3d(0, -14px, 0) scale(0.94) translateZ(0); }
+/* 多条堆叠（admin 用 transition-group）：移除中间某条时其余条目平滑补位。
+   index 是单条 mode="out-in"，永远只有一条、用不到 move，无副作用。 */
+.toast-move         { transition: transform 0.28s var(--ease-apple); }
+
+/* 列表项（transition-group）：离场必须脱离文档流，否则剩余项要等它淡完才「跳」上来 */
+.list { position: relative; }
+.list-enter-active { animation: taskIn 0.28s var(--ease-fluid) both; }
+.list-leave-active {
+  animation: taskOut 0.18s var(--ease-press) both;
+  position: absolute; left: 0; right: 0;
+  width: 100%; pointer-events: none;
+}
+.list-move { transition: transform 0.32s var(--ease-apple); }
+
+/* 上下文菜单 */
+.menu-enter-active { animation: menuIn 0.3s var(--ease-spring) both; transform-origin: inherit; }
+.menu-leave-active { animation: menuOut 0.18s var(--ease-press) both; transform-origin: inherit; }
+.menu-enter-from,
+.menu-leave-to { opacity: 1; }
+
+/* 行内操作按钮组：L2 已把 v-for 里的 <transition name="rowAct"> 换成 :class 切换
+   + .row__actions.is-hidden 的 CSS 过渡（见 index.css），这条旧规则连同
+   rowAct-enter/leave 一并删除。保留 .taskAct —— 它用在上传队列外的场景。 */
+.taskAct { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); }
+.taskAct-leave-active {
+  position: absolute; top: 0; right: 0; margin: 0;
+  animation: actionOut 0.16s var(--ease-press) both;
+}
+.taskAct-enter-active { animation: actionIn 0.26s var(--ease-fluid) both; }
+
+/* 选择圈：L2 已删除。原先这里补间 width + margin-right + border-width —— 三个都是
+   布局属性，每帧 layout；现在由 .check 自身的 `animation: pop` 承担进场（见上文
+   .check 处的注释），这几个 -enter/-leave 类随之作废。 */
+
+/* 高度展开（grid-template-rows 真插值 + transition-duration 作为 Vue 的时长信号） */
+.tree-children { display: grid; grid-template-rows: 1fr; min-height: 0; }
+.tree-children > * { min-height: 0; overflow: hidden; }
+.tree-children-enter-active {
+  animation: treeGrowIn 0.42s var(--ease-fluid) both;
+  /* L4：transition 只保留 opacity。原先那条还挂着 grid-template-rows ——
+     插值它是每帧 layout，而随着 keyframes 改成纯合成属性，这里也已无用。
+     留着 opacity 的 transition 还有个作用：Vue 嗅探离场时长要看 computed style。 */
+  transition: opacity 0.42s var(--ease-fluid);
+}
+.tree-children-leave-active {
+  animation: treeGrowOut 0.26s var(--ease-press) both;
+  transition: opacity 0.26s var(--ease-press);
+}
+.tree-children-enter-from,
+.tree-children-leave-to { opacity: 1; }
+
+.row-expand { display: grid; grid-template-rows: 1fr; min-height: 0; }
+.row-expand > * { min-height: 0; overflow: hidden; }
+.rowExpand-enter-active {
+  animation: rowExpandIn 0.42s var(--ease-fluid) both;
+  /* L4：同上，去掉 grid-template-rows 的插值 */
+  transition: opacity 0.42s var(--ease-fluid);
+}
+.rowExpand-leave-active {
+  animation: rowExpandOut 0.24s var(--ease-press) both;
+  transition: opacity 0.24s var(--ease-press);
+}
+.rowExpand-enter-from,
+.rowExpand-leave-to { opacity: 1; }
+
+.count-enter-active { animation: countIn 0.34s var(--ease-spring) both; }
+.count-leave-active { animation: countOut 0.18s var(--ease-press) both; }
+
+/* 抽屉页签 · 方向感知转场 */
+.pane-forward-enter-active,
+.pane-back-enter-active {
+  /* L4：原本这里还过渡 `filter .3s`。filter 不是合成器属性，转场期间逐帧重新
+     栅格化整块面板。同行把 will-change 里的 filter 也去掉 —— 它会让浏览器为
+     filter 单独准备一层，而这一层已经不再需要。 */
+  transition: opacity 0.3s var(--ease-apple),
+              transform 0.46s var(--ease-fluid);
+  will-change: transform, opacity;
+}
+.pane-forward-leave-active,
+.pane-back-leave-active {
+  transition: opacity 0.18s var(--ease-press),
+              transform 0.24s var(--ease-press);
+}
+.pane-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); }
+.pane-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); }
+.pane-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); }
+.pane-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); }
+.pane-forward-enter-active > *,
+.pane-back-enter-active > * { animation: paneItemIn 0.34s var(--ease-fluid) backwards; }
+.pane-forward-enter-active > *:nth-child(1),
+.pane-back-enter-active > *:nth-child(1) { animation-delay: 0.01s; }
+.pane-forward-enter-active > *:nth-child(2),
+.pane-back-enter-active > *:nth-child(2) { animation-delay: 0.03s; }
+.pane-forward-enter-active > *:nth-child(3),
+.pane-back-enter-active > *:nth-child(3) { animation-delay: 0.05s; }
+.pane-forward-enter-active > *:nth-child(4),
+.pane-back-enter-active > *:nth-child(4) { animation-delay: 0.07s; }
+.pane-forward-enter-active > *:nth-child(n + 5),
+.pane-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
+
+/* admin 后台的视图切换叫 .view-*，与 .pane-* 是同一套方向感知转场，
+   统一在这里定义（离场元素绝对定位，避免两页同时占位把容器撑高）。 */
+.view-forward-enter-active,
+.view-back-enter-active {
+  /* L4：同 .pane-* 的处理，去掉 filter 过渡与其 will-change */
+  transition: opacity 0.3s var(--ease-apple),
+              transform 0.46s var(--ease-fluid);
+  will-change: transform, opacity;
+}
+.view-forward-leave-active,
+.view-back-leave-active {
+  transition: opacity 0.18s var(--ease-press),
+              transform 0.24s var(--ease-press);
+  /* ⚠️ absolute 必须保留：两个视图在 transition 期间同处 DOM，
+     若都参与文档流，scrollHeight 会叠加（实测 3388 → 5049，+1661），
+     移动端内核会为此临时扩展 window.innerHeight（844 → 881，+37），
+     而 position:fixed 的包含块正是视口 —— dock 立刻被顶偏 37px。
+     这正是「切换视图 dock 下沉」的直接机理，与宽度/滚动条无关。
+     absolute 让离场视图脱离文档流、不叠加高度；它造成的「高度塌陷」
+     另一侧风险（滚动条抖动）由 .view-stage 的 min-height 锁高兜住
+     （见 admin.html 的 .view-stage.is-locking 与 lockStageHeight）。
+     两侧合起来：既不叠加、也不塌陷 → innerHeight 全程恒定 → dock 零重排。 */
+  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
+}
+/* 离场元素内的逐格错峰动画必须关掉：
+   .vault-grid > .vault-card / .vault-list > .vault-row 自带 riseIn 错峰入场，
+   离场时若让它们继续播放（尤其 nth-child 的 animation-delay + backwards），
+   旧的卡片会一格格「倒着重播」，与新内容叠在一起 —— 切目录瞬间那种
+   「旧卡片残影 + 空状态文字同框错位」就是这么来的。离场只保留整块淡出。 */
+.view-forward-leave-active > *,
+.view-back-leave-active > *,
+.view-forward-leave-active .vault-card,
+.view-back-leave-active .vault-card,
+.view-forward-leave-active .vault-row,
+.view-back-leave-active .vault-row {
+  animation: none !important;
+}
+.view-forward-enter-from { opacity: 0; transform: translate3d(32px, 0, 0) scale(0.982); }
+.view-forward-leave-to   { opacity: 0; transform: translate3d(-24px, 0, 0) scale(0.986); }
+.view-back-enter-from    { opacity: 0; transform: translate3d(-32px, 0, 0) scale(0.982); }
+.view-back-leave-to      { opacity: 0; transform: translate3d(24px, 0, 0) scale(0.986); }
+.view-forward-enter-active > *,
+.view-back-enter-active > * { animation: paneItemIn 0.34s var(--ease-fluid) backwards; }
+.view-forward-enter-active > *:nth-child(1),
+.view-back-enter-active > *:nth-child(1) { animation-delay: 0.01s; }
+.view-forward-enter-active > *:nth-child(2),
+.view-back-enter-active > *:nth-child(2) { animation-delay: 0.03s; }
+.view-forward-enter-active > *:nth-child(3),
+.view-back-enter-active > *:nth-child(3) { animation-delay: 0.05s; }
+.view-forward-enter-active > *:nth-child(4),
+.view-back-enter-active > *:nth-child(4) { animation-delay: 0.07s; }
+.view-forward-enter-active > *:nth-child(n + 5),
+.view-back-enter-active > *:nth-child(n + 5) { animation-delay: 0.09s; }
+
+/* 无方向「淡出淡入」转场：已停用（留作兜底）。
+   目录切换（进入/退出文件夹）现由 selectFolder 驱动 .view-forward/back
+   方向感知转场（key 绑定 navSeq），fade 不再被任何 JS 路径设置；
+   早年它承担的「目录切换」语义与 _switchFolder 高度 FLIP 一并移除
+   （FLIP 正是切目录整页抖动的根源）。保留定义：万一将来需要一次
+   「无方向、极短淡入」的换场，直接设 viewTransition='view-fade' 即可，
+    absolute 离场规则与 forward/back 一致，不会引入堆叠跳动。 */
+.view-fade-enter-active {
+  transition: opacity 0.22s var(--ease-apple);
+  will-change: opacity;
+}
+.view-fade-leave-active {
+  transition: opacity 0.12s linear;
+  will-change: opacity;
+  /* 与 .view-forward/back-leave-active 一致：离场即脱离文档流。
+     缺了这条，一旦 fade 离场元素本身占位（如它曾是带 liquid-card 的
+     独立分支），入场内容会被挤到下方、离场元素移除时又跳回 ——  MotionService
+     不可见，但用户截图里就是「列表先堆在下面、再突然弹上去」。 */
+  position: absolute; left: 0; right: 0; top: 0; pointer-events: none;
+}
+.view-fade-enter-from { opacity: 0; }
+.view-fade-leave-to   { opacity: 0; }
+/* 淡入转场不做逐格错峰：整块淡入即可，逐格动画只属于方向感知的 forward/back。 */
+.view-fade-enter-active > *,
+.view-fade-leave-active > *,
+.view-fade-enter-active .vault-card,
+.view-fade-leave-active .vault-card,
+.view-fade-enter-active .vault-row,
+.view-fade-leave-active .vault-row {
+  animation: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   文件删除离场 / 撤销恢复（admin 文件列表）
+   --------------------------------------------------------------------------
+   admin 的文件列表刻意不用 transition-group（切目录必须零位移，见 admin.html
+   「目录切换改回原地换内容」注释），删除动画改由「类标记 + animation」实现：
+   删除时目标加 .is-deleting 播收缩淡出（forwards 定格在透明），数据移除由
+   JS 在动画结束后执行（入口 deleteFile / batchDelete，标记 deletingNames）；
+   撤销时清掉离场标记、加 .is-restoring 播淡入（标记 restoringNames）。
+   prefers-reduced-motion 由本文件全局 0.01ms 规则兜底。
+   注意：切目录转场激活期间上面的 animation:none !important 会临时压过
+   这两个动画 —— 极端时序下删除无动画但移除逻辑仍正确，可接受。
+   -------------------------------------------------------------------------- */
+@keyframes vaultCardOut{
+  to{opacity:0;transform:scale(.92)}
+}
+@keyframes vaultCardIn{
+  from{opacity:0;transform:scale(.94)}
+}
+.vault-card.is-deleting,.vault-row.is-deleting{
+  animation:vaultCardOut .22s var(--ease-fluid) forwards;
+  pointer-events:none;
+}
+.vault-card.is-restoring,.vault-row.is-restoring{
+  animation:vaultCardIn .26s var(--ease-fluid) backwards;
+}
+
+/* 入场已纯 transform + opacity，无 filter：低性能档无需再单独撤 blur */
+
+/* --------------------------------------------------------------------------
+   文字级切换（.label / .morph）—— 状态胶囊、当前上限数值等「原地换字」
+   --------------------------------------------------------------------------
+   重构（Apple 风）：入场/出场**只动 transform + opacity**，彻底移除原先的
+   filter: blur() 绘制开销（见铁律：只动 transform/opacity）。
+     - 位移 + 淡入的观感与原来一致（起点、spring 缓动都保留）
+     - 元素提前提层（will-change / translateZ(0)），走合成器而非每帧重绘
+     - 低端设备（data-perf="low"）仍保留一次性 transform+opacity 入场，
+       不再需要单独撤 blur（因为本来就没有）
+   -------------------------------------------------------------------------- */
+.label-enter-active {
+  transition: opacity 0.3s var(--ease-apple),
+              transform 0.42s var(--ease-spring);
+  will-change: transform, opacity;
+}
+.label-leave-active {
+  transition: opacity 0.18s var(--ease-press),
+              transform 0.22s var(--ease-press);
+  will-change: transform, opacity;
+}
+.label-enter-from { opacity: 0; transform: translate3d(6px, 0, 0) translateZ(0); }
+.label-leave-to   { opacity: 0; transform: translate3d(-6px, 0, 0) translateZ(0); }
+
+/* 更大的文字块切换（标题 / 段落级）：位移与模糊幅度略大，同样提层 */
+.morph-enter-active {
+  transition: opacity 0.34s var(--ease-apple),
+              transform 0.46s var(--ease-spring);
+  will-change: transform, opacity;
+}
+.morph-leave-active {
+  transition: opacity 0.2s var(--ease-press),
+              transform 0.26s var(--ease-press);
+  will-change: transform, opacity;
+}
+.morph-enter-from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.975) translateZ(0); }
+.morph-leave-to   { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.975) translateZ(0); }
+
+/* 入场已纯 transform + opacity，低性能档无需再撤 blur */
+
+/* 承载这两个过渡的元素（行内文字）本身也要提层，否则 will-change 加在过渡类上
+   会随「进出场类名」被反复添加/移除，反而引起层重创建。这里对常见宿主一次性提层。
+   display:inline-block 是 transition 对行内元素生效的前提（transform 对纯 inline 无效），
+   原先散落在 index.html 里，随本次统一一起收口到这里。 */
+.status-pill__text,
+.summary__value {
+  display: inline-block;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* 遮罩负责背景采样，面板只过渡位移。模糊半径从挂载到卸载保持恒定。 */
+:root {
+  --overlay-blur: 6px;
+  --overlay-enter: 0.34s;
+  --overlay-leave: 0.22s;
+}
+:is(.modal-mask, .overlay, .ui-sheet-mask, .ad-cloudwin-mask,
+    .modal-backdrop, .preview-backdrop, .lightbox, .kv-inapp__mask) {
+  -webkit-backdrop-filter: blur(var(--overlay-blur));
+  backdrop-filter: blur(var(--overlay-blur));
+}
+.preview-backdrop { --overlay-blur: 14px; }
+
+:is(.sheet-enter-active, .dialog-enter-active, .veil-enter-active) {
+  transition: opacity var(--overlay-enter) var(--ease-apple);
+}
+:is(.sheet-leave-active, .dialog-leave-active, .veil-leave-active) {
+  transition: opacity var(--overlay-leave) var(--ease-press);
+  pointer-events: none;
+}
+:is(.sheet-enter-from, .dialog-enter-from, .veil-enter-from,
+    .sheet-leave-to, .dialog-leave-to, .veil-leave-to) { opacity: 0; }
+.sheet-enter-active .modal,
+.dialog-enter-active :is(.modal, .dialog-panel, .modal-card) {
+  transition: transform var(--overlay-enter) var(--ease-apple);
+}
+.sheet-leave-active .modal,
+.dialog-leave-active :is(.modal, .dialog-panel, .modal-card) {
+  transition: transform var(--overlay-leave) var(--ease-press);
+}
+:is(.sheet-enter-from, .sheet-leave-to) .modal { transform: translate3d(0, 100%, 0); }
+.dialog-enter-from :is(.modal, .dialog-panel, .modal-card) { transform: translateY(12px) scale(0.96); }
+.dialog-leave-to :is(.modal, .dialog-panel, .modal-card) { transform: translateY(8px) scale(0.98); }
+
+/* ==========================================================================
+   13.9 模态面板基类
+   ----------------------------------------------------------------------
+   原先只有 index.html 在自己的 <style> 里定义 .modal 的玻璃质感，
+   其余页面的模态面板各自散落、外观不完全一致。
+   以 index 为准上收到这里，页面只需写自己的尺寸/布局增量。
+   ========================================================================== */
+.modal {
+  background: var(--glass-elevated);
+  border: 1.5px solid var(--glass-border-ice);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-elevated);
+  overflow-y: auto;
+  will-change: transform, opacity;
+}
+
+/* 主题切换时，玻璃容器平滑换色而不是硬切 */
+.card, .liquid-card, .menu, .dock, .selection-bar, .modal {
+  transition: background-color 0.45s var(--ease-apple),
+              border-color 0.45s var(--ease-apple),
+              box-shadow 0.45s var(--ease-apple),
+              color 0.45s var(--ease-apple);
+}
+
+/* ==========================================================================
+   13.9b 遮罩层 & 对话框面板
+   ----------------------------------------------------------------------
+   原先 admin.html 在自己的 <style> 里写了整套 .overlay / .dialog-*（确认框、
+   输入框、信息框），share.html 为了让二维码浮层长一样又手抄了一遍 ——
+   两处分叉之后"改一处忘一处"只是时间问题。
+
+   这里以 admin 的实现为准上收基类；各页只保留各自的变体增量：
+     · admin —— .overlay.dialog-overlay（层级 2300）、.dialog-panel.wide、
+                .dialog-actions.mt、.dialog-title.danger
+     · share —— 无，直接吃基类
+   ========================================================================== */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.dialog-panel {
+  width: min(560px, 100%);
+  max-height: 86dvh;
+  overflow-y: auto;
+  padding: 22px 24px;
+  border-radius: var(--r-lg);
+  background: var(--glass-elevated);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  will-change: transform, opacity;
+}
+
+/* 二维码浮层：里面只有一个码 + 一行链接，560px 宽纯属浪费。 */
+.qr-panel { width: min(360px, 100%); }
+
+.dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  font-size: var(--fs-lg);
+  font-weight: 800;
+}
+.dialog-title i { color: var(--primary); }
+
+.dialog-message {
+  margin-bottom: 14px;
+  font-size: var(--fs-sm);
+  color: var(--text-sub);
+  line-height: 1.65;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: var(--sp-1);
+}
+
+/* ==========================================================================
+   13.10 环境光背景 & 密码门
+   ----------------------------------------------------------------------
+   .ambient-glow / .ambient-orb 原先在 index / admin / gallery / paste
+   四页各写一份，其中 .ambient-glow 四页**完全相同** —— 典型的手抄漂移。
+   这里上收容器与光球基类；.orb-1 / .orb-2 的**位置、尺寸、配色**是各页
+   有意的差异化设计（以 index 为准），仍留在各页。
+
+   .password-gate 系列原先在 share / preview 各写一份，preview 那份把
+   设计令牌全写成了硬编码回退值（#0ea5e9 / #ef4444 / #64748b），
+   导致换主题时 password 弹层不跟随。这里以 share 的令牌版为准上收。
+   ========================================================================== */
+
+/* --- 环境光容器：四页完全一致 --- */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* --- 光球基类：以 index 为准（不加 blur，用径向渐变自身柔化） ---
+   gallery 曾额外加 filter: blur(90px)，与径向渐变叠加属冗余，
+   且 blur 是绘制属性、在低端设备上掉帧，故统一为不带 blur。 */
+.ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.48;
+}
+
+/* --- 密码门：以 share 的令牌版为准（preview 原为硬编码色值） --- */
+.password-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  max-width: 380px;
+  padding: 28px 24px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+}
+.password-gate-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.12);
+}
+.password-gate-title { font-size: 1rem; font-weight: 700; }
+.password-gate-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.password-gate-form { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
+.password-gate-form input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.86rem;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-border-ice);
+  background: var(--surface-2);
+  color: inherit;
+  outline: none;
+  transition: var(--transition);
+}
+.password-gate-form input:focus { border-color: var(--primary); }
+.password-gate-form button {
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--primary);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition);
+}
+.password-gate-form button:hover:not(:disabled) { background: var(--primary-dark); }
+.password-gate-form button:disabled { opacity: 0.6; cursor: progress; }
+.password-gate-error { font-size: 0.78rem; color: var(--danger); }
+
+/* --- 小工具类：原先 index / admin 各写一份，写法不同但语义一致 --- */
+.mono { font-family: 'JetBrains Mono', monospace; }
+.grow { flex: 1; }
+
+/* ==========================================================================
+   13.12 滚动揭示（reveal on scroll）
+   ----------------------------------------------------------------------
+   配套 app-core.js 的 KVault.revealOnScroll()：给元素加 [data-reveal]，
+   进入视口时由 JS 加 .is-revealed。**只动 transform + opacity**，零依赖、
+   零风险；Apple 风统一缓动 --ease-out。respects prefers-reduced-motion：
+   命中时 app-core 直接全量揭示，不做位移动画。
+   ========================================================================== */
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out);
+  will-change: transform, opacity;
+}
+[data-reveal].is-revealed {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  will-change: auto;
+}
+
+/* ==========================================================================
+   14. 性能分级 & 无障碍降级
+   ========================================================================== */
+/* 无关的视图或菜单过渡不改变其他玻璃面的滤镜。 */
+/* 灵动引擎关闭（html[data-perf="low"]）：只撤「贵」的部分，保留入场质感。
+   早先这里是「动画全停」（duration 压到 0.01ms），代价是把弹簧手感也一起杀掉了。
+   现在改为：
+     - 撤掉 backdrop-filter（每帧都要重算模糊，是低端设备最大开销）
+     - 撤掉常驻/循环动画（ambient-orb、spin 之类会持续占 GPU）
+     - **保留**一次性的 transform + opacity 入场过渡（纯合成，开销极低）
+   这样低端设备也能拿到与高端一致的入场观感，而不再是「啪」一下出现。 */
+html[data-perf="low"] *,
+html[data-perf="low"] *::before,
+html[data-perf="low"] *::after {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 常驻循环动画在低性能档位直接停掉（它们才是持续吃 GPU 的那部分） */
+html[data-perf="low"] .ambient-orb,
+html[data-perf="low"] .spinner,
+html[data-perf="low"] .spinner-ring,
+html[data-perf="low"] .fa-spin,
+html[data-perf="low"] [class*="pulse"],
+html[data-perf="low"] [class*="float"] {
+  animation: none !important;
+}
+
+/* 同步状态点：低性能档停掉循环动画，但**颜色必须保留** ——
+   颜色是语义本体（黄=同步中/绿=已同步/红=失败），停掉动画只是省掉呼吸，
+   绝不能连颜色一起丢，否则用户会彻底看不到同步状态。 */
+html[data-perf="low"] .sync-dot {
+  animation: none !important;
+}
+
+/* 浮层（toast / 菜单 / 弹窗 / 面板）保留入场过渡，只把时长压短一点，
+   让低端设备不至于因为长过渡而掉帧，但曲线与终态完全一致。 */
+html[data-perf="low"] .toast,
+html[data-perf="low"] .toast-stack * {
+  will-change: transform, opacity;
+}
+html[data-perf="low"] .toast-enter-active { transition-duration: 0.2s, 0.32s; }
+html[data-perf="low"] .toast-leave-active { transition-duration: 0.14s, 0.16s; }
+/* 模糊停用后，玻璃层必须改为不透明，否则背景光晕会透上来压低文字对比度 */
+html[data-perf="low"] {
+  --glass-surface: #ffffff;
+  --glass-surface-flat: #ffffff;
+  --glass-elevated: #ffffff;
+  --glass-subtle: #f8fafc;
+  --glass-border: rgba(15, 23, 42, 0.1);
+}
+html[data-theme="dark"][data-perf="low"] {
+  --glass-surface: #0f1b31;
+  --glass-surface-flat: #0f1b31;
+  --glass-elevated: #142442;
+  --glass-subtle: #0d1626;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  /* 与 data-perf="low" 同策略：用万能 * 规则一次性撤掉全站 backdrop-filter。
+     之前这里只手列了 7 个选择器（.card/.menu/.dock/.selection-bar/.modal/
+     .modal-mask/.glass），会漏掉 theme.css 那一整组共享模糊面 —— 包括
+     .status-pill / .header（暗色）/ .upload-zone / .toolbar-row / .el-dialog /
+     .el-message-box 等等。当前这些只是被 Chromium 原生的 reduced-transparency
+     行为兜底，换浏览器（或未来 Chromium 改行为）就会暴露成「该减没减」。
+     改成 * + !important 后，任何当前与未来新增的玻璃面都被覆盖，且 !important
+     还能盖过行内 style 的 backdrop-filter（非 !important）。正常状态下的玻璃
+     观感不受任何影响（该媒体查询只在此偏好开启时生效）。
+     note：.glass 的无模糊填充不透明度由 vendor/glassfx/glass.css 的同一媒体查询
+     内 --glass-alpha:0.96 负责补强，这里不再重复。 */
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* glassfx 的 bloom（::after）在关掉模糊后仍是常驻发光层，必须显式关掉 */
+  .glass::after { display: none; }
+}
+
+/* 尊重系统「减弱动态效果」 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+    will-change: auto !important;
+  }
+  /* Dock 滑动指示器：直接跳格，不做弹性滑动（页面内联不重复声明该媒体查询）。 */
+  .dock__indicator { transition: none !important; }
+}
+
+/* ==========================================================================
+   内置浏览器（微信 / QQ 等）下载引导层
+   ----------------------------------------------------------------------
+   由 assets/js/app-core.js 的 guardDownload() 动态插入，全站共用一份。
+   逻辑见 app-core.js 里的同名注释：iOS 无法从微信/QQ 唤起 Safari，
+   这一层在 iOS 上是唯一通路，在 Android 上是 intent 唤起失败后的兜底。
+   ========================================================================== */
+.kv-inapp {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+}
+
+.kv-inapp[hidden] {
+  display: none;
+}
+
+.kv-inapp__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  animation: kvInappFade 0.2s var(--ease-apple);
+}
+
+.kv-inapp__card {
+  position: relative;
+  width: min(360px, 100%);
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  border-radius: var(--r-lg);
+  background: var(--glass-elevated);
+  border: 1.5px solid var(--glass-border-ice);
+  box-shadow: var(--shadow-elevated);
+  text-align: center;
+  animation: kvInappPop 0.26s var(--ease-spring);
+}
+
+/* 指向右上角「···」的提示角标：iOS/Android 都是点那里出去 */
+.kv-inapp__arrow {
+  position: absolute;
+  top: -14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(140deg, var(--primary-light), var(--primary));
+  box-shadow: 0 6px 16px -6px rgba(var(--primary-rgb), 0.6);
+  animation: kvInappNudge 1.6s var(--ease-apple) infinite;
+}
+
+.kv-inapp__title {
+  font-size: var(--fs-lg);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 8px;
+}
+
+.kv-inapp__desc {
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--text-sub);
+}
+
+.kv-inapp__desc b {
+  color: var(--primary-dark);
+}
+
+html[data-theme='dark'] .kv-inapp__desc b {
+  color: var(--primary-light);
+}
+
+.kv-inapp__tip {
+  margin-top: var(--sp-3);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(var(--primary-rgb), 0.08);
+  border: 1px solid rgba(var(--primary-rgb), 0.22);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
+html[data-theme='dark'] .kv-inapp__tip {
+  color: var(--primary-light);
+}
+
+.kv-inapp__url {
+  margin-top: var(--sp-3);
+  max-height: 72px;
+  overflow: hidden;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--glass-subtle);
+  border: 1px solid var(--glass-border-ice);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  word-break: break-all;
+  text-align: left;
+}
+
+.kv-inapp__acts {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+
+.kv-inapp__btn {
+  flex: 1;
+  min-height: var(--h-ctrl);
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--glass-border-ice);
+  background: var(--glass-subtle);
+  color: var(--text-main);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-press),
+    background var(--dur-base) var(--ease-apple),
+    border-color var(--dur-base) var(--ease-apple);
+}
+
+.kv-inapp__btn:active {
+  transform: scale(0.98);
+}
+
+.kv-inapp__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.kv-inapp__btn--primary {
+  color: #fff;
+  background: linear-gradient(140deg, var(--primary-light), var(--primary));
+  border-color: transparent;
+  box-shadow: 0 8px 20px -8px rgba(var(--primary-rgb), 0.55);
+}
+
+.kv-inapp__close {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+
+.kv-inapp__close:hover {
+  color: var(--text-main);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+@keyframes kvInappFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes kvInappPop {
+  from { opacity: 0; transform: scale(0.94) translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kvInappNudge {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -4px, 0); }
+}
+
+/* 尊重「减弱动态效果」：引导层仍要出现，只是不做位移与循环提示 */
+@media (prefers-reduced-motion: reduce) {
+  .kv-inapp__arrow { animation: none; }
+}
+
+/* ==========================================================================
+   Apple UI 层 —— 分组列表 / 紧凑表单 / Sheet
+   --------------------------------------------------------------------------
+   用于「接入」这类设置页：首屏只保留摘要列表，字段与说明进二级 Sheet。
+   与既有玻璃卡片并存，但不再叠加 blur / 大圆角 / 每项问号，减少视觉噪音。
+   ========================================================================== */
+:root {
+  --ui-bg: var(--bg-body);
+  --ui-group: var(--glass-surface-flat);
+  --ui-label: var(--text-main);
+  --ui-secondary: var(--text-muted);
+  --ui-tertiary: #94a3b8;
+  --ui-separator: rgba(var(--primary-rgb), 0.13);
+  --ui-blue: var(--primary);
+  --ui-blue-soft: rgba(var(--primary-rgb), 0.10);
+  --ui-green: var(--c-success);
+  --ui-red: var(--c-danger);
+  --ui-fill: rgba(var(--primary-rgb), 0.06);
+  --ui-radius: var(--r-md);
+}
+
+html[data-theme="dark"] {
+  --ui-bg: var(--bg-body);
+  --ui-group: var(--glass-surface);
+  --ui-label: var(--text-main);
+  --ui-secondary: var(--text-muted);
+  --ui-tertiary: #64748b;
+  --ui-separator: rgba(255, 255, 255, 0.12);
+  --ui-blue: var(--primary);
+  --ui-blue-soft: rgba(var(--primary-rgb), 0.16);
+  --ui-green: var(--c-success);
+  --ui-red: var(--c-danger);
+  --ui-fill: rgba(255, 255, 255, 0.08);
+}
+
+.ui-section-label {
+  padding: 0 4px 7px;
+  color: var(--ui-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ui-group {
+  --ui-inset: 14px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border-ice);
+  border-radius: var(--ui-radius);
+  background: var(--ui-group);
+  box-shadow: var(--shadow-soft);
+}
+
+.ui-group--icons { --ui-inset: 56px; }
+
+.ui-row,
+.ui-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 14px;
+  border: 0;
+  border-top: 1px solid var(--ui-separator);
+  background: transparent;
+  color: var(--ui-label);
+  font-family: var(--font-sans);
+  text-align: left;
+  text-decoration: none;
+}
+
+.ui-group > .ui-row:first-child,
+.ui-group > .ui-field:first-child { border-top: 0; }
+
+button.ui-row {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.14s ease;
+}
+
+button.ui-row:active { background: var(--ui-fill); }
+
+.ui-row__icon {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--ui-blue-soft);
+  color: var(--primary-dark);
+  font-size: 14px;
+}
+html[data-theme="dark"] .ui-row__icon { color: var(--primary-light); }
+
+.ui-row__icon.is-green { background: rgba(52, 199, 89, 0.13); color: var(--ui-green); }
+.ui-row__icon.is-purple { background: rgba(175, 82, 222, 0.13); color: #af52de; }
+html[data-theme="dark"] .ui-row__icon.is-purple { color: #bf5af2; }
+
+.ui-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ui-row__title {
+  color: var(--ui-label);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.ui-row__sub {
+  overflow: hidden;
+  color: var(--ui-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-row__label {
+  flex: none;
+  color: var(--ui-label);
+  font-size: 15px;
+}
+
+.ui-row__value {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--ui-secondary);
+  font-size: 15px;
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-row code.ui-row__value {
+  max-width: 62%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ui-chevron {
+  flex: none;
+  color: var(--ui-tertiary);
+  font-size: 12px;
+}
+
+.ui-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: var(--ui-fill);
+  color: var(--ui-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ui-badge.is-on { background: rgba(16, 185, 129, 0.12); color: var(--c-success-text); }
+html[data-theme="dark"] .ui-badge.is-on { color: var(--c-success); }
+.ui-badge.is-off { background: var(--ui-fill); color: var(--ui-secondary); }
+
+.ui-note code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--ui-fill);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ui-note a { color: var(--ui-blue); text-decoration: none; }
+
+.ui-note {
+  margin: 9px 4px 0;
+  color: var(--ui-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ui-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ui-btn {
+  flex: 1;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  box-shadow: var(--glow-primary);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.12s ease;
+}
+
+.ui-btn:active { opacity: 0.82; transform: scale(0.985); }
+.ui-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ui-btn--secondary {
+  border: 1px solid var(--glass-border-ice);
+  background: var(--glass-surface);
+  color: var(--primary-dark);
+  box-shadow: var(--shadow-soft);
+}
+html[data-theme="dark"] .ui-btn--secondary { color: var(--primary-light); }
+.ui-btn--plain { background: transparent; color: var(--ui-blue); box-shadow: none; }
+.ui-btn--danger {
+  height: 36px;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ui-red);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ui-field { min-height: 50px; padding-top: 6px; padding-bottom: 6px; }
+.ui-field__label { flex: 0 0 auto; min-width: 68px; color: var(--ui-label); font-size: 15px; }
+.ui-field input,
+.ui-field select {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ui-label);
+  font-family: inherit;
+  font-size: 15px;
+  text-align: right;
+}
+.ui-field select { appearance: none; text-align-last: right; }
+.ui-field input::placeholder { color: var(--text-muted); }
+
+.ui-row--switch { justify-content: space-between; }
+.ui-switch { position: relative; width: 51px; height: 31px; flex: none; }
+.ui-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.ui-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-pill);
+  background: var(--ui-fill);
+  transition: background-color 0.28s var(--ease-apple);
+  pointer-events: none;
+}
+.ui-switch span::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: transform 0.28s var(--ease-apple);
+}
+.ui-switch input:checked + span { background: var(--primary); }
+.ui-switch input:checked + span::after { transform: translateX(20px); }
+.ui-switch input:focus-visible + span { outline: 3px solid var(--ui-blue-soft); outline-offset: 2px; }
+
+.ui-copy {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ui-blue-soft);
+  color: var(--ui-blue);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ui-copy.is-done { background: rgba(52, 199, 89, 0.13); color: var(--ui-green); }
+
+/* ---- Sheet：手机底部弹出，桌面居中 ---- */
+html.ui-sheet-open,
+html.ui-sheet-open body { overflow: hidden; }
+
+.ui-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  background: rgba(0, 0, 0, 0.34);
+  transition: opacity var(--overlay-enter) var(--ease-apple), visibility 0s;
+}
+
+.ui-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2201;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border: 1px solid var(--glass-border-ice);
+  border-bottom: 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--glass-elevated);
+  box-shadow: 0 -20px 60px rgba(2, 132, 199, 0.20);
+  --access-sheet-position: translateY(0);
+  --access-sheet-offstage: translateY(100%);
+  transform: var(--access-sheet-position);
+  transition: transform var(--overlay-enter) var(--ease-apple),
+              opacity var(--overlay-enter) var(--ease-apple), visibility 0s;
+}
+
+.ui-sheet.is-hidden,
+.ui-sheet-mask.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition-duration: var(--overlay-leave), 0s;
+  transition-delay: 0s, var(--overlay-leave);
+}
+.ui-sheet.is-hidden {
+  transform: var(--access-sheet-offstage);
+  transition-duration: var(--overlay-leave), var(--overlay-leave), 0s;
+  transition-delay: 0s, 0s, var(--overlay-leave);
+}
+.ui-sheet.access-panel-enter-from,
+.ui-sheet.access-panel-leave-to { opacity: 0; transform: var(--access-sheet-offstage); }
+.ui-sheet.access-panel-leave-active {
+  transition-duration: var(--overlay-leave);
+  pointer-events: none;
+}
+.ui-sheet-mask.veil-leave-active { transition: opacity var(--overlay-leave) var(--ease-press); }
+
+.ui-sheet__handle {
+  width: 36px;
+  height: 5px;
+  flex: none;
+  margin: 8px auto 0;
+  border-radius: 3px;
+  background: var(--text-muted);
+  opacity: 0.35;
+}
+
+.ui-sheet__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 8px;
+}
+
+.ui-sheet__head h2 {
+  flex: 1;
+  color: var(--ui-label);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.ui-sheet__close {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border: 1px solid var(--glass-border-ice);
+  border-radius: 50%;
+  background: var(--glass-subtle);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ui-sheet__body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.ui-sheet__foot {
+  flex: none;
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--ui-separator);
+  background: var(--ui-bg);
+}
+
+.ui-sheet__foot .ui-btn { flex: 1; }
+
+@media (min-width: 701px) {
+  .ui-sheet {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    width: min(680px, 92vw);
+    max-height: 82vh;
+    border: 1px solid var(--glass-border-ice);
+    border-radius: var(--r-lg);
+    --access-sheet-position: translate(-50%, -50%);
+    --access-sheet-offstage: translate(-50%, -48%) scale(0.98);
+  }
+  .ui-sheet__handle { display: none; }
+  .ui-sheet__head { padding-top: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.ui-sheet, .ui-sheet-mask).is-hidden { transition-delay: 0s; }
+}

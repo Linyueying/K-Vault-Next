@@ -1,0 +1,60 @@
+# ============================================================================
+# wrangler.toml — K-Vault D1 配置示例
+# ============================================================================
+#
+# ⚠️ 重要说明
+#
+# 本项目原本是「纯 Pages 项目」，没有任何 wrangler 配置 —— KV 和 R2 都是
+# 在 Cloudflare 后台 Settings → Functions 里绑定的。
+#
+# 但 D1 与 KV/R2 不同，它需要：
+#   1. 用 CLI 创建数据库（wrangler d1 create），拿到 database_id
+#   2. 用 CLI 执行迁移（wrangler d1 execute）
+#   3. 在 Pages 后台或本配置里绑定数据库到 Functions
+#
+# 所以引入 wrangler 工具链是使用 D1 的**前置条件**。
+#
+# ============================================================================
+# 使用步骤
+# ============================================================================
+#
+# 1) 安装 wrangler（若未装）
+#      npm install -D wrangler
+#
+# 2) 登录
+#      npx wrangler login
+#
+# 3) 创建 D1 数据库，把输出的 database_id 填到下面
+#      npx wrangler d1 create k_vault
+#
+# 4) 本地建表（开发用）
+#      npx wrangler d1 execute k_vault --local --file=./migrations/0001_files.sql
+#
+# 5) 线上建表
+#      npx wrangler d1 execute k_vault --remote --file=./migrations/0001_files.sql
+#
+# 6) 绑定到 Pages（二选一）
+#    a. Pages 后台：Settings → Functions → D1 database bindings
+#       变量名填 DB  ← 必须与代码里 env.DB 一致
+#    b. 或用本文件的 d1_databases 段（需 Pages 项目已关联 wrangler）
+#
+# ============================================================================
+
+name = "k-vault"
+compatibility_date = "2024-09-23"
+
+# D1 绑定：变量名必须是 DB，与 functions/utils/metadata-d1.js 的 env.DB 对应
+[[d1_databases]]
+binding = "DB"
+database_name = "k_vault"
+database_id = "<在此填入 wrangler d1 create 输出的 database_id>"
+
+# ---------------------------------------------------------------------------
+# 注意：KV 与 R2 的绑定**不在这里配**
+#
+# KV  : 变量名 img_url    → Pages 后台绑定（本文件写不了 Pages 的 binding）
+# R2  : 变量名 R2_BUCKET  → Pages 后台绑定
+#
+# 本文件只负责 D1（因为 D1 需要 CLI 建库/迁移）。
+# 如果你把项目迁到 Workers 形态，才需要在此补 kv_namespaces / r2_buckets。
+# ---------------------------------------------------------------------------

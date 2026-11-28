@@ -1,0 +1,1231 @@
+/**
+ * 隔空投送（Airdrop）核心逻辑
+ *
+ * ============================================================================
+ * 这个模块只管「房间状态机 + 临时文件周转」，不管 HTTP 细节（那是
+ * functions/api/airdrop/*.js 的事），也不管界面（那是 assets/js/airdrop.js
+ * 的事）。分层是为了让状态机的每一次跃迁都能被单独推理和单独测试。
+ *
+ * 一次投递的完整状态机：
+ *
+ *   waiting ──收端凭连接码加入──▶ linked ──发端逐文件上传──▶ uploading
+ *      │                            │                        │
+ *      │                            │                        └──全部上传完成──▶ uploaded
+ *      └──超时/取消──▶ expired / cancelled                        │
+ *                                                                 └──收端逐文件下载──▶ done（删临时文件）
+ *
+ * 两端都靠轮询 /api/airdrop/status 推进，不用 WebSocket：Cloudflare Pages
+ * Functions 目前没有长连接能力，而隔空投送的状态跃迁频率极低（秒级），
+ * 轮询的成本（每次一个 D1 查询）远低于引入额外基础设施的复杂度。
+ *
+ * ============================================================================
+ * 中转节点（v2：删掉 KV，仅保留 R2 + Telegram）
+ * ============================================================================
+ *
+ * KV 是最终一致的键值库，做"私密临时传输"既不可靠（写后读可能短暂读不到）
+ * 也不经济（按读计量、25MB 硬顶）。隔空投送的中转只需要「写→读→删」闭环，
+ * 所以只保留两种真正合适的中转：
+ *   · R2       —— 私有对象存储，读写删即时，100MB
+ *   · Telegram —— 频道消息，file_id 索引、deleteMessage 清理，20MB
+ *
+ * 具体用哪个节点由**发端在界面上选**（默认沿用 index 页当前选的节点），
+ * 后端只做可用性与上限校验，不替用户做主。
+ *
+ * ============================================================================
+ * 多文件模型
+ * ============================================================================
+ *
+ * 一个房间（airdrop_sessions）可以传送多个文件。文件清单存在
+ * files_json 列里（一组条目，每条带自己的 storage_backend/key/meta）。
+ * 发端逐文件上传，每个文件落地后追加一条；最后一个带 final 标记，
+ * 房间从 uploading 翻到 uploaded，收端才开始逐文件下载。
+ * ============================================================================
+ *
+ * 为什么需要一个「收端凭证」
+ * ============================================================================
+ *
+ * 首个在有效期内提交正确连接码的接收方会锁定房间，并取得独立的随机收端凭证。
+ * ============================================================================
+ */
+import { parseByteLength, upstreamByteLength } from './download-length.js';
+import { ensureSchema } from './schema.js';
+import { assessAirdropFiles } from './airdrop-risk.js';
+import { getAirdropConfig } from './runtime-config.js';
+import { getClientIp } from './ratelimit.js';
+import { checkAuthentication, isAuthRequired } from './auth.js';
+import { envValue } from './env-config.js';
+import {
+  getTelegramUploadMethodAndField,
+  buildTelegramBotApiUrl,
+  buildTelegramFileUrl,
+  pickTelegramFileId
+} from './telegram.js';
+
+// New rooms use six decimal digits. Legacy codes remain valid for existing rooms.
+export const AIRDROP_CODE_PATTERN = /^[0-9]{6}$/;
+export const LEGACY_AIRDROP_CODE_PATTERN = /^[A-Z0-9]{8}$/;
+const CODE_RANGE = 1000000;
+const CODE_MAX_ATTEMPTS = 6;
+const PAIRING_TTL_MS = 5 * 60 * 1000;
+// Retain a completed room beyond the delivery window before its numeric code can be reused.
+const CODE_REUSE_DELAY_MS = 24 * 60 * 60 * 1000;
+const JOIN_SHORT_WINDOW_MS = 60_000;
+const JOIN_LONG_WINDOW_MS = 15 * JOIN_SHORT_WINDOW_MS;
+const DB_NOW_MS = `(CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  + CAST(substr(strftime('%f', 'now'), 4, 3) AS INTEGER))`;
+
+// ── 存储节点能力上限 ────────────────────────────────────────
+// Telegram 网页上传路径（浏览器 → Worker → Bot API）与项目主上传保持一致，
+// 保守按 20MB 处理：真正的 Bot API 文档上限虽更高，但经由 Worker 转发时
+// 受请求体大小与超时约束，20MB 是稳妥的边界。
+const TG_MAX_FILE_SIZE = 20 * 1024 * 1024;
+// R2 单对象理论上限很高，但真正卡住的是 Pages Functions 的请求体大小：
+// 文件必须先完整进入 Worker 才能落地，超过这个数请求会被平台直接拒。
+const R2_MAX_FILE_SIZE = 100 * 1024 * 1024;
+
+const R2_PREFIX = 'airdrop/';
+
+/** 终态：进入这些状态后房间不再接受任何写操作 */
+const TERMINAL_STATUSES = ['done', 'failed', 'cancelled', 'expired'];
+
+/**
+ * 已 upload 房间的「收尾宽限期」（毫秒）。
+ *
+ * 房间的 expires_at 是**建房间那一刻**就钉死的（= created_at + TTL），
+ * 它不给"传输耗时"留任何余量。发端传大文件本身就要吃掉几分钟，等房间
+ * 翻到 uploaded、收端开始下载时，剩余时间可能已经所剩无几。
+ *
+ * 此时若照旧"过期即删"，会出现最坏的一种失败：
+ *   收端正下到第 N 个文件 → 跨过 expires_at → getSession 把**还没取走的
+ *   文件全部删掉** → 收端下载中断，用户看到"文件已失效"，
+ *   而实际上发端已经传完了、文件也还在。
+ *
+ * 所以对 uploaded 状态额外给一个宽限期：过期时先不删文件，按 expires_at 计算额外窗口，让收端有机会把剩下的取完；宽限期结束仍没取完的，交由
+ * createSession 时的批量清理收尾（不会成为孤儿）。
+ *
+ * 取值与默认 TTL 同量级：足够慢速网络拉完一批文件，又不至于让中转节点
+ * 长期堆积 —— 投送是一次性操作，收端要么马上取，要么就是不要了。
+ */
+const UPLOADED_GRACE_MS = 5 * 60 * 1000;
+
+// ============================================================================
+// 响应
+// ============================================================================
+
+/**
+ * 统一 JSON 响应。
+ *
+ * 隔空投送的接口全部由本站点页面同源调用，不需要（也不该）加 CORS 头 ——
+ * 加了反而把接口开放给任意站点。no-store 是必须的：房间状态是实时数据，
+ * 被任何一层缓存住都会让两端看到不同的进度。
+ */
+export function jsonResponse(data, status = 200, extraHeaders) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...(extraHeaders || {})
+    }
+  });
+}
+
+// ============================================================================
+// 随机量
+// ============================================================================
+
+/** Uniform six-digit code, including leading zeros. */
+export function generateCode() {
+  const sample = new Uint32Array(1);
+  const bound = Math.floor(2 ** 32 / CODE_RANGE) * CODE_RANGE;
+  do { crypto.getRandomValues(sample); } while (sample[0] >= bound);
+  return String(sample[0] % CODE_RANGE).padStart(6, '0');
+}
+
+function pairingDeadline(session) {
+  return Math.min(session.expires_at, session.created_at + PAIRING_TTL_MS);
+}
+
+/** 生成房间凭证（192 bit，十六进制） */
+export function generateToken() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 1) {
+    out += bytes[i].toString(16).padStart(2, '0');
+  }
+  return out;
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+/** 当天日期键（UTC），与 guest.js 的口径一致 */
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ============================================================================
+// 存储节点
+// ============================================================================
+
+/**
+ * 当前环境可用的中转节点列表。
+ *
+ * 只有真正能完成「写→读→删」闭环的节点才计入：
+ *   · R2       —— 私有对象存储，即时读写删，100MB
+ *   · Telegram —— 频道消息，file_id 索引、deleteMessage 清理，20MB
+ *
+ * KV 已移除：最终一致 + 25MB 硬顶，不适合私密临时传输。
+ */
+export function availableBackends(env) {
+  const out = [];
+  if (env?.R2_BUCKET && typeof env.R2_BUCKET.put === 'function') {
+    out.push({ key: 'r2', label: 'R2', maxBytes: R2_MAX_FILE_SIZE });
+  }
+  // 必须走 envValue（而不是裸读 env.TG_BOT_TOKEN）：Telegram 的主用名是混合
+  // 大小写 TG_Bot_Token，TG_BOT_TOKEN 只是历史别名。裸读会让"按文档填了主用名"
+  // 的部署在这里判成未配置 —— 主上传正常、隔空投送却说没有中转节点。
+  if (envValue(env, 'TG_BOT_TOKEN') && envValue(env, 'TG_CHAT_ID')) {
+    out.push({ key: 'telegram', label: 'Telegram', maxBytes: TG_MAX_FILE_SIZE });
+  }
+  return out;
+}
+
+/** 校验某个具体节点在当前环境是否可用，可用则返回 {key,label,maxBytes} */
+export function nodeInfo(env, node) {
+  return availableBackends(env).find((b) => b.key === node) || null;
+}
+
+/**
+ * 向后兼容的「挑一个节点」：取可用列表里的第一个。
+ * 新逻辑里节点由发端显式选择，这个函数只给统计/能力探测等不需要指定
+ * 节点的场景用（返回主节点用于显示标签）。
+ */
+export function resolveBackend(env) {
+  const list = availableBackends(env);
+  if (!list.length) return { backend: null, maxBytes: 0, label: '未配置' };
+  const b = list[0];
+  return { backend: b.key, maxBytes: b.maxBytes, label: b.label };
+}
+
+function storageKeyFor(code, seq, fileName) {
+  const safe = String(fileName || 'file').replace(/[^\w.\-一-龥]/g, '_').slice(0, 64);
+  return `${R2_PREFIX}${code}/${String(seq).padStart(3, '0')}-${crypto.randomUUID()}-${safe}`;
+}
+
+// ============================================================================
+// 访客判定与门禁
+// ============================================================================
+
+/**
+ * 当前请求是否是访客。
+ *
+ * 站点根本没开认证时（isAuthRequired=false），所有人都能用全部功能，
+ * 此时把所有人当访客会误伤 —— 那种部署形态下"访客"这个概念不存在。
+ */
+export async function isGuestRequest(request, env) {
+  if (!isAuthRequired(env)) return false;
+  try {
+    const result = await checkAuthentication({ request, env });
+    return !result?.authenticated;
+  } catch {
+    // 认证检查自身出错时按访客处理：宁可多拦一次，不可误放行
+    return true;
+  }
+}
+
+/**
+ * 发端门禁：这个请求能不能**发起/发送**一次投递（create）。
+ *
+ * 检查顺序是「便宜的先做」：功能总开关 → 节点可用性 → 访客权限 → 每日次数。
+ *
+ * ⚠️ 本函数是**发端语义**。收端加入（join）请用 checkAirdropReceiveAccess ——
+ * 访客能不能当收端由独立开关 guestReceiveAllowed 决定，与这里的
+ * guestAllowed（访客能否发起）不是一回事。曾经 join 复用了本函数，
+ * 导致授权用户开的房间、访客扫码也收不了文件。
+ */
+export async function checkAirdropAccess(request, env) {
+  const cfg = await getAirdropConfig(env);
+  if (!cfg.enabled) {
+    return { allowed: false, status: 403, code: 'AIRDROP_DISABLED', reason: '隔空投送已关闭' };
+  }
+
+  const nodes = availableBackends(env);
+  if (!nodes.length) {
+    return {
+      allowed: false,
+      status: 503,
+      code: 'AIRDROP_NO_STORAGE',
+      reason: '未绑定 R2 或 Telegram，隔空投送没有可用的中转节点'
+    };
+  }
+
+  const isGuest = await isGuestRequest(request, env);
+  if (isGuest && !cfg.guestAllowed) {
+    return {
+      allowed: false,
+      status: 401,
+      code: 'AIRDROP_GUEST_DENIED',
+      reason: '当前未开放访客发起投送，请先登录'
+    };
+  }
+
+  const ip = getClientIp(request);
+  const used = await readDailyCount(env, ip);
+  if (used >= cfg.dailyLimit) {
+    return {
+      allowed: false,
+      status: 429,
+      code: 'AIRDROP_DAILY_LIMIT',
+      reason: `今日隔空投送次数已达上限（${cfg.dailyLimit} 次）`
+    };
+  }
+
+  // 本地同步占坑：KV 的"读-判定-写"不是原子的，并发请求会读到同一个旧值
+  // 一起放行（实测限额 3 时并发 12 个全部成功）。这里在任何 await 之后、
+  // 但在**返回放行之前**完成一次同步判定与占用，把同一瞬间的一批收掉。
+  // 注意：仅**发端**（create/upload）消耗额度，收端走
+  // checkAirdropReceiveAccess，不会走到这里。
+  const claim = claimDailySlot(ip, cfg.dailyLimit);
+  if (!claim.allowed) {
+    return {
+      allowed: false,
+      status: 429,
+      code: 'AIRDROP_DAILY_LIMIT',
+      reason: `今日隔空投送次数已达上限（${cfg.dailyLimit} 次）`
+    };
+  }
+
+  return { allowed: true, isGuest, ip, config: cfg, nodes };
+}
+
+/**
+ * 收端门禁：这个请求能不能**加入房间 / 接收**一次投递（join）。
+ *
+ * 与发端门禁的关键区别 —— 这里**只校验功能总开关与节点可用性**：
+ *   · 不看 guestAllowed —— 那是"访客能否发起"的开关。授权用户已经开好房间、
+ *     把连接码/二维码递到对方手里，对方能不能收就是这次投递的全部意义。
+ *     若拿发起开关去卡接收，就会出现「发端能用、收端连不上」的割裂。
+ *   · 不计每日次数 —— 接收不消耗中转节点的发起额度，它只是把已落地的
+ *     临时文件取走，拿发起配额卡它既不合理也会误伤正常接收。
+ *
+ * 访客能否当收端由 guestReceiveAllowed 决定（默认开启）。真正的安全锚点是
+ * join 之后签发的 192bit receiver_token，而不是这道门禁 —— 门禁只负责
+ * 「这个部署此刻要不要开放接收」，不负责「证明你是谁」（那是 token 的事）。
+ */
+export async function checkAirdropReceiveAccess(request, env) {
+  const cfg = await getAirdropConfig(env);
+  if (!cfg.enabled) {
+    return { allowed: false, status: 403, code: 'AIRDROP_DISABLED', reason: '隔空投送已关闭' };
+  }
+
+  const nodes = availableBackends(env);
+  if (!nodes.length) {
+    return {
+      allowed: false,
+      status: 503,
+      code: 'AIRDROP_NO_STORAGE',
+      reason: '未绑定 R2 或 Telegram，隔空投送没有可用的中转节点'
+    };
+  }
+
+  const isGuest = await isGuestRequest(request, env);
+  if (isGuest && !cfg.guestReceiveAllowed) {
+    return {
+      allowed: false,
+      status: 401,
+      code: 'AIRDROP_GUEST_RECEIVE_DENIED',
+      reason: '当前未开放访客接收投送，请先登录'
+    };
+  }
+
+  return { allowed: true, isGuest, ip: getClientIp(request), config: cfg, nodes };
+}
+
+async function readDailyCount(env, ip) {
+  if (!env?.img_url?.get) return 0;
+  try {
+    const raw = await env.img_url.get(`airdrop:count:${ip}:${todayKey()}`);
+    return parseInt(raw || '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * isolate 内的当日额度计数（同步、无 await）。
+ *
+ * 为什么需要它：每日额度原本是「读 KV → 判定 → 写 KV」，三步都有 await。
+ * 并发请求会同时读到同一个旧值、一起放行 —— 实测限额 3 时并发 12 个全部
+ * 建成功（见 scripts/test-airdrop-quota-race.mjs）。KV 没有原子自增，
+ * 跨 isolate 无法根治。
+ *
+ * 但**创建房间是低频操作**（正常人一天最多几次），完全不需要精确的分布式
+ * 计数；只需要挡住"同一瞬间打进来的一批"。因此：
+ *   · 建房间前先在本地 Map 里同步 +1（无 await，并发下准确），
+ *     本地已达上限就直接拒，KV 都不必读；
+ *   · 再把结果补写进 KV，供其他 isolate / 后续请求做粗粒度判断。
+ *
+ * 语义与 ratelimit.js 的本地计数器一致：本地负责「同一瞬间的一批」，
+ * KV 负责「跨 isolate 的粗粒度约束」，两者取较大值。
+ * 本地计数只在 isolate 存活期内有效，不承担长期准确性，也不做持久化。
+ */
+const localDailyCounts = new Map();
+
+/** 清理过期的本地当日计数（避免 Map 无限增长） */
+function sweepLocalDailyCounts(today) {
+  if (localDailyCounts.size < 256) return;
+  for (const [k, v] of localDailyCounts) {
+    if (v.day !== today) localDailyCounts.delete(k);
+  }
+}
+
+/**
+ * 同步占用一次当日额度并判定是否超限。
+ *
+ * 必须在任何 await 之前调用（否则又变成读-改-写竞态）。
+ *
+ * @returns {{allowed:boolean, localUsed:number}}
+ *   allowed=false 表示本地已确定超限，调用方应直接拒绝，无需再读 KV。
+ */
+export function claimDailySlot(ip, limit) {
+  const day = todayKey();
+  const key = `${ip}|${day}`;
+  sweepLocalDailyCounts(day);
+  const used = localDailyCounts.get(key)?.count || 0;
+  if (used >= limit) return { allowed: false, localUsed: used };
+  localDailyCounts.set(key, { count: used + 1, day });
+  return { allowed: true, localUsed: used + 1 };
+}
+
+/** 归还一次本地占用（房间创建失败时用，避免"失败也扣次数"） */
+export function releaseDailySlot(ip) {
+  const key = `${ip}|${todayKey()}`;
+  const cur = localDailyCounts.get(key);
+  if (cur && cur.count > 0) localDailyCounts.set(key, { ...cur, count: cur.count - 1 });
+}
+
+/** 计数自增。仅在实际创建房间成功后调用，失败的请求不该消耗额度。 */
+export async function incrementDailyCount(env, ip) {
+  if (!env?.img_url) return;
+  const key = `airdrop:count:${ip}:${todayKey()}`;
+  try {
+    const current = await readDailyCount(env, ip);
+    await env.img_url.put(key, String(current + 1), { expirationTtl: 86400 });
+  } catch (e) {
+    // 计数失败不该阻断投递本身：宁可少记一次，不可让用户传不了文件
+    console.error('Airdrop count error:', e);
+  }
+}
+
+// ============================================================================
+// 房间读写
+// ============================================================================
+
+/** 原子预占单 IP 和全站的配对次数，返回需等待的秒数，0 表示放行。 */
+export async function claimJoinAttempt(env, ip) {
+  if (env.DISABLE_RATE_LIMIT === 'true') return 0;
+  await ensureSchema(env);
+
+  const now = nowMs();
+  const shortStart = Math.floor(now / JOIN_SHORT_WINDOW_MS) * JOIN_SHORT_WINDOW_MS;
+  const longStart = Math.floor(now / JOIN_LONG_WINDOW_MS) * JOIN_LONG_WINDOW_MS;
+  const ipScope = `ip:${ip}`;
+  const ipLimits = [6, 20];
+  const globalLimits = [180, 900];
+  const claim = (scope, [shortLimit, longLimit]) => env.DB.prepare(
+    `INSERT INTO airdrop_join_limits (scope, short_start, short_count, long_start, long_count)
+     SELECT ?, ?, 1, ?, 1 WHERE NOT EXISTS (
+       SELECT 1 FROM airdrop_join_limits WHERE scope = 'global'
+         AND ((short_start = ? AND short_count >= ?) OR (long_start = ? AND long_count >= ?))
+     )
+     ON CONFLICT(scope) DO UPDATE SET
+       short_start = excluded.short_start,
+       short_count = CASE WHEN short_start = excluded.short_start THEN short_count + 1 ELSE 1 END,
+       long_start = excluded.long_start,
+       long_count = CASE WHEN long_start = excluded.long_start THEN long_count + 1 ELSE 1 END
+     WHERE (short_start < excluded.short_start OR (short_start = excluded.short_start AND short_count < ?))
+       AND (long_start < excluded.long_start OR (long_start = excluded.long_start AND long_count < ?))
+     RETURNING short_count`
+  ).bind(scope, shortStart, longStart, shortStart, globalLimits[0], longStart, globalLimits[1],
+    shortLimit, longLimit).first();
+
+  const ipClaim = await claim(ipScope, ipLimits);
+  const global = ipClaim ? await claim('global', globalLimits) : null;
+  if (!global) {
+    const { results = [] } = await env.DB.prepare(
+      `SELECT scope, short_start, short_count, long_start, long_count
+       FROM airdrop_join_limits WHERE scope IN (?, 'global')`
+    ).bind(ipScope).all();
+    let retryAt = now;
+    for (const row of results) {
+      const [shortLimit, longLimit] = row.scope === ipScope ? ipLimits : globalLimits;
+      if (row.short_count >= shortLimit) retryAt = Math.max(retryAt, row.short_start + JOIN_SHORT_WINDOW_MS);
+      if (row.long_count >= longLimit) retryAt = Math.max(retryAt, row.long_start + JOIN_LONG_WINDOW_MS);
+    }
+    return Math.max(1, Math.ceil((retryAt - now) / 1000));
+  }
+
+  if (global.short_count === 1) {
+    await env.DB.prepare('DELETE FROM airdrop_join_limits WHERE long_start < ?')
+      .bind(longStart).run().catch(error => console.warn('Airdrop join limiter cleanup error:', error));
+  }
+  return 0;
+}
+
+/**
+ * 建房间（发端）。
+ *
+ * 连接码由主键约束保证唯一，碰撞时重新抽取。
+ */
+export async function createSession(env, request) {
+  await ensureSchema(env);
+  const cfg = await getAirdropConfig(env);
+  const ttlMs = Math.max(1, cfg.ttlMinutes) * 60 * 1000;
+  const now = nowMs();
+
+  // 顺手清理过期房间，避免表无限膨胀。放在建房间时做，是因为这是唯一
+  // 一个「反正要写一次库」的时机，额外一条 DELETE 几乎不增加成本。
+  await cleanupExpired(env, now);
+
+  for (let attempt = 0; attempt < CODE_MAX_ATTEMPTS; attempt += 1) {
+    const code = generateCode();
+    const senderToken = generateToken();
+    const expiresAt = now + ttlMs;
+    try {
+      const result = await env.DB.prepare(
+        `INSERT OR REPLACE INTO airdrop_sessions
+         (code, status, sender_token, receiver_token, progress, files_json, created_at, expires_at)
+         SELECT ?, 'waiting', ?, NULL, 0, '[]', ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM airdrop_sessions WHERE code = ? AND (
+             expires_at >= ? OR status NOT IN ('done', 'failed', 'cancelled', 'expired')
+           )
+         )`
+      ).bind(code, senderToken, now, expiresAt, code, now - CODE_REUSE_DELAY_MS).run();
+      if (result.meta?.changes !== 1) continue;
+
+      return { ok: true, code, senderToken, expiresAt, pairingExpiresAt: Math.min(expiresAt, now + PAIRING_TTL_MS), ttlMs };
+    } catch (e) {
+      const msg = String(e?.message || '');
+      // 只有主键冲突才重试，其他错误（表不存在、D1 超时）重试没有意义
+      if (msg.includes('UNIQUE') || msg.includes('PRIMARY KEY')) continue;
+      return { ok: false, error: msg || '创建房间失败' };
+    }
+  }
+  return { ok: false, error: '连接码生成冲突，请重试' };
+}
+
+/**
+ * 加入房间（收端）。
+ *
+ * 一个房间只允许一个收端：第二个拿着同一个连接码的人进来会被拒绝，
+ * 否则先到的人会在文件落地的瞬间被顶掉，而他自己毫不知情。
+ */
+export async function joinSession(env, code) {
+  await ensureSchema(env);
+  const session = await getSession(env, code);
+  if (!session) return { ok: false, status: 404, error: '连接码不存在或已过期' };
+  if (session.status === 'expired') return { ok: false, status: 410, error: '该连接码已过期' };
+  if (TERMINAL_STATUSES.includes(session.status)) {
+    return { ok: false, status: 409, error: '该房间已结束' };
+  }
+  if (session.receiver_token) {
+    return { ok: false, status: 409, error: '该房间已有接收方' };
+  }
+
+  if (session.status !== 'waiting') return { ok: false, status: 409, error: '房间不在等待配对状态' };
+
+  const now = nowMs();
+  const isNumericCode = AIRDROP_CODE_PATTERN.test(code);
+  const joinUntil = isNumericCode ? pairingDeadline(session) : session.expires_at;
+  if (now >= joinUntil) return { ok: false, status: 410, error: '该连接码已过期' };
+
+  const receiverToken = generateToken();
+  const saved = await env.DB.prepare(
+    `UPDATE airdrop_sessions SET receiver_token = ?, status = 'linked', linked_at = ${DB_NOW_MS}
+     WHERE code = ? AND status = 'waiting' AND receiver_token IS NULL
+     AND sender_token = ? AND expires_at > ${DB_NOW_MS}
+     AND (? = 0 OR created_at + ${PAIRING_TTL_MS} > ${DB_NOW_MS})`
+  ).bind(receiverToken, code, session.sender_token, Number(isNumericCode)).run();
+  if (saved.meta?.changes !== 1) {
+    return { ok: false, status: 409, error: '连接码已失效或房间已有接收方' };
+  }
+  return { ok: true, code, receiverToken, expiresAt: session.expires_at };
+}
+
+/** 读一条房间记录；交付中的房间可在宽限期内继续审核或下载。 */
+export async function getSession(env, code, { deliveryGrace = false } = {}) {
+  await ensureSchema(env);
+  if (!code) return null;
+  const row = await env.DB.prepare(
+    'SELECT * FROM airdrop_sessions WHERE code = ?'
+  ).bind(String(code).toUpperCase()).first();
+
+  if (!row || TERMINAL_STATUSES.includes(row.status)) return row;
+  const now = nowMs();
+  if (AIRDROP_CODE_PATTERN.test(row.code) && ['waiting', 'pairing'].includes(row.status)
+      && now >= pairingDeadline(row)) return null;
+  if (row.expires_at >= now) {
+    // 上一版已绑定接收端的房间可以直接继续，到期校验仍按原来的配对窗口执行。
+    return row.status === 'pairing' && row.receiver_token ? { ...row, status: 'linked' } : row;
+  }
+  if (row.status === 'uploaded' && now <= row.expires_at + UPLOADED_GRACE_MS) {
+    return deliveryGrace ? row : null;
+  }
+  await cleanupExpired(env, now, row.code);
+  return null;
+}
+
+export function getSessionForDelivery(env, code) {
+  return getSession(env, code, { deliveryGrace: true });
+}
+
+/** token 对应的角色；不匹配返回 null */
+export function roleOf(session, token) {
+  if (!session || !token) return null;
+  if (session.sender_token && session.sender_token === token) return 'sender';
+  if (session.receiver_token && session.receiver_token === token) return 'receiver';
+  return null;
+}
+
+/** 从 files_json 列解析文件清单（永远返回数组，坏数据也不抛） */
+export function parseManifest(raw) {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 组装给前端的房间视图。
+ *
+ * 凭证绝不外泄：即使是本人，回包里也不带任何 token —— 前端已经持有它了，
+ * 多返回一份只会增加被日志/代理捕获的面。
+ *
+ * 隐私：文件名 / 大小属于"对方不该提前知道"的信息。在文件全部落地之前
+ * （status 还是 linked / uploading），收端只能看到房间状态和"对方在传"，
+ * 看不到任何文件名；只有发端（自己知道）或文件已 uploaded/done 时才揭开。
+ */
+export function sessionView(session, role) {
+  const base = {
+    code: session.code,
+    status: session.status,
+    role,
+    progress: session.progress || 0,
+    createdAt: session.created_at,
+    linkedAt: session.linked_at,
+    uploadedAt: session.uploaded_at,
+    completedAt: session.completed_at,
+    expiresAt: session.status === 'uploaded' ? session.expires_at + UPLOADED_GRACE_MS : session.expires_at,
+    error: session.error
+  };
+
+  const reveal = role === 'sender' || session.status === 'uploaded' || session.status === 'done';
+  if (reveal) {
+    const files = parseManifest(session.files_json);
+    base.files = role === 'receiver'
+      ? files.map(({ idx, name, size, type, status }) => ({ idx, name, size, type, status }))
+      : files;
+    if (role === 'receiver' && session.status === 'uploaded') base.risks = assessAirdropFiles(files);
+    base.fileCount = files.length;
+    base.totalSize = files.reduce((a, f) => a + (Number(f.size) || 0), 0);
+    base.downloadedCount = files.filter((f) => f.status === 'downloaded').length;
+  }
+  return base;
+}
+
+// ── 状态跃迁 ────────────────────────────────────────────────
+
+/**
+ * 追加一个已落地的文件到清单。
+ *
+ * 发端逐文件上传，每成功一个就追加一条；最后一个带 isFinal 时把房间从
+ * uploading 翻到 uploaded，收端轮询到 uploaded 才开始逐文件下载。
+ *
+ * 用发起上传时的房间身份、状态和清单做条件更新，避免覆盖并发写入。
+ */
+const UPLOAD_SNAPSHOT_MATCH = `code = ? AND sender_token = ? AND files_json IS ?
+  AND (status = ? OR (status = 'pairing' AND ? = 'linked' AND receiver_token IS NOT NULL
+    AND created_at + ${PAIRING_TTL_MS} > ${DB_NOW_MS}))
+  AND expires_at >= ${DB_NOW_MS}`;
+
+export async function addManifestFile(env, session, file, isFinal) {
+  const files = parseManifest(session.files_json);
+  const entry = {
+    idx: files.length,
+    name: String(file.name || 'file'),
+    size: Number(file.size) || 0,
+    type: file.type || null,
+    backend: file.backend,
+    key: file.key,
+    meta: file.meta || null,
+    status: 'uploaded'
+  };
+  files.push(entry);
+
+  const status = isFinal ? 'uploaded' : 'uploading';
+  const totalSize = files.reduce((total, item) => total + (Number(item.size) || 0), 0);
+  const result = await env.DB.prepare(
+    `UPDATE airdrop_sessions
+     SET files_json = ?, status = ?, file_count = ?, total_size = ?,
+         uploaded_at = CASE WHEN ? THEN ${DB_NOW_MS} ELSE uploaded_at END
+     WHERE ${UPLOAD_SNAPSHOT_MATCH}`
+  ).bind(
+    JSON.stringify(files),
+    status,
+    files.length,
+    totalSize,
+    Number(isFinal),
+    session.code, session.sender_token, session.files_json, session.status, session.status
+  ).run();
+
+  return result.meta?.changes === 1 ? { fileCount: files.length, totalSize } : null;
+}
+
+const DELIVERY_OPEN = `status = 'uploaded' AND expires_at + ${UPLOADED_GRACE_MS} >= ${DB_NOW_MS}`;
+
+/** 在数据库里更新单个文件，避免并发确认覆盖其他文件的进度。 */
+export async function markFileDownloaded(env, session, idx) {
+  const path = `$[${idx}].status`;
+  const result = await env.DB.prepare(
+    `UPDATE airdrop_sessions SET files_json = json_set(files_json, ?, 'downloaded')
+     WHERE code = ? AND sender_token = ? AND receiver_token = ? AND ${DELIVERY_OPEN}
+       AND json_extract(files_json, ?) IN ('uploaded', 'downloaded')`
+  ).bind(path, session.code, session.sender_token, session.receiver_token, path).run();
+  return result.meta?.changes === 1;
+}
+
+/** 收端下载完成（全部文件已取回） */
+export function markCompleted(env, session) {
+  return env.DB.prepare(
+    `UPDATE airdrop_sessions SET status = 'done', completed_at = ${DB_NOW_MS}
+     WHERE code = ? AND sender_token = ? AND receiver_token = ? AND ${DELIVERY_OPEN}
+       AND json_array_length(files_json) > 0
+       AND NOT EXISTS (SELECT 1 FROM json_each(files_json) WHERE json_extract(value, '$.status') IS NOT 'downloaded')
+     RETURNING files_json, completed_at`
+  ).bind(session.code, session.sender_token, session.receiver_token).first();
+}
+
+export function markFailed(env, session, message) {
+  return env.DB.prepare(
+    `UPDATE airdrop_sessions SET status = 'failed', error = ? WHERE ${UPLOAD_SNAPSHOT_MATCH}
+     RETURNING files_json`
+  ).bind(String(message || '传输失败').slice(0, 200),
+    session.code, session.sender_token, session.files_json, session.status, session.status).first();
+}
+
+export function cancelSession(env, session) {
+  return env.DB.prepare(
+    `UPDATE airdrop_sessions SET status = 'cancelled'
+     WHERE code = ? AND sender_token = ?
+       AND status IN ('waiting', 'pairing', 'linked', 'uploading', 'uploaded')
+       AND expires_at + CASE WHEN status = 'uploaded' THEN ${UPLOADED_GRACE_MS} ELSE 0 END >= ${DB_NOW_MS}
+     RETURNING files_json`
+  ).bind(session.code, session.sender_token).first();
+}
+
+/**
+ * 先原子标记过期，再按更新返回的清单清理临时文件。
+ */
+export async function cleanupExpired(env, now, onlyCode) {
+  try {
+    const { results = [] } = await env.DB.prepare(
+      `UPDATE airdrop_sessions SET status = 'expired'
+       WHERE code IN (SELECT code FROM airdrop_sessions
+         WHERE ${onlyCode ? 'code = ? AND' : ''} expires_at < ?
+           AND status IN ('waiting', 'pairing', 'linked', 'uploading', 'uploaded')
+           AND (status != 'uploaded' OR expires_at < ?) LIMIT 50)
+       RETURNING files_json`
+    ).bind(...(onlyCode ? [onlyCode] : []), now, now - UPLOADED_GRACE_MS).all();
+    for (const row of results) {
+      for (const f of parseManifest(row.files_json)) {
+        await deleteTempFile(env, f);
+      }
+    }
+  } catch (e) {
+    console.error('Airdrop cleanup error:', e);
+  }
+}
+
+// ============================================================================
+// 临时文件存取
+// ============================================================================
+
+/** 写入中转节点。返回 { key, meta }。
+ *  R2 走流式直传；Telegram 经由 Bot API 发到频道，
+ *  meta 里带回 message_id 供完成后删除消息。 */
+export async function writeTempFile(env, code, backend, fileName, body, size, seq) {
+  if (backend === 'r2') {
+    const key = storageKeyFor(code, seq, fileName);
+    try {
+      await env.R2_BUCKET.put(key, body);
+    } catch (error) {
+      await deleteTempFile(env, { backend, key });
+      throw error;
+    }
+    return { key, meta: null };
+  }
+  if (backend === 'telegram') {
+    return sendToTelegramTemp(env, fileName, body, size);
+  }
+  throw new Error('不支持的存储节点：' + backend);
+}
+
+/**
+ * 把文件发到 Telegram 频道作为临时中转。
+ *
+ * 与主上传 uploadToTelegramStorage 同一条链路：FormData + sendDocument/
+ * sendAudio/sendVideo，拿回 file_id（索引键）与 message_id（删除用）。
+ * Telegram 的 20MB 上限在 API 层已经拦过，这里再兜底一次。
+ */
+async function sendToTelegramTemp(env, fileName, body, size) {
+  if (size && size > TG_MAX_FILE_SIZE) {
+    throw new Error('文件超出 Telegram 节点上限');
+  }
+  const buf = await new Response(body).arrayBuffer();
+  if (buf.byteLength > TG_MAX_FILE_SIZE) {
+    throw new Error('文件超出 Telegram 节点上限');
+  }
+  const contentType = guessContentType(fileName);
+  const file = new File([buf], String(fileName || 'airdrop-file'), { type: contentType });
+  const { method, field } = getTelegramUploadMethodAndField(contentType);
+  const form = new FormData();
+  form.append('chat_id', envValue(env, 'TG_CHAT_ID'));
+  form.append(field, file, file.name);
+
+  const apiUrl = buildTelegramBotApiUrl(env, method);
+  let response;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      response = await fetch(apiUrl, { method: 'POST', body: form, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (e) {
+    throw new Error('连接 Telegram 失败：' + (e?.message || '网络错误'));
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data?.ok) {
+    throw new Error('上传到 Telegram 失败：' + (data?.description || `HTTP ${response.status}`));
+  }
+  const fileId = pickTelegramFileId(data);
+  const messageId = data?.result?.message_id;
+  if (!fileId) {
+    throw new Error('Telegram 已接收文件，但未返回可用的文件 ID。');
+  }
+  return { key: fileId, meta: { messageId: messageId || null } };
+}
+
+/** 粗略推断 MIME：Telegram 据此决定走 document / audio / video 字段 */
+function guessContentType(fileName) {
+  const ext = String(fileName || '').split('.').pop()?.toLowerCase();
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mkv: 'video/x-matroska',
+    mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac',
+    pdf: 'application/pdf', zip: 'application/zip', '7z': 'application/x-7z-compressed',
+    rar: 'application/x-rar-compressed', json: 'application/json', txt: 'text/plain'
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+/** 调 Bot API 的 getFile 拿到真实下载路径（再交给 buildTelegramFileUrl） */
+async function getTelegramFilePath(env, fileId) {
+  const url = `${buildTelegramBotApiUrl(env, 'getFile')}?file_id=${encodeURIComponent(fileId)}`;
+  const res = await fetch(url);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.ok || !data?.result?.file_path) return null;
+  return data.result.file_path;
+}
+
+/** 从中转节点读出单个文件条目对应的字节流（支持 R2 瞬态重试与 Range 断点续传）。file 是 files_json 里的一条。 */
+export async function readTempFile(env, file, options = {}) {
+  if (!file || !file.key) return null;
+  if (file.backend === 'r2') {
+    const { retryR2Op } = await import('./r2-retry.js');
+    const r2Range = options?.range || null;
+    const obj = await retryR2Op(
+      () => (r2Range ? env.R2_BUCKET.get(file.key, { range: r2Range }) : env.R2_BUCKET.get(file.key)),
+      { maxAttempts: 3, baseDelayMs: 120, maxDelayMs: 800 }
+    );
+    if (!obj) return null;
+    const totalSize = parseByteLength(obj.size) ?? parseByteLength(file.size);
+    return {
+      body: obj.body,
+      size: r2Range?.length ? parseByteLength(r2Range.length) : totalSize,
+      totalSize,
+    };
+  }
+  if (file.backend === 'telegram') {
+    if (!envValue(env, 'TG_BOT_TOKEN')) return null;
+    const filePath = await getTelegramFilePath(env, file.key);
+    if (!filePath) return null;
+    const fetchHeaders = { 'Accept-Encoding': 'identity' };
+    if (options?.rangeHeader) fetchHeaders.Range = options.rangeHeader;
+    const upstream = await fetch(buildTelegramFileUrl(env, filePath), {
+      headers: fetchHeaders
+    });
+    if ((!upstream.ok && upstream.status !== 206) || !upstream.body) return null;
+    return {
+      body: upstream.body,
+      size: upstreamByteLength(upstream, file.size),
+      totalSize: parseByteLength(file.size),
+      status: upstream.status,
+      contentRange: upstream.headers.get('Content-Range'),
+    };
+  }
+  return null;
+}
+
+/** 删除单个文件条目对应的临时文件 */
+export async function deleteTempFile(env, file) {
+  if (!file || !file.key) return;
+  try {
+    if (file.backend === 'r2' && env?.R2_BUCKET) {
+      await env.R2_BUCKET.delete(file.key);
+    } else if (file.backend === 'telegram' && envValue(env, 'TG_BOT_TOKEN')) {
+      const msgId = file.meta?.messageId;
+      if (msgId) {
+        await fetch(buildTelegramBotApiUrl(env, 'deleteMessage'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: envValue(env, 'TG_CHAT_ID'),
+            message_id: Number(msgId)
+          })
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error('Airdrop temp file delete error:', e);
+  }
+}
+
+/**
+ * Content-Disposition：ASCII 回退名 + RFC 5987 原名。
+ *
+ * 只写 filename= 会让中文名变成乱码；只写 filename*= 又有老浏览器不认。
+ * 两个都给，由客户端挑它能用的那个。
+ */
+export function contentDisposition(fileName) {
+  const original = String(fileName || 'airdrop-file');
+  const ascii = original.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_').slice(0, 120);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(original)}`;
+}
+
+// ============================================================================
+// 使用统计
+// ============================================================================
+
+/**
+ * 记一条使用记录。
+ *
+ * 统计是「尽力而为」的：它服务于管理员看用量，写失败不该让投递失败，
+ * 所以这里吞掉异常，只打日志。
+ */
+export async function recordStat(env, entry) {
+  try {
+    await ensureSchema(env);
+    const common = [
+      String(entry.code || ''),
+      String(entry.role || 'sender'),
+      entry.isGuest ? 1 : 0,
+      String(entry.fileName || '').slice(0, 255),
+      Number(entry.fileSize) || 0
+    ];
+    const detail = [
+      Number(entry.fileCount) || 0,
+      Number(entry.totalSize) || 0,
+      String(entry.senderIp || ''),
+      String(entry.receiverIp || '')
+    ];
+    const tail = [String(entry.outcome || 'completed'), nowMs()];
+
+    const insert = (withDetail) => env.DB.prepare(
+      withDetail
+        ? `INSERT INTO airdrop_stats
+             (code, role, is_guest, file_name, file_size, file_count, total_size, sender_ip, receiver_ip, outcome, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        : `INSERT INTO airdrop_stats
+             (code, role, is_guest, file_name, file_size, outcome, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(...common, ...(withDetail ? detail : []), ...tail);
+
+    try {
+      await insert(await ensureAirdropStatsDetail(env)).run();
+    } catch (e) {
+      // 旧库（未跑 M0012）：退回只写旧列的 INSERT，统计依然可用。
+      if (airdropStatsHasDetail !== false) {
+        resetAirdropStatsColumns(false);
+        await insert(false).run();
+      } else {
+        throw e;
+      }
+    }
+
+    // 自动清理：抽样触发（见 STATS_PRUNE_SAMPLE），避免每次写入都多两次 D1 查询。
+    // 清理失败绝不能影响投递主流程，所以单独 try 且只打日志。
+    if (Math.random() * STATS_PRUNE_SAMPLE < 1) {
+      try {
+        await pruneStats(env);
+      } catch (e) {
+        console.warn('Airdrop stats prune skipped:', e?.message || e);
+      }
+    }
+  } catch (e) {
+    console.error('Airdrop stat error:', e);
+  }
+}
+
+// ============================================================================
+// airdrop_stats 明细列：新旧结构自适应
+// ============================================================================
+
+/** 迁移 M0012 给 airdrop_stats 加的新列（旧库执行迁移前没有这几列）。 */
+const AIRDROP_STATS_DETAIL_COLUMNS = ['file_count', 'total_size', 'sender_ip', 'receiver_ip', 'completed_at'];
+
+// 每个 isolate 内缓存一次列探测结果。旧库（未迁移）会在**每一次请求**里
+// 反复走「探测 → 回退」，所以这里必须缓存，不能让 PRAGMA 每次重跑。
+let airdropStatsHasDetail = null;
+
+/** 开启（或复位）明细列缓存。测试可直接调用注入已知状态。 */
+export function resetAirdropStatsColumns(value = null) {
+  airdropStatsHasDetail = value;
+}
+
+/** 探测 airdrop_stats 是否具备 M0012 的明细列（带缓存）。探测失败按「有」处理。 */
+async function ensureAirdropStatsDetail(env) {
+  if (airdropStatsHasDetail != null) return airdropStatsHasDetail;
+  try {
+    const rows = await env.DB.prepare('PRAGMA table_info(airdrop_stats)').all();
+    const names = (rows?.results || []).map((r) => String(r.name));
+    airdropStatsHasDetail = AIRDROP_STATS_DETAIL_COLUMNS.every((c) => names.includes(c));
+  } catch (e) {
+    // 探测不出来就假设新结构：若假设错了，外层 catch 会自然回退到旧结构兜底。
+    airdropStatsHasDetail = true;
+  }
+  return airdropStatsHasDetail;
+}
+
+/**
+ * 最近记录查询：按库的实际结构选列。
+ *
+ * 旧库（未迁移）查询后面那句 WHERE role='sender' 也一并保留 ——
+ * 两个结构都只取发端记录。
+ */
+function selectRecentStatsSql(hasDetail) {
+  const detail = hasDetail
+    ? ', file_count, total_size, sender_ip, receiver_ip, completed_at'
+    : '';
+  return `SELECT code, role, is_guest, file_name, file_size${detail},
+                 outcome, created_at
+          FROM airdrop_stats WHERE role = 'sender'
+          ORDER BY created_at DESC LIMIT 20`;
+}
+
+/**
+ * 管理后台的使用情况。
+ *
+ * 全部走 D1 聚合，不在 JS 里翻列表 —— 数据量一大就必须让数据库算。
+ */
+export async function getUsageStats(env, days) {
+  await ensureSchema(env);
+  const since = nowMs() - Math.max(1, Number(days) || 7) * 86400000;
+
+  try {
+    return await runUsageStats(env, days, since, await ensureAirdropStatsDetail(env));
+  } catch (e) {
+    // 明细查询失败的最常见原因：库还没跑 M0012。退回旧结构重试一次，
+    // 把「多查了几列」与「统计接口整体失败」彻底解耦。
+    if (airdropStatsHasDetail !== false) {
+      console.warn('[airdrop] detail stats failed, falling back to legacy columns:', e?.message || e);
+      resetAirdropStatsColumns(false);
+      return await runUsageStats(env, days, since, false);
+    }
+    throw e;
+  }
+}
+
+/** getUsageStats 的实际查询体；hasDetail 决定明细查询用新列还是旧列。 */
+async function runUsageStats(env, days, since, hasDetail) {
+  const [totals, byDay, recent] = await Promise.all([
+    env.DB.prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END) AS completed,
+         SUM(CASE WHEN outcome <> 'completed' THEN 1 ELSE 0 END) AS failed,
+         SUM(CASE WHEN is_guest = 1 THEN 1 ELSE 0 END) AS guestCount,
+         SUM(CASE WHEN outcome = 'completed' THEN file_size ELSE 0 END) AS bytes,
+         MAX(created_at) AS lastAt
+       FROM airdrop_stats WHERE created_at >= ?`
+    ).bind(since).first(),
+    env.DB.prepare(
+      `SELECT date(created_at / 1000, 'unixepoch') AS day,
+              COUNT(*) AS total,
+              SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END) AS completed,
+              SUM(CASE WHEN outcome = 'completed' THEN file_size ELSE 0 END) AS bytes
+       FROM airdrop_stats WHERE created_at >= ?
+       GROUP BY day ORDER BY day DESC LIMIT 14`
+    ).bind(since).all(),
+    // 明细查询带新旧两套列。迁移 M0012 只需成功执行一次，之后恒走新结构；
+    // 未执行（如迁移尚未生效）时自动退回旧结构，绝不因"多了几列"让整个统计接口失败。
+    env.DB.prepare(selectRecentStatsSql(hasDetail)).all()
+  ]);
+
+  const total = Number(totals?.total) || 0;
+  return {
+    range: days,
+    total,
+    completed: Number(totals?.completed) || 0,
+    failed: Number(totals?.failed) || 0,
+    guestCount: Number(totals?.guestCount) || 0,
+    bytes: Number(totals?.bytes) || 0,
+    lastAt: Number(totals?.lastAt) || 0,
+    successRate: total ? Math.round(((Number(totals?.completed) || 0) / total) * 1000) / 10 : 0,
+    byDay: (byDay?.results || []).map((r) => ({
+      day: r.day,
+      total: Number(r.total) || 0,
+      completed: Number(r.completed) || 0,
+      bytes: Number(r.bytes) || 0
+    })),
+    recent: (recent?.results || []).map((r) => ({
+      code: r.code,
+      role: r.role,
+      isGuest: Boolean(r.is_guest),
+      fileName: r.file_name,
+      fileSize: Number(r.file_size) || 0,
+      fileCount: Number(r.file_count) || 0,
+      totalSize: Number(r.total_size) || 0,
+      senderIp: r.sender_ip || '',
+      receiverIp: r.receiver_ip || '',
+      outcome: r.outcome,
+      createdAt: Number(r.created_at) || 0,
+      completedAt: Number(r.completed_at) || 0
+    })),
+    // 活跃房间数：管理员需要知道"现在有多少人正在传"
+    activeSessions: await countActive(env)
+  };
+}
+
+async function countActive(env) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM airdrop_sessions
+       WHERE status NOT IN ('done', 'failed', 'cancelled', 'expired') AND expires_at > ?`
+    ).bind(nowMs()).first();
+    return Number(row?.n) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 把一次已上传的投递标记为「已完成」。
+ *
+ * 统计刻意分成两笔写：上传落地时先记一条 outcome='uploaded'（此时才知道
+ * 发端是不是访客、文件多大），收端确实下载完成后再把 outcome 改成
+ * 'completed'。这样管理员看到的数字有明确语义 ——
+ *   total     = 发起过多少次投递
+ *   completed = 其中真正送达的
+ *   两者之差  = 半途而废的（发端传了但收端没取、或中途取消）
+ *
+ * 如果在 complete 时才第一次写库，就只能记下调用方（收端）的身份，
+ * 而"谁在用这个功能"真正有意义的是发起方。
+ */
+export async function markStatCompleted(env, code, createdAt, receiverIp, completedAt) {
+  try {
+    await ensureSchema(env);
+    if (await ensureAirdropStatsDetail(env)) {
+      await env.DB.prepare(
+        `UPDATE airdrop_stats SET outcome = 'completed', receiver_ip = ?, completed_at = ?
+         WHERE code = ? AND role = 'sender' AND outcome = 'uploaded' AND created_at >= ?`
+      ).bind(receiverIp, completedAt, code, createdAt).run();
+      return;
+    }
+    await env.DB.prepare(
+      `UPDATE airdrop_stats SET outcome = 'completed' WHERE code = ? AND outcome = 'uploaded' AND created_at >= ?`
+    ).bind(String(code || ''), createdAt).run();
+  } catch (e) {
+    console.error('Airdrop stat complete error:', e);
+  }
+}
+
+/** 标记一次投递未送达（取消 / 失败 / 过期） */
+export async function markStatFailed(env, code, outcome, createdAt) {
+  try {
+    await ensureSchema(env);
+    await env.DB.prepare(
+      `UPDATE airdrop_stats SET outcome = ? WHERE code = ? AND outcome = 'uploaded' AND created_at >= ?`
+    ).bind(String(outcome || 'failed'), String(code || ''), createdAt).run();
+  } catch (e) {
+    console.error('Airdrop stat fail error:', e);
+  }
+}
+
+/**
+ * 清掉历史统计（后台"清空记录"用） */
+export async function clearStats(env) {
+  await ensureSchema(env);
+  await env.DB.prepare('DELETE FROM airdrop_stats').run();
+}
+
+/**
+ * 自动清理：记录数超过保留上限时，删掉最旧的若干条。
+ *
+ * 为什么需要它：airdrop_sessions 会随 TTL 被 clean 掉，但 airdrop_stats 是
+ * **持久历史**，只增不减。D1 免费额度按「行读/行写/存储」计费，无限增长
+ * 迟早会把额度吃掉，且后台列表本身也只需要最近若干条。
+ *
+ * 策略：保留最新的 N 条（N = cfg.statsRetention）：
+ *   DELETE FROM airdrop_stats
+ *    WHERE created_at < (第 N 新的那一行的 created_at)
+ * 用 created_at 作水位线而不是 rowid —— code 可能重复，created_at 有索引
+ * （idx_airdrop_stats_created），取水位线和删除都走索引。
+ *
+ * @param {any} env
+ * @param {number} [retention] 显式指定保留条数；缺省从运行时配置读
+ * @returns {Promise<{deleted: number, retention: number}>}
+ */
+export async function pruneStats(env, retention) {
+  await ensureSchema(env);
+
+  let keep = retention;
+  if (keep == null) {
+    const cfg = await getAirdropConfig(env);
+    keep = Number(cfg?.statsRetention);
+  }
+  // 0 / 非数字 = 关闭自动清理（管理员显式关掉，或配置异常时保守不动数据）
+  if (!Number.isFinite(keep) || keep <= 0) return { deleted: 0, retention: 0 };
+
+  // 找水位线：第 keep 新的那一行的时间戳（OFFSET keep-1 即第 keep 条）
+  const edge = await env.DB.prepare(
+    `SELECT created_at FROM airdrop_stats ORDER BY created_at DESC LIMIT 1 OFFSET ?`
+  ).bind(keep - 1).first();
+
+  // 记录数还没到 keep 条：没什么可删
+  if (!edge || edge.created_at == null) return { deleted: 0, retention: keep };
+
+  // 删掉所有比水位线更旧的。用 `<` 而不是 `<=`：与水位线同刻的记录一并保留，
+  // 避免同一毫秒内写入的一批记录被拦腰截断。
+  const result = await env.DB.prepare(
+    `DELETE FROM airdrop_stats WHERE created_at < ?`
+  ).bind(edge.created_at).run();
+
+  const deleted = Number(result?.meta?.changes ?? result?.changes ?? 0);
+  return { deleted, retention: keep };
+}
+
+// 自动清理的触发概率：每 20 次写入检查一次。
+// 全量检查每个请求都跑一次 COUNT/水位线查询会让 D1 读量翻倍；而从「超出上限」
+// 到「下次写入触发清理」之间最多多出 ~20 条，对保留上限的精度无实质影响。
+const STATS_PRUNE_SAMPLE = 20;

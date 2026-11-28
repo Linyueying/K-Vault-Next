@@ -1,0 +1,14 @@
+name: pages-deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  notice:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Notice
+        run: |
+          echo "Cloudflare Pages deployment is handled by Cloudflare Git integration."
+          echo "This repository does not require CF_API_TOKEN/CF_ACCOUNT_ID/CF_PAGES_PROJECT secrets."
+          echo "If you need CLI deployment, run wrangler locally with your own Cloudflare credentials."

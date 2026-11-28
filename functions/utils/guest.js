@@ -1,0 +1,142 @@
+/**
+ * 访客上传工具模块
+ * 提供访客上传的权限检查和速率限制
+ *
+ * 配置来源：后台可写的 KV 运行时配置优先，未保存过时回退环境变量。
+ * 见 ./runtime-config.js
+ */
+import { getGuestConfigResolved } from './runtime-config.js';
+import { getClientIp } from './ratelimit.js';
+
+/**
+ * 获取客户端 IP。
+ * 复用 ratelimit 的 getClientIp：优先 Cloudflare 注入的 CF-Connecting-IP
+ * （在 CF 边缘不可伪造），仅在非 CF 环境（本地 / 直连源站）回退到 X-Forwarded-For。
+ * 去掉原先可被客户端伪造的 X-Real-IP 回退，避免访客每日限额计数键被伪造绕过。
+ */
+function getClientIP(request) {
+    return getClientIp(request);
+}
+
+/**
+ * 获取今日日期字符串 (YYYY-MM-DD)
+ */
+function getTodayKey() {
+    return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * 检查访客上传权限
+ *
+ * `fileSize` 传 0 表示「只做前置门禁」（是否启用 / 是否超每日次数），
+ * 用于上传入口在解析 multipart 之前就短路被禁的访客；文件大小限制在读到
+ * 文件对象之后再补一次。
+ *
+ * @returns {{ allowed: boolean, reason?: string, code?: string, status?: number, remaining?: number, maxFileSize?: number }}
+ */
+export async function checkGuestUpload(request, env, fileSize) {
+    const config = await getGuestConfigResolved(env);
+
+    // 检查是否启用了访客上传。未开启 = 访客一律不允许上传，前端应引导登录。
+    if (!config.enabled) {
+        return {
+            allowed: false,
+            reason: '访客上传已关闭，请登录后上传',
+            code: 'GUEST_UPLOAD_DISABLED',
+            status: 401
+        };
+    }
+
+    // 前置门禁（fileSize 为 0）时跳过文件大小校验，交由调用方在拿到文件后补做。
+    const maxSize = config.maxFileSize;
+    if (Number(fileSize) > 0 && fileSize > maxSize) {
+        const maxMB = (maxSize / 1024 / 1024).toFixed(0);
+        return {
+            allowed: false,
+            reason: `访客上传限制：文件大小不能超过 ${maxMB}MB`,
+            code: 'GUEST_FILE_TOO_LARGE',
+            status: 413
+        };
+    }
+
+    // 检查每日上传次数
+    const dailyLimit = config.dailyLimit;
+    const ip = getClientIP(request);
+    const today = getTodayKey();
+    const kvKey = `guest:${ip}:${today}`;
+
+    if (env.img_url) {
+        try {
+            const countStr = await env.img_url.get(kvKey);
+            const currentCount = parseInt(countStr) || 0;
+
+            if (currentCount >= dailyLimit) {
+                return {
+                    allowed: false,
+                    reason: `访客每日上传上限 ${dailyLimit} 次，今日已用完`,
+                    code: 'GUEST_DAILY_LIMIT_REACHED',
+                    status: 429,
+                    remaining: 0
+                };
+            }
+
+            return { allowed: true, maxFileSize: maxSize, remaining: dailyLimit - currentCount };
+        } catch (e) {
+            console.error('Guest rate limit check error:', e);
+            // KV 异常时按 fail-closed 处理：访客上传是可选能力，
+            // 读不到计数就不放行，避免绕过每日限额无限上传。
+            return {
+                allowed: false,
+                reason: '访客限额校验暂不可用，请登录后上传',
+                code: 'GUEST_LIMIT_UNAVAILABLE',
+                status: 503
+            };
+        }
+    }
+
+    return { allowed: true, maxFileSize: maxSize };
+}
+
+/**
+ * 增加访客上传计数
+ */
+export async function incrementGuestCount(request, env) {
+    if (!env.img_url) return;
+    const config = await getGuestConfigResolved(env);
+    if (!config.enabled) return;
+
+    const ip = getClientIP(request);
+    const today = getTodayKey();
+    const kvKey = `guest:${ip}:${today}`;
+
+    try {
+        const countStr = await env.img_url.get(kvKey);
+        const currentCount = parseInt(countStr) || 0;
+        await env.img_url.put(kvKey, String(currentCount + 1), {
+            expirationTtl: 86400 // 24 小时后自动过期
+        });
+    } catch (e) {
+        console.error('Guest count increment error:', e);
+    }
+}
+
+/**
+ * 获取访客配置信息（供前端展示）
+ *
+ * 读取走 getGuestConfigResolved → getRuntimeConfig，后者有 **30 秒**
+ * 进程内缓存（见 runtime-config.js 的 CACHE_TTL_MS）。后台保存/重置时
+ * 会主动失效缓存，因此**同 isolate 内改完即时生效**；跨 isolate 最坏
+ * 有 30 秒延迟 —— 这是为了抵消配置读取的读放大，可接受。
+ *
+ * ⚠️ 此前这里的注释写的是「不做缓存以免后台改完开关前台不生效」，
+ *    与代码实际行为不符（缓存一直存在）。已按真实行为改写，
+ *    避免下一个人据此"修掉"缓存而重新引入读放大。
+ */
+export async function getGuestConfig(env) {
+    const config = await getGuestConfigResolved(env);
+    return {
+        enabled: config.enabled,
+        maxFileSize: config.enabled ? config.maxFileSize : 0,
+        dailyLimit: config.enabled ? config.dailyLimit : 0
+    };
+}

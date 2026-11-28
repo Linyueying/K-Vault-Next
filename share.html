@@ -1,0 +1,2209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0284c7">
+<!-- 分享页属于私有内容，禁止被搜索引擎收录 -->
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>文件分享 · K-Vault</title>
+<link rel="icon" href="/assets/img/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/assets/img/logo-180.png">
+<link rel="shortcut icon" href="/assets/img/favicon.ico">
+<link rel="stylesheet" href="/assets/vendor/fontawesome/css/all.min.css">
+<link rel="stylesheet" href="/assets/vendor/glassfx/glass.css">
+<link rel="stylesheet" href="/assets/css/design-system.css">
+<link rel="stylesheet" href="/assets/css/theme.css">
+<script src="/assets/js/theme.js?v=20260305"></script>
+<script src="/assets/js/app-core.js"></script>
+<style>
+  /* 设计令牌 / 通用组件 / 动效关键帧 统一取自 /design-system.css，本文件不再重复定义 */
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text-main);
+    background: var(--bg-gradient);
+    background-attachment: scroll; /* L7: fixed -> scroll, 见 design-system.css body */
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
+  /* ===== 顶部极简栏：只有品牌名 + 主题切换，不提供任何后台入口 ===== */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    gap: 12px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.01em;
+  }
+  .brand-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--primary-light), var(--primary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.8rem;
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.35);
+  }
+  .brand-sub {
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--glass-border-ice);
+    background: var(--surface-1);
+    color: var(--text-sub);
+    cursor: pointer;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+  }
+  .icon-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-soft); }
+
+  main {
+    flex: 1;
+    display: flex;
+    /* 不用 align-items: center —— 内容比视口高时，居中会让顶部滚不到。
+       居中交给 .stage.center 自己做（加载 / 密码 / 错误这些短页面）。 */
+    align-items: flex-start;
+    justify-content: center;
+    padding: 8px 16px 40px;
+  }
+
+  .stage { width: 100%; max-width: 1000px; }
+  .stage.center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 62vh;
+  }
+
+  /* ===== 双栏骨架 =====
+     窄屏单栏：预览/清单在上，信息与操作在下（符合从上到下的阅读顺序）。
+     ≥900px 分栏：左主右次，右栏 sticky —— 清单可以很长，滚动时下载按钮
+     不该跟着跑出视野。 */
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-4);
+  }
+  @media (min-width: 900px) {
+    .layout {
+      grid-template-columns: minmax(0, 1.62fr) minmax(292px, 1fr);
+      align-items: start;
+    }
+    .side { position: sticky; top: 14px; }
+  }
+
+  /* ===== 卡片 =====
+     基础实现（背景/描边/圆角/阴影/顶部高光）来自 design-system.css 的 .card，
+     这里只保留分享页特有的裁剪增量，用于裁掉预览区的溢出内容 */
+  .card { overflow: hidden; }
+
+  /* ===== 首屏入场编排（与 index / admin / paste / webdav 同一套 riseIn / riseInSm / pop） ===== */
+  .topbar { animation: riseInSm 0.44s var(--ease-fluid) backwards; }
+  .state-box,
+  .password-gate { animation: riseIn 0.52s var(--ease-fluid) 0.04s backwards; }
+  .layout .card { animation: riseIn 0.52s var(--ease-fluid) 0.06s backwards; }
+  .layout .side .card { animation-delay: 0.12s; }
+  .hero { animation: riseInSm 0.44s var(--ease-fluid) 0.1s backwards; }
+  .toolbar { animation: riseInSm 0.44s var(--ease-fluid) 0.14s backwards; }
+  .bitem { animation: riseInSm 0.4s var(--ease-fluid) backwards; }
+
+  /* ===== 类型配色 =====
+     图标不再用 emoji：文件类型一眼可辨，也给页面一点产品感。
+     --tone / --tone-soft 是局部令牌，只在挂了 .tone-* 的子树里生效。 */
+  .tone-image   { --tone: #0891b2; --tone-soft: rgba(8, 145, 178, 0.13); }
+  .tone-video   { --tone: #7c3aed; --tone-soft: rgba(124, 58, 237, 0.13); }
+  .tone-audio   { --tone: #d97706; --tone-soft: rgba(217, 119, 6, 0.14); }
+  .tone-doc     { --tone: var(--primary); --tone-soft: rgba(var(--primary-rgb), 0.12); }
+  .tone-archive { --tone: #64748b; --tone-soft: rgba(100, 116, 139, 0.14); }
+  .tone-bundle  { --tone: #7c3aed; --tone-soft: rgba(124, 58, 237, 0.13); }
+  html[data-theme="dark"] .tone-image   { --tone: #22d3ee; --tone-soft: rgba(34, 211, 238, 0.16); }
+  html[data-theme="dark"] .tone-video   { --tone: #a78bfa; --tone-soft: rgba(167, 139, 250, 0.16); }
+  html[data-theme="dark"] .tone-audio   { --tone: #fbbf24; --tone-soft: rgba(251, 191, 36, 0.16); }
+  html[data-theme="dark"] .tone-archive { --tone: #94a3b8; --tone-soft: rgba(148, 163, 184, 0.16); }
+
+  /* ===== 主区：文件概览 ===== */
+  .hero {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-4);
+    padding: var(--sp-4);
+  }
+  .hero__thumb {
+    width: 64px;
+    height: 64px;
+    flex: none;
+    border-radius: var(--r-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--tone, var(--primary));
+    background: var(--tone-soft, rgba(var(--primary-rgb), 0.12));
+  }
+  .hero__text { min-width: 0; flex: 1; }
+  .hero__name {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .hero__sub {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+  .hero__sub span:not(:first-child)::before {
+    content: "·";
+    margin-right: 6px;
+    opacity: 0.55;
+  }
+
+  /* 过期 / 次数用尽：挡在下载按钮之前，而不是等点了才报 410 */
+  .blocked {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 var(--sp-4) var(--sp-4);
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    background: rgba(217, 119, 6, 0.12);
+    color: var(--warn);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+  }
+
+  /* ===== 主区：预览 ===== */
+  .preview-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+    padding: 0 var(--sp-4) var(--sp-4);
+  }
+  .preview-bar__hint {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+  .preview-block {
+    border-top: 1px solid var(--glass-border);
+    padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  }
+  .preview-frame {
+    display: block;
+    width: 100%;
+    height: 420px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+  }
+  @media (max-width: 680px) { .preview-frame { height: 300px; } }
+  .preview-hint {
+    padding: 34px 0;
+    text-align: center;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  /* ===== 主区：合集工具栏 =====
+     改成允许换行。原来是 nowrap：窄屏上搜索框被压到只剩几十像素，排序框与
+     方向按钮被挤出卡片边界，而外层 .card 的 overflow:hidden 会直接把它们裁掉 ——
+     用户看到的是"少了一半控件"，且完全无从察觉是被裁了。 */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    padding: var(--sp-3) var(--sp-4);
+  }
+  .toolbar--split {
+    border-top: 1px solid var(--glass-border);
+    padding-top: var(--sp-2);
+    padding-bottom: var(--sp-2);
+    gap: var(--sp-2) var(--sp-3);
+  }
+  /* 折行之后搜索框应该吃掉剩余的整行，而不是缩成一条缝 */
+  .search { position: relative; flex: 1 1 150px; min-width: 0; }
+  .search > i {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .search .input {
+    width: 100%;
+    height: var(--h-ctrl-sm);
+    padding-left: 31px;
+    font-size: var(--fs-xs);
+  }
+  .toolbar .select {
+    flex: none;
+    width: auto;
+    height: var(--h-ctrl-sm);
+    padding: 0 var(--sp-2);
+    font-size: var(--fs-xs);
+  }
+  .toolbar .btn--icon { flex: none; }
+  .toolbar__stat {
+    margin-left: auto;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pickline {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--fs-xs);
+    color: var(--text-sub);
+    user-select: none;
+  }
+  .pickline strong { color: var(--primary); }
+
+  /* ===== 主区：合集清单 ===== */
+  .bundle-warn {
+    margin: 0 var(--sp-4) var(--sp-2);
+    padding: 8px 11px;
+    border-radius: var(--r-sm);
+    background: rgba(217, 119, 6, 0.12);
+    color: var(--warn);
+    font-size: var(--fs-xs);
+  }
+  /* 清单不再锁死 460px 的小盒子：几十个文件的合集被塞进一个只显示 5 行的
+     滚动区里，用户根本不知道下面还有多少，而这个小盒子又常常比预览区还矮。
+     上限放宽到视口的 68%，长清单仍不撑爆首屏，但一眼能看到十来条。 */
+  .blist {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--sp-3) var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 68vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* ⚠️ flex-wrap: wrap 是关键。
+     这一行原来只有 display:flex 没有 wrap，而成员预览 .bitem__preview 是第 5 个
+     flex item —— 它既没有 flex-basis:100% 也没有换行规则，于是被并排塞进同一行，
+     整行高度被 420px 的 iframe 撑开；其余三项因为 align-items:center 垂直居中，
+     浮在预览区正中间 —— 这就是「UI 重叠」的真正来源。
+     让容器允许换行 + 预览独占整行，问题从根上消失。 */
+  .bitem {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    padding: 8px 10px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    transition: background var(--dur-base) var(--ease-apple),
+                border-color var(--dur-base) var(--ease-apple);
+  }
+  /* design-system 给 .check 挂了 44px 隐形热区（居中放大），在行间距只有 5px
+     的密集清单里会跨到相邻条目上 —— 点上一行的空白处会误切下一行。
+     收到 30px：仍是合格的可点尺寸，但不再越界。 */
+  .bitem .check::after { width: 30px; height: 30px; }
+  .bitem:hover { border-color: var(--glass-border); }
+  .bitem.is-picked {
+    background: rgba(var(--primary-rgb), 0.08);
+    border-color: rgba(var(--primary-rgb), 0.3);
+  }
+  .bitem__icon {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border-radius: var(--r-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-sm);
+    color: var(--tone, var(--primary));
+    background: var(--tone-soft, rgba(var(--primary-rgb), 0.12));
+  }
+  .bitem__main { min-width: 0; flex: 1; }
+  .bitem__name {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bitem__sub {
+    margin-top: 2px;
+    display: flex;
+    gap: 8px;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+  .bitem__acts { display: flex; gap: 4px; flex: none; }
+  .blist-empty {
+    padding: 28px 12px;
+    text-align: center;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+  /* 成员预览独占整行（配合 .bitem 的 flex-wrap）。
+     width 而非 flex-basis：行内还有 flex:1 的主区，用 flex-basis:100% 会在
+     某些浏览器下被 flex-shrink 折算掉，width 更稳。 */
+  .bitem__preview {
+    flex: 0 0 100%;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  /* ===== 分享说明（分享者自定义的一句话）=====
+     没有它，分享者想说一句"原图未压缩"都无处可写，只能靠文件名挤字。
+     留白换行（pre-wrap）：有人会写多行，压成一行就白写了。 */
+  .hero__desc {
+    margin: 0 var(--sp-4) var(--sp-3);
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    background: var(--glass-subtle);
+    border: 1px dashed var(--glass-border-ice);
+    font-size: var(--fs-sm);
+    color: var(--text-sub);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ===== 清单：缩略图 / 网格视图 =====
+     图片合集只给图标太浪费 —— 缩略图让人一眼挑出想要的，比读文件名快得多。 */
+  .bitem__thumb {
+    width: 34px; height: 34px;
+    flex: none;
+    border-radius: var(--r-sm);
+    object-fit: cover;
+    background: var(--surface-2);
+  }
+  .bgrid {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--sp-3) var(--sp-3);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: var(--sp-2);
+    max-height: 68vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .bcell {
+    position: relative;
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    padding-bottom: 6px;
+    transition: border-color var(--dur-base) var(--ease-apple),
+                transform var(--dur-base) var(--ease-apple);
+  }
+  .bcell:hover { border-color: var(--glass-border); transform: translateY(-1px); }
+  .bcell.is-picked { border-color: rgba(var(--primary-rgb), 0.55); background: rgba(var(--primary-rgb), 0.08); }
+  .bcell__pic {
+    display: block;
+    width: 100%;
+    height: 92px;
+    object-fit: cover;
+    background: var(--surface-2);
+  }
+  .bcell__ph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 92px;
+    font-size: 1.6rem;
+    color: var(--tone, var(--primary));
+    background: var(--tone-soft, rgba(var(--primary-rgb), 0.12));
+  }
+  .bcell__name {
+    display: block;
+    padding: 6px 8px 0;
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bcell__meta {
+    display: block;
+    padding: 2px 8px 0;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+  }
+  .bcell__check { position: absolute; top: 6px; left: 6px; }
+  .bcell__acts {
+    position: absolute;
+    top: 6px; right: 6px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity var(--dur-base) var(--ease-apple);
+  }
+  .bcell:hover .bcell__acts, .bcell.is-picked .bcell__acts { opacity: 1; }
+
+  /* ===== 复制链接 / 二维码 ===== */
+  .side__linkrow { display: flex; gap: 6px; }
+  .side__linkrow .btn { flex: 1; width: auto; justify-content: center; }
+  .qr-stage {
+    width: 180px; height: 180px;
+    margin: 4px auto 0;
+    padding: 7px;
+    border-radius: var(--r-md);
+    background: #fff;
+    color: #0f172a;
+    border: 1px solid rgba(var(--primary-rgb), 0.28);
+  }
+  /* 背景强制纯白、模块强制深色：扫描器对反色码兼容性参差，
+     跟着主题换色会让一部分手机扫不出来。 */
+  .qr-stage svg { display: block; width: 100%; height: 100%; }
+
+  /* ===== 视图切换 =====
+     工具栏在窄屏会换行，这里跟着一起缩：两个按钮只占一个 chip 的宽度，
+     不至于把搜索框挤到第二行。 */
+  .viewswitch {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    border: 1px solid var(--glass-border-ice);
+  }
+  .viewswitch__btn {
+    width: 30px; height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    transition: background var(--dur-base) var(--ease-apple),
+                color var(--dur-base) var(--ease-apple);
+  }
+  .viewswitch__btn:hover { color: var(--text-main); }
+  /* 选中态要一眼分出：仅靠图标形状区分"列表/网格"在深色下几乎看不出来。 */
+  .viewswitch__btn.on {
+    background: var(--surface-1);
+    color: var(--primary-text);
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, .12));
+  }
+
+  /* ===== 二维码浮层的链接行 =====
+     .overlay / .dialog-panel / .dialog-title / .dialog-message / .dialog-actions /
+     .qr-panel 全部取自 design-system.css（13.9b），本页不再手抄一份 ——
+     抄来的版本迟早会和 admin 的漂开。 */
+  .share-result__url {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 10px;
+  }
+  .share-result__url code {
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+    font-size: var(--fs-xs);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--text-sub);
+  }
+
+  /* ===== 侧栏：操作 ===== */
+  .side__actions {
+    padding: var(--sp-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+  /* 侧栏按钮是整条通栏的主操作，不是行内小件：一律撑满宽度、居中排布。
+     .btn--lg 在窄侧栏里会被自身的 padding 撑出横向滚动，这里覆掉。 */
+  .side__actions .btn {
+    flex: none;
+    width: 100%;
+    justify-content: center;
+    padding: 0 var(--sp-3);
+  }
+  .side__actions .btn i { flex: none; font-size: 0.82rem; }
+  .side__hint {
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+  /* 「已选 N 个 · 共 X」是紧跟按钮的即时反馈，不是说明文案，
+     用主色＋等宽感知的字重把它从灰字里拎出来。 */
+  .side__hint + .side__hint { margin-top: calc(-1 * var(--sp-1)); }
+
+  /* ===== 侧栏：元信息 ===== */
+  .meta {
+    border-top: 1px solid var(--glass-border);
+    padding: var(--sp-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  .meta__title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text-sub);
+    letter-spacing: 0.02em;
+  }
+  /* 标签列定宽 + 值列自适应：值里可能塞进度条，必须允许收缩（minmax(0,1fr)） */
+  .meta__row {
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: var(--sp-3);
+    align-items: baseline;
+  }
+  .meta__k { font-size: var(--fs-xs); color: var(--text-muted); }
+  .meta__v {
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .meta__v--muted { font-weight: 500; color: var(--text-sub); }
+  /* 类型分布（「1 图片 · 1 视频 · …」）在窄侧栏里换行会很难看：
+     收成独立一行并放开换行点，读起来是「一行摘要」而不是被挤碎的片段。 */
+  .meta__note {
+    display: block;
+    margin-top: 3px;
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .meta__meter { margin-top: 7px; }
+  .meta__meter .progress { margin-top: 0; }
+  .meta__row--warn .meta__v { color: var(--warn); }
+  .meta__row--danger .meta__v { color: var(--c-danger); }
+
+  /* ===== 加载态 ===== */
+  .loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 20px;
+  }
+  .loading-text {
+    margin-top: 14px;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  /* ===== 失效 / 未找到态 ===== */
+  .state-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    max-width: 400px;
+    padding: 34px 26px;
+    border-radius: var(--r-lg);
+    background: var(--surface-1);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-soft);
+  }
+  .state-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    background: rgba(var(--primary-rgb), 0.12);
+    color: var(--primary);
+  }
+  .state-box.warn .state-icon { background: rgba(217, 119, 6, 0.14); color: var(--warn); }
+  .state-box.danger .state-icon { background: rgba(220, 38, 38, 0.12); color: var(--c-danger); }
+  .state-title { font-size: var(--fs-lg); font-weight: 700; }
+  .state-desc {
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  /* ===== 密码门 ===== */
+  /* .password-gate 系列已上收到 design-system.css（以本页的令牌版为准，
+     preview 原先那版把令牌写成了硬编码回退值，换主题不跟随）。
+     本页的入场动画增量在上方「首屏入场编排」里统一声明。 */
+
+  /* ===== 窄屏收敛 ===== */
+  @media (max-width: 480px) {
+    main { padding: 4px 12px 32px; }
+    .hero { padding: var(--sp-3); gap: var(--sp-3); }
+    .hero__thumb { width: 52px; height: 52px; font-size: 1.25rem; }
+    .hero__name { font-size: var(--fs-md); }
+    .toolbar { padding: var(--sp-3); }
+    .blist { padding: 0 var(--sp-2) var(--sp-2); }
+    .side__actions, .meta { padding: var(--sp-3); }
+    .meta__row { grid-template-columns: 64px minmax(0, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"><i class="fas fa-cloud"></i></span>
+      <span>K-Vault</span>
+      <span class="brand-sub">文件分享</span>
+    </div>
+    <button class="icon-btn" type="button" @click="toggleTheme" :title="theme === 'dark' ? '切换到浅色' : '切换到深色'">
+      <i :class="theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
+    </button>
+  </header>
+
+  <main>
+    <!-- ===== 加载中 ===== -->
+    <div v-if="state === 'loading'" class="stage center">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p class="loading-text">正在加载分享内容…</p>
+      </div>
+    </div>
+
+    <!-- ===== 密码门 ===== -->
+    <div v-else-if="state === 'password'" class="stage center">
+      <div class="password-gate">
+        <div class="password-gate-icon"><i class="fas fa-lock"></i></div>
+        <div class="password-gate-title">该分享需要访问密码</div>
+        <div class="password-gate-desc">请输入分享者提供的密码以查看和下载文件。</div>
+        <form class="password-gate-form" @submit.prevent="submitPassword">
+          <input
+            ref="passwordField"
+            type="password"
+            v-model="passwordInput"
+            placeholder="访问密码"
+            autocomplete="off"
+            :disabled="verifying"
+          />
+          <button type="submit" :disabled="verifying || !passwordInput">
+            <span v-text="verifying ? '验证中…' : '解锁'"></span>
+          </button>
+        </form>
+        <div class="password-gate-error" v-if="passwordError" v-text="passwordError"></div>
+      </div>
+    </div>
+
+    <!-- ===== 失效 / 未找到 ===== -->
+    <div v-else-if="state === 'error'" class="stage center">
+      <div class="state-box" :class="errorTone">
+        <div class="state-icon"><i :class="errorIcon"></i></div>
+        <div class="state-title" v-text="errorTitle"></div>
+        <div class="state-desc" v-text="errorMessage"></div>
+        <button class="btn btn--sm" type="button" @click="reload" style="margin-top: 6px;">
+          <i class="fas fa-rotate-right"></i> 重试
+        </button>
+      </div>
+    </div>
+
+    <!-- ===== 正常态：双栏详情 ===== -->
+    <div v-else-if="state === 'ready'" class="stage">
+      <div class="layout">
+
+        <!-- ---------- 左：主体 ---------- -->
+        <section class="card">
+          <!-- 单文件 -->
+          <template v-if="!isBundle">
+            <div class="hero" :class="toneClass">
+              <div class="hero__thumb"><i :class="iconClass"></i></div>
+              <div class="hero__text">
+                <!-- 标题优先用分享者自定义的名字，没有才回退真实文件名。
+                     下载用的始终是真实文件名 —— 展示名只是展示名。 -->
+                <h1 class="hero__name" :title="displayTitle" v-text="displayTitle"></h1>
+                <div class="hero__sub">
+                  <span v-text="typeLabel"></span>
+                  <span v-text="formatSize(info.fileSize)"></span>
+                  <span v-if="info.uploadTime" v-text="formatRelative(info.uploadTime)"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 分享者写的说明。没有就不占位，而不是留一块空白。 -->
+            <div class="hero__desc" v-if="displayDescription" v-text="displayDescription"></div>
+
+            <div class="blocked" v-if="blockReason">
+              <i class="fas fa-triangle-exclamation"></i>
+              <span v-text="blockReason"></span>
+            </div>
+
+            <div class="preview-bar">
+              <button class="btn btn--sm" type="button" @click="togglePreview" :disabled="previewLoading">
+                <i :class="showPreview ? 'fas fa-chevron-up' : 'fas fa-eye'"></i>
+                <span v-text="previewLoading ? '加载中…' : (showPreview ? '收起预览' : '预览')"></span>
+              </button>
+              <span class="preview-bar__hint">预览不计入下载次数</span>
+            </div>
+
+            <div class="preview-block" v-if="showPreview">
+              <iframe
+                v-if="previewSrc"
+                class="preview-frame"
+                :src="previewSrc"
+                allow="fullscreen; autoplay; clipboard-write"
+                referrerpolicy="same-origin"
+              ></iframe>
+              <div v-else class="preview-hint">
+                <div class="spinner" style="margin: 0 auto 12px;"></div>
+                正在准备预览…
+              </div>
+            </div>
+          </template>
+
+          <!-- 合集 -->
+          <template v-else>
+            <div class="hero tone-bundle">
+              <div class="hero__thumb"><i class="fas fa-boxes-stacked"></i></div>
+              <div class="hero__text">
+                <h1 class="hero__name" :title="displayTitle" v-text="displayTitle"></h1>
+                <div class="hero__sub">
+                  <span v-text="bundleFiles.length + ' 个文件'"></span>
+                  <span v-text="'共 ' + formatSize(bundleTotalSize)"></span>
+                  <span v-if="folderShare"><i class="fas fa-arrows-rotate"></i> 目录实时同步</span>
+                  <span v-if="info.uploadTime" v-text="formatRelative(info.uploadTime)"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="hero__desc" v-if="displayDescription" v-text="displayDescription"></div>
+
+            <div class="blocked" v-if="blockReason">
+              <i class="fas fa-triangle-exclamation"></i>
+              <span v-text="blockReason"></span>
+            </div>
+
+            <!-- 部分成员在上传后被删除：明确提示，不静默少列 -->
+            <div class="bundle-warn" v-if="missingCount > 0">
+              <i class="fas fa-triangle-exclamation"></i>
+              有 {{ missingCount }} 个文件已失效，未在下方列出。
+            </div>
+
+            <div class="toolbar">
+              <div class="search">
+                <i class="fas fa-magnifying-glass"></i>
+                <input class="input" type="search" v-model="bundleQuery" placeholder="搜索文件名" />
+              </div>
+              <select class="select" v-model="bundleSort" aria-label="排序方式">
+                <option value="name">按名称</option>
+                <option value="size">按大小</option>
+                <option value="type">按类型</option>
+              </select>
+              <button class="btn btn--sm btn--icon" type="button" @click="toggleSortDir"
+                      :title="bundleSortDir === 'asc' ? '当前升序，点击改降序' : '当前降序，点击改升序'">
+                <i :class="bundleSortDir === 'asc' ? 'fas fa-arrow-up-short-wide' : 'fas fa-arrow-down-wide-short'"></i>
+              </button>
+              <!-- 列表 / 网格切换：图片类合集用网格挑图比读文件名快得多，
+                   但文档类合集用列表能看清完整文件名 —— 两种都得有。 -->
+              <div class="viewswitch" role="group" aria-label="视图切换">
+                <button type="button" class="viewswitch__btn" :class="{ on: bundleView === 'list' }"
+                        @click="bundleView = 'list'" title="列表视图"><i class="fas fa-list"></i></button>
+                <button type="button" class="viewswitch__btn" :class="{ on: bundleView === 'grid' }"
+                        @click="bundleView = 'grid'" title="网格视图"><i class="fas fa-grip"></i></button>
+              </div>
+            </div>
+
+            <div class="toolbar toolbar--split">
+              <span class="pickline" @click="toggleSelectAllFiltered" style="cursor: pointer;">
+                <span class="check" :class="{ on: allFilteredPicked }">
+                  <i class="fas fa-check"></i>
+                </span>
+                <span>全选</span>
+              </span>
+              <span class="toolbar__stat">
+                已选 <strong>{{ pickedCount }}</strong> · 显示 {{ filteredFiles.length }} / {{ bundleFiles.length }} ·
+                {{ formatSize(filteredTotalSize) }}
+              </span>
+            </div>
+
+            <!-- 空态两种视图共用一份文案，只是外层容器不同 -->
+            <ul class="blist" v-if="bundleView === 'list'">
+              <li v-for="f in filteredFiles" :key="f.fileUrl || f.fileName" class="bitem" :class="{ 'is-picked': f.selected }">
+                <span class="check" :class="{ on: f.selected }" @click.stop="togglePick(f)">
+                  <i class="fas fa-check"></i>
+                </span>
+                <!-- 图片直接上缩略图：读文件名挑图是反人类的 -->
+                <img v-if="isImage(f)" class="bitem__thumb" :src="thumbOf(f)" :alt="f.fileName" loading="lazy" @error="onThumbError($event, f)" />
+                <span v-else class="bitem__icon" :class="toneOf(f)"><i :class="iconOf(f)"></i></span>
+                <span class="bitem__main">
+                  <span class="bitem__name" :title="f.fileName" v-text="f.fileName"></span>
+                  <span class="bitem__sub">
+                    <span v-text="formatSize(f.fileSize)"></span>
+                    <span v-text="labelOf(f)"></span>
+                  </span>
+                </span>
+                <span class="bitem__acts">
+                  <button class="btn btn--ghost btn--icon btn--sm" type="button"
+                          @click.stop="togglePreviewOf(f)"
+                          :disabled="previewLoading"
+                          :title="showPreview && previewKey === f.fileUrl ? '收起预览' : '预览'">
+                    <i :class="showPreview && previewKey === f.fileUrl ? 'fas fa-chevron-up' : 'fas fa-eye'"></i>
+                  </button>
+                  <a class="btn btn--ghost btn--icon btn--sm"
+                     :href="fileDownloadUrl(f)"
+                     :download="f.fileName"
+                     @click="onDownloadClick"
+                     title="下载">
+                    <i class="fas fa-arrow-down"></i>
+                  </a>
+                </span>
+
+                <div class="bitem__preview" v-if="showPreview && previewKey === f.fileUrl">
+                  <iframe
+                    v-if="previewSrc"
+                    class="preview-frame"
+                    :src="previewSrc"
+                    allow="fullscreen; autoplay; clipboard-write"
+                    referrerpolicy="same-origin"
+                  ></iframe>
+                  <div v-else class="preview-hint">
+                    <div class="spinner" style="margin: 0 auto 12px;"></div>
+                    正在准备预览…
+                  </div>
+                </div>
+              </li>
+              <li v-if="!filteredFiles.length" class="blist-empty">
+                <i class="fas fa-magnifying-glass" style="opacity: .6;"></i>
+                没有匹配「{{ bundleQuery }}」的文件
+              </li>
+            </ul>
+
+            <ul class="bgrid" v-else>
+              <li v-for="f in filteredFiles" :key="f.fileUrl || f.fileName"
+                  class="bcell" :class="[toneOf(f), { 'is-picked': f.selected }]">
+                <img v-if="isImage(f)" class="bcell__pic" :src="thumbOf(f)" :alt="f.fileName" loading="lazy" @error="onThumbError($event, f)" />
+                <div v-else class="bcell__ph"><i :class="iconOf(f)"></i></div>
+                <span class="check bcell__check" :class="{ on: f.selected }" @click.stop="togglePick(f)">
+                  <i class="fas fa-check"></i>
+                </span>
+                <span class="bcell__acts">
+                  <button class="btn btn--ghost btn--icon btn--sm" type="button"
+                          @click.stop="togglePreviewOf(f)" title="预览">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                  <a class="btn btn--ghost btn--icon btn--sm"
+                     :href="fileDownloadUrl(f)" :download="f.fileName"
+                     @click="onDownloadClick" title="下载">
+                    <i class="fas fa-arrow-down"></i>
+                  </a>
+                </span>
+                <span class="bcell__name" :title="f.fileName" v-text="f.fileName"></span>
+                <span class="bcell__meta" v-text="formatSize(f.fileSize)"></span>
+              </li>
+              <li v-if="!filteredFiles.length" class="blist-empty" style="grid-column: 1 / -1;">
+                <i class="fas fa-magnifying-glass" style="opacity: .6;"></i>
+                没有匹配「{{ bundleQuery }}」的文件
+              </li>
+            </ul>
+
+            <!-- 网格单元塞不进 iframe，预览单独挂在清单下方。
+                 列表视图里预览跟在对应行后面（见 .bitem__preview），两者互斥。 -->
+            <div class="preview-block" v-if="gridPreviewVisible">
+              <iframe
+                v-if="previewSrc"
+                class="preview-frame"
+                :src="previewSrc"
+                allow="fullscreen; autoplay; clipboard-write"
+                referrerpolicy="same-origin"
+              ></iframe>
+              <div v-else class="preview-hint">
+                <div class="spinner" style="margin: 0 auto 12px;"></div>
+                正在准备预览…
+              </div>
+            </div>
+          </template>
+        </section>
+
+        <!-- ---------- 右：操作 + 元信息 ---------- -->
+        <aside class="side">
+          <section class="card">
+            <div class="side__actions">
+              <template v-if="!isBundle">
+                <!-- 过期 / 次数用尽：直接给一个 disabled 按钮，而不是放一条
+                     点了才报 410 的链接 —— 失败原因上面已经写清楚了。 -->
+                <button v-if="blockReason" class="btn btn--lg" type="button" disabled>
+                  <i class="fas fa-ban"></i> 无法下载
+                </button>
+                <a
+                  v-else
+                  class="btn btn--primary btn--lg"
+                  :href="downloadUrl"
+                  :download="info.fileName"
+                  @click="onDownloadClick"
+                >
+                  <i class="fas fa-arrow-down"></i> 下载文件
+                </a>
+                <button
+                  v-if="!blockReason && canFastDownload && !fastDl.active"
+                  class="btn btn--lg"
+                  type="button"
+                  @click="startFastDownload"
+                >
+                  <i class="fas fa-bolt"></i> 多路断点加速下载
+                </button>
+                <div v-if="fastDl.active" class="meta__meter">
+                  <div class="progress">
+                    <div class="progress__val" :style="{ transform: 'scaleX(' + (fastDl.percent / 100) + ')' }"></div>
+                  </div>
+                  <p class="side__hint" v-text="fastDlSummary"></p>
+                  <div class="side__linkrow">
+                    <button class="btn btn--sm" type="button" @click="toggleFastDownloadPause">
+                      <i class="fas" :class="fastDl.paused ? 'fa-play' : 'fa-pause'"></i>
+                      <span v-text="fastDl.paused ? '继续' : '暂停'"></span>
+                    </button>
+                    <button class="btn btn--sm" type="button" @click="cancelFastDownload">
+                      <i class="fas fa-xmark"></i> 取消
+                    </button>
+                  </div>
+                </div>
+                <p class="side__hint" v-text="blockReason ? '当前无法下载' : actionHint"></p>
+                <div class="side__linkrow">
+                  <button class="btn btn--sm" type="button" @click="copyShareLink">
+                    <i class="fas fa-link"></i> 复制链接
+                  </button>
+                  <button class="btn btn--sm" type="button" @click="qrVisible = true">
+                    <i class="fas fa-qrcode"></i> 二维码
+                  </button>
+                </div>
+              </template>
+              <template v-else>
+                <button class="btn btn--primary btn--lg" type="button" @click="downloadPicked" :disabled="!pickedCount">
+                  <i class="fas fa-arrow-down"></i>
+                  <span v-text="pickedCount ? '下载所选（' + pickedCount + '）' : '下载所选'"></span>
+                </button>
+                <button class="btn btn--lg" type="button" @click="downloadAll">
+                  <i class="fas fa-layer-group"></i> 下载全部（{{ bundleFiles.length }}）
+                </button>
+                <p class="side__hint" v-text="actionHint"></p>
+                <p class="side__hint" v-if="pickedCount">
+                  已选 {{ pickedCount }} 个 · 共 {{ formatSize(pickedTotalSize) }}
+                </p>
+                <p class="side__hint">
+                  多个文件会依次触发下载，浏览器可能会询问是否允许。下载全部会一次消耗 {{ bundleFiles.length }} 次配额。
+                </p>
+                <div class="side__linkrow">
+                  <button class="btn btn--sm" type="button" @click="copyShareLink">
+                    <i class="fas fa-link"></i> 复制链接
+                  </button>
+                  <button class="btn btn--sm" type="button" @click="qrVisible = true">
+                    <i class="fas fa-qrcode"></i> 二维码
+                  </button>
+                </div>
+              </template>
+            </div>
+
+            <div class="meta">
+              <div class="meta__title"><i class="fas fa-circle-info"></i> 分享信息</div>
+
+              <div class="meta__row">
+                <span class="meta__k">类型</span>
+                <span class="meta__v" v-text="isBundle ? (folderShare ? '目录分享' : '合集分享') : typeLabel"></span>
+              </div>
+
+              <!-- 自定义标题 ≠ 文件名：下载下来的是后者，必须在元信息里留一份，
+                   否则"我明明要的是 A，怎么存下来叫 B"。 -->
+              <div class="meta__row" v-if="!isBundle && displayTitle !== info.fileName">
+                <span class="meta__k">文件名</span>
+                <span class="meta__v meta__v--muted" v-text="info.fileName"></span>
+              </div>
+
+              <div class="meta__row" v-if="isBundle">
+                <span class="meta__k">文件数</span>
+                <span class="meta__v">
+                  {{ bundleFiles.length }} 个
+                  <span class="meta__note" v-text="bundleTypeSummary"></span>
+                </span>
+              </div>
+
+              <div class="meta__row">
+                <span class="meta__k">大小</span>
+                <span class="meta__v" v-text="formatSize(isBundle ? bundleTotalSize : info.fileSize)"></span>
+              </div>
+
+              <div class="meta__row" v-if="info.uploadTime">
+                <span class="meta__k">分享时间</span>
+                <span class="meta__v meta__v--muted">
+                  {{ formatDate(info.uploadTime) }}
+                  <span class="meta__note" v-text="formatRelative(info.uploadTime)"></span>
+                </span>
+              </div>
+
+              <div class="meta__row" :class="expiryRowTone">
+                <span class="meta__k">有效期</span>
+                <span class="meta__v">
+                  <template v-if="!expiryInfo">永久有效</template>
+                  <template v-else-if="expiryInfo.expired">已过期</template>
+                  <template v-else>
+                    还剩 {{ formatDuration(expiryInfo.remain) }}
+                    <span class="meta__note" v-text="'截止 ' + formatDate(expiryInfo.abs)"></span>
+                  </template>
+                  <div class="meta__meter" v-if="expiryInfo && !expiryInfo.expired && expiryInfo.usedPct > 0">
+                    <div class="progress">
+                      <div class="progress__val" :style="{ transform: 'scaleX(' + (expiryInfo.usedPct / 100) + ')' }"></div>
+                    </div>
+                  </div>
+                </span>
+              </div>
+
+              <div class="meta__row" :class="quotaRowTone">
+                <span class="meta__k">下载次数</span>
+                <span class="meta__v">
+                  <template v-if="!quotaInfo.limited">
+                    不限次数
+                    <span class="meta__note" v-text="'已下载 ' + quotaInfo.count + ' 次'"></span>
+                  </template>
+                  <template v-else-if="quotaInfo.exhausted">
+                    已用尽
+                    <span class="meta__note" v-text="'上限 ' + quotaInfo.max + ' 次'"></span>
+                  </template>
+                  <template v-else>
+                    剩余 {{ quotaInfo.remain }} / {{ quotaInfo.max }} 次
+                    <span class="meta__note" v-text="'已下载 ' + quotaInfo.count + ' 次'"></span>
+                  </template>
+                  <div class="meta__meter" v-if="quotaInfo.limited">
+                    <div class="progress">
+                      <div class="progress__val" :style="{
+                        transform: 'scaleX(' + (quotaInfo.usedPct / 100) + ')',
+                        background: quotaInfo.exhausted ? 'var(--c-danger)'
+                          : (quotaInfo.remain <= 1 ? 'var(--warn)' : 'linear-gradient(90deg, var(--primary-light), var(--primary))')
+                      }"></div>
+                    </div>
+                  </div>
+                </span>
+              </div>
+
+              <div class="meta__row">
+                <span class="meta__k">访问密码</span>
+                <span class="meta__v meta__v--muted">
+                  <i :class="info.passwordProtected ? 'fas fa-lock' : 'fas fa-lock-open'" style="margin-right: 4px;"></i>
+                  <span v-text="info.passwordProtected ? '需要密码' : '公开访问'"></span>
+                </span>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <!-- ===== 二维码 =====
+         手机上"给旁边的人扫一下"比复制一串链接再发过去快得多。
+         纯前端生成（vendor/qrcode.js），链接不过任何第三方服务。 -->
+    <transition name="dialog">
+    <div class="overlay" v-if="qrVisible" @click.self="qrVisible = false">
+      <div class="dialog-panel qr-panel">
+        <h2 class="dialog-title"><i class="fas fa-qrcode"></i><span>扫码打开</span></h2>
+        <div class="dialog-message" style="word-break:break-all">{{ displayTitle }}</div>
+        <div class="qr-stage" v-if="shareQr" v-html="shareQr"></div>
+        <div class="share-result__url" style="display:flex;align-items:center;gap:7px;margin-top:10px">
+          <code style="flex:1;min-width:0;word-break:break-all;font-size:.74rem">{{ shareUrl }}</code>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn" @click="qrVisible = false">关闭</button>
+          <button class="btn btn--primary" @click="copyShareLink"><i class="fas fa-copy"></i> 复制链接</button>
+        </div>
+      </div>
+    </div>
+
+    </transition>
+
+    <div class="toast-stack">
+      <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type" v-text="t.text"></div>
+    </div>
+  </main>
+</div>
+
+<!-- Vue 3 全局构建（含模板编译器）。与 index.html 同一套运行时，不引 @vue/compat。 -->
+<script src="/assets/vendor/vue.global.prod.min.js"></script>
+<!-- 二维码生成（零依赖本地实现，见 vendor/qrcode.js）。
+     与 index.html 保持一致：排在 Vue 之后、业务脚本之前。它只挂 window.QRCode，
+     由 shareQr 这个 computed 同步调用 —— 只要在 mount 之前就绪即可，
+     而 mount 发生在下面的内联脚本里。 -->
+<script src="/assets/vendor/qrcode.js"></script>
+<script>
+/* 启动兜底：CDN 被拦截 / 网络异常时，#app 会永远带着 v-cloak 保持空白。
+   8 秒后仍未挂载就渲染一个可操作的错误页。 */
+setTimeout(function () {
+  var el = document.getElementById('app');
+  if (el && el.hasAttribute('v-cloak')) {
+    el.removeAttribute('v-cloak');
+    el.innerHTML =
+      '<div style="max-width:520px;margin:80px auto;padding:0 24px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif">' +
+        '<p style="font-size:1.15rem;font-weight:800;color:#0f172a">脚本加载失败</p>' +
+        '<p style="margin-top:10px;color:#475569;line-height:1.7;font-size:.9rem">请检查网络连接后重试。</p>' +
+        '<button onclick="location.reload()" style="margin-top:18px;padding:12px 26px;border-radius:999px;border:0;' +
+        'background:#0284c7;color:#fff;font-size:.9rem;font-weight:700;cursor:pointer">重新加载</button>' +
+      '</div>';
+  }
+}, 8000);
+</script>
+<script>
+(function () {
+  'use strict';
+
+  var THEME_KEY = 'k-vault-share-theme';
+
+  /* 文件类型 → 图标 / 中文名 / 配色。
+     与 index.html 的 getFileIcon 用同一套 FontAwesome 命名，全站观感一致；
+     配色走页面内的 --tone / --tone-soft 局部令牌（见 <style> 的 .tone-*）。 */
+  var TYPE_META = {
+    image:    { icon: 'fas fa-image',      label: '图片', tone: 'tone-image' },
+    video:    { icon: 'fas fa-video',      label: '视频', tone: 'tone-video' },
+    audio:    { icon: 'fas fa-music',      label: '音频', tone: 'tone-audio' },
+    document: { icon: 'fas fa-file-lines', label: '文档', tone: 'tone-doc' }
+  };
+
+  /* 压缩包 / PDF / 表格等在服务端只归到 document，这里按扩展名再细分一层，
+     让清单里一眼能分出「文档」和「压缩包」。 */
+  var EXT_META = [
+    { ext: ['zip', 'rar', '7z', 'tar', 'gz', 'bz2'], icon: 'fas fa-file-zipper', label: '压缩包', tone: 'tone-archive' },
+    { ext: ['pdf'], icon: 'fas fa-file-pdf', label: 'PDF', tone: 'tone-doc' },
+    { ext: ['doc', 'docx'], icon: 'fas fa-file-word', label: 'Word', tone: 'tone-doc' },
+    { ext: ['xls', 'xlsx', 'csv'], icon: 'fas fa-file-excel', label: '表格', tone: 'tone-doc' },
+    { ext: ['ppt', 'pptx'], icon: 'fas fa-file-powerpoint', label: '演示稿', tone: 'tone-doc' },
+    { ext: ['txt', 'md', 'log'], icon: 'fas fa-file-lines', label: '文本', tone: 'tone-doc' },
+    { ext: ['json', 'xml', 'yml', 'yaml', 'html', 'css', 'js'], icon: 'fas fa-file-code', label: '代码', tone: 'tone-doc' }
+  ];
+
+  function extOf(name) {
+    var s = String(name || '');
+    var i = s.lastIndexOf('.');
+    return i < 0 ? '' : s.slice(i + 1).toLowerCase();
+  }
+
+  /** 类型元信息：先看扩展名细分，回落服务端的 fileType，再回落「文件」。 */
+  function metaOf(fileType, fileName) {
+    var ext = extOf(fileName);
+    for (var i = 0; i < EXT_META.length; i++) {
+      if (EXT_META[i].ext.indexOf(ext) !== -1) return EXT_META[i];
+    }
+    return TYPE_META[fileType] || { icon: 'fas fa-file', label: '文件', tone: 'tone-doc' };
+  }
+
+  var shareApp = Vue.createApp({
+    data() {
+      return {
+        // loading | password | error | ready
+        state: 'loading',
+
+        // 分享标识：来自 /s/:slug 的 302 跳转
+        shareId: '',
+
+        // 合集模式：`?b=` 走合集，`?s=` 走单文件。
+        // 两者的元信息请求与状态码处理共用同一套流程，只在渲染层分叉。
+        isBundle: false,
+        bundleFiles: [],
+        // 服务端声明的成员总数，与 bundleFiles.length 的差额即失效文件数
+        bundleExpectedCount: 0,
+        // 合集清单的筛选 / 排序（纯前端，不回服务端）
+        bundleQuery: '',
+        bundleSort: 'name',
+        bundleSortDir: 'asc',
+        // 清单视图：列表（看清完整文件名）/ 网格（图片挑得快）
+        bundleView: 'list',
+        // 目录实时分享标记：hero 上要挂「实时同步」的说明
+        folderShare: false,
+
+        // 分享者自定义的展示文案（来自 /api/share-info 的 title / description）
+        shareTitle: '',
+        shareDescription: '',
+        // 目录分享时服务端给的目录名，作为标题的最后一级兜底
+        folderName: '',
+
+        // 文件信息（来自 /api/share-info）
+        info: {
+          fileName: '',
+          fileSize: 0,
+          fileType: 'document',
+          fileUrl: '',
+          filePasswordRequired: false,
+          expiresAt: null,
+          maxDownloads: null,
+          downloadCount: 0,
+          remainingDownloads: null,
+          passwordProtected: false,
+          uploadTime: null
+        },
+
+        // 密码只存内存：刷新页面需重新输入，也不写进 localStorage / URL
+        passwordInput: '',
+        passwordValue: '',
+        passwordError: '',
+        verifying: false,
+
+        // 失效态文案
+        errorTitle: '',
+        errorMessage: '',
+        errorIcon: 'fas fa-triangle-exclamation',
+        errorTone: 'danger',
+
+        // 预览
+        showPreview: false,
+        previewLoading: false,
+        previewSrc: '',
+        /* 合集模式下记录当前展开的是**哪个成员**。
+           原来是 filteredFiles 的下标 —— 排序或搜索一变，同一个下标就指向
+           另一个文件，预览会被挂到错误的文件上（而且看起来"像 bug 又不报错"）。
+           改用 fileUrl 作键，顺序怎么变都不会错位。单文件模式恒为空串。 */
+        previewKey: '',
+        // 二维码浮层
+        qrVisible: false,
+
+        theme: 'light',
+        toasts: [],
+        toastSeed: 0,
+        // 有效期倒计时的触发源
+        now: Date.now(),
+        tickTimer: null,
+        // 多路断点加速下载状态
+        fastDl: {
+          active: false,
+          paused: false,
+          percent: 0,
+          loaded: 0,
+          total: 0,
+          speedBps: 0,
+          etaSeconds: 0,
+          cooldownSec: 0,
+          lanes: 0,
+          controller: null
+        }
+      };
+    },
+
+    computed: {
+      iconClass: function () { return metaOf(this.info.fileType, this.info.fileName).icon; },
+      toneClass: function () { return metaOf(this.info.fileType, this.info.fileName).tone; },
+      typeLabel: function () { return metaOf(this.info.fileType, this.info.fileName).label; },
+
+      /**
+       * 展示标题的三级兜底：分享者自定义 > 目录名（目录分享）> 数量概括 / 真实文件名。
+       *
+       * 注意它**只**用于展示：下载链接、文件名元信息走的始终是 info.fileName。
+       * 自定义标题里出现 `../../` 之类的字符也不会影响真实路径 —— 两者在数据流上隔离。
+       */
+      displayTitle: function () {
+        if (this.shareTitle) return this.shareTitle;
+
+        if (this.isBundle) {
+          // 目录实时分享：目录名比"N 个文件"有意义得多；没有名字才退回数量。
+          if (this.folderShare && this.folderName) return this.folderName;
+          return this.bundleTitle;
+        }
+        return this.info.fileName || '未命名文件';
+      },
+
+      /**
+       * 网格视图下方的预览块是否该显示。
+       *
+       * 预览块是**独立于清单**的一块（网格单元塞不进 iframe），所以搜索把
+       * 被预览的文件过滤掉时，它不会跟着消失 —— 会留下一个"预览着另一个文件"
+       * 的孤儿块。这里显式要求被预览的成员仍在当前筛选结果里。
+       */
+      gridPreviewVisible: function () {
+        if (this.bundleView !== 'grid' || !this.showPreview || !this.previewKey) return false;
+        var key = this.previewKey;
+        for (var i = 0; i < this.filteredFiles.length; i += 1) {
+          if (this.filteredFiles[i].fileUrl === key) return true;
+        }
+        return false;
+      },
+
+      /** 分享说明：没有就返回空串，模板用 v-if 收掉整块，不留空白。 */
+      displayDescription: function () { return this.shareDescription || ''; },
+
+      /** 合集标题：文件名清单太长，用数量概括。 */
+      bundleTitle: function () {
+        return this.bundleFiles.length + ' 个文件的合集';
+      },
+
+      /** 当前分享链接。用 location.href 而非手工拼接 ——
+          短链路径、query、hash 任何一种变化都不用在这里同步改一遍。 */
+      shareUrl: function () {
+        try { return window.location.href; } catch (e) { return ''; }
+      },
+
+      /**
+       * 分享链接的二维码 SVG。
+       *
+       * 纯本地生成：链接不经过任何第三方服务，也不发请求。
+       * 库没加载出来时返回空串，浮层里的码位留白 —— 远比抛一个 Vue 渲染异常好。
+       */
+      shareQr: function () {
+        var lib = (typeof window !== 'undefined') ? window.QRCode : null;
+        var url = this.shareUrl;
+        if (!lib || !url) return '';
+        try {
+          // 库支持到版本 10；奇长无比的链接先问一句，别让 matrix() 抛异常。
+          if (lib.canEncode && !lib.canEncode(url, 'M')) return '';
+          // M 级纠错：手机隔着屏幕扫，轻微反光/压缩也不至于读不出来。
+          return lib.toSvg(url, { ecl: 'M', margin: 2, dark: '#0f172a' });
+        } catch (e) {
+          console.error('qrcode render failed:', e);
+          return '';
+        }
+      },
+
+      bundleTotalSize: function () {
+        var total = 0;
+        for (var i = 0; i < this.bundleFiles.length; i++) {
+          total += Number(this.bundleFiles[i].fileSize) || 0;
+        }
+        return total;
+      },
+
+      /** 失效成员数：服务端声明的总数减去实际返回的条数。 */
+      missingCount: function () {
+        if (!this.isBundle) return 0;
+        return Math.max(0, this.bundleExpectedCount - this.bundleFiles.length);
+      },
+
+      /** 按关键词 + 排序规则派生出的清单。原数组不动，勾选状态因此不受排序影响。 */
+      filteredFiles: function () {
+        var q = String(this.bundleQuery || '').trim().toLowerCase();
+        var list = this.bundleFiles.filter(function (f) {
+          if (!q) return true;
+          return String(f.fileName || '').toLowerCase().indexOf(q) !== -1;
+        });
+
+        var key = this.bundleSort;
+        var dir = this.bundleSortDir === 'asc' ? 1 : -1;
+        return list.slice().sort(function (a, b) {
+          var r = 0;
+          if (key === 'size') {
+            r = (Number(a.fileSize) || 0) - (Number(b.fileSize) || 0);
+          } else if (key === 'type') {
+            var ta = metaOf(a.fileType, a.fileName).label;
+            var tb = metaOf(b.fileType, b.fileName).label;
+            r = ta.localeCompare(tb, 'zh-Hans-CN') || String(a.fileName).localeCompare(String(b.fileName), 'zh-Hans-CN');
+          } else {
+            r = String(a.fileName).localeCompare(String(b.fileName), 'zh-Hans-CN');
+          }
+          return r * dir;
+        });
+      },
+
+      filteredTotalSize: function () {
+        var total = 0;
+        for (var i = 0; i < this.filteredFiles.length; i++) {
+          total += Number(this.filteredFiles[i].fileSize) || 0;
+        }
+        return total;
+      },
+
+      pickedFiles: function () {
+        return this.bundleFiles.filter(function (f) { return !!f.selected; });
+      },
+      pickedCount: function () { return this.pickedFiles.length; },
+
+      /** 已选文件的总体积。侧栏那条「已选 N 个 · 共 X」用它。 */
+      pickedTotalSize: function () {
+        var total = 0;
+        var list = this.pickedFiles;
+        for (var i = 0; i < list.length; i++) total += Number(list[i].fileSize) || 0;
+        return total;
+      },
+      /** 「全选」只对当前筛选结果生效 —— 搜索出一个文件点全选，不该把没显示的也勾上。 */
+      allFilteredPicked: function () {
+        var list = this.filteredFiles;
+        if (!list.length) return false;
+        for (var i = 0; i < list.length; i++) if (!list[i].selected) return false;
+        return true;
+      },
+
+      /** 类型分布，例如「3 图片 · 2 视频」。 */
+      bundleTypeSummary: function () {
+        var counts = {};
+        var order = [];
+        for (var i = 0; i < this.bundleFiles.length; i++) {
+          var label = metaOf(this.bundleFiles[i].fileType, this.bundleFiles[i].fileName).label;
+          if (!counts[label]) { counts[label] = 0; order.push(label); }
+          counts[label] += 1;
+        }
+        if (!order.length) return '';
+        var parts = [];
+        for (var j = 0; j < order.length; j++) parts.push(counts[order[j]] + ' ' + order[j]);
+        return parts.join(' · ');
+      },
+
+      /**
+       * 下载地址：在 fileUrl 上追加 dl=1。
+       *
+       * file 路由只有在看到 dl=1 时才把 Content-Disposition 切成 attachment
+       * 并计入下载次数 —— 预览（iframe 里的普通 GET）不会计数。
+       *
+       * fileUrl 是服务端给的 `/file/<kvKey>`，本身不带查询串，但仍按
+       * 「可能已有 query」处理，避免将来拼接出 `?a=1?dl=1`。
+       */
+      downloadUrl: function () {
+        return this.fileDownloadUrl(this.info);
+      },
+
+      /** 有效期：绝对时间 + 剩余时长 + 已用比例（用于进度条）。 */
+      expiryInfo: function () {
+        var exp = Number(this.info.expiresAt) || 0;
+        if (!exp) return null;
+        var remain = exp - this.now;
+        var start = Number(this.info.uploadTime) || 0;
+        var total = start > 0 && exp > start ? (exp - start) : 0;
+        var usedPct = total > 0
+          ? Math.min(100, Math.max(0, ((this.now - start) / total) * 100))
+          : 0;
+        return { expired: remain <= 0, remain: remain, abs: exp, usedPct: usedPct };
+      },
+
+      /** 配额：是否限量、剩余、已用比例。不限量时只报已下载次数。 */
+      quotaInfo: function () {
+        var max = this.info.maxDownloads;
+        var count = Number(this.info.downloadCount) || 0;
+        if (max === null || max === undefined || !max) {
+          return { limited: false, count: count };
+        }
+        var remain = this.remaining;
+        return {
+          limited: true,
+          max: max,
+          count: count,
+          remain: remain,
+          exhausted: remain <= 0,
+          usedPct: Math.min(100, Math.max(0, ((max - remain) / max) * 100))
+        };
+      },
+
+      remaining: function () {
+        if (this.info.remainingDownloads !== null && this.info.remainingDownloads !== undefined) {
+          return this.info.remainingDownloads;
+        }
+        if (!this.info.maxDownloads) return 0;
+        return Math.max(0, this.info.maxDownloads - this.info.downloadCount);
+      },
+
+      /** 过期 / 用尽：与其让用户点了下载才吃到 410，不如先说清楚。 */
+      blockReason: function () {
+        if (this.expiryInfo && this.expiryInfo.expired) return '这份分享已过期，无法下载。';
+        if (this.quotaInfo.limited && this.quotaInfo.exhausted) return '下载次数已用尽，无法下载。';
+        return '';
+      },
+      expiryRowTone: function () {
+        if (!this.expiryInfo) return '';
+        return this.expiryInfo.expired ? 'meta__row--danger' : (this.expiryInfo.usedPct > 75 ? 'meta__row--warn' : '');
+      },
+      quotaRowTone: function () {
+        if (!this.quotaInfo.limited) return '';
+        return this.quotaInfo.exhausted ? 'meta__row--danger' : (this.quotaInfo.remain <= 1 ? 'meta__row--warn' : '');
+      },
+      actionHint: function () {
+        if (this.quotaInfo.limited) return '剩余 ' + this.remaining + ' 次下载机会';
+        return '下载会计入分享者的次数统计';
+      },
+      canFastDownload: function () {
+        if (this.isBundle || this.blockReason || this.quotaInfo.limited) return false;
+        if (typeof KVault === 'undefined' || typeof KVault.downloadResumable !== 'function') return false;
+        if (typeof KVault.detectInAppBrowser === 'function' && KVault.detectInAppBrowser()) return false;
+        return Number(this.info.fileSize) >= 8 * 1024 * 1024;
+      },
+      fastDlSummary: function () {
+        if (this.fastDl.paused) return '已暂停 · ' + this.fastDl.percent + '%';
+        if (this.fastDl.cooldownSec > 0) {
+          return '频控等待 ' + this.fastDl.cooldownSec + 's · ' + this.fastDl.percent + '%';
+        }
+        var speed = this.fastDl.speedBps > 0 ? (' · ' + this.formatSize(this.fastDl.speedBps) + '/s') : '';
+        var eta = '';
+        var s = Math.ceil(Number(this.fastDl.etaSeconds) || 0);
+        if (s > 0 && s <= 86400) {
+          if (s < 60) eta = ' · 剩余 ' + s + 's';
+          else if (s < 3600) {
+            var m = Math.floor(s / 60);
+            var rs = s % 60;
+            eta = ' · 剩余 ' + m + '分' + (rs > 0 ? (rs + '秒') : '');
+          } else {
+            var h = Math.floor(s / 3600);
+            var rm = Math.floor((s % 3600) / 60);
+            eta = ' · 剩余 ' + h + '小时' + (rm > 0 ? (rm + '分') : '');
+          }
+        }
+        var lanes = this.fastDl.lanes > 1 ? (' · ' + this.fastDl.lanes + ' 路并发') : '';
+        return '加速下载中 ' + this.fastDl.percent + '%' + speed + eta + lanes;
+      }
+    },
+
+    mounted: function () {
+      this.initTheme();
+      var target = this.readShareTarget();
+      this.shareId = target.value;
+      this.isBundle = target.isBundle;
+      if (!this.shareId) {
+        this.showError('链接不完整', '这个分享链接缺少必要参数，请向分享者索取完整链接。', 'fas fa-link', 'danger');
+        return;
+      }
+      this.loadInfo();
+      // 有效期徽章需要走字；每 30 秒刷新一次足够（不是秒级倒计时场景）
+      this.tickTimer = setInterval(function () { this.now = Date.now(); }.bind(this), 30000);
+      // 合集 / 文件夹分享：定时静默刷新，使上传后的新文件「实时」出现在列表里。
+      // 仅当合集已就绪且页面可见时刷新，避免后台标签页空耗请求。
+      this.bundleRefreshTimer = setInterval(function () {
+        if (this.isBundle && this.state === 'ready' && !document.hidden) {
+          this.loadInfo({ silent: true });
+        }
+      }.bind(this), 20000);
+    },
+
+    beforeUnmount: function () {
+      if (this.tickTimer) clearInterval(this.tickTimer);
+      if (this.bundleRefreshTimer) clearInterval(this.bundleRefreshTimer);
+      if (this.fastDl && this.fastDl.controller) {
+        try { this.fastDl.controller.cancel(); } catch (e) {}
+      }
+    },
+
+    methods: {
+      // ---------- 主题 ----------
+      initTheme: function () {
+        var saved = '';
+        try { saved = localStorage.getItem(THEME_KEY) || ''; } catch (e) {}
+        if (saved !== 'dark' && saved !== 'light') {
+          saved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark' : 'light';
+        }
+        this.theme = saved;
+        this.applyTheme();
+      },
+      toggleTheme: function () {
+        this.theme = this.theme === 'dark' ? 'light' : 'dark';
+        this.applyTheme();
+        try { localStorage.setItem(THEME_KEY, this.theme); } catch (e) {}
+      },
+      applyTheme: function () {
+        document.documentElement.setAttribute('data-theme', this.theme);
+      },
+
+      // ---------- URL 参数 ----------
+      /**
+       * 读取分享目标。
+       *
+       * 优先 `?b=`（合集）：它与 `?s=` 互斥，由 `/s/:slug` 判定命名空间后
+       * 写入，因此这里看到 `b` 就一定是合集。
+       *
+       * 兼容 `?s=`（短链跳转）与 `?id=` / `?slug=`（手工拼的链接），
+       * 这三者都按单文件处理，保持既有行为。
+       *
+       * @returns `{ value: string, isBundle: boolean }`
+       */
+      readShareTarget: function () {
+        var params = new URLSearchParams(window.location.search);
+        var bundle = String(params.get('b') || '').trim();
+        if (bundle) return { value: bundle, isBundle: true };
+        return {
+          value: String(params.get('s') || params.get('slug') || params.get('id') || '').trim(),
+          isBundle: false
+        };
+      },
+
+      // ---------- 拉取信息 ----------
+      loadInfo: function (options) {
+        var opts = options || {};
+        var self = this;
+        var key = this.isBundle ? 'b' : 's';
+        var url = '/api/share-info?' + key + '=' + encodeURIComponent(this.shareId);
+        if (this.passwordValue) {
+          url += '&password=' + encodeURIComponent(this.passwordValue);
+        }
+
+        if (!opts.silent) this.state = 'loading';
+        this.verifying = true;
+
+        fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+          .then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (body) {
+              return { status: res.status, body: body };
+            });
+          })
+          .then(function (result) {
+            self.verifying = false;
+            self.handleInfoResult(result.status, result.body, opts);
+          })
+          .catch(function (err) {
+            self.verifying = false;
+            self.showError(
+              '加载失败',
+              '无法连接到服务器，请检查网络后重试。',
+              'fas fa-plug-circle-xmark', 'danger'
+            );
+            console.error('share-info request failed:', err);
+          });
+      },
+
+      handleInfoResult: function (status, body, opts) {
+        var data = body || {};
+
+        if (status === 200) {
+          // 合集与单文件共用 info 中的有效期/次数/密码字段，
+          // 只在文件清单上分叉。
+          var files = Array.isArray(data.files) ? data.files : [];
+
+          /* 展示文案先落位，再拼 info ——
+             displayTitle 依赖 shareTitle / folderName，晚一步赋值会让首帧
+             先闪一下真实文件名再跳成自定义名。 */
+          this.shareTitle = data.title || '';
+          this.shareDescription = data.description || '';
+          this.folderName = data.folderName || '';
+          // 目录实时分享：成员会随源目录变化，hero 上要显式说明，
+          // 否则"我分享的是 12 个，进来变成 15 个"会被当成 bug。
+          this.folderShare = Boolean(data.folderShare || data.folderName);
+
+          this.info = {
+            fileName: data.fileName || (data.bundle ? this.bundleTitle : '未命名文件'),
+            fileSize: Number(data.fileSize) || 0,
+            fileType: data.fileType || 'document',
+            fileUrl: data.fileUrl || '',
+            filePasswordRequired: Boolean(data.filePasswordRequired),
+            expiresAt: data.expiresAt || null,
+            maxDownloads: data.maxDownloads === undefined ? null : data.maxDownloads,
+            downloadCount: Number(data.downloadCount) || 0,
+            remainingDownloads: data.remainingDownloads === undefined ? null : data.remainingDownloads,
+            passwordProtected: Boolean(data.passwordProtected),
+            // 合集的时间字段叫 createdAt，单文件叫 uploadTime，这里统一取前者兜底
+            uploadTime: data.uploadTime || data.createdAt || null
+          };
+
+          if (data.bundle) {
+            /* 静默刷新（下载后更新剩余次数）时按 fileUrl 保留勾选状态 ——
+               否则用户勾好的文件在一次刷新后全被清掉。 */
+            var prevPicked = {};
+            if (opts && opts.silent) {
+              this.bundleFiles.forEach(function (f) {
+                if (f.fileUrl) prevPicked[f.fileUrl] = !!f.selected;
+              });
+            }
+            this.isBundle = true;
+            this.bundleFiles = files.map(function (f) {
+              return {
+                fileName: f.fileName || '未命名文件',
+                fileSize: Number(f.fileSize) || 0,
+                fileType: f.fileType || 'document',
+                fileUrl: f.fileUrl || '',
+                selected: prevPicked[f.fileUrl] || false
+              };
+            });
+            this.bundleExpectedCount = Number(data.expectedCount) || this.bundleFiles.length;
+          } else {
+            this.bundleFiles = [];
+            this.bundleExpectedCount = 0;
+            this.isBundle = false;
+          }
+
+          this.passwordError = '';
+          this.state = 'ready';
+          this.now = Date.now();
+
+          // 静默刷新（下载后更新剩余次数）时不动 previewSrc，避免正在预览的
+          // iframe 被重建、用户刚拖动到的视频进度被重置。
+          return;
+        }
+
+        // 401：需要密码
+        if (status === 401) {
+          if (opts && opts.fromPasswordSubmit) {
+            this.passwordError = '访问密码不正确。';
+          }
+          this.state = 'password';
+          this.$nextTick(function () {
+            if (this.$refs.passwordField) this.$refs.passwordField.focus();
+          }.bind(this));
+          return;
+        }
+
+        if (status === 403) {
+          if (opts && opts.fromPasswordSubmit) {
+            this.passwordError = '访问密码不正确。';
+            this.state = 'password';
+          } else {
+            this.passwordValue = '';
+            this.showError('密码错误', '访问密码不正确，请重新打开分享链接。', 'fas fa-lock', 'danger');
+          }
+          return;
+        }
+
+        if (status === 410) {
+          if (data.error === 'SHARE_LIMIT_REACHED') {
+            this.showError(
+              '下载次数已用尽',
+              '这份分享的下载次数已经用完，如需继续获取请联系分享者重新分享。',
+              'fas fa-arrow-down-short-wide', 'warn'
+            );
+          } else {
+            this.showError(
+              '分享已过期',
+              '这份分享的有效期已经结束，请联系分享者重新分享。',
+              'fas fa-hourglass-end', 'warn'
+            );
+          }
+          return;
+        }
+
+        if (status === 404) {
+          this.showError(
+            '链接已失效',
+            '这个分享链接不存在，或分享已被取消。请确认链接是否完整、是否正确。',
+            'fas fa-magnifying-glass', 'danger'
+          );
+          return;
+        }
+
+        this.showError(
+          '暂时无法访问',
+          (data && data.message) ? String(data.message) : '服务器返回了意外状态，请稍后重试。',
+          'fas fa-triangle-exclamation', 'danger'
+        );
+      },
+
+      submitPassword: function () {
+        if (!this.passwordInput || this.verifying) return;
+        this.passwordValue = this.passwordInput;
+        this.passwordError = '';
+        this.loadInfo({ fromPasswordSubmit: true });
+      },
+
+      showError: function (title, message, icon, tone) {
+        this.errorTitle = title;
+        this.errorMessage = message;
+        this.errorIcon = icon || 'fas fa-triangle-exclamation';
+        this.errorTone = tone || 'danger';
+        this.state = 'error';
+      },
+
+      reload: function () { window.location.reload(); },
+
+      // ---------- 预览 ----------
+      togglePreview: function () {
+        if (this.showPreview) {
+          this.showPreview = false;
+          return;
+        }
+        this.showPreview = true;
+        // 单文件模式没有"成员"概念，previewKey 恒为空串，
+        // 这样合集切回单文件时不会残留一个指向旧成员的预览块。
+        this.previewKey = '';
+        // 懒加载：只在用户真的点预览时才请求文件，避免无谓的流量
+        if (this.previewSrc) return;
+        this.preparePreview(this.info, -1);
+      },
+
+      /**
+       * 合集模式下切换某个成员的预览。
+       *
+       * 定位键是 fileUrl 而不是下标：清单会随搜索 / 排序 / 升降序重排，
+       * 同一个下标在不同时刻指向不同文件 —— 预览挂错文件比不挂更难受。
+       *
+       * 同一个 iframe 复用：切换成员时重建 src。这里**不**缓存 previewSrc
+       * 跨成员 —— 缓存会让第二次点另一个文件时先闪出上一个文件的内容。
+       */
+      togglePreviewOf: function (file) {
+        var key = file && file.fileUrl ? file.fileUrl : '';
+        if (this.showPreview && this.previewKey === key) {
+          this.showPreview = false;
+          this.previewKey = '';
+          return;
+        }
+        this.showPreview = true;
+        this.previewKey = key;
+        this.previewSrc = '';
+        this.preparePreview(file, -1);
+      },
+
+      /**
+       * 拼出预览地址并交给 iframe。
+       *
+       * 复用 preview.html 的渲染能力，用 embed 模式去掉它自己的顶栏与信息面板。
+       */
+      preparePreview: function (file, index) {
+        var self = this;
+        this.previewLoading = true;
+        var url = this.fileStreamUrl(file);
+        var previewUrl = '/preview.html?url=' + encodeURIComponent(url)
+          + '&title=' + encodeURIComponent(file.fileName)
+          + '&name=' + encodeURIComponent(file.fileName)
+          + '&size=' + encodeURIComponent(String(file.fileSize || 0))
+          + '&embed=1';
+
+        // 给 iframe 一点加载时间再撤掉 loading 文案，否则会闪一下
+        setTimeout(function () {
+          self.previewSrc = previewUrl;
+          self.previewLoading = false;
+        }, 60);
+      },
+
+      // ---------- 下载 ----------
+      /**
+       * 拼接文件流地址（不含 dl=1）。
+       *
+       * 密码透传的判据是 `info.filePasswordRequired`，它对两种形态都成立：
+       *   · 单文件 —— 密码在文件自己的 metadata 上
+       *   · 合集   —— 密码在合集实体上，成员文件并不各自设密码
+       * 两种情况下 file 路由都要求同样的 `password` 查询参数，
+       * 因此这里可以统一处理。
+       */
+      fileStreamUrl: function (file) {
+        if (!file || !file.fileUrl) return '';
+        var url = file.fileUrl;
+        if (this.info.filePasswordRequired && this.passwordValue) {
+          url += (url.indexOf('?') === -1 ? '?' : '&') + 'password=' + encodeURIComponent(this.passwordValue);
+        }
+        return url;
+      },
+
+      /**
+       * 缩略图地址：在流地址基础上把 /file/ 换成 /thumb/，并**保留 query**
+       * （密码随 302 透传给 /file/，受保护的文件因此仍走原本的鉴权）。
+       * 缩略图缺失时服务端 302 回原图，所以这里不需要回退分支。
+       */
+      thumbOf: function (file) {
+        return KVault.thumbUrl(this.fileStreamUrl(file));
+      },
+
+      /** 一次降级：缩略图失败先退回原图流地址（含 password）。 */
+      onThumbError: function (event, file) {
+        if (!event || !event.target || !file) return;
+        if (!file._thumbFallback) {
+          file._thumbFallback = true;
+          event.target.src = this.fileStreamUrl(file);
+        }
+      },
+
+      /** 单品下载地址：文件流地址 + dl=1（file 路由据此切 attachment 并计数）。 */
+      fileDownloadUrl: function (file) {
+        if (!file || !file.fileUrl) return '#';
+        var url = this.fileStreamUrl(file);
+        var sep = url.indexOf('?') === -1 ? '?' : '&';
+        return url + sep + 'dl=1';
+      },
+
+      /**
+       * 是否值得为这个文件上缩略图。
+       *
+       * 判据是服务端的 fileType + 扩展名双通道：fileType 由上传时推断，
+       * 少数历史记录可能只有 document；反过来扩展名是 .jpg 而服务端标了
+       * document 的情况也存在 —— 任一命中就渲染，宁可多渲染一张也不要漏。
+       */
+      isImage: function (file) {
+        if (!file) return false;
+        if (file.fileType === 'image') return true;
+        var ext = extOf(file.fileName);
+        return ext === 'jpg' || ext === 'jpeg' || ext === 'png'
+            || ext === 'gif' || ext === 'webp' || ext === 'avif'
+            || ext === 'bmp' || ext === 'svg';
+      },
+
+      /**
+       * 复制当前分享链接。
+       *
+       * 走共享层 KVault.copy：它已经处理了 navigator.clipboard 不可用
+       * （非安全上下文 / 内网 http 自部署）时的 execCommand 兜底。
+       * 本页再手写一份兜底只会让两套逻辑各自漂移。
+       */
+      copyShareLink: function () {
+        var self = this;
+        var url = this.shareUrl;
+        if (!url) return;
+        KVault.copy(url).then(function (ok) {
+          self.toast(ok ? '链接已复制' : '复制失败，请手动复制', ok ? 'success' : 'error');
+        });
+      },
+
+      /**
+       * 下载走的是一条普通的 `<a download>` 导航，浏览器会带上 dl=1 请求文件流，
+       * file 路由据此切 attachment 并 +1 计数。
+       *
+       * 这里只做一件事：稍后静默刷新一次剩余次数。
+       * 不能立刻刷新 —— 请求可能还没到服务端，读到的会是旧计数。
+       */
+      onDownloadClick: function () {
+        if (this.info.maxDownloads === null || this.info.maxDownloads === undefined) return;
+        if (this.remaining <= 0) return;
+        var self = this;
+        this.toast('已开始下载', 'success');
+        setTimeout(function () {
+          self.loadInfo({ silent: true });
+        }, 1200);
+        // 兜底再查一次：大文件下载耗时更久，计数写入也可能稍慢
+        setTimeout(function () {
+          self.loadInfo({ silent: true });
+        }, 4000);
+      },
+
+      startFastDownload: async function () {
+        if (this.fastDl.active || !this.canFastDownload) return;
+        var self = this;
+        var url = this.fileStreamUrl(this.info);
+        if (!url) return;
+
+        var writable = null;
+        // 超过 256MB 时优先通过 File System Access API 流式直写磁盘，避免浏览器内存溢出
+        if (Number(this.info.fileSize) > 256 * 1024 * 1024 && typeof window.showSaveFilePicker === 'function') {
+          try {
+            var handle = await window.showSaveFilePicker({ suggestedName: this.info.fileName || 'download' });
+            writable = await handle.createWritable();
+          } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            writable = null;
+          }
+        }
+
+        this.fastDl.active = true;
+        this.fastDl.paused = false;
+        this.fastDl.percent = 0;
+        this.fastDl.loaded = 0;
+        this.fastDl.total = Number(this.info.fileSize) || 0;
+        this.fastDl.speedBps = 0;
+        this.fastDl.etaSeconds = 0;
+        this.fastDl.cooldownSec = 0;
+        this.fastDl.lanes = 0;
+
+        var job = KVault.downloadResumable(url, {
+          fileName: this.info.fileName || 'download',
+          maxConcurrency: 6,
+          quotaLimited: Boolean(this.quotaInfo.limited),
+          writable: writable,
+          onProgress: function (p) {
+            self.fastDl.loaded = p.loaded || 0;
+            self.fastDl.total = p.total || self.fastDl.total;
+            self.fastDl.percent = p.percent || 0;
+            self.fastDl.speedBps = p.speedBps || 0;
+            self.fastDl.etaSeconds = p.etaSeconds || 0;
+            self.fastDl.cooldownSec = p.status === 'cooldown' ? (p.cooldownSec || 0) : 0;
+            self.fastDl.lanes = p.activeLanes || 0;
+            self.fastDl.paused = p.status === 'paused';
+          }
+        });
+        this.fastDl.controller = typeof Vue !== 'undefined' && typeof Vue.markRaw === 'function' ? Vue.markRaw(job) : job;
+
+        try {
+          var res = await job.promise;
+          if (res && res.fallbackNative) {
+            var isLargeTg = res.storageHint === 'telegram-chunked' || Number(this.info.fileSize) > 400 * 1024 * 1024;
+            this.toast(
+              isLargeTg
+                ? '已切换浏览器原生下载；超大 Telegram 文件若中途中断，建议用桌面 Chrome/Edge 加速下载或支持 Range 续传的下载器'
+                : '文件较大，已切换为浏览器原生下载',
+              'info'
+            );
+            var a = document.createElement('a');
+            a.href = this.downloadUrl;
+            a.download = this.info.fileName || '';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } else {
+            this.toast('下载完成', 'success');
+          }
+        } catch (err) {
+          if (writable && typeof writable.abort === 'function') {
+            try { await writable.abort(); } catch (e) {}
+          }
+          if (!err || err.message !== '__CANCELLED__') {
+            this.toast((err && err.message) || '加速下载失败，请使用普通下载', 'error');
+          }
+        } finally {
+          this.fastDl.active = false;
+          this.fastDl.paused = false;
+          this.fastDl.etaSeconds = 0;
+          this.fastDl.cooldownSec = 0;
+          this.fastDl.controller = null;
+        }
+      },
+
+      toggleFastDownloadPause: function () {
+        var ctrl = this.fastDl.controller;
+        if (!ctrl) return;
+        if (this.fastDl.paused) {
+          this.fastDl.paused = false;
+          ctrl.resume();
+        } else {
+          this.fastDl.paused = true;
+          ctrl.pause();
+        }
+      },
+
+      cancelFastDownload: function () {
+        var ctrl = this.fastDl.controller;
+        if (ctrl) ctrl.cancel();
+        this.fastDl.active = false;
+        this.fastDl.paused = false;
+        this.fastDl.controller = null;
+        this.toast('已取消下载', 'info');
+      },
+
+      /**
+       * 串行下载一串文件，每个之间留 500ms。
+       *
+       * 为什么串行带间隔而不是同时点：
+       *   · 浏览器对同一站点的并发下载数有限制，一次性触发会被丢弃一部分；
+       *   · 部分浏览器/扩展会把「多文件瞬时下载」判定为异常行为并弹窗拦截。
+       * 每次间隔 500ms 是实践上较稳的节奏。
+       *
+       * 计数由服务端在每次文件流请求上各 +1，因此每触发一个都会消耗一次配额；
+       * 配额不足时后几个可能被 410 拒绝，属于预期行为。
+       *
+       * @param {Array} files - 要下载的文件条目（合集成员）。
+       */
+      downloadFiles: function (files) {
+        var list = (files || []).slice();
+        if (!list.length) return;
+        var self = this;
+        var index = 0;
+
+        var step = function () {
+          if (index >= list.length) {
+            self.toast('已触发 ' + list.length + ' 个文件的下载', 'success');
+            // 批量下载会连续消耗配额，稍后刷新一次剩余次数
+            if (self.info.maxDownloads) {
+              setTimeout(function () { self.loadInfo({ silent: true }); }, 1500);
+              setTimeout(function () { self.loadInfo({ silent: true }); }, 5000);
+            }
+            return;
+          }
+          var a = document.createElement('a');
+          a.href = self.fileDownloadUrl(list[index]);
+          a.download = list[index].fileName;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          index += 1;
+          setTimeout(step, 500);
+        };
+
+        this.toast('开始下载 ' + list.length + ' 个文件…', 'success');
+        step();
+      },
+
+      downloadAll: function () { this.downloadFiles(this.bundleFiles); },
+      downloadPicked: function () {
+        if (!this.pickedCount) return;
+        this.downloadFiles(this.pickedFiles);
+      },
+
+      // ---------- 合集勾选 ----------
+      togglePick: function (file) {
+        file.selected = !file.selected;
+      },
+      toggleSelectAllFiltered: function () {
+        var target = !this.allFilteredPicked;
+        this.filteredFiles.forEach(function (f) { f.selected = target; });
+      },
+      toggleSortDir: function () {
+        this.bundleSortDir = this.bundleSortDir === 'asc' ? 'desc' : 'asc';
+      },
+
+      // ---------- 图标 ----------
+      iconOf: function (file) { return metaOf(file.fileType, file.fileName).icon; },
+      toneOf: function (file) { return metaOf(file.fileType, file.fileName).tone; },
+      labelOf: function (file) { return metaOf(file.fileType, file.fileName).label; },
+
+      // ---------- 工具 ----------
+      formatSize: function (bytes) {
+        /* 改走共享层；保留本页特有语义：未知/零体积显示「未知大小」而非「0 B」 */
+        return KVault.formatBytes(bytes, { zero: '未知大小' });
+      },
+
+      formatDuration: function (ms) {
+        var seconds = Math.max(0, Math.floor(ms / 1000));
+        if (seconds < 60) return seconds + ' 秒';
+        var minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return minutes + ' 分钟';
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + ' 小时';
+        var days = Math.floor(hours / 24);
+        var restHours = hours % 24;
+        return restHours ? days + ' 天 ' + restHours + ' 小时' : days + ' 天';
+      },
+
+      formatDate: function (timestamp) {
+        var value = Number(timestamp) || 0;
+        if (!value) return '';
+        var date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+        return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+          + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+      },
+
+      /** 相对时间：详情页里「3 天前」比一串日期更好读。未来的时间戳按「刚刚」处理。 */
+      formatRelative: function (timestamp) {
+        var value = Number(timestamp) || 0;
+        if (!value) return '';
+        var diff = Date.now() - value;
+        if (diff < 0) diff = 0;
+        var minutes = Math.floor(diff / 60000);
+        if (minutes < 1) return '刚刚';
+        if (minutes < 60) return minutes + ' 分钟前';
+        var hours = Math.floor(minutes / 60);
+        if (hours < 24) return hours + ' 小时前';
+        var days = Math.floor(hours / 24);
+        if (days < 30) return days + ' 天前';
+        var months = Math.floor(days / 30);
+        if (months < 12) return months + ' 个月前';
+        return Math.floor(months / 12) + ' 年前';
+      },
+
+      toast: function (text, type) {
+        var id = ++this.toastSeed;
+        this.toasts.push({ id: id, text: text, type: type || '' });
+        var self = this;
+        setTimeout(function () {
+          self.toasts = self.toasts.filter(function (t) { return t.id !== id; });
+        }, KVault.toastDelay(text));
+      }
+    }
+  });
+  /* Vue 3：用 createApp().mount() 取代 Vue 2 的 el 选项 */
+  shareApp.mount('#app');
+})();
+</script>
+</body>
+</html>

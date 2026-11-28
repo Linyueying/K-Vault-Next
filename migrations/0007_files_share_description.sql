@@ -1,0 +1,22 @@
+-- ============================================================================
+-- 0007_files_share_description.sql — 分享描述（files.share_description）
+-- ============================================================================
+--
+-- ⚠️ 本文件由 scripts/gen-migrations.py 从 functions/utils/schema.js
+--    **自动生成**，请勿手工编辑（改动会被覆盖）。
+--
+--    运行时并不需要本文件 —— Cloudflare Pages Functions 没有文件系统，
+--    读不到 .sql；实际建表由 schema.js 的 ensureSchema() 在首次访问 D1 时
+--    自动完成（懒迁移）。本文件仅用于人工排查与本地兜底。
+--
+--    唯一来源：functions/utils/schema.js
+--    重新生成：python3 scripts/gen-migrations.py
+--
+-- 单文件分享的**展示描述**（KV metadata 里的 shareDescription）。
+-- 与 0006 的 share_title 同批次引入，理由与注意事项完全相同。
+--
+-- 标题回答"这是什么"，描述回答"有什么要注意的"（例如"原图未压缩，
+-- 单张约 8 MB"）。两者都允许为空，空即不渲染对应区块。
+-- ============================================================================
+
+ALTER TABLE files ADD COLUMN share_description TEXT;

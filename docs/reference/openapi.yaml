@@ -1,0 +1,600 @@
+openapi: 3.0.3
+info:
+  title: K-Vault API
+  version: '1.0'
+  description: |
+    K-Vault machine-facing API. Identical behavior on Docker and Cloudflare Pages
+    deployments (parity contract).
+
+    Authentication uses long-lived API Tokens (`kvault_<id>_<secret>`) via the
+    `Authorization: Bearer` header. Tokens carry scopes (upload/read/delete/paste/share)
+    and optional policies (allowedStorages / allowedMimeTypes / maxFileSize /
+    folderPrefix / allowedSourceHosts).
+
+    Conventions:
+    - Idempotency: send an `Idempotency-Key` header (<= 200 chars) on upload/import;
+      repeated requests with the same key replay the original response for 24h.
+    - Small uploads (<= 25MB) are content-deduplicated by SHA-256 (90-day window).
+    - Errors return `{ "success": false, "error": { "code", "message", ... } }`.
+servers:
+  - url: '{baseUrl}'
+    variables:
+      baseUrl:
+        default: https://your-kvault.example.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Assets
+  - name: Account
+  - name: Admin
+paths:
+  /api/v1/capabilities:
+    get:
+      tags: [Account]
+      summary: Public capabilities discovery (no token required)
+      security: []
+      responses:
+        '200':
+          description: Configured storages, limits and feature flags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      apiVersion: { type: string, example: 'v1' }
+                      upload: { type: boolean }
+                      importFromUrl: { type: boolean }
+                      maxUploadSize: { type: integer }
+                      storages:
+                        type: array
+                        items: { type: string }
+                      imageTypes:
+                        type: array
+                        items: { type: string }
+  /api/v1/me:
+    get:
+      tags: [Account]
+      summary: Introspect the current token
+      responses:
+        '200':
+          description: Token metadata and live usage stats (no secret material)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/upload:
+    post:
+      tags: [Assets]
+      summary: 'Upload a file (scope: upload)'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                storage:
+                  type: string
+                  enum: [telegram, r2, s3, discord, huggingface, webdav, github]
+                folderPath:
+                  type: string
+                password:
+                  type: string
+                expires_in:
+                  type: integer
+                  description: Seconds until the file expires.
+                max_downloads:
+                  type: integer
+                slug:
+                  type: string
+                deduplicate:
+                  type: boolean
+                  default: true
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: |
+            Upload result. Legacy-compatible shape: `{ success, file, links }`.
+            When `deduplicated: true` an identical file already existed and the
+            existing file's links are returned.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PolicyDenied' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+  /api/v1/import:
+    post:
+      tags: [Assets]
+      summary: 'Import an image from a remote URL (scope: upload)'
+      description: |
+        Server-side fetch with full SSRF protection: every redirect hop is
+        re-validated (private ranges, link-local, CGNAT, metadata hosts are
+        blocked), size is enforced while streaming, Content-Type is sniffed and
+        matched, SVG is rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                storage:
+                  type: string
+                folder:
+                  type: string
+                deduplicate:
+                  type: boolean
+                  default: true
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: |
+            `{ success, data: { file: { id, name, size, mime, sha256, storage },
+            links: { download, share }, source: { url }, deduplicated } }`
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/PolicyDenied' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '415':
+          description: Unsupported media type (e.g. SVG) or MIME mismatch
+        '502':
+          description: Remote fetch failed or SSRF guard blocked the target
+  /api/v1/files:
+    get:
+      tags: [Assets]
+      summary: 'List files (scope: read)'
+      responses:
+        '200': { description: Paginated file list }
+  /api/v1/file/{id}:
+    get:
+      tags: [Assets]
+      summary: 'Download or inspect a file (scope: read)'
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200': { description: File bytes or metadata }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Assets]
+      summary: 'Delete a file (scope: delete)'
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/file/{id}/share:
+    get:
+      tags: [Assets]
+      summary: 'Inspect a file share (scope: share)'
+      description: Read the current share state without modifying anything.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: >
+            Share state. `active=false` when the file has no share configured.
+            Includes `links.share` (short link) and `links.download`.
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Assets]
+      summary: 'Create / update / revoke a file share (scope: share)'
+      description: |
+        Incremental semantics: a field that is **absent** keeps its current
+        value; a field present but empty (`""` / `0`) **clears** that limit.
+        Implemented once in `utils/share-options.js` and shared with the
+        `kvault_manage_share` MCP tool.
+
+        Note the file `id` may itself contain `/` (e.g. `gh:blog/2026/a.png`);
+        the endpoint strips the trailing `/share` before resolving the id.
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [create, update, revoke, get]
+                  default: create
+                slug: { type: string, description: 'Custom short-link id; "" clears it' }
+                password: { type: string, description: 'Share password; "" clears it' }
+                title: { type: string }
+                description: { type: string }
+                expiresIn: { type: integer, minimum: 0, description: 'Seconds; 0 = never expires' }
+                maxDownloads: { type: integer, minimum: 0, description: '0 = unlimited' }
+      responses:
+        '200': { description: 'Share state after the operation (includes links.share / links.download)' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'SLUG_CONFLICT (slug taken by another file) or SHARE_UNSUPPORTED_STORAGE'
+  /api/v1/paste:
+    post:
+      tags: [Assets]
+      summary: 'Create a text paste (scope: paste)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                language: { type: string, default: text }
+      responses:
+        '201': { description: Created paste }
+  /api/v1/pastes:
+    get:
+      tags: [Assets]
+      summary: 'List pastes (scope: read)'
+      responses:
+        '200': { description: Paste list }
+  /api/v1/paste/{id}:
+    get:
+      tags: [Assets]
+      summary: 'Read a paste (scope: read)'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Paste content }
+    delete:
+      tags: [Assets]
+      summary: 'Delete a paste (scope: delete)'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Deleted }
+  /mcp:
+    post:
+      tags: [Account]
+      summary: 'MCP (Model Context Protocol) endpoint — JSON-RPC 2.0 over Streamable HTTP (stateless)'
+      description: |
+        Native MCP endpoint. Requires `MCP_ENABLED=true`; when disabled the
+        route returns 404. Uses the same API Token (`Authorization: Bearer`)
+        and the same CORS allowlist (`API_CORS_ORIGINS`) as `/api/v1`.
+
+        Stateless: no `Mcp-Session-Id` is issued. `tools/list` only returns
+        tools permitted by the token's scopes.
+
+        Auth granularity is per JSON-RPC method, not per connection:
+        - Handshake methods (`initialize`, `ping`, `notifications/*`) work
+          without a token. An anonymous `initialize` returns an empty
+          ``capabilities`` object and no ``instructions``, so the tool
+          inventory is never disclosed without a token.
+        - `tools/list` and `tools/call` require a token; missing token -> 401.
+
+        Error layering:
+        - Transport auth failure  -> HTTP 401/403 with a `{success:false}` body
+        - JSON-RPC protocol error -> HTTP 200 with an `error` envelope
+        - Tool business failure   -> HTTP 200 with `result.isError = true`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/RpcRequest'
+                - type: array
+                  items: { $ref: '#/components/schemas/RpcRequest' }
+      responses:
+        '200':
+          description: JSON-RPC response (single object or batch array)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/RpcResponse'
+                  - type: array
+                    items: { $ref: '#/components/schemas/RpcResponse' }
+        '202':
+          description: Accepted — batch containing only notifications, no response body
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: MCP endpoint disabled (MCP_ENABLED is not true)
+        '405':
+          description: Method not allowed (only POST and OPTIONS are supported)
+        '413':
+          description: Request body exceeds the 1MiB limit
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    get:
+      tags: [Account]
+      summary: Not supported — this MCP endpoint does not offer an SSE stream
+      description: |
+        Stateless mode does not provide a Server-Sent Events stream, so GET
+        returns 405. Clients should treat the server as request/response only.
+      responses:
+        '405':
+          description: "Method Not Allowed (Allow: POST, OPTIONS)"
+  /api/admin/tokens:
+    get:
+      tags: [Admin]
+      summary: List API tokens (admin session or Basic auth)
+      responses:
+        '200': { description: Token list with redacted records }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+    post:
+      tags: [Admin]
+      summary: Create an API token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string, maxLength: 64 }
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                    enum: [upload, read, delete, paste]
+                expiresAtMs: { type: integer, description: Explicit epoch-ms expiry }
+                expiresAt:
+                  type: string
+                  format: date-time
+                  description: ISO-8601. Bare numeric values are rejected (INVALID_EXPIRY).
+                policies:
+                  $ref: '#/components/schemas/TokenPolicies'
+      responses:
+        '201':
+          description: |
+            `{ success, token: "kvault_...", tokenInfo }`. The full secret is
+            returned exactly once.
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+  /api/admin/tokens/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update enabled / name / scopes / expiry / policies
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                name: { type: string }
+                scopes:
+                  type: array
+                  items: { type: string }
+                expiresAtMs: { type: integer }
+                expiresAt: { type: string, format: date-time }
+                policies:
+                  $ref: '#/components/schemas/TokenPolicies'
+      responses:
+        '200': { description: Updated token (public record) }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+    delete:
+      tags: [Admin]
+      summary: Delete a token and its telemetry
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '200': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+  /api/admin/tokens/{id}/rotate:
+    post:
+      tags: [Admin]
+      summary: Rotate the token secret (requirement #7)
+      description: |
+        Issues a new secret for the same identity/scopes/policies. The old
+        secret stops working immediately. The new secret is returned exactly
+        once. `rotatedAt` is stamped on the record.
+      parameters:
+        - $ref: '#/components/parameters/TokenId'
+      responses:
+        '200': { description: New secret + updated record }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+  /api/admin/audit-logs:
+    get:
+      tags: [Admin]
+      summary: Query the security audit log (180-day retention)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 500 }
+      responses:
+        '200':
+          description: Events include TOKEN_CREATED/ROTATED/DISABLED/ENABLED/SCOPE_CHANGED/DELETED/VERIFY_FAILED
+        '503': { $ref: '#/components/responses/AdminAuthNotConfigured' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 'API Token: kvault_<id>_<secret>'
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string, maxLength: 200 }
+      description: Replay-safe operation key (24h window).
+    FileId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    TokenId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+  schemas:
+    TokenPolicies:
+      type: object
+      nullable: true
+      properties:
+        allowedStorages:
+          type: array
+          items:
+            type: string
+            enum: [telegram, r2, s3, discord, huggingface, webdav, github]
+        allowedMimeTypes:
+          type: array
+          items: { type: string }
+        maxFileSize:
+          type: integer
+          description: Bytes; <= 1GiB.
+        folderPrefix:
+          type: string
+          description: folderPath must equal this prefix or live under it.
+        allowedSourceHosts:
+          type: array
+          items: { type: string }
+          description: Origin/Referer hostname allow-list for import requests.
+    RpcRequest:
+      type: object
+      required: [jsonrpc, method]
+      description: A JSON-RPC 2.0 request. `id` omitted or null makes it a notification.
+      properties:
+        jsonrpc: { type: string, enum: ['2.0'] }
+        id:
+          nullable: true
+          description: String, number, or null (notification).
+          oneOf:
+            - type: string
+            - type: number
+        method:
+          type: string
+          description: |
+            One of initialize / notifications/initialized / ping / tools/list /
+            tools/call. Unknown methods return -32601.
+        params:
+          type: object
+          description: Method-specific parameters.
+    RpcResponse:
+      type: object
+      required: [jsonrpc]
+      description: |
+        Exactly one of `result` / `error` is present. JSON-RPC protocol errors
+        are returned with HTTP 200.
+      properties:
+        jsonrpc: { type: string, enum: ['2.0'] }
+        id:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: number
+        result:
+          type: object
+          description: Present on success.
+        error:
+          type: object
+          description: Present on protocol error.
+          properties:
+            code:
+              type: integer
+              description: '-32700 / -32600 / -32601 / -32602 / -32603'
+            message: { type: string }
+    McpTool:
+      type: object
+      required: [name, description, inputSchema]
+      description: A tool advertised by `tools/list` (already filtered by token scopes).
+      properties:
+        name: { type: string, example: kvault_list_files }
+        description: '{ type: string }'
+        inputSchema:
+          type: object
+          description: JSON Schema (simple subset) describing the tool arguments.
+    McpToolResult:
+      type: object
+      required: [content]
+      description: |
+        Result of `tools/call`. Business failures set isError=true and are
+        still returned with HTTP 200.
+      properties:
+        content:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [text] }
+              text:
+                type: string
+                description: A JSON string with the tool output.
+        isError: { type: boolean }
+    Error:
+      type: object
+      description: Standard error envelope. MCP tool failures additionally use result.isError.
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request (VALIDATION_ERROR / VALIDATION_FAILED — e.g. unknown share action or illegal field value)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Token lacks the required scope (TOKEN_SCOPE_DENIED / SCOPE_REQUIRED) or a policy rejected it
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing/invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Invalid input (INVALID_SCOPE / INVALID_EXPIRY / INVALID_POLICY / VALIDATION_ERROR / INVALID_STORAGE)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PolicyDenied:
+      description: Token policy rejected the operation (POLICY_DENIED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooLarge:
+      description: File exceeds the storage/token limit (FILE_TOO_LARGE / POLICY_FILE_TOO_LARGE)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exceeded (RATE_LIMITED); see the Retry-After header.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AdminAuthNotConfigured:
+      description: |
+        Admin API fails closed: no admin credentials are configured. Set
+        BASIC_USER and BASIC_PASS to enable it.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

@@ -1,0 +1,6468 @@
+  const LOCAL_PREVIEW_PAGE = "/preview.html";
+
+  /* ===== 统一自定义对话框：默认配置（替代 alert / confirm / prompt） ===== */
+  const DLG_DEFAULTS = {
+    visible: false,
+    mode: "confirm",      // confirm | prompt | alert | copy
+    tone: "info",         // info | danger | warn | success
+    icon: "",
+    title: "",
+    subtitle: "",
+    message: "",
+    note: "",
+    label: "请输入",
+    value: "",
+    placeholder: "",
+    hint: "",
+    error: "",
+    maxlength: null,
+    confirmText: "确定",
+    cancelText: "取消",
+    confirmIcon: "",
+    showCancel: true,
+    closable: true,
+    validate: null,
+    resolver: null,
+  };
+
+  /* ===== 超限自动回落候选优先级（按单文件容量降序） ===== */
+  const OVERFLOW_FALLBACK_CANDIDATES = ["r2", "telegram", "s3", "github", "huggingface", "discord"];
+
+  /* ===== 抽屉页签顺序（决定前进 / 后退方向） ===== */
+  const DRAWER_TAB_ORDER = ["storage", "folder", "history", "menu"];
+
+  // 存储和目录共用「上传设置」入口。
+  const DOCK_SLOT_BY_TAB = { storage: 1, folder: 1, history: 2, menu: 3 };
+
+  /* ===== 并行上传常量 ===== */
+  const PARALLEL_DEFAULT_HEAVY = 2;
+  const PARALLEL_DEFAULT_LIGHT = 1;
+  const PARALLEL_MAX_HEAVY = 2;
+  const PARALLEL_MAX_LIGHT = 1;
+  const PARALLEL_OFF_CONCURRENCY = 1;
+
+  /* ===== 大批量上传的渲染预算 =====
+     100 个文件一次性进队列时，下面这两个上限决定了主线程还剩多少余量：
+       QUEUE_VIEW_MIN_GAP —— 两次队列重渲之间的最小间隔；
+       TASK_PREVIEW_BUDGET —— 同时保留的即时预览图数量上限。
+     QUEUE_LEAN_LIMIT 见下方同名的那段注释。各自的推导都在对应注释块里。 */
+  const QUEUE_VIEW_MIN_GAP = 150;   /* ms：两次队列落帧之间的最小间隔 */
+  const TASK_PREVIEW_BUDGET = 12;   /* 队列里同时保留的即时预览图数量上限 */
+  /* 队列长过这个数就切到去动画的精简模式。
+     24 → 12：精简分支换的是「普通 <div> 而不是 transition-group」，收益来自省掉
+     每行一次的 getBoundingClientRect 与被 .transition 拖垮的 shouldUpdateComponent
+     （详见 resultLean 注释）。批量上传本来就是几十上百个文件，阈值放宽到 12 让更多
+     场景落在快路径上；12 个以内新任务进场时的位移动画仍然可见，观感不受影响。 */
+  const QUEUE_LEAN_LIMIT = 12;
+
+  /* ===== 队列合帧渲染（本页最重的一处优化） =====
+     问题：XHR 的 upload.onprogress 大约每 50ms 回调一次，而每次回调都是一个
+     独立宏任务。Vue 只会合并同一 microtask 内的赋值为一次渲染，跨宏任务的赋值
+     是「一次一渲」—— 于是队列里跑着 N 路并发时，每秒会产生 ~20N 次全组件重渲染。
+     100 个任务的场景下一次渲染要 patch 上百张卡片（每张含缩略图、进度条、按钮组），
+     主线程被吃光，表现就是「拖进去之后页面白几秒、浏览器提示未响应」。
+     做法：纯展示字段（progress / uploadedBytes / speed）不直接写 item，先攒进
+     pending 表，由一道闸门统一落地。闸门是双层的：
+       1) 定时器先把频率压到 ~9fps（进度条在这个频率下观感依然顺滑）；
+       2) 再用 rAF 对齐真实出帧时机，避免 flush 抢占用户的滚动与输入。
+     ⚠️ status / want / error 这类参与调度判定的字段绝不能走这里：
+        pickNextUploadTask 读的就是它们，延迟写入会让同一个任务被重复派发。 */
+  const queueView = { pending: new Map(), timer: 0, last: 0 };
+  function flushQueueView() {
+    queueView.timer = 0;
+    queueView.last = Date.now();
+    const entries = Array.from(queueView.pending.values());
+    queueView.pending.clear();
+    for (const entry of entries) {
+      const patch = entry.patch;
+      const item = entry.item;
+      if (patch.progress !== undefined) item.progress = patch.progress;
+      if (patch.uploadedBytes !== undefined) item.uploadedBytes = patch.uploadedBytes;
+      if (patch.speed !== undefined) item.speed = patch.speed;
+    }
+  }
+  function scheduleQueueFlush() {
+    if (queueView.timer) return;
+    const wait = Math.max(0, QUEUE_VIEW_MIN_GAP - (Date.now() - queueView.last));
+    queueView.timer = setTimeout(() => { queueView.timer = 0; requestAnimationFrame(flushQueueView); }, wait);
+  }
+  /* 展示字段的合帧写入入口：同一帧内对同一任务的多次更新只会保留最后一次 */
+  function setQueueView(item, patch) {
+    if (!item) return;
+    const key = item.uid || item;
+    const prev = queueView.pending.get(key);
+    if (prev) Object.assign(prev.patch, patch);
+    else queueView.pending.set(key, { item, patch: Object.assign({}, patch) });
+    scheduleQueueFlush();
+  }
+  /* 丢弃某任务待写的 patch：任务进入终态前必须调用，否则那次迟到的 flush
+     会把已经写到 100% 的进度条又拽回 99%。 */
+  function dropQueueView(item) {
+    if (item) queueView.pending.delete(item.uid || item);
+  }
+
+  /* ===== 大批量操作的分帧让出 =====
+     批量的「暂停全部 / 继续全部 / 续传失败 / 清空队列」，以及「一批任务在同一时刻
+     全部完成」，原来都在同一个同步块里遍历全部任务：每个任务要作废 runToken、
+     abort 在飞的 XHR、再改若干响应式字段。任务数一多（实测 50+）这一块会长到
+     1.8s —— 主线程被完全占住，期间不响应任何输入。
+     同类问题也出现在「完成高峰」：几十个 .task 在同一帧被卸掉，单帧内做几十次
+     DOM 卸载 + 一次巨大的 style/layout 重算（实测该阶段 17.5fps、97% 帧超时）。
+     做法与上面的进度闸门同一思路：把一次大同步块切成每帧一小块，块间让出主线程。
+     切片取固定条数而不是「按耗时自适应」：自适应要在块内反复读时钟，而读时钟本身
+     在热路径上有成本，且固定切片的并发语义更容易推理。 */
+  /* 批量操作进行中的标记。
+     用途：任务行的按钮组是 <transition-group>，它每次重渲染都要走一遍
+     hasCSSTransform()（克隆节点 + 强制样式重算）与 FLIP 位置记录，单次约 16ms。
+     单行的暂停/继续只有 1 行参与，完全付得起；但「暂停全部 / 继续全部 / 续传失败」
+     会一次性改掉几十个任务的状态，几十行同时各来一遍就是 1.2s 级的卡顿（实测
+     22 行时按钮组重渲染 73 次 ≈ 1.2s，单帧尖峰 2.2s）。
+     因此在批量操作期间临时把按钮组降级成普通 div（放弃这一次性几十行同时播的
+     按钮切换动画 —— 它本来也是视觉噪音），单行操作不受影响，动画照旧。 */
+  const uiPerf = Vue.reactive({ batchOp: false });
+
+  /* 多少个任务以上才算「值得为此降级」。低于这个数时同时重渲染的行数很少，
+     一次性播几行的按钮切换动画是好看的，不值得牺牲它。 */
+  const BATCH_DEGRADE_MIN = 6;
+  /* 开一次批量操作：在改动状态前把按钮组降级，改完再恢复。
+     返回的 restore 必须在 finally 里调用，否则按钮组会永久退化成 div。
+     降级/恢复各会让所有行的按钮组重挂载一次（组件类型从 TransitionGroup 换成
+     div 再换回来），是 O(行数) 的一次性成本；换来的是省掉 O(行数 × 状态变更次数)
+     次 FLIP 位置记录 —— 实测 22 行批量操作下 73 次重渲染 ≈ 1.2s，换两次挂载不到它的零头。
+     另外：新挂载的 transition-group 默认没有 appear，因此这两次挂载都不会播
+     进场动画，视觉上完全无感。 */
+  function beginBatchOp(count) {
+    if (count < BATCH_DEGRADE_MIN) return () => {};
+    uiPerf.batchOp = true;
+    return () => { uiPerf.batchOp = false; };
+  }
+
+  const BATCH_YIELD_CHUNK = 12;
+  function yieldToBrowser() {
+    return new Promise((resolve) => {
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+      else setTimeout(resolve, 0);
+    });
+  }
+  /* 分帧遍历：每帧最多执行 chunk 次 fn，块间让出主线程 */
+  async function forEachChunked(items, fn, chunk = BATCH_YIELD_CHUNK) {
+    for (let i = 0; i < items.length; i += chunk) {
+      const end = Math.min(i + chunk, items.length);
+      for (let j = i; j < end; j++) fn(items[j], j);
+      /* 只在还有剩余块时让出，避免最后一块白等一帧 */
+      if (end < items.length) await yieldToBrowser();
+    }
+  }
+
+  /* 扩展名 → 图标类名 / 分类的记忆表（见 getFileIcon / getFileCategory） */
+  const FILE_ICON_CACHE = new Map();
+  const FILE_CATEGORY_CACHE = new Map();
+
+  /* ===== 分片并发 =====
+     同一文件的分片同时在传的路数：
+     - R2 原生分片后端已切换为 FixedLengthStream 流式透传（chunk.js），
+       Worker 侧单路堆内存降至 O(1)，大文件不再被迫退化为 1 路串行，
+       可直接由 AIMD 自适应并发在 1 ~ PARALLEL_MAX_CHUNKS(6) 之间动态伸缩。
+     - 非 R2 后端（KV 暂存）走 raw body 单缓冲，仍受 MEMORY_BUDGET_BYTES / (chunkSize × CHUNK_MEMORY_FACTOR) 约束。 */
+  const PARALLEL_MAX_CHUNKS = 6;
+
+  /* 内存预算：Worker 128MB 上限，非 R2 缓冲路径按 96MB 封顶留约 25% 余量。 */
+  const MEMORY_BUDGET_BYTES = 96 * 1024 * 1024;
+  /* 非 R2 原始 body 路径在 Worker 侧仅一份 ArrayBuffer 拷贝。 */
+  const CHUNK_MEMORY_FACTOR = 1;
+
+  /* 分片数硬上限，必须与后端 init.js / chunk.js 的 MAX_TOTAL_CHUNKS(256) 一致。 */
+  const MAX_TOTAL_CHUNKS = 256;
+  /* R2/S3 multipart 协议下限：除最后一片外每片不得小于 5MB。 */
+  const MIN_CHUNK_SIZE = 5 * 1024 * 1024;
+
+  /* 单个任务的自动重试预算（不含首次尝试）。 */
+  const AUTO_RETRY_BUDGET = 2;
+
+  /* ===== 存储节点元数据（唯一真相来源，合并原 getStorageIcon + storageLabel） =====
+     注意：auto 的 label 为 "智能"，用于顶栏胶囊；设置列表里的行标题是硬编码的
+     "智能节点"，不受这里影响。 */
+  /* short 用于窄屏（≤680px）的上传队列「储存位置」标签：
+     完整名在 390px 屏上要 96px，会把操作列撑宽、反过来挤压文字区。
+     两条文本都由这里出，避免别处再硬编码一份导致两处文案对不上。 */
+  const STORAGE_META = {
+    auto:        { label: "智能",           short: "智能", icon: "fas fa-wand-magic-sparkles" },
+    telegram:    { label: "Telegram",       short: "TG",   icon: "fab fa-telegram" },
+    r2:          { label: "Cloudflare R2",  short: "R2",   icon: "fas fa-cloud" },
+    s3:          { label: "Amazon S3",      short: "S3",   icon: "fas fa-database" },
+    discord:     { label: "Discord",        short: "DC",   icon: "fab fa-discord" },
+    huggingface: { label: "HuggingFace",    short: "HF",   icon: "fas fa-robot" },
+    github:      { label: "GitHub",         short: "GH",   icon: "fab fa-github" },
+  };
+
+  /* ===== 递归目录树组件 ===== */
+  const folderNodeComponent = {
+    name: "folder-node",
+    props: {
+      node: { type: Object, required: true },
+      depth: { type: Number, default: 0 },
+      currentPath: { type: String, default: "" },
+      expanded: { type: Object, default: () => ({}) },
+    },
+    computed: {
+      hasChildren() { return !!(this.node.children && this.node.children.length); },
+      isExpanded() { return !!this.expanded[this.node.path]; },
+    },
+    methods: {
+      onSelect() { this.$emit("select", this.node.path); },
+      onToggle(e) { e.stopPropagation(); if (!this.hasChildren) return; this.$emit("toggle", this.node.path); },
+      onRename(e) { e.stopPropagation(); this.$emit("rename", this.node); },
+      onDelete(e) { e.stopPropagation(); this.$emit("delete", this.node); },
+      onShare(e) { e.stopPropagation(); this.$emit("share", this.node); }
+    },
+    template: `
+      <div>
+        <div class="tree-row" :class="{ active: node.path === currentPath }"
+          :style="{ paddingLeft: (10 + depth * 18) + 'px' }" @click="onSelect">
+          <span class="tree-row__arrow" :class="{ empty: !hasChildren }" @click="onToggle">
+            <i v-if="hasChildren" class="fas fa-chevron-right"
+              :style="{ transform: !isExpanded ? 'none' : 'rotate(90deg)' }"></i>
+          </span>
+          <i class="fas tree-row__icon" :class="hasChildren && isExpanded ? 'fa-folder-open' : 'fa-folder'"></i>
+          <span class="tree-row__name">{{ node.name }}</span>
+          <!-- L2：这里原本包一层 <transition name="count">。folder-node 是递归组件，
+               每个目录节点一个 —— 目录一深就是上百个 Transition 实例。
+               改由 .tree-row__count 自身的 animation: countIn 承担进场。
+               （注意 index.html 里 selection-bar__count 仍在用 name="count"，
+                共享层的 .count-* 类因此保留不动。） -->
+          <span class="tree-row__count" v-if="node.fileCount > 0">{{ node.fileCount }} 文件</span>
+          <div class="tree-row__actions">
+            <button class="btn btn--ghost btn--icon btn--sm" @click="onShare" title="分享此目录"><i class="fas fa-share-nodes"></i></button>
+            <button class="btn btn--ghost btn--icon btn--sm" @click="onRename" title="重命名"><i class="fas fa-pen"></i></button>
+            <button class="btn btn--ghost btn--icon btn--sm" @click="onDelete" title="删除"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+        <transition name="tree-children">
+          <div class="tree-children" v-if="hasChildren && isExpanded">
+            <div>
+              <folder-node v-for="child in node.children" :key="child.path" :node="child" :depth="depth + 1"
+                :current-path="currentPath" :expanded="expanded"
+                @select="$emit('select', $event)" @toggle="$emit('toggle', $event)"
+                @rename="$emit('rename', $event)" @delete="$emit('delete', $event)"
+                @share="$emit('share', $event)"></folder-node>
+            </div>
+          </div>
+        </transition>
+      </div>
+    `,
+  };
+
+  /* ===== 上传队列组件 =====
+     为什么要把这块从主模板里拆出来：
+     整个页面原本是**一个**组件，模板有上千个节点。任何响应式变化（哪怕只是
+     某一个上传任务的 progress 从 41 变成 42）都会让这一个 render 函数从头跑到尾 ——
+     上传区、抽屉、历史面板、dock、交付面板全部重新生成一遍 vnode 再 diff。
+     队列是整页里变化最频繁的部分（进度每秒都在动），把它单独成组件之后：
+       - 任务字段变化 → 只重渲染这 90 行模板；
+       - 父组件的 render 不再读取 uploadingFiles 的内容，因此也不会被它带节奏。
+     要真正做到第二点，父组件往这里传的东西必须小心：
+       - files 只传引用（父 render 不读元素内容，故不建立内容依赖）；
+       - 三个计数（失败 / 进行中 / 已暂停）改为在子组件内基于 files 计算。
+         它们原本是父组件的 computed，父模板一读就等于把「队列内容」变成
+         父组件的依赖 —— 那这次拆分就白拆了。
+     另外 ui / actions 两个句柄对象必须是**稳定引用**（父组件用 computed +
+     markRaw 提供）：若每渲染一次就传一个新对象，子组件的 props 会一直"变化"，
+     父组件一渲染就会把子组件也拖下水。 */
+  /* 上传队列里的「单行」。
+     为什么连一行都要拆成组件：upload-queue 的 render 里如果直接铺开 100 个 .task，
+     任何一个 file.progress 变化都会让它整棵子树重新 patch —— 实测一次样式重算覆盖
+     ~578 个元素（CDP trace: UpdateLayoutTree elementCount 中位数 578、最大 740）。
+     拆成组件后 Vue 的 shouldUpdateComponent 会逐个比 props：file / ui / actions /
+     expanded 四个引用都没变的行整行跳过，一次进度更新就只剩那一行重渲染。
+
+     ⚠️ 这个跳过是有前提的 —— 行 vnode 上不能挂 transition。
+     Vue 的 shouldUpdateComponent 开头就是
+       if (nextVNode.dirs || nextVNode.transition) return true
+     而 <transition-group> 会给每个子 vnode 挂上 transition 钩子，所以哪怕写了
+     :css="false"（只是不检测 CSS 过渡时长），也会把 100 行全部放行重渲染。
+     因此 upload-queue 在 lean（> QUEUE_LEAN_LIMIT 行）时改用普通 <div class="list">：
+     超过 24 行时进场/位移动画本来就已经关掉了，这条路径没有视觉损失。 */
+  /* 任务行的「操作按钮组」，单独拆成组件。
+     为什么连按钮组都要拆：按钮组用的是 <transition-group>，而它的 render 会对每个
+     既有子节点调 getBoundingClientRect() 记录 FLIP 位置 —— 这段在 render 里、
+     不受 :css 影响（见下方 actionWrap 注释）。按钮组若留在行模板里，行每次因
+     「进度 / 字节数 / 速率」更新而重渲染时，都会顺带把按钮组重渲染一次；
+     队列 23 行做批量操作时，实测仅这一项就吃掉约 1.2s CPU、单帧尖峰 2.2s。
+     拆成组件后 props 只有 status / file / actions / lean —— 进度、字节数、速率这些
+     高频变化的字段都不在 props 里，于是进度更新时「行会重渲染、而本组件因 props
+     全等被 Vue 的 shouldUpdateComponent 整个跳过」，按钮组完全不动。
+     FLIP 只在 status 真的变化（按钮确实要换、动画确实该播）时才发生：
+     动效照旧，开销只在真正该付的时候付。
+     剩下的一种情况是「批量操作让几十行的 status 同时变」——那时该播的动画确实有
+     几十份，但代价是几十次 FLIP。这种由 uiPerf.batchOp 在批量期间降级掉（见
+     beginBatchOp），单行操作不受影响。 */
+  const taskActionsComponent = {
+    name: "task-actions",
+    props: {
+      /* 只传状态这一个字符串，而不是让本组件去读整个 file：
+         这样 file 上其他字段（进度 / 字节数 / 速率）再怎么变都不会牵动按钮组。 */
+      status: { type: String, required: true },
+      /* 任务对象只用于把 file 回传给操作回调 —— 回调不在 render 期求值，
+         因此不会形成响应式依赖 */
+      file: { type: Object, required: true },
+      actions: { type: Object, required: true },
+      lean: { type: Boolean, default: false },
+    },
+    computed: {
+      /* 什么时候还值得用 transition-group：只有当按钮切换动画真的会被看到、
+         而且只有少数几行在动的时候。
+           - lean：> QUEUE_LEAN_LIMIT 行，进场/位移动画本就全关了，按钮切换也
+             没有动画，却仍要付 FLIP 位置记录的开销 —— 换掉没有观感损失。
+           - 批量操作进行中：几十行同时换按钮，那种「一排按钮集体闪一下」本来就
+             是视觉噪音，而它要付几十次 FLIP 位置记录的代价（实测 22 行批量操作
+             下按钮组重渲染 73 次 ≈ 1.2s、单帧尖峰 2.2s）。
+         注意不能写 <component :is="'transition-group'"> —— 内置组件不在字符串
+         组件注册表里，那样只会渲染出一个名为 transition-group 的自定义元素，
+         这里直接取 Vue.TransitionGroup 这个组件对象。 */
+      animated() { return !this.lean && !uiPerf.batchOp; },
+      actionWrap() { return this.animated ? Vue.TransitionGroup : "div"; },
+    },
+    template: `
+    <component :is="actionWrap" class="taskAct" :name="animated ? 'taskAct' : undefined" :tag="animated ? 'div' : undefined">
+      <button v-if="status === 'uploading' || status === 'processing' || status === 'waiting'"
+        key="pause" class="btn btn--ghost btn--icon" @click="actions.pause(file)" title="暂停"><i class="fas fa-pause"></i></button>
+      <template v-if="status === 'paused'">
+        <button key="resume" class="btn btn--ghost btn--icon" @click="actions.resume(file)" title="继续上传"><i class="fas fa-play"></i></button>
+        <button key="paused-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+        <button key="paused-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+      </template>
+      <template v-if="status === 'error'">
+        <button key="err-resume" class="btn btn--ghost btn--icon" @click="actions.retry(file)" title="从断点续传"><i class="fas fa-rotate-right"></i></button>
+        <button key="err-retry" class="btn btn--ghost btn--icon" @click="actions.retryFromStart(file)" title="从头重传"><i class="fas fa-rotate-left"></i></button>
+        <button key="err-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="取消上传"><i class="fas fa-xmark"></i></button>
+      </template>
+      <template v-if="status === 'blocked'">
+        <a v-if="file.requiresLogin" key="blocked-login" class="btn btn--ghost btn--icon" :href="actions.loginUrl" aria-label="去登录" title="去登录"><i class="fas fa-right-to-bracket" aria-hidden="true"></i></a>
+        <button key="blocked-cancel" class="btn btn--ghost btn--icon" @click="actions.cancel(file)" title="移除"><i class="fas fa-xmark"></i></button>
+      </template>
+    </component>
+    `,
+  };
+
+  const uploadTaskComponent = {
+    name: "upload-task",
+    components: { "task-actions": taskActionsComponent },
+    props: {
+      file: { type: Object, required: true },
+      ui: { type: Object, required: true },
+      actions: { type: Object, required: true },
+      /* 长文件名展开态：由父组件持有，避免把纯 UI 状态混进任务对象 */
+      expanded: { type: Boolean, default: false },
+      lean: { type: Boolean, default: false },
+    },
+    computed: {
+      /* 这些原本是模板里重复调用的纯展示函数，提成 computed 后一行内只算一次 */
+      icon() { return this.ui.getFileIcon(this.file.name); },
+      longName() { return this.ui.isLongFileName(this.file.name); },
+      nodeMode() { return this.ui.taskNodeMode(this.file); },
+      nodeLabel() { return this.nodeMode ? this.ui.storageLabel(this.nodeMode) : ""; },
+      nodeIcon() { return this.nodeMode ? this.ui.getStorageIcon(this.nodeMode) : ""; },
+      statusText() { return this.file.statusText || this.ui.getStatusText(this.file.status); },
+      showProgress() {
+        const s = this.file.status;
+        return s === "uploading" || s === "processing" || (this.file.progress || 0) > 0;
+      },
+      progressScale() { return "scaleX(" + ((this.file.progress || 0) / 100) + ")"; },
+    },
+    methods: {
+      toggleName() {
+        if (!this.longName) return;
+        this.$emit("toggle-name", this.file);
+      },
+    },
+    template: `
+<div class="task">
+  <img v-if="file.preview" :src="file.preview" class="task__thumb" loading="lazy" decoding="async" alt="" />
+  <div v-else class="task__thumb" :data-task-uid="file.previewDeferred ? file.uid : null"><i :class="icon"></i></div>
+  <div class="task__info">
+    <div class="task__header">
+      <div class="task__name"
+           :class="{ 'task__name--long': longName, 'is-open': expanded }"
+           :title="file.name"
+           @click="toggleName">{{ file.name }}</div>
+    </div>
+    <div class="task__meta">
+      <span class="task__nowrap">{{ ui.formatSize(file.uploadedBytes || 0) }} / {{ ui.formatSize(file.size) }}</span>
+      <span class="task__status" :class="{ 'task__status--warn': file.statusTone === 'warn', 'task__status--info': file.statusTone === 'info' }">• {{ statusText }}<span v-if="file.progress !== undefined" class="task__nowrap"> ({{ file.progress }}%)</span></span>
+    </div>
+    <div class="task__subline" :class="{ 'is-on': !!(file.speed || file.error || file.statusHint) }">
+      <span class="task__subline-inner">
+        <span v-if="file.speed" class="task__speed">• {{ file.speed }}</span>
+        <span v-else-if="file.error" class="task__err" :title="file.error">• {{ file.error }}</span>
+        <span v-else-if="file.statusHint" class="task__hint" :class="{ 'task__hint--warn': file.statusTone === 'warn' }" :title="file.statusHint">• {{ file.statusHint }}</span>
+      </span>
+    </div>
+    <div class="progress" v-if="showProgress">
+      <div class="progress__val" :class="{ 'progress__val--warn': file.statusTone === 'warn' }" :style="{ transform: progressScale }"></div>
+    </div>
+  </div>
+  <div class="task__actions">
+    <span class="task__node" v-if="nodeMode" :title="'储存位置：' + nodeLabel">
+      <i :class="nodeIcon"></i><span class="task__node-full">{{ nodeLabel }}</span><span class="task__node-short">{{ ui.storageShortLabel(nodeMode) }}</span>
+    </span>
+    <!-- 操作按钮组已抽成 <task-actions>，只依赖 status。
+         不要把它搬回行模板里：那样行每次因进度更新重渲染都会连带重渲染按钮组，
+         而按钮组是 <transition-group>，重渲染就要对每个子节点做一次 FLIP
+         位置记录（getBoundingClientRect）。详见该组件上方的注释。 -->
+    <task-actions :status="file.status" :file="file" :actions="actions" :lean="lean" />
+  </div>
+</div>
+    `,
+  };
+
+  /* 队列头部（标题计数 + 批量操作按钮）。
+     为什么连这块都要单独拆成组件：failedCount / activeCount / pausedCount 三个计数
+     都是「遍历 files 读每个任务的 status」算出来的。把它们留在 upload-queue 的
+     render 里，任何一个任务的 status 变化都会让 upload-queue 整棵重渲染 ——
+     连带把它内部的 <transition-group> 也重渲染一次，而 transition-group 的 render
+     会对每个既有子节点调 getBoundingClientRect() 记录 FLIP 位置（这段在 render 里、
+     不受 :css 影响，详见 uploadTaskComponent 里 taskAct 的注释）。
+     实测队列 23 项做批量操作时 getBoundingClientRect 独占约 1.3s、单帧尖峰 2.2s。
+     拆出去之后：status 变化只重渲染这个头部组件；upload-queue 只依赖 files.length，
+     于是 transition-group 只在真正增删时才重渲染 —— 入场/位移动画照旧，
+     而这份开销只在「真的有行进出、动画真的要播」的时候才付。 */
+  const queueHeaderComponent = {
+    name: "queue-header",
+    props: {
+      files: { type: Array, required: true },
+      /* 会改状态的操作：暂停全部 / 继续全部 / 续传失败 / 清空 */
+      actions: { type: Object, required: true },
+    },
+    computed: {
+      failedCount() { return this.files.filter((f) => f.status === "error").length; },
+      /* 队列里还有「想跑但没跑完」的任务（含等待中）→ 可以整体暂停 */
+      activeCount() { return this.files.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error").length; },
+      pausedCount() { return this.files.filter((f) => f.status === "paused").length; },
+    },
+    template: `
+  <div class="panel__head">
+    <span class="panel__title">
+      <i class="fas fa-bars-progress"></i>
+      <span>上传队列 ({{ files.length }})</span>
+      <span v-if="failedCount > 0" style="color: var(--c-danger); font-size: var(--fs-sm);">({{ failedCount }} 失败)</span>
+    </span>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+      <button v-if="activeCount > 0" class="btn btn--sm" @click="actions.pauseAll()"><i class="fas fa-pause"></i> 暂停</button>
+      <button v-if="pausedCount > 0" class="btn btn--sm btn--primary" @click="actions.resumeAll()"><i class="fas fa-play"></i> 继续</button>
+      <button v-if="failedCount > 0" class="btn btn--sm" @click="actions.retryAllFailed()"><i class="fas fa-rotate-right"></i> 续传失败</button>
+      <button class="btn btn--sm" @click="actions.clear()"><i class="fas fa-broom"></i> 清空</button>
+    </div>
+  </div>
+    `,
+  };
+
+  const uploadQueueComponent = {
+    name: "upload-queue",
+    components: { "upload-task": uploadTaskComponent, "queue-header": queueHeaderComponent },
+    props: {
+      files: { type: Array, required: true },
+      /* 展示型工具（无副作用）：图标、大小、状态文案、储存位置标签 */
+      ui: { type: Object, required: true },
+      /* 会改状态的操作：暂停 / 继续 / 重传 / 取消 / 清空 / 去登录 */
+      actions: { type: Object, required: true },
+      /* 长文件名的展开态：存在父组件，避免把纯 UI 状态混进任务对象 */
+      expandedNames: { type: Object, default: () => ({}) },
+    },
+    /* ⚠️ 这里的 computed 只能依赖 files.length，绝不能读任何任务的 status：
+       一旦读了，任何任务的状态变化都会让本组件重渲染，连带把下面的
+       <transition-group> 重渲染一次并触发整轮 FLIP 位置记录。
+       依赖 status 的计数已经全部移到 <queue-header> 子组件里。 */
+    computed: {
+      lean() { return this.files.length > QUEUE_LEAN_LIMIT; },
+    },
+    methods: {
+      /* 长文件名是否展开。判定放在这里而不是行内：展开态是父组件持有的纯 UI 状态，
+         行组件只收一个布尔 prop —— 这样展开/收起不会让整行的数据依赖变重。 */
+      isNameExpanded(file) { return !!this.expandedNames[file.uid]; },
+    },
+    template: `
+<transition name="collapse">
+<div class="collapse" v-if="files.length > 0">
+<div class="collapse__inner">
+<section class="card panel">
+  <queue-header :files="files" :actions="actions" />
+
+  <!-- 两套列表容器，二选一：
+       短队列（≤ QUEUE_LEAN_LIMIT）走 transition-group，进/出/位移都有动画；
+       长队列换普通 div —— 原因见 uploadTaskComponent 上方的注释：transition 会让
+       Vue 对所有行无条件重渲染，100 行时那点进场动画根本看不见，不值这个代价。 -->
+  <!-- appear：队列被外层 <transition name="collapse" v-if="files.length>0"> 包裹，
+       首个文件到达时整块首次挂载，transition-group 默认不给首挂子节点播 enter。
+       加 appear 后，空队列→第 1 个文件也能正常播放 taskIn 入场动画。 -->
+  <transition-group v-if="!lean" name="list" tag="div" class="list" appear>
+    <upload-task v-for="file in files" :key="file.uid || file.id"
+      :file="file" :ui="ui" :actions="actions" :lean="lean"
+      :expanded="isNameExpanded(file)" @toggle-name="$emit('toggle-name', $event)" />
+  </transition-group>
+  <div v-else class="list list--lean">
+    <upload-task v-for="file in files" :key="file.uid || file.id"
+      :file="file" :ui="ui" :actions="actions" :lean="lean"
+      :expanded="isNameExpanded(file)" @toggle-name="$emit('toggle-name', $event)" />
+  </div>
+</section>
+</div>
+</div>
+</transition>
+    `,
+  };
+
+  const app = Vue.createApp({
+    components: {
+      "folder-node": folderNodeComponent,
+      "upload-queue": uploadQueueComponent,
+      /* 隔空投送：实现在 assets/js/airdrop.js，index.html 保证它先于本文件加载。
+         万一脚本没加载成功，退化成一个空组件 —— 宁可这个功能不出现，
+         也不要因为注册失败让整个首页白屏。 */
+      "airdrop-panel": window.AirdropPanel || { template: "<div hidden></div>" },
+    },
+    data() {
+      return {
+        currentTheme: "light",
+        /* 顶栏品牌区版本标签：默认只显示版本号（拿不到提交号时的一致回退值），
+           mounted 后由 /api/version 补全为「版本号 · 提交号」。
+           发版时同步更新 functions/api/version.js 的 DEFAULT_VERSION。 */
+        versionLabel: "v0.1.0",
+        /* 隔空投送：面板显隐 + 后端下发的能力（是否开启 / 访客是否可发送 /
+           访客是否可接收 / 可用中转节点列表）。能力由 /api/auth/check 下发，
+           见 checkAuth。默认全关：在拿到后端答复之前，入口不应该是"看起来能用"的。
+           注意 guestReceiveAllowed 与 guestAllowed 方向相反（收端缺省放行），
+           初始化时给 true 而不是 false —— 拿不到答复时宁可让访客能收。
+           具体的中转节点由发端在面板里选，默认值沿用本页 storageMode。 */
+        airdropVisible: false,
+        /* 用户在后端能力下发完成前就点了隔空投送：记下来，
+           checkAuth 拿到真实能力后自动补开，避免"点了没反应/误报未开启" */
+        pendingAirdropOpen: false,
+        /* 能力是否**真的**收到了后端答复。用来区分两种 enabled:false：
+             · 还没答复（或答复里没有 airdrop 字段）——「未知」，不该下结论；
+             · 答复明确 enabled:false    ——「确实不可用」，才去分辨是功能关了
+               还是没配中转节点。
+           少了这一位，就只能拿 nodes 是否为空反推，而「没下发」与「没配置」
+           在数据上长得一模一样 —— 未登录扫码误报「没有可用储存节点」就是
+           这么来的（空气泡）。 */
+        airdropCapabilityLoaded: false,
+        airdropCapability: {
+          enabled: false,
+          guestAllowed: false,
+          guestReceiveAllowed: true,
+          nodes: [],
+          ttlMinutes: 5,
+        },
+        showDrawer: false,
+        activeDrawerTab: "storage",
+        drawerNavDir: "forward",
+        /* 抽屉横向滑动切页的手势状态 */
+        drawerSwipe: { active: false, lock: "", x0: 0, y0: 0, dx: 0, t0: 0 },
+        /* Dock 滑动指示器 + 跟手拖拽状态。
+           pos 是「格」为单位的浮点位置 —— 全流程唯一位移真源。 */
+        dockDrag: { active: false, lock: "", x0: 0, y0: 0, pos0: 0, pos: 0, from: -1, to: -1, moved: false, pointerId: -1, el: null },
+        baseURL: document.location.origin,
+        isDragging: false,
+        dragDepth: 0,
+        showUrlInput: false,
+        urlToUpload: "",
+        urlBatchMode: false,
+        urlBatchText: "",
+        urlShowAdvanced: false,
+        urlCustomFileName: "",
+        urlReferer: "",
+        urlProbing: false,
+        urlProbeResult: null,
+        urlProbeError: "",
+        urlTasks: [],
+        urlMaxConcurrency: 2,
+        urlNowTick: 0,
+        urlTransfer: null,
+        uploadingFiles: [],
+        /* 长文件名展开态：单独存，不混入上传任务对象，避免每展开一次
+           就触发整条列表的依赖重收集与重渲染。 */
+        expandedTaskNames: {},
+        uploadedFiles: [],
+        uploadHistory: [],
+        linkFormat: "url",
+
+        /* 交付结果 */
+        resultSelectMode: false,
+        /* 上一次模式切换的时刻。退场动画结束后，「完成」腾出的那个屏幕位置会被
+           「清空」接管，用它挡掉惯性/连点造成的误 arm —— 详见 handleClearResults。 */
+        lastSelectModeAt: 0,
+        resultMenuFor: null,
+        resultFormatMenuOpen: false,
+        resultLinksOpen: false,
+        clearArmed: false,
+        clearArmTimer: null,
+        /* 批量云端操作（删除 / 移动）进行中 —— 期间锁住选择条按钮，
+           避免同一次删除被连点触发两轮。 */
+        resultBatchBusy: false,
+        historyBatchBusy: false,
+
+        /* ---- 上传时注入分享参数的老通道 ----
+           shareEnabled / showSharePanel / shareShowPassword 曾经服务于
+           「上传前先配好分享」，但模板里从未有过对应控件，三个字段现在
+           恒为 false 且无人读取。保留字段会让人误以为存在这条路径。
+           shareExpiresIn 等其余字段仍在用（buildShareOptions / previewShareText
+           读取），因此只清掉确认无人消费的这几个。 */
+        shareEnabled: false,
+        shareExpiresIn: 0,
+        sharePassword: "",
+        shareMaxDownloads: "",
+        shareSlug: "",
+
+        /* 分享弹窗 */
+        shareDialogVisible: false,
+        shareDialogItem: null,
+        /* 合集分享：本次弹窗要分享的条目列表。
+           长度 > 1 时走合集分支；长度 1 或 0 时沿用原有单文件路径。
+           用数组而非单值，是为了让「单文件」成为「多文件」的退化情形，
+           两条路径共用同一套表单与校验。 */
+        shareDialogItems: [],
+        shareDialogMode: "create",
+        shareDialogBusy: false,
+        /* 本次弹窗是否刚刚新建过分享。成功创建后 mode 会切到 manage
+           （便于"再改一次"走 update），结果面板要靠它区分
+           「分享链接已生成」与「分享设置已生效」两种文案。 */
+        shareDialogCreated: false,
+        shareDialogError: "",
+        shareDialogResult: null,
+        shareDialogRevoking: false,
+        shareDialogForm: { expiresIn: 0, maxDownloads: "", password: "", slug: "", keepPassword: true, keepSlug: true, title: "", description: "" },
+        shareDialogShowPassword: false,
+        /* 分享目录模式：非空表示本次弹窗在分享某个 folderPath。
+           结构：{ path, name, fileCount, includeSubfolders }。
+           与 shareDialogItems 互斥 —— 目录分享走服务端按 folderPath 解析成员，
+           前端不需要预先收集文件 ID。 */
+        shareDialogFolder: null,
+        /* 合集 / 目录分享创建成功后回写的 slug。
+           有它才能把「再改一次短链 / 标题」变成一次 update，
+           而不是又建出一个新分享（旧实现里合集建完就没法改了）。 */
+        shareDialogSlug: "",
+
+        /* 统一自定义对话框状态与队列 */
+        dlg: Object.assign({}, DLG_DEFAULTS),
+        dlgQueue: [],
+        dlgBusy: false,
+
+        previewData: null,
+        toasts: [],
+        toastKey: 0,
+
+        /* 同步状态点（黄=同步中 / 绿=已同步 / 红=失败）
+           状态机与重试逻辑在共享层 KVault.createSyncTracker()，本页只做绑定。
+           追踪范围：上传目录的新建/重命名/删除（写操作）。读操作不驱动状态点；
+           写请求成功后黄点保持，绿点由 syncVerifier 拿到确切 KV 证据后点亮。 */
+        syncState: "idle",
+        syncDetail: { attempts: 0, lastError: null },
+        syncTracker: null,
+
+        PARALLEL_MAX_LIGHT,
+        PARALLEL_MAX_HEAVY,
+        /* 模板里要用到的队列节流阀值（详见「队列合帧渲染」注释块） */
+        QUEUE_LEAN_LIMIT,
+
+        isAuthenticated: false,
+        authRequired: false,
+        uploadAccessMessage: "",
+        rejectedUploads: [],
+        folderPath: "",
+        uploadFolders: [],
+        uploadFoldersLoading: false,
+        uploadFoldersFetched: false,
+        showUploadFolderCreator: false,
+        newUploadFolderPath: "",
+        uploadFolderCreating: false,
+        expandedFolders: {},
+        storageMode: "telegram",
+        storageTarget: STORAGE_META.telegram.label,
+        r2Available: false, s3Available: false, discordAvailable: false,
+        huggingfaceAvailable: false, githubAvailable: false,
+        authChecking: true, isGuest: false, guestUploadConfig: null, guestBlocked: false,
+        uploadConfig: { maxSize: 10 * 1024 * 1024 * 1024, chunkSize: 50 * 1024 * 1024, smallFileThreshold: 20 * 1024 * 1024 },
+        uploadLimits: {},
+        tgChunkedBanner: { visible: false, fileName: "", fileSize: 0, totalChunks: 0, chunkSize: 18 * 1024 * 1024 },
+        tgChunkedBetaModalVisible: false,
+
+        parallelUpload: false,
+        /* 并发数由并行开关派生：关 = 1，开 = 大文件 2 */
+        parallelHeavy: PARALLEL_OFF_CONCURRENCY,
+        parallelLight: PARALLEL_DEFAULT_LIGHT,
+
+        /* ===== 上传调度器状态（详见 uploadScheduler 区块注释） ===== */
+        uploadEpoch: 0,              // 调度代次：任何配置/意图变化都会 +1
+        uploadSchedulerRunning: false,
+        uploadDrainTimer: null,
+        schedulerDisposed: false,
+        uploadTaskSeq: 0,
+        queueCleanupTimer: null,
+
+        /* 超限自动回落：超出当前节点单文件上限时自动切换至已配置的更大容量节点 */
+        overflowFallback: true,
+        /* 灵动引擎：默认开启；关闭即进入低性能模式（去模糊 + 停动画） */
+        liveEngine: true,
+        devOptionsExpanded: false,
+        /* 节点识别收敛态：为 true 时模板给容器挂极轻的呼吸动画 */
+        nodeResolving: false,
+        nodeResolveTimer: null,
+
+        downloadingUrls: {},
+        /* 「下载中」状态的延时清理句柄：与 downloadingUrls 同键。
+           放在这里而不是闭包里，是为了能在重复点击时被 clearTimeout
+           掉，避免上一个定时器把刚点开的下载状态提前清掉。 */
+        downloadStateTimers: {},
+        downloadProgress: { active: false, url: '', fileName: '', loaded: 0, total: 0, speed: '' },
+
+        historyCleanupRunning: false,
+        historyCleanupProgress: { checked: 0, total: 0 },
+
+        historySearch: "",
+        historySort: "time-desc",
+        historyView: "grid",
+        historyTypeFilter: "all",
+        historyOptionsOpen: false,
+        historyMaxItems: 500,
+        historyTypeTabs: [
+          { value: "all", label: "全部" },
+          { value: "image", label: "图片" },
+          { value: "video", label: "视频" },
+          { value: "audio", label: "音频" },
+          { value: "doc", label: "文档" },
+          { value: "other", label: "其他" },
+        ],
+
+        /* 抽屉导航项（数据驱动，替代硬编码按钮） */
+        drawerTabs: [
+          { key: 'storage', icon: 'fas fa-database', label: '存储节点' },
+          { key: 'folder', icon: 'fas fa-folder', label: '上传目录' },
+          { key: 'history', icon: 'fas fa-clock-rotate-left', label: '本地历史' },
+          { key: 'menu', icon: 'fas fa-sliders', label: '系统导航' },
+        ],
+      };
+    },
+    computed: {
+      /* 同步状态点（绑到 .sync-dot 的 class / title） */
+      syncDotClass() {
+        const map = { syncing: "is-syncing", synced: "is-synced", failed: "is-failed" };
+        return map[this.syncState] || "";
+      },
+      syncDotTitle() {
+        const d = this.syncDetail || {};
+        if (this.syncState === "syncing") {
+          if (d.timedOut) return "云端确认超时，仍在低频重试验证…（点击查看说明）";
+          if (d.verifying) {
+            const n = d.attempts || 0;
+            return `已提交云端，正在确认 KV 同步…${n > 0 ? `（第 ${n} 次验证）` : ""}（点击查看说明）`;
+          }
+          return "同步中…（点击查看说明）";
+        }
+        if (this.syncState === "synced") return "已在云端确认同步（点击查看说明）";
+        if (this.syncState === "failed") {
+          const err = this.syncDetail && this.syncDetail.lastError;
+          return `同步失败：${(err && err.message) || "网络异常"}（点击查看详情）`;
+        }
+        return "同步状态（点击查看说明）";
+      },
+
+      /* 交付结果列表的精简模式。
+         行数超过阈值时整块换成普通 <div>，彻底不用 <transition-group>。
+
+         ⚠️ 这里修正一处历史认知（原注释认为「落点是 CSS 关掉 .list-move」）：
+         关掉 .list-move 只挡住了**一半**。Vue TransitionGroup 的开销有两处，
+         只有第一处受 hasCSSTransform() 保护：
+           1) render 期：对每个既有子节点无条件 setTransitionHooks + getBoundingClientRect()
+              记录 FLIP 位置 —— 与 :css、与 .list-move 有没有过渡都无关，必然发生。
+           2) onUpdated：第二遍 rect + forceReflow + 播 list-move —— 这段才会因为
+              hasCSSTransform() 探测不到而整段跳过。
+         而更贵的是第 1 处带来的副作用：setTransitionHooks 给每个子 vnode 挂上
+         .transition，Vue 的 shouldUpdateComponent 开头就是
+            if (nextVNode.dirs || nextVNode.transition) return true
+         于是「props 引用相等就整行跳过」的机制彻底失效 —— 长列表每一次渲染都是
+         全量重渲染。实测（上传队列侧）：100 个文件逐个完成时 row@style 7080 +
+         row@class 3715，占整页剩余 DOM 变更的 86%。
+         所以唯一干净的解法是「行数多时不用这个组件」，项目里已有同样的先例
+         （下方 upload-queue 的 lean 双分支、task-actions 的 actionWrap），这里沿用。 */
+      resultLean() { return this.uploadedFiles.length > QUEUE_LEAN_LIMIT; },
+      /* <component :is> 双路：精简态用普通 div（无 FLIP、无全量重渲染）。
+         Vue.TransitionGroup 是全局构建导出的组件对象，不能写 '<transition-group>'
+         字符串 —— 内置组件不在字符串组件注册表里，那样只会渲染出一个自定义元素。 */
+      resultListWrap() { return this.resultLean ? "div" : Vue.TransitionGroup; },
+
+      selectedCount() { return this.uploadedFiles.filter((f) => f.selected).length; },
+      selectedFiles() { return this.uploadedFiles.filter((f) => f.selected); },
+      isAllSelected() { return this.uploadedFiles.length > 0 && this.uploadedFiles.every((f) => f.selected); },
+      batchLinkCount() {
+        const targets = this.uploadedFiles.filter((f) => f.selected);
+        return (targets.length ? targets : this.uploadedFiles).length;
+      },
+      linkFormats() {
+        return [
+          { key: "url", label: "直链 URL" },
+          { key: "markdown", label: "Markdown" },
+          { key: "html", label: "HTML" },
+          { key: "bbcode", label: "BBCode" },
+          { key: "ubb", label: "UBB" },
+        ];
+      },
+      currentFormatLabel() {
+        const hit = this.linkFormats.find((f) => f.key === this.linkFormat);
+        return hit ? hit.label : "URL";
+      },
+      normalizedShareSlug() {
+        return String(this.shareSlug || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+      },
+      /* 分享弹窗里"当前生效的短链"——单文件取自条目，合集/目录取自创建结果。
+         模板用它判断是否展示「保留当前短链」勾选框：
+         没有短链可保留时，那个勾选框是纯噪音。 */
+      shareDialogCurrentSlug() {
+        if (this.shareDialogItem) return String(this.shareDialogItem.shareSlug || "").trim();
+        return String(this.shareDialogSlug || "").trim();
+      },
+      /* 分享二维码。内容就是分享链接本身，纯前端生成（vendor/qrcode.js），
+         不请求任何外部服务 —— 分享链接属于敏感信息，不该过第三方。 */
+      shareDialogQr() {
+        const url = this.shareDialogResult && this.shareDialogResult.url;
+        if (!url || typeof window === "undefined" || !window.QRCode) return "";
+        try {
+          return window.QRCode.toSvg(url, { ecl: "M", margin: 1, dark: "currentColor" });
+        } catch (err) {
+          return "";
+        }
+      },
+      /* 队列的三个计数（失败 / 进行中 / 已暂停）已下放到 upload-queue 组件内部。
+         放在这里会出问题：computed 一旦被父模板读取，父组件的 render 就变成了
+         「队列内容」的依赖方 —— 于是每次进度推进都要把整页重算一遍，
+         这次组件化就白做了。 */
+      /* ===== 传给 upload-queue 的两个句柄 =====
+         都必须 markRaw：
+           1) 引用稳定 —— 否则父组件每渲染一次就产出新对象，子组件的 props 一直
+              "变化"，父一渲染就把子也拖着一起渲染；
+           2) 免代理 —— 这些是函数集合，没有做响应式追踪的必要。
+         computed 里没有任何响应式依赖，所以只会求值一次，引用天然稳定。 */
+      queueUi() {
+        return Vue.markRaw({
+          getFileIcon: (name) => this.getFileIcon(name),
+          getStatusText: (status) => this.getStatusText(status),
+          formatSize: (bytes) => this.formatSize(bytes),
+          isLongFileName: (name) => this.isLongFileName(name),
+          taskNodeMode: (file) => this.taskNodeMode(file),
+          storageLabel: (mode) => this.storageLabel(mode),
+          storageShortLabel: (mode) => this.storageShortLabel(mode),
+          getStorageIcon: (mode) => this.getStorageIcon(mode),
+        });
+      },
+      queueActions() {
+        return Vue.markRaw({
+          pause: (file) => this.pauseUpload(file),
+          resume: (file) => this.resumeUpload(file),
+          retry: (file) => this.retryUpload(file),
+          retryFromStart: (file) => this.retryUpload(file, true),
+          cancel: (file) => this.cancelUpload(file),
+          pauseAll: () => this.pauseAllUploads(),
+          resumeAll: () => this.resumeAllUploads(),
+          retryAllFailed: () => this.retryAllFailed(),
+          clear: () => this.clearUploadQueue(),
+          loginUrl: this.loginUrl,
+        });
+      },
+
+      /* ===== Dock 指示器落点（0-3） =====
+         主控台 = !showDrawer → 0；其余查槽位映射。 */
+      dockIndicatorIndex() {
+        if (!this.showDrawer) return 0;
+        const slot = DOCK_SLOT_BY_TAB[this.activeDrawerTab];
+        return typeof slot === "number" ? slot : 0;
+      },
+      /* 拖拽中（仅横向锁定）：指示器改由浮点 pos 驱动 */
+      dockDragActive() { return this.dockDrag.active && this.dockDrag.lock === "x"; },
+
+      /* 手势拖拽中：跟手位移，首尾页做阻尼 */
+      drawerPaneDragging() {
+        const s = this.drawerSwipe;
+        return s.active && s.lock === "x" && !!s.dx;
+      },
+      drawerPaneStyle() {
+        const s = this.drawerSwipe;
+        if (!s.active || s.lock !== "x" || !s.dx) return {};
+        const order = DRAWER_TAB_ORDER;
+        const i = order.indexOf(this.activeDrawerTab);
+        const atEdge = (s.dx > 0 && i <= 0) || (s.dx < 0 && i >= order.length - 1);
+        return { transform: "translate3d(" + (s.dx * (atEdge ? 0.12 : 0.34)).toFixed(2) + "px, 0, 0)" };
+      },
+
+      uploadFolderOptions() {
+        const seen = new Set();
+        const out = [];
+        (this.uploadFolders || []).forEach((folder) => {
+          const path = this.normalizeFolderPath(folder.path || folder.folderPath || "");
+          if (!path || seen.has(path)) return;
+          seen.add(path);
+          out.push({ ...folder, path });
+        });
+        return out;
+      },
+      uploadFolderTree() {
+        const root = { name: "", path: "", children: [] };
+        const map = { "": root };
+        this.uploadFolderOptions.forEach((folder) => {
+          const parts = folder.path.split("/").filter(Boolean);
+          let cur = "";
+          let parent = root;
+          parts.forEach((part) => {
+            cur = cur ? `${cur}/${part}` : part;
+            if (!map[cur]) { map[cur] = { name: part, path: cur, children: [], fileCount: 0 }; parent.children.push(map[cur]); }
+            parent = map[cur];
+          });
+          if (map[cur]) map[cur].fileCount = folder.fileCount || 0;
+        });
+        const sortRec = (node) => { node.children.sort((a, b) => a.name.localeCompare(b.name, "zh-CN")); node.children.forEach(sortRec); };
+        sortRec(root);
+        return root;
+      },
+      folderPathSegments() { return this.folderPath.split("/").filter(Boolean); },
+
+      largeStorageOptions() {
+        return [
+          { value: "r2", label: "Cloudflare R2", desc: "最高 10GB 零流费 CDN 存储", icon: "fas fa-cloud", color: "#f6821f" },
+          { value: "s3", label: "Amazon S3", desc: "40MB 工业级对象存储", icon: "fas fa-database", color: "#10b981" },
+          { value: "discord", label: "Discord 频道", desc: "25MB 媒体托管节点", icon: "fab fa-discord", color: "#6366f1" },
+          { value: "huggingface", label: "HuggingFace", desc: "35MB 开放模型与数据集", icon: "fas fa-robot", color: "#ec4899" },
+          { value: "github", label: "GitHub Releases", desc: "40MB 仓库文件资产", icon: "fab fa-github", color: "#334155" },
+        ];
+      },
+      storageNodeOptions() { return this.largeStorageOptions; },
+
+      loginUrl() {
+        const back = window.location.pathname + window.location.search;
+        return "/login.html?redirect=" + encodeURIComponent(back);
+      },
+
+      currentUploadLimitLabel() {
+        return this.formatSize(this.effectiveUploadLimit(this.storageMode));
+      },
+
+      uploadLimitKey() { return `${this.storageMode}|${this.currentUploadLimitLabel}`; },
+      hasAnyOtherStorage() {
+        return this.storageNodeOptions.some((o) => this.isStorageAvailable(o.value));
+      },
+      overflowFallbackMode() {
+        if (this.isGuest) return "";
+        const primary = this.storageMode || "telegram";
+        const primaryCap = this.effectiveUploadLimit(primary);
+        let best = "";
+        let bestCap = primaryCap;
+        for (const m of OVERFLOW_FALLBACK_CANDIDATES) {
+          if (m === primary || !this.isStorageAvailable(m)) continue;
+          const cap = this.effectiveUploadLimit(m);
+          if (cap > bestCap) {
+            best = m;
+            bestCap = cap;
+          }
+        }
+        return best;
+      },
+      overflowFallbackActive() {
+        return !this.isGuest && Boolean(this.overflowFallback) && Boolean(this.overflowFallbackMode);
+      },
+      tgChunkedBannerSummary() {
+        const b = this.tgChunkedBanner || {};
+        const chunkLabel = this.formatSize(b.chunkSize || 18 * 1024 * 1024);
+        if (b.totalChunks > 0 && b.fileSize > 0) {
+          const name = b.fileName ? `「${b.fileName}」` : "当前文件";
+          return `${name}（${this.formatSize(b.fileSize)}）正按 ${chunkLabel} 切分为 ${b.totalChunks} 片直传`;
+        }
+        return `超过 20 MB 的文件将按 ${chunkLabel} 自动切片直传，最大支持 ${this.formatSize(this.effectiveUploadLimit("telegram"))}`;
+      },
+
+      urlActiveCount() {
+        const active = new Set(["queued", "connecting", "transferring", "resuming", "saving", "finalizing"]);
+        return this.urlTasks.filter((t) => active.has(t.phase)).length;
+      },
+      urlUploading() {
+        return this.urlActiveCount > 0;
+      },
+      urlDoneCount() {
+        return this.urlTasks.filter((t) => t.phase === "done").length;
+      },
+      urlFailedCount() {
+        return this.urlTasks.filter((t) => t.phase === "failed" || t.phase === "canceled").length;
+      },
+      urlBatchParsed() {
+        return this.extractValidUrls(this.urlBatchText);
+      },
+      urlTransferLimitHint() {
+        const mode = this.storageMode;
+        const GB = 1024 * 1024 * 1024;
+        const MB = 1024 * 1024;
+        const capMap = {
+          r2: { bytes: 10 * GB, tag: "Range 分片 · 并发流式" },
+          telegram: { bytes: 2 * GB, tag: "Range 虚拟分片" },
+          s3: { bytes: 40 * MB, tag: "" },
+          webdav: { bytes: 40 * MB, tag: "" },
+          github: { bytes: 40 * MB, tag: "" },
+          huggingface: { bytes: 35 * MB, tag: "" },
+          discord: { bytes: 25 * MB, tag: "" },
+        };
+        if (mode === "auto") {
+          const guestCap = this.guestUploadConfig?.maxFileSize;
+          return guestCap
+            ? `${this.storageLabel(mode)}（访客限 ${this.formatSize(guestCap)}）`
+            : `${this.storageLabel(mode)}（支持 Range 最高 2~10 GB）`;
+        }
+        const meta = capMap[mode] || { bytes: 40 * MB, tag: "" };
+        const effective = this.guestUploadConfig?.maxFileSize
+          ? Math.min(meta.bytes, this.guestUploadConfig.maxFileSize)
+          : meta.bytes;
+        const sizeLabel = this.formatSize(effective);
+        const extra = meta.tag && !this.guestUploadConfig ? ` · ${meta.tag}` : "";
+        return `${this.storageLabel(mode)}（最高 ${sizeLabel}${extra}）`;
+      },
+      urlTransferLabel() {
+        return this.urlTaskPhaseLabel(this.urlTransfer);
+      },
+      urlTransferPercent() {
+        return this.urlTaskPercent(this.urlTransfer);
+      },
+
+      historyStats() {
+        const list = this.uploadHistory || [];
+        const totalSize = list.reduce((sum, it) => sum + (Number(it.size) || 0), 0);
+        return { count: list.length, totalSize };
+      },
+      historyTypeCounts() {
+        const counts = { all: this.uploadHistory.length, image: 0, video: 0, audio: 0, doc: 0, other: 0 };
+        this.uploadHistory.forEach((it) => {
+          const cat = this.getFileCategory(this.getDisplayName(it));
+          if (counts[cat] === undefined) counts[cat] = 0;
+          counts[cat]++;
+        });
+        return counts;
+      },
+      historyFiltered() {
+        const kw = (this.historySearch || "").trim().toLowerCase();
+        let list = this.uploadHistory.slice();
+        if (kw) {
+          list = list.filter((it) => {
+            const name = String(this.getDisplayName(it) || "").toLowerCase();
+            const url = String(it.url || "").toLowerCase();
+            return name.includes(kw) || url.includes(kw);
+          });
+        }
+        if (this.historyTypeFilter !== "all") list = list.filter((it) => this.getFileCategory(this.getDisplayName(it)) === this.historyTypeFilter);
+        return list;
+      },
+      /* 本地历史的精简双路，阈值比 QUEUE_LEAN_LIMIT 宽松一些：
+         历史列表一次性可见的条目本来就少（网格 4 列、滚动才看得见），
+         但它的规模可以到 historyMaxItems=500，而且**每个日期分组各一个
+         transition-group** —— 分组一多就是 FG 套：500 行每渲染一次就要
+         做 500 次 getBoundingClientRect，且 shouldUpdateComponent 全程放行。
+         超过阈值后换普通 <div>，与 resultListWrap 同套路。 */
+      historyLean() { return this.historySorted.length > 40; },
+      historyListWrap() { return this.historyLean ? "div" : Vue.TransitionGroup; },
+      historySorted() {
+        const arr = this.historyFiltered.slice();
+        switch (this.historySort) {
+          case "time-asc": arr.sort((a, b) => (a.uploadTime || 0) - (b.uploadTime || 0)); break;
+          case "name-asc": arr.sort((a, b) => String(this.getDisplayName(a)).localeCompare(String(this.getDisplayName(b)), "zh-CN")); break;
+          case "size-desc": arr.sort((a, b) => (b.size || 0) - (a.size || 0)); break;
+          default: arr.sort((a, b) => (b.uploadTime || 0) - (a.uploadTime || 0));
+        }
+        return arr;
+      },
+      historyGroups() {
+        const list = this.historySorted;
+        if (!this.historySort.startsWith("time")) return [{ label: "", items: list }];
+        const dayMs = 86400000;
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const defs = [
+          { label: "今天", from: startOfToday, to: Infinity },
+          { label: "昨天", from: startOfToday - dayMs, to: startOfToday },
+          { label: "最近 7 天", from: startOfToday - 7 * dayMs, to: startOfToday - dayMs },
+          { label: "最近 30 天", from: startOfToday - 30 * dayMs, to: startOfToday - 7 * dayMs },
+          { label: "更早", from: 0, to: startOfToday - 30 * dayMs },
+        ];
+        const groups = [];
+        defs.forEach((def) => {
+          const items = list.filter((it) => { const t = it.uploadTime || 0; return t >= def.from && t < def.to; });
+          if (items.length) groups.push({ label: def.label, items });
+        });
+        return groups;
+      },
+      historyAllSelected() { const list = this.historySorted; return list.length > 0 && list.every((it) => it.selected); },
+      historySelectedCount() { return this.historySorted.filter((it) => it.selected).length; },
+
+      /* 是否为合集分享（多选文件 或 分享整个目录）。单文件分享时全程为 false，
+         所有既有分支因此保持原样。 */
+      isShareDialogBundle() {
+        return this.shareDialogItems.length > 1 || !!this.shareDialogFolder;
+      },
+      shareDialogTitle() {
+        if (this.shareDialogFolder) return `分享目录「${this.shareDialogFolder.name}」`;
+        if (this.isShareDialogBundle) return `分享 ${this.shareDialogItems.length} 个文件`;
+        return this.shareDialogMode === "manage" ? "管理分享" : "分享文件";
+      },
+      /* 弹窗副标题：合集列出文件名预览，单文件显示完整名，目录显示路径。 */
+      shareDialogItemsLabel() {
+        if (this.shareDialogFolder) {
+          const path = this.shareDialogFolder.path || "根目录";
+          const count = this.shareDialogFolder.fileCount > 0 ? `（${this.shareDialogFolder.fileCount} 个文件）` : "";
+          return `目录：${path}${count}`;
+        }
+        if (this.isShareDialogBundle) {
+          const names = this.shareDialogItems.map((it) => this.getDisplayName(it));
+          const head = names.slice(0, 4).join("、");
+          return names.length > 4 ? `${head} 等 ${names.length} 个文件` : head;
+        }
+        return this.shareDialogItem ? this.getDisplayName(this.shareDialogItem) : "";
+      },
+      shareDialogExpiryHint() {
+        const expiresIn = Number(this.shareDialogForm.expiresIn) || 0;
+        if (this.shareDialogMode === "manage" && expiresIn === 0) return "保持不变。选择具体时长才会覆盖当前设置。";
+        if (expiresIn === 0) return "永久有效。";
+        return `从此刻起 ${this.formatShareDuration(expiresIn)}内可访问。`;
+      },
+      sharePasswordPlaceholder() {
+        if (this.shareDialogMode !== "manage") return "留空表示不加密";
+        if (!this.shareDialogForm.keepPassword) return "留空即清除密码";
+        return "留空则不修改";
+      },
+      shareSlugPlaceholder() {
+        if (this.shareDialogMode !== "manage") return "留空则自动生成";
+        if (!this.shareDialogForm.keepSlug) return "留空即取消自定义短链";
+        return "留空则不修改";
+      },
+      /* 标题 / 说明的占位文案：直接把"不填会显示什么"写在框里，
+         用户不用猜——这比另起一行小字说明更有效。 */
+      shareTitlePlaceholder() {
+        if (this.shareDialogFolder) return `留空则显示「${this.shareDialogFolder.name}」`;
+        if (this.isShareDialogBundle) return `留空则显示「${this.shareDialogItems.length} 个文件的合集」`;
+        if (this.shareDialogItem) return `留空则显示「${this.getDisplayName(this.shareDialogItem)}」`;
+        return "给这次分享起个名字";
+      },
+      shareDescriptionPlaceholder() {
+        return "选填。访客会在文件上方看到这句话（例如：原图未压缩，单张约 8MB）";
+      },
+    },
+    methods: {
+      /* ===== 存储元信息 ===== */
+      getStorageIcon(mode) { return (STORAGE_META[mode] || {}).icon || "fas fa-server"; },
+      storageLabel(mode) { return (STORAGE_META[mode] || {}).label || mode || ""; },
+      /* 窄屏标签用的短名；未登记 short 时退回完整名，不会显示空白。 */
+      storageShortLabel(mode) {
+        const meta = STORAGE_META[mode] || {};
+        return meta.short || meta.label || mode || "";
+      },
+      /* 上传队列「储存位置」标签要显示的节点。
+         优先用任务自己钉下的 targetMode —— 它是入队那一刻
+         resolveStorageForFile(file.size) 算出来的真实落点，中途不会变，
+         即使 storageMode 之后被用户切换（或任务被暂停重试）也仍是权威值。
+         只有极少数历史任务没带上 targetMode（比如从旧版 localStorage 恢复的
+         断点续传记录）才回落到当前 storageMode。
+         返回值恒非空，模板里的 v-if 只用于防御 —— 见 .task__node 注释。 */
+      taskNodeMode(file) {
+        if (!file) return "";
+        return file.targetMode || this.storageMode || "";
+      },
+
+      /* ===== 工具方法 ===== */
+      formatSpeed(bps) {
+        /* 位数固定（xx.x KB/s 起步，最宽 3 位数字 + 单位），
+           速率独占一行且用等宽数字，每秒刷新时不会左右抖动 */
+        if (!bps || bps <= 0) return "0 KB/s";
+        if (bps >= 1024 * 1024) return (bps / (1024 * 1024)).toFixed(1) + " MB/s";
+        return (bps / 1024).toFixed(0) + " KB/s";
+      },
+      formatEta(seconds) {
+        const s = Math.ceil(Number(seconds) || 0);
+        if (!Number.isFinite(s) || s <= 0 || s > 86400) return "";
+        if (s < 60) return `剩余 ${s}s`;
+        const mins = Math.floor(s / 60);
+        const remS = s % 60;
+        if (mins < 60) return remS > 0 ? `剩余 ${mins}分${remS}秒` : `剩余 ${mins}分`;
+        const hours = Math.floor(mins / 60);
+        const remM = mins % 60;
+        return remM > 0 ? `剩余 ${hours}小时${remM}分` : `剩余 ${hours}小时`;
+      },
+      formatCountdownSec(seconds) {
+        const s = Math.max(1, Math.ceil(Number(seconds) || 0));
+        if (s < 60) return `${s}s`;
+        const mins = Math.floor(s / 60);
+        const remS = s % 60;
+        return remS > 0 ? `${mins}分${remS}秒` : `${mins}分`;
+      },
+      formatSpeedWithEta(bps, remainingBytes) {
+        const speedText = this.formatSpeed(bps);
+        if (!bps || bps <= 1024 || !remainingBytes || remainingBytes <= 0) return speedText;
+        const etaText = this.formatEta(remainingBytes / bps);
+        return etaText ? `${speedText} · ${etaText}` : speedText;
+      },
+      formatSize(bytes) {
+        return KVault.formatBytes(bytes);
+      },
+      formatHistoryTime(ts) {
+        if (!ts) return "未知时间";
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return "未知时间";
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        if (d.toDateString() === now.toDateString()) return `今天 ${hm}`;
+        const y = new Date(now.getTime() - 86400000);
+        if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`;
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`;
+      },
+      /* 单位是**秒**（下拉选项给的原始值），与 admin.html 的同名方法（毫秒）
+         不同 —— 两页各调各的，不会互相污染，但改的时候别抄错单位。 */
+      formatShareDuration(seconds) {
+        const map = { 3600: "1 小时", 86400: "1 天", 604800: "7 天", 2592000: "30 天", 31536000: "365 天" };
+        if (map[seconds]) return map[seconds];
+        const days = Math.round(seconds / 86400);
+        return days >= 1 ? `${days} 天` : "1 小时内";
+      },
+      safeDecodeFileName(str) {
+        if (!str) return "";
+        try {
+          let decoded = decodeURIComponent(str);
+          if (decoded.includes("%")) { try { decoded = decodeURIComponent(decoded); } catch (_) {} }
+          return decoded;
+        } catch (_) { return str; }
+      },
+      parseUrlFileName(rawUrl) {
+        try {
+          const u = new URL(rawUrl, window.location.origin);
+          const pathname = u.pathname;
+          const rawName = pathname.substring(pathname.lastIndexOf("/") + 1);
+          return this.safeDecodeFileName(rawName) || "remote_file";
+        } catch (_) {
+          const segment = (rawUrl || "").split("?")[0].split("#")[0].split("/").pop();
+          return this.safeDecodeFileName(segment) || "remote_file";
+        }
+      },
+      getDisplayName(item) {
+        let name = item.fileName || item.name || "未命名文件";
+        if (typeof name === "string" && name.includes("%")) { try { name = decodeURIComponent(name); } catch (_) {} }
+        return name;
+      },
+      getCleanFileUrl(item) {
+        const raw = item.url || item.path || "";
+        if (raw.startsWith("http")) return raw;
+        return `${this.baseURL}${raw}`;
+      },
+      /* 缩略图地址：在直链基础上换成 /thumb（走共享层，跨页唯一实现）。
+         缩略图缺失或文件受保护时服务端会 302 回原图，故这里无需回退分支。 */
+      getThumbUrl(item) {
+        return KVault.thumbUrl(this.getCleanFileUrl(item));
+      },
+      isImageFile(filename) { return /\.(jpe?g|png|webp|gif|svg|bmp|avif|ico)$/i.test(filename || ""); },
+      /* 图标 / 分类按扩展名查表。队列里每张卡片每渲染一次就要走一遍这几个
+         includes —— 100 个任务 × 每帧一次的话是每秒上千次数组扫描，故按扩展名
+         记忆化。只有短 key 才入缓存：无扩展名的文件名会整串变成 key，
+         不设门槛会让这张表随文件名无限膨胀。 */
+      getFileIcon(filename) {
+        const ext = (filename || "").split(".").pop().toLowerCase();
+        if (ext.length <= 8 && FILE_ICON_CACHE.has(ext)) return FILE_ICON_CACHE.get(ext);
+        let cls = "fas fa-file";
+        if (["mp4", "mkv", "avi", "mov", "webm"].includes(ext)) cls = "fas fa-video";
+        else if (["mp3", "wav", "flac", "aac", "ogg", "m4a"].includes(ext)) cls = "fas fa-music";
+        else if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) cls = "fas fa-file-zipper";
+        else if (["pdf", "doc", "docx", "txt", "md"].includes(ext)) cls = "fas fa-file-lines";
+        if (ext.length <= 8) FILE_ICON_CACHE.set(ext, cls);
+        return cls;
+      },
+      getFileCategory(filename) {
+        const ext = String(filename || "").split(".").pop().toLowerCase();
+        if (ext.length <= 8 && FILE_CATEGORY_CACHE.has(ext)) return FILE_CATEGORY_CACHE.get(ext);
+        let category = "other";
+        if (["jpg", "jpeg", "png", "webp", "gif", "svg", "bmp", "avif", "ico", "tiff"].includes(ext)) category = "image";
+        else if (["mp4", "webm", "mkv", "avi", "mov", "m4v", "flv", "wmv"].includes(ext)) category = "video";
+        else if (["mp3", "wav", "flac", "aac", "ogg", "m4a", "opus"].includes(ext)) category = "audio";
+        else if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "csv", "json", "xml", "html", "zip", "rar", "7z", "tar", "gz"].includes(ext)) category = "doc";
+        if (ext.length <= 8) FILE_CATEGORY_CACHE.set(ext, category);
+        return category;
+      },
+      getStatusText(status) {
+        const texts = { waiting: "等待中", processing: "处理中", uploading: "上传中", success: "已完成", error: "失败", paused: "已暂停", blocked: "上传受限" };
+        return texts[status] || status;
+      },
+      /* ===== 上传任务文件名展示 =====
+         文件名默认最多 2 行（见 .task__name），保证卡片高度恒定、不因名字长短抖动。
+         超过长度只在「点击」时才展开到 4 行；展开态单独存在 expandedTaskNames 里，
+         不混入上传任务对象 —— 任务对象每多一个响应式字段，整条列表都要重新
+         收集依赖，把纯 UI 的展开态塞进去会白白触发一次全量渲染。
+         注：expandedTaskNames 已在 data 中，Vue 3 的 Proxy 响应式对「新增 key」
+         同样能追踪，直接赋值即可，不需要 $set（Vue 3 已移除该 API）。 */
+      isLongFileName(name) {
+        const s = String(name || "");
+        /* 单行大约能放 34 个 ASCII 字符 / 17 个全角字符；取一个保守阈值 */
+        let width = 0;
+        for (const ch of s) width += ch.charCodeAt(0) > 0xff ? 2 : 1;
+        return width > 34;
+      },
+      isNameExpanded(file) { return !!(this.expandedTaskNames && this.expandedTaskNames[file.uid]); },
+      toggleNameExpanded(file) {
+        if (!file || !this.isLongFileName(file.name)) return;
+        const key = file.uid;
+        if (!key) return;
+        this.expandedTaskNames[key] = !this.expandedTaskNames[key];
+      },
+      copyToClipboard(text) {
+        /* 改走共享层：降级链路只有一份，返回 Promise 供调用方按需链式处理 */
+        return KVault.copy(text);
+      },
+      async copyLinkText(text, successMessage) {
+        if (await this.copyToClipboard(text)) {
+          this.showToast(successMessage, "success");
+          return true;
+        }
+        if (text) {
+          const trigger = document.activeElement;
+          await this.requestDialog({
+            mode: "copy", tone: "warn", title: "请手动复制链接",
+            message: "浏览器未能写入剪贴板。请复制下方已选中的内容。",
+            value: text, confirmText: "关闭", showCancel: false,
+          });
+          if (trigger?.isConnected && !this.dlgBusy && !this.dlgQueue.length) trigger.focus({ preventScroll: true });
+        } else {
+          this.showToast("没有可复制的链接", "error");
+        }
+        return false;
+      },
+      showToast(message, type = "info") {
+        this.toasts.push({ message, type });
+        this.toastKey++;
+        /* 时长改由共享层统一计算（长的消息停久一点），与其它页面一致 */
+        setTimeout(() => { this.toasts.shift(); }, KVault.toastDelay(message));
+      },
+
+      /* ===== 同步状态点 ===== */
+      /* 把一次网络动作交给共享状态机：自动「同步中→已同步/失败+重试2次」。
+         失败时给错误打上 _syncedShown，调用方的 catch 据此避免重复弹 toast。
+         只有【写操作】走这里 —— 读操作（目录列表刷新）不驱动状态点，
+         否则后台刷新会给过期数据"背书"（误以为同步成功）。 */
+      _syncTrack(fn, label, opts = {}) {
+        if (!this.syncTracker) return Promise.resolve().then(fn);
+        return this.syncTracker.track(fn, Object.assign({ label }, opts)).catch((err) => {
+          if (err && typeof err === "object") {
+            try { err._syncedShown = true; } catch (e) { /* 边角情况 */ }
+          }
+          throw err;
+        });
+      },
+      /* ===== 写后校正的防回退登记（与 admin.html 同一套约定） ===== */
+      /* 默认窗口与验证期对齐（90s 验证 + 余量）：KV 最终一致窗口内，
+         普通刷新拿到的旧数据同样会被丢弃，防止界面闪回旧状态 */
+      rememberFolderOp(op, ms = 95000) {
+        if (!this._recentFolderOps) this._recentFolderOps = [];
+        this._recentFolderOps.push(Object.assign({ until: Date.now() + ms }, op));
+      },
+      folderDataIsStale(incoming) {
+        const ops = this._recentFolderOps || [];
+        if (!ops.length) return false;
+        const now = Date.now();
+        const has = (p) => (incoming || []).some((f) => this.normalizeFolderPath(f.path) === p);
+        for (const op of ops) {
+          if (op.until < now) continue;
+          if (op.type === "delete" && has(op.path)) return true;    /* 刚删的又回来 */
+          if (op.type === "create" && !has(op.path)) return true;   /* 刚建的不在   */
+          if (op.type === "rename" && !has(op.to)) return true;     /* 刚改名的没变 */
+        }
+        this._recentFolderOps = ops.filter((o) => o.until >= now);
+        return false;
+      },
+      /* 点击圆点：解释「为什么会有延迟、为什么无法避免」 */
+      async showSyncExplain() {
+        /* 文案在共享层，保证 admin / index 两页口径完全一致 */
+        const base = this.syncTracker ? this.syncTracker.explain() : "";
+        let head = "";
+        if (this.syncState === "failed") {
+          const err = this.syncDetail && this.syncDetail.lastError;
+          const tries = (this.syncDetail && this.syncDetail.attempts) || 0;
+          head = `上次同步失败，已自动重试 ${Math.max(tries - 1, 0)} 次仍失败：`
+            + `${(err && err.message) || "网络异常"}\n\n`;
+        } else if (this.syncState === "synced") {
+          head = "已在云端 KV 确认到你的变更，当前内容与云端一致。\n\n";
+        } else if (this.syncState === "syncing") {
+          const d = this.syncDetail || {};
+          if (d.timedOut) {
+            head = "改动已提交云端，但 KV 确认超时（通常 ≤60 秒），仍在低频重试验证，界面保持乐观状态。\n\n";
+          } else if (d.verifying) {
+            head = `改动已提交云端，正在回到 KV 读取确认（已验证 ${d.attempts || 0} 次）。确认到证据前黄点不会变绿。\n\n`;
+          } else {
+            head = "正在同步中，界面已先行更新，写入在后台进行。\n\n";
+          }
+        }
+        await this.alertDialog(head + base, { title: "关于同步与延迟" });
+      },
+
+      /* =====================================================
+         统一自定义对话框 —— 全面替代 window.alert / confirm / prompt
+         全部 Promise 化，多个请求自动串行排队，不会互相覆盖。
+         ===================================================== */
+
+      /* 底层：提交一个对话框请求，返回 Promise */
+      requestDialog(options) {
+        return new Promise((resolve) => {
+          this.dlgQueue.push({ options: options || {}, resolve });
+          if (!this.dlgBusy) this.dlgDrain();
+        });
+      },
+
+      /* 取出队列里的下一个请求并渲染 */
+      dlgDrain() {
+        if (this.dlgBusy || !this.dlgQueue.length) return;
+        this.dlgBusy = true;
+        const job = this.dlgQueue.shift();
+        const o = job.options || {};
+        const tone = o.tone || "info";
+        const mode = o.mode || "confirm";
+        const iconMap = {
+          danger: "fas fa-triangle-exclamation",
+          warn: "fas fa-triangle-exclamation",
+          success: "fas fa-circle-check",
+          info: mode === "prompt" ? "fas fa-pen" : "fas fa-circle-info",
+        };
+        this.dlg = Object.assign({}, DLG_DEFAULTS, o, {
+          mode, tone,
+          icon: o.icon || iconMap[tone] || iconMap.info,
+          value: o.value != null ? String(o.value) : "",
+          error: "",
+          visible: true,
+          resolver: job.resolve,
+        });
+        this.$nextTick(() => {
+          const el = ["prompt", "copy"].includes(this.dlg.mode) ? this.$refs.dlgInput : this.$refs.dlgConfirmBtn;
+          if (el && typeof el.focus === "function") {
+            el.focus();
+            if (typeof el.select === "function") el.select();
+          }
+        });
+      },
+
+      /* 关闭并把结果交给等待方 */
+      dlgClose(result) {
+        const resolve = this.dlg.resolver;
+        this.dlg.visible = false;
+        this.dlg.resolver = null;
+        this.dlgBusy = false;
+        if (typeof resolve === "function") resolve(result);
+        this.$nextTick(() => this.dlgDrain());
+      },
+
+      /* 点「确定」：prompt 先跑校验 */
+      dlgConfirm() {
+        if (!this.dlg.visible) return;
+        const d = this.dlg;
+        if (d.mode === "prompt") {
+          const val = String(d.value == null ? "" : d.value).trim();
+          if (typeof d.validate === "function") {
+            const msg = d.validate(val);
+            if (msg) {
+              d.error = msg;
+              const el = this.$refs.dlgInput;
+              if (el && typeof el.focus === "function") el.focus();
+              return;
+            }
+          }
+          this.dlgClose(val);
+          return;
+        }
+        this.dlgClose(true);
+      },
+
+      /* 取消 / 关闭 / 点遮罩 / Esc：prompt 返回 null，其余返回 false */
+      dlgDismiss() {
+        if (!this.dlg.visible || !this.dlg.closable) return;
+        this.dlgClose(this.dlg.mode === "prompt" ? null : false);
+      },
+
+      /* 语义化封装 —— 业务代码只调这三个 */
+      confirmDialog(message, options = {}) {
+        const o = (typeof options === "string") ? { title: options } : (options || {});
+        return this.requestDialog(Object.assign({
+          mode: "confirm", tone: "info",
+          title: "请确认", message: message || "",
+          confirmText: "确定", cancelText: "取消",
+        }, o));
+      },
+
+      /* 危险确认：红色主按钮 + 阻断感 */
+      confirmDanger(message, options = {}) {
+        const o = (typeof options === "string") ? { title: options } : (options || {});
+        return this.confirmDialog(message, Object.assign({
+          tone: "danger", confirmText: "确认删除", confirmIcon: "fas fa-trash",
+        }, o));
+      },
+
+      promptDialog(message, options = {}) {
+        const o = (typeof options === "string") ? { title: options } : (options || {});
+        return this.requestDialog(Object.assign({
+          mode: "prompt", tone: "info",
+          title: "请输入", message: message || "",
+          confirmText: "确定", cancelText: "取消",
+        }, o));
+      },
+
+      alertDialog(message, options = {}) {
+        const o = (typeof options === "string") ? { title: options } : (options || {});
+        return this.requestDialog(Object.assign({
+          mode: "alert", tone: "info",
+          title: "提示", message: message || "",
+          confirmText: "知道了", showCancel: false,
+        }, o));
+      },
+
+      /* 全局 Esc：即使焦点不在框内也能关闭当前对话框 */
+      dlgHandleGlobalKey(e) {
+        if (!this.dlg.visible) return;
+        if (e.key === "Escape" || e.key === "Esc") {
+          e.preventDefault();
+          this.dlgDismiss();
+        } else if (e.key === "Enter" && this.dlg.mode !== "prompt") {
+          e.preventDefault();
+          this.dlgConfirm();
+        }
+      },
+
+      /* ===== XHR 上传（保留所有断点续传能力） =====
+         task 传了就把当前 xhr 注册进 task.activeXhrs（同时保留 task.xhr 兼容），
+         暂停/取消时可一次性 abort 全部并发在飞请求，避免仅中断最后一路导致其余 5 路泄漏。
+         注意：abort 与 timeout 语义分开 —— abort 视为「用户主动暂停」，
+         timeout 视为「可续传的瞬态失败」，两者绝不能互相冒充。 */
+      /* contentType 非空时显式设置请求头：分片通道用原始字节（无需 multipart
+         边界），服务端据此在解析前就能校验 Content-Length。
+         FormData 上传必须让浏览器自己带 boundary，故不传该参数。 */
+      xhrUpload(url, formData, onProgress, timeoutMs, task, contentType) {
+        let xhrRef = null;
+        const p = new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhrRef = xhr;
+          if (task) {
+            const rawXhr = typeof Vue !== "undefined" && typeof Vue.markRaw === "function" ? Vue.markRaw(xhr) : xhr;
+            task.xhr = rawXhr;
+            if (!task.activeXhrs) {
+              const set = new Set();
+              task.activeXhrs = typeof Vue !== "undefined" && typeof Vue.markRaw === "function" ? Vue.markRaw(set) : set;
+            }
+            task.activeXhrs.add(rawXhr);
+          }
+          xhr.open("POST", url);
+          xhr.withCredentials = true;
+          if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+          if (timeoutMs && timeoutMs > 0) xhr.timeout = timeoutMs;
+          if (xhr.upload && onProgress) {
+            xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); };
+          }
+          xhr.onload = () => {
+            let data = null;
+            try { data = JSON.parse(xhr.responseText); } catch (_) {}
+            if (xhr.status >= 200 && xhr.status < 300) resolve(data || {});
+            else {
+              let retryAfterMs = 0;
+              try { retryAfterMs = this.parseRetryAfterMs(xhr.getResponseHeader("Retry-After")); } catch (_) {}
+              reject(this.uploadResponseError(xhr.status, data, `HTTP ${xhr.status}`, retryAfterMs));
+            }
+          };
+          xhr.onerror = () => {
+            const err = new Error("网络连接失败，上传中断");
+            err.networkError = true;
+            reject(err);
+          };
+          xhr.ontimeout = () => {
+            const err = new Error("网络请求超时");
+            err.isTimeout = true;
+            reject(err);
+          };
+          xhr.onabort = () => reject(new Error("__ABORTED__"));
+          xhr.send(formData);
+        });
+        const settle = () => {
+          if (task) {
+            if (task.activeXhrs) task.activeXhrs.delete(xhrRef);
+            if (task.xhr === xhrRef) task.xhr = null;
+          }
+        };
+        p._xhr = xhrRef;
+        p.then(settle, settle);
+        return p;
+      },
+      /* 可随任务暂停/取消即时中断的 fetch 封装（用于 init / complete 等控制面请求） */
+      async fetchWithAbort(item, token, url, options = {}) {
+        const rawCtrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        const controller = rawCtrl && typeof Vue !== "undefined" && typeof Vue.markRaw === "function"
+          ? Vue.markRaw(rawCtrl)
+          : rawCtrl;
+        if (item && controller) {
+          if (!item.abortControllers) {
+            const set = new Set();
+            item.abortControllers = typeof Vue !== "undefined" && typeof Vue.markRaw === "function" ? Vue.markRaw(set) : set;
+          }
+          item.abortControllers.add(controller);
+        }
+        try {
+          const fetchOpts = Object.assign({ credentials: "include" }, options);
+          if (controller && !fetchOpts.signal) fetchOpts.signal = controller.signal;
+          const res = await fetch(url, fetchOpts);
+          return res;
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            if (!item || item.runToken !== token || item.want !== "run" || item.cancelRequested || this.schedulerDisposed) {
+              throw new Error("__ABORTED__");
+            }
+            const tErr = new Error("网络请求超时");
+            tErr.isTimeout = true;
+            throw tErr;
+          }
+          if (err instanceof Error && !err.networkError) err.networkError = true;
+          throw err;
+        } finally {
+          if (item && controller && item.abortControllers) {
+            item.abortControllers.delete(controller);
+          }
+        }
+      },
+      /* 动态分片超时：有实测 EWMA 速率时按 3× 预期传输时长 + 20s 裕量，
+         无实测速率时按默认基线（30s + 2s/MB），统一收敛在 minTimeoutMs(默认 30s) ~ 300s 之间。
+         Telegram 虚拟分片需二次转发到 Bot API，调用方可传入更高的 minTimeoutMs(90s) 防止误杀。 */
+      estimateTimeout(bytes, observedBps, minTimeoutMs = 30000) {
+        const b = Number(bytes) || 0;
+        const bps = Number(observedBps) || 0;
+        const floorMs = Math.min(300000, Math.max(30000, Number(minTimeoutMs) || 30000));
+        if (bps > 16 * 1024 && b > 0) {
+          const expectedMs = (b / bps) * 1000;
+          return Math.min(300000, Math.max(floorMs, Math.round(expectedMs * 3 + 20000)));
+        }
+        const mb = b / (1024 * 1024);
+        return Math.min(300000, Math.max(floorMs, Math.round(30000 + mb * 2000)));
+      },
+      async computeFileId(file) {
+        if (!file) return "";
+        const SAMPLE = 1024 * 1024;
+        try {
+          const head = await file.slice(0, Math.min(SAMPLE, file.size)).arrayBuffer();
+          const tailStart = Math.max(0, file.size - SAMPLE);
+          const tail = await file.slice(tailStart, file.size).arrayBuffer();
+          const merged = new Uint8Array(head.byteLength + tail.byteLength);
+          merged.set(new Uint8Array(head), 0);
+          merged.set(new Uint8Array(tail), head.byteLength);
+          const digest = await crypto.subtle.digest("SHA-256", merged);
+          const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+          return `${hex.slice(0, 32)}-${file.size}`;
+        } catch (_) {
+          return `m-${file.name}-${file.size}-${file.lastModified || 0}`;
+        }
+      },
+      resumeKey(fileId) { return `chunkResume:${fileId}`; },
+      readResumeState(fileId) {
+        if (!fileId) return null;
+        try {
+          const raw = localStorage.getItem(this.resumeKey(fileId));
+          if (!raw) return null;
+          const s = JSON.parse(raw);
+          if (!s || !s.uploadId || !s.ts || Date.now() - s.ts > 7 * 864e5) { localStorage.removeItem(this.resumeKey(fileId)); return null; }
+          return s;
+        } catch (_) { return null; }
+      },
+      writeResumeState(fileId, state) {
+        if (!fileId) return;
+        try { localStorage.setItem(this.resumeKey(fileId), JSON.stringify(Object.assign({ ts: Date.now() }, state))); }
+        catch (e) {
+          try {
+            const keys = Object.keys(localStorage).filter((k) => k.startsWith("chunkResume:"));
+            keys.sort((a, b) => (JSON.parse(localStorage.getItem(a) || "{}").ts || 0) - (JSON.parse(localStorage.getItem(b) || "{}").ts || 0))
+              .slice(0, Math.ceil(keys.length / 2)).forEach((k) => localStorage.removeItem(k));
+            localStorage.setItem(this.resumeKey(fileId), JSON.stringify(Object.assign({ ts: Date.now() }, state)));
+          } catch (_) {}
+        }
+      },
+      clearResumeState(fileId) { if (!fileId) return; try { localStorage.removeItem(this.resumeKey(fileId)); } catch (_) {} },
+
+      /* ===== 超限自动回落 ===== */
+      resolveStorageForFile(size) {
+        const primary = this.storageMode || "telegram";
+        const primaryCap = this.effectiveUploadLimit(primary);
+        if (!size || size <= primaryCap) return primary;
+        if (this.overflowFallbackActive) {
+          const fallback = this.overflowFallbackMode;
+          if (fallback && size <= this.effectiveUploadLimit(fallback)) {
+            return fallback;
+          }
+        }
+        return primary;
+      },
+      /* 分片大小由前端自适应声明，并经 init.js 放行：
+         init.js 接受前端声明的 chunkSize，只做范围（5MB~后端上限）与
+         片数（≤256）校验，不再自己定死。
+         R2 原生 multipart 后端已切至 FixedLengthStream 流式写入，单路堆内存不再受
+         分片大小掣肘，可按文件体量分档选片：
+           - ≤64MB  → 8MB  （更细粒度并发，显著压低尾片延迟）
+           - ≤512MB → 10MB （均衡并发与请求数）
+           - ≤2GB   → 16MB （减少片数与控制面往返，保持 6 路满并发）
+           - ≤5GB   → 24MB （兼顾吞吐与重传粒度）
+           - >5GB   → max(32MB, ceil(size/256))，封顶 50MB
+         非 R2 目的地沿用 10MB 基准、KV 上限 20MB。 */
+      resolveChunkSizeForMode(mode, fileSize) {
+        const MB = 1024 * 1024;
+        const CHUNK_SIZE_R2 = 50 * MB;
+        const CHUNK_SIZE_TELEGRAM = 18 * MB;
+        const CHUNK_SIZE_KV = 20 * MB;
+        const size = Number(fileSize) || 0;
+        const byChunkCount = size > 0 ? Math.ceil(size / MAX_TOTAL_CHUNKS) : 0;
+        if (mode === "r2") {
+          let preferred = 10 * MB;
+          if (size > 0 && size <= 64 * MB) preferred = 8 * MB;
+          else if (size <= 512 * MB) preferred = 10 * MB;
+          else if (size <= 2 * 1024 * MB) preferred = 16 * MB;
+          else if (size <= 5 * 1024 * MB) preferred = 24 * MB;
+          else preferred = 32 * MB;
+          const lower = Math.max(preferred, byChunkCount, MIN_CHUNK_SIZE);
+          return Math.min(CHUNK_SIZE_R2, lower);
+        }
+        if (mode === "telegram") {
+          return CHUNK_SIZE_TELEGRAM;
+        }
+        const PREFERRED_CHUNK_SIZE = 10 * MB;
+        const lower = Math.max(PREFERRED_CHUNK_SIZE, byChunkCount, MIN_CHUNK_SIZE);
+        return Math.min(CHUNK_SIZE_KV, lower);
+      },
+
+      /* ===== 并行上传 ===== */
+      isParallelActive() { return Boolean(this.parallelUpload) && !this.isGuest; },
+      isTelegramTask(item) { const mode = (item && item.targetMode) || this.storageMode; return mode === "telegram"; },
+      concurrencyForPool(pool) {
+        if (!this.isParallelActive()) return PARALLEL_OFF_CONCURRENCY;
+        const fallback = pool === "light" ? PARALLEL_DEFAULT_LIGHT : PARALLEL_DEFAULT_HEAVY;
+        const max = pool === "light" ? PARALLEL_MAX_LIGHT : PARALLEL_MAX_HEAVY;
+        const raw = pool === "light" ? this.parallelLight : this.parallelHeavy;
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 1) return fallback;
+        return Math.min(Math.floor(n), max);
+      },
+      /* 并行上传已收敛为一个开关：开 = 大文件 2 路并发，关 = 全部逐个上传。
+         并发数不再单独可调，统一由开关派生，避免两个入口互相打架。 */
+      setParallelUpload(on) {
+        this.parallelUpload = Boolean(on);
+        this.parallelHeavy = this.parallelUpload ? PARALLEL_MAX_HEAVY : PARALLEL_OFF_CONCURRENCY;
+        this.parallelLight = PARALLEL_DEFAULT_LIGHT;
+        try { localStorage.setItem("parallelUpload", this.parallelUpload ? "1" : "0"); } catch (e) {}
+        this.showToast(this.parallelUpload
+          ? `已开启并行上传（大文件 ×${this.concurrencyForPool("heavy")}）`
+          : "已关闭并行上传，改为依次上传", "success");
+        this.restartUploadNow();
+      },
+      restoreParallelSettings() {
+        try { this.parallelUpload = localStorage.getItem("parallelUpload") === "1"; } catch (e) { this.parallelUpload = false; }
+        if (this.isGuest) this.parallelUpload = false;
+        /* 并发数由开关派生，不再读取历史遗留的 parallelHeavy / parallelLight */
+        this.parallelHeavy = this.parallelUpload ? PARALLEL_MAX_HEAVY : PARALLEL_OFF_CONCURRENCY;
+        this.parallelLight = PARALLEL_DEFAULT_LIGHT;
+      },
+
+      /* ===== 抽屉 / 弹窗 ===== */
+      /* 统一入口：切换页签前先算出方向，供 pane-forward / pane-back 使用 */
+      setDrawerTab(tab) {
+        const from = DRAWER_TAB_ORDER.indexOf(this.activeDrawerTab);
+        const to = DRAWER_TAB_ORDER.indexOf(tab);
+        if (from > -1 && to > -1 && to !== from) this.drawerNavDir = to < from ? "back" : "forward";
+        this.activeDrawerTab = tab;
+      },
+      openDrawer(tab) {
+        if (!this.showDrawer) this._drawerTrigger = document.activeElement;
+        this.switchDrawerTab(tab);
+        this.showDrawer = true;
+        this.focusDrawerSheet();
+      },
+      closeDrawer() {
+        this.showDrawer = false;
+        const trigger = this._drawerTrigger;
+        this._drawerTrigger = null;
+        if (trigger?.isConnected) this.$nextTick(() => trigger.focus({ preventScroll: true }));
+      },
+      switchDrawerTab(tab) {
+        this.setDrawerTab(tab);
+        if (tab === "folder" && !this.uploadFoldersFetched) this.fetchUploadFolders();
+      },
+      /* 让抽屉拿到焦点，方向键才能在桌面端翻页；tabindex=-1 不会唤起键盘 */
+      focusDrawerSheet() {
+        this.$nextTick(() => {
+          const el = this.$refs.drawerSheet;
+          if (!el || !el.focus) return;
+          try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+        });
+      },
+
+      /* ===== Dock 滑动指示器：点击 / 跟手拖拽 =====
+         用 Pointer Events 单通道覆盖 鼠标 + 触摸；setPointerCapture 让指针
+         移出 dock 后仍能收到 move/up。touch-action:pan-y 把纵向留给页面滚动，
+         只在横向占优时锁定手势。与 .modal--sheet 上的 drawerSwipe 不冲突
+         （dock 在抽屉之外，DOM 不同子树）。
+
+         位移模型（借鉴 AndroidLiquidGlass / DampedDragAnimation）：
+           位置 = 单一浮点 pos（单位：格）× 步长
+         pos 为整数 -> 落停某格；为小数 -> 停在两格之间。
+         拖拽只改 pos，**不再叠加任何像素偏移** —— 双变量叠加是「瞬移」根因。 */
+      dockSlotRect() {
+        /* L7：拖拽进行中（_dockGeo 非空）直接复用 pointerdown 时缓存的几何，
+           不再每帧 getBoundingClientRect + getComputedStyle —— 那是 dock 拖拽
+           路径上唯一的强制布局点。缓存生命周期：pointerdown 建立，
+           pointerup / pointercancel / window resize 时销毁。 */
+        if (this._dockGeo) return this._dockGeo;
+        const dock = this.$refs.dockEl;
+        if (!dock) return null;
+        const r = dock.getBoundingClientRect();
+        const cs = getComputedStyle(dock);
+        const pad = parseFloat(cs.paddingLeft) || 6;
+        const gap = parseFloat(cs.columnGap || cs.gap) || 6;
+        const inner = r.width - pad * 2;
+        const slotW = (inner - gap * 3) / 4;
+        return (this._dockGeo = { r, pad, gap, slotW, inner, step: slotW + gap });
+      },
+      /* 由 clientX 反推最近槽位（0-3），带边界夹取 */
+      dockSlotFromX(clientX) {
+        const g = this.dockSlotRect();
+        if (!g || !g.slotW) return -1;
+        const rel = clientX - g.r.left - g.pad;
+        return Math.max(0, Math.min(3, Math.round(rel / g.step)));
+      },
+      /* 把连续格位置直接写到 DOM（不走响应式，避免每帧 setState 掉帧） */
+      setDockPos(v) {
+        const el = this.$refs.dockEl;
+        if (el) el.style.setProperty("--dock-pos", String(v));
+      },
+      /* 移除内联值，回落到模板 :style 的整数落点，让 CSS 弹簧接手吸附 */
+      clearDockPos() {
+        const el = this.$refs.dockEl;
+        if (el) el.style.removeProperty("--dock-pos");
+      },
+      onDockPointerDown(e) {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        const btn = e.target && e.target.closest ? e.target.closest("[data-dock-slot]") : null;
+        const slot = btn ? Number(btn.dataset.dockSlot) : this.dockSlotFromX(e.clientX);
+        const d = this.dockDrag;
+        d.active = true; d.lock = "";
+        d.x0 = e.clientX; d.y0 = e.clientY;
+        /* 从「当前指示器所在格」起步，而不是手指下的格 —— 这样轻拖
+           不会先把胶囊弹到手指格再跟手。 */
+        d.pos0 = this.dockIndicatorIndex;
+        d.pos = d.pos0;
+        d.from = slot; d.to = slot; d.moved = false;
+        d.pointerId = e.pointerId;
+        d.el = e.currentTarget;
+        /* L7：按下时就地建立几何缓存（见 dockSlotRect），拖拽全程复用 */
+        this._dockGeo = this.dockSlotRect();
+        /* 注意：此处**不** setPointerCapture —— 一旦捕获，后续 click 会被
+           重定向到本容器，按钮的原生 click 就再也收不到（点击被吃掉）。
+           只在真正锁定为横向拖拽后才捕获（见 onDockPointerMove）。 */
+      },
+      onDockPointerMove(e) {
+        const d = this.dockDrag;
+        if (!d.active) return;
+        const dx = e.clientX - d.x0;
+        const dy = e.clientY - d.y0;
+        if (!d.lock) {
+          /* 6px 死区；横向需明显占优才抢，否则让给页面纵向滚动 */
+          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+          d.lock = Math.abs(dx) >= Math.abs(dy) * 1.2 ? "x" : "y";
+          if (d.lock === "y") { d.active = false; return; }
+          /* 确认是横向拖拽了，此时才捕获指针：移出 dock 也能收到 move/up */
+          if (d.el && d.el.setPointerCapture) {
+            try { d.el.setPointerCapture(d.pointerId); } catch (err) { /* noop */ }
+          }
+          /* 锁定瞬间把锚点归零：死区内已移动的那几像素不计入，
+             免得刚锁定就跳一下。 */
+          d.x0 = e.clientX;
+          d.y0 = e.clientY;
+        }
+        if (d.lock !== "x") return;
+        const g = this.dockSlotRect();
+        if (!g || !g.step) return;
+        /* 唯一公式：格位置 = 起始格 + 像素位移 / 步长。
+           不做任何 round —— 连续小数才能跟手且永不跳变。 */
+        const raw = d.pos0 + (e.clientX - d.x0) / g.step;
+        d.pos = Math.max(0, Math.min(3, raw));
+        if (Math.abs(e.clientX - d.x0) > 3) d.moved = true;
+        d.to = Math.max(0, Math.min(3, Math.round(d.pos)));
+        this.setDockPos(d.pos);
+      },
+      onDockPointerUp() {
+        const d = this.dockDrag;
+        if (!d.active) return;
+        const wasDrag = d.lock === "x" && d.moved;
+        const target = d.to;
+        d.active = false; d.lock = "";
+        this._dockGeo = null;  /* L7：拖拽结束，几何缓存失效 */
+        if (!wasDrag) { this.clearDockPos(); return; }  /* 没拖动 → 交给按钮自己的 click */
+        /* 拖拽已生效：撤掉内联 --dock-pos 与 is-dragging，
+           由模板整数落点 + CSS 弹簧平滑吸附回弹。 */
+        this.clearDockPos();
+        /* 抑制浏览器补发的合成 click，并执行落点槽位行为 */
+        this._dockSuppressClick = true;
+        setTimeout(() => { this._dockSuppressClick = false; }, 350);
+        this.dockActivate(target);
+      },
+      onDockPointerCancel() {
+        const d = this.dockDrag;
+        d.active = false; d.lock = "";
+        this._dockGeo = null;  /* L7：同 pointerup，缓存失效 */
+        this.clearDockPos();
+      },
+      /* 统一入口：拖拽后的合成 click 直接吞掉 */
+      onDockClick(slot, fn) {
+        if (this._dockSuppressClick) return;
+        if (typeof fn === "function") fn();
+      },
+      /* 执行某个 dock 槽位对应的行为 */
+      dockActivate(slot) {
+        if (slot === 0) this.showDrawer = false;
+        else if (slot === 1) this.openDrawer("storage");
+        else if (slot === 2) this.openDrawer("history");
+        else if (slot === 3) this.openDrawer("menu");
+      },
+
+      /* ===== 抽屉横向滑动切页 =====
+         全程不碰 preventDefault，纵向滚动完全交给浏览器原生处理；
+         这里只认横向：先锁轴再累计位移，手一斜不会把竖直滚动抢走。 */
+      isDrawerSwipeBlocked(target) {
+        if (!target || typeof target.closest !== "function") return false;
+        /* .drawer-tabs / .type-tabs / .breadcrumb 都是横向滚动条，
+           手势从这里起手时一律让给它们自己滚动 */
+        return !!target.closest('input, textarea, select, [contenteditable="true"], .drawer-tabs, .type-tabs, .breadcrumb, .switch, .no-swipe');
+      },
+      onDrawerTouchStart(e) {
+        const s = this.drawerSwipe;
+        if (e.touches.length !== 1 || this.isDrawerSwipeBlocked(e.target)) { s.active = false; return; }
+        const t = e.touches[0];
+        s.active = true; s.lock = ""; s.dx = 0;
+        s.x0 = t.clientX; s.y0 = t.clientY; s.t0 = Date.now();
+      },
+      onDrawerTouchMove(e) {
+        const s = this.drawerSwipe;
+        if (!s.active || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - s.x0;
+        const dy = e.touches[0].clientY - s.y0;
+        if (!s.lock) {
+          const ax = Math.abs(dx), ay = Math.abs(dy);
+          if (ax < 10 && ay < 10) return;         // 抖动阈值：位移太小先不判方向
+          s.lock = ax > ay * 1.35 ? "x" : "y";    // 纵向优先，竖直滚动永不被抢
+        }
+        if (s.lock === "x") s.dx = dx;
+      },
+      onDrawerTouchEnd() {
+        const s = this.drawerSwipe;
+        if (!s.active) return;
+        const dx = s.dx;
+        const horizontal = s.lock === "x";
+        const velocity = Math.abs(dx) / Math.max(1, Date.now() - s.t0);   // px/ms
+        s.active = false; s.lock = ""; s.dx = 0;
+        if (!horizontal) return;
+        if (Math.abs(dx) < 24) return;                     // 纯抖动，不翻页
+        if (Math.abs(dx) < 56 && velocity < 0.5) return;   // 拖得不够远、也没甩起来
+        this.stepDrawerTab(dx < 0 ? 1 : -1);
+      },
+      onDrawerTouchCancel() {
+        const s = this.drawerSwipe;
+        s.active = false; s.lock = ""; s.dx = 0;
+      },
+      /* 手势与方向键共用的翻页入口 */
+      stepDrawerTab(step, e) {
+        const t = e && e.target;
+        if (t && typeof t.closest === "function" && t.closest('input, textarea, select, [contenteditable="true"]')) return;
+        const next = DRAWER_TAB_ORDER[DRAWER_TAB_ORDER.indexOf(this.activeDrawerTab) + step];
+        if (next) this.switchDrawerTab(next);
+      },
+      toggleLiquidTheme() {
+        /* 走 theme.js 统一入口：由它负责写 data-theme、持久化、并广播给所有切换入口。
+           本页用 data-own-theme-toggle 声明「自带按钮」，theme.js 不会另造浮动按钮。 */
+        if (window.ThemeManager) {
+          this.currentTheme = window.ThemeManager.toggleTheme();
+        } else {
+          this.currentTheme = this.currentTheme === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", this.currentTheme);
+          try { localStorage.setItem("theme", this.currentTheme); } catch (e) {}
+        }
+      },
+
+      /* ===== 存储节点 ===== */
+      isStorageAvailable(mode) {
+        if (mode === "auto") return true;
+        if (mode === "telegram") return true;
+        if (mode === "r2") return !!this.r2Available;
+        if (mode === "s3") return !!this.s3Available;
+        if (mode === "discord") return !!this.discordAvailable;
+        if (mode === "huggingface") return !!this.huggingfaceAvailable;
+        if (mode === "github") return !!this.githubAvailable;
+        return false;
+      },
+      setStorageMode(mode, silent = false) {
+        const labels = STORAGE_META;
+        const target = mode === "auto" ? "telegram" : mode;
+        if (this.isGuest && !["telegram", "r2"].includes(target)) { this.showToast("访客模式仅支持 Telegram 和 R2 存储", "error"); return; }
+        if (!this.isStorageAvailable(target) && target !== "telegram") { this.showToast(`${labels[target]?.label || target} 未配置或未启用`, "error"); return; }
+        if (silent && this.nodeResolving) this.beginNodeSettle();
+        const changed = this.storageMode !== target;
+        this.storageMode = target;
+        this.storageTarget = labels[target]?.label || STORAGE_META.telegram.label;
+        try { localStorage.setItem("storageMode", target); } catch (e) {}
+        this.loadFolderPathForMode(target);
+        if (changed && !this.nodeResolving) this.pulseNodeSettle();
+        if (!silent) this.showToast(`已切换至：${this.storageTarget}`, "success");
+      },
+      beginNodeSettle() { if (this.nodeResolveTimer) return; this.nodeResolving = true; },
+      pulseNodeSettle() {
+        this.beginNodeSettle();
+        if (this.nodeResolveTimer) clearTimeout(this.nodeResolveTimer);
+        this.nodeResolveTimer = setTimeout(() => { this.nodeResolving = false; this.nodeResolveTimer = null; }, 900);
+      },
+      setOverflowFallback(enabled, silent = false) {
+        const next = Boolean(enabled);
+        if (this.overflowFallback === next) return;
+        this.overflowFallback = next;
+        try { localStorage.setItem("overflowFallback", next ? "1" : "0"); } catch (e) {}
+        if (!silent) {
+          this.showToast(
+            next
+              ? (this.overflowFallbackMode ? `已开启超限自动回落（备用：${this.storageLabel(this.overflowFallbackMode)}）` : "已开启超限自动回落")
+              : "已关闭超限自动回落",
+            "success"
+          );
+        }
+      },
+      /* Telegram 虚拟分片 Beta 提醒与说明弹窗 */
+      showTgChunkedBanner(info = {}) {
+        this.tgChunkedBanner = {
+          visible: true,
+          fileName: String(info.fileName || this.tgChunkedBanner?.fileName || ""),
+          fileSize: Number(info.fileSize) || 0,
+          totalChunks: Number(info.totalChunks) || 0,
+          chunkSize: Number(info.chunkSize) || 18 * 1024 * 1024,
+        };
+      },
+      dismissTgChunkedBanner() {
+        this.tgChunkedBanner = { ...this.tgChunkedBanner, visible: false };
+      },
+      openTgChunkedBetaModal() {
+        this.tgChunkedBetaModalVisible = true;
+      },
+      closeTgChunkedBetaModal() {
+        this.tgChunkedBetaModalVisible = false;
+      },
+
+      /* ===== 灵动引擎 / 低性能模式 ===== */
+      toggleDevOptions() {
+        this.devOptionsExpanded = !this.devOptionsExpanded;
+      },
+      /* 把开关状态落到 <html data-perf>：关 = low（去模糊 + 停动画） */
+      applyPerfMode() {
+        const root = document.documentElement;
+        if (this.liveEngine) root.removeAttribute("data-perf");
+        else root.setAttribute("data-perf", "low");
+      },
+      async setLiveEngine(on) {
+        const next = Boolean(on);
+        if (next === this.liveEngine) return;
+
+        /* 重新开启是无损操作，直接生效 */
+        if (next) {
+          this.liveEngine = true;
+          this.applyPerfMode();
+          try { localStorage.setItem("liveEngine", "1"); } catch (e) {}
+          this.showToast("灵动引擎已开启", "success");
+          return;
+        }
+
+        /* 关闭要先讲清后果，用户确认才落盘 */
+        const ok = await this.confirmDialog(
+          "关闭后本机会立即切换到低性能模式：\n\n" +
+          "· 全部毛玻璃模糊移除，界面改为纯色底\n" +
+          "· 页面过渡、弹窗、列表动画全部停止\n" +
+          "· 视觉层次感与观感会明显下降\n\n" +
+          "换来的是更低的渲染开销：滚动与上传更流畅，也更省电。",
+          {
+            tone: "warn",
+            title: "关闭灵动引擎",
+            subtitle: "低性能模式",
+            confirmText: "仍然关闭",
+            cancelText: "保持开启",
+            note: "仅影响本机显示，随时可改回",
+          }
+        );
+        if (!ok) return;
+
+        this.liveEngine = false;
+        this.applyPerfMode();
+        try { localStorage.setItem("liveEngine", "0"); } catch (e) {}
+        this.showToast("已切换到低性能模式", "success");
+      },
+      /* 初始化：只认用户的显式设置。
+         没设置过一律按「开」—— 已不再做硬件自动检测，data-perf 不会在
+         用户未表态的情况下被写上，所以默认值不该再去读它。 */
+      syncLiveEngineFromPerf() {
+        let saved = null;
+        try { saved = localStorage.getItem("liveEngine"); } catch (e) {}
+        this.liveEngine = (saved === "0") ? false : true;
+        this.applyPerfMode();
+      },
+      getUploadLimit(storageMode) {
+        const fallback = {
+          auto: { maxBytes: 10 * 1024 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+          telegram: { maxBytes: 2 * 1024 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+          r2: { maxBytes: 10 * 1024 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+          s3: { maxBytes: 40 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+          discord: { maxBytes: 25 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+          huggingface: { maxBytes: 35 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+          github: { maxBytes: 40 * 1024 * 1024, directThreshold: 20 * 1024 * 1024, supportsChunkUpload: true },
+        };
+        const base = fallback[storageMode] || fallback.telegram;
+        const remote = this.uploadLimits?.[storageMode];
+        return { ...base, ...(remote || {}) };
+      },
+      effectiveUploadLimit(mode) {
+        const limit = this.getUploadLimit(mode).maxBytes || this.uploadConfig.maxSize;
+        return this.guestUploadConfig ? Math.min(limit, this.guestUploadConfig.maxFileSize) : limit;
+      },
+      /* ===== 目录管理 ===== */
+      normalizeFolderPath(val) { return String(val || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, ""); },
+      persistFolderPath() {
+        try {
+          localStorage.setItem("uploadFolderPath", this.folderPath);
+          localStorage.setItem(`uploadFolderPath:${this.storageMode}`, this.folderPath);
+        } catch (e) {}
+      },
+      loadFolderPathForMode(mode) {
+        let stored = "";
+        try { stored = localStorage.getItem(`uploadFolderPath:${mode}`) || ""; } catch (e) {}
+        this.folderPath = this.normalizeFolderPath(stored);
+        if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+      },
+      persistExpanded() { try { localStorage.setItem("folderTreeExpanded", JSON.stringify(this.expandedFolders)); } catch (e) {} },
+      toggleFolderExpand(path) { this.expandedFolders[path] = !this.expandedFolders[path]; this.persistExpanded(); },
+      autoExpandAncestors(path) {
+        const parts = this.normalizeFolderPath(path).split("/").filter(Boolean);
+        let cur = "";
+        for (let i = 0; i < parts.length - 1; i++) { cur = cur ? `${cur}/${parts[i]}` : parts[i]; if (!this.expandedFolders[cur]) this.expandedFolders[cur] = true; }
+        if (parts.length) this.persistExpanded();
+      },
+      folderPathUpTo(index) { return this.folderPathSegments.slice(0, index + 1).join("/"); },
+      selectUploadFolder(p, silent = false) {
+        this.folderPath = this.normalizeFolderPath(p);
+        this.persistFolderPath();
+        if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+        if (!silent) this.showToast(`已选择目录：${this.folderPath || "根目录"}`);
+      },
+      openUploadFolderCreator() {
+        this.newUploadFolderPath = this.folderPath ? `${this.folderPath}/新目录` : "新目录";
+        this.showUploadFolderCreator = true;
+        this.$nextTick(() => this.$refs.newFolderInput?.focus?.());
+      },
+      cancelUploadFolderCreator() { this.showUploadFolderCreator = false; this.newUploadFolderPath = ""; },
+      async createUploadFolder() {
+        if (!this.newUploadFolderPath.trim()) return;
+        const createdPath = this.normalizeFolderPath(this.newUploadFolderPath);
+        if (!createdPath) return;
+        this.uploadFolderCreating = true;
+
+        // 乐观更新：先本地建目录并选中，界面即时响应；请求转后台，失败回滚
+        const foldersSnapshot = this.uploadFolders;
+        const fetchedSnapshot = this.uploadFoldersFetched;
+        const pathSnapshot = this.folderPath;
+        const expandedSnapshot = { ...this.expandedFolders };
+
+        this.showUploadFolderCreator = false;
+        this.newUploadFolderPath = "";
+        this.applyOptimisticFolderAdd(createdPath);
+        this.selectUploadFolder(createdPath, true);
+        this.expandedFolders[createdPath] = true;
+        this.persistExpanded();
+
+        try {
+          /* settle:"evidence"：请求成功后黄点保持，等验证管理器 fresh 读回
+             列表里真的出现这个目录才点亮绿点 */
+          const data = await this._syncTrack(async () => {
+            const res = await fetch("/api/manage/folders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: createdPath }) });
+            const d = await res.json();
+            if (!res.ok || !d.success) throw new Error(d.error || "创建失败");
+            return d;
+          }, "新建目录", { settle: "evidence" });
+          this.showToast(`已创建目录：${createdPath}`, "success");
+          /* 防回退登记 + 证据验证：KV 最终一致窗口内普通刷新拿到的旧数据
+             会被丢弃；绿点要等确凿证据才亮 */
+          this.rememberFolderOp({ type: "create", path: createdPath });
+          if (this.syncVerifier) this.syncVerifier.queueVerify([{ type: "create", path: createdPath }], "新建目录");
+        } catch (err) {
+          // 回滚到操作前状态
+          this.uploadFolders = foldersSnapshot;
+          this.uploadFoldersFetched = fetchedSnapshot;
+          this.folderPath = pathSnapshot;
+          this.expandedFolders = expandedSnapshot;
+          this.persistFolderPath();
+          this.showUploadFolderCreator = true;
+          this.newUploadFolderPath = createdPath;
+          if (!err || !err._syncedShown) this.showToast(err.message, "error");
+        }
+        finally { this.uploadFolderCreating = false; }
+      },
+      async handleRenameFolder(node) {
+        const newPath = await this.promptDialog(`请输入目录 "${node.path}" 的新路径（需包含完整路径）：`, {
+          title: "重命名目录",
+          subtitle: "目录管理",
+          label: "新路径",
+          value: node.path,
+          placeholder: "例如 images/2024",
+          hint: "重命名会一并迁移该目录下的所有子目录。",
+          confirmText: "重命名",
+          confirmIcon: "fas fa-pen",
+          validate: (val) => {
+            const p = this.normalizeFolderPath(val);
+            if (!p) return "请输入有效的目录路径";
+            if (p === this.normalizeFolderPath(node.path)) return "新路径与原路径相同，无需重命名";
+            return "";
+          },
+        });
+        if (newPath === null) return;
+        const targetPath = this.normalizeFolderPath(newPath);
+        if (!targetPath || targetPath === node.path) { this.showToast("新路径与原路径相同或无效", "error"); return; }
+
+        // 乐观更新：先本地改路径，界面即时响应；请求转后台，失败回滚
+        const foldersSnapshot = this.uploadFolders;
+        const pathSnapshot = this.folderPath;
+        const inRenamed = this.folderPath === node.path || this.folderPath.startsWith(node.path + "/");
+        this.applyOptimisticFolderRename(node.path, targetPath);
+        if (inRenamed) {
+          const suffix = this.folderPath.slice(node.path.length);
+          this.selectUploadFolder(targetPath + suffix, true);
+        }
+
+        try {
+          /* settle:"evidence"：请求成功后黄点保持，等验证管理器确认
+             「新路径已出现、旧路径已消失」才点亮绿点 */
+          const data = await this._syncTrack(async () => {
+            const res = await fetch("/api/manage/folders", { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourcePath: node.path, targetPath }) });
+            const d = await res.json();
+            if (!res.ok || !d.success) throw new Error(d.error || "重命名失败");
+            return d;
+          }, "重命名目录", { settle: "evidence" });
+          this.showToast(`已重命名：${targetPath}`, "success");
+          /* 防回退登记 + 证据验证：子目录一并登记/验证（旧路径不该再出现、
+             新路径必须真的在），否则 KV 传播期间旧子目录可能闪回 */
+          const srcN = this.normalizeFolderPath(node.path);
+          const oldPaths = foldersSnapshot
+            .map((f) => this.normalizeFolderPath(f.path))
+            .filter((p) => p === srcN || p.startsWith(srcN + "/"));
+          const newPaths = oldPaths.map((p) => p === srcN ? targetPath : targetPath + p.slice(srcN.length));
+          oldPaths.forEach((p) => this.rememberFolderOp({ type: "delete", path: p }));
+          newPaths.forEach((p) => this.rememberFolderOp({ type: "create", path: p }));
+          if (this.syncVerifier) {
+            const expected = oldPaths.map((p) => ({ type: "delete", path: p }))
+              .concat(newPaths.map((p) => ({ type: "create", path: p })));
+            this.syncVerifier.queueVerify(expected, "重命名目录");
+          }
+        } catch (err) {
+          this.uploadFolders = foldersSnapshot;
+          this.folderPath = pathSnapshot;
+          this.persistFolderPath();
+          if (!err || !err._syncedShown) this.showToast(err.message, "error");
+        }
+      },
+      async handleDeleteFolder(node) {
+        const delOk = await this.confirmDanger(`即将删除目录 "${node.path}" 及其所有子目录和文件。\n\n删除后无法恢复。`, {
+          title: "删除目录",
+          subtitle: "危险操作",
+          confirmText: "删除目录",
+          cancelText: "保留",
+          note: "此操作不可撤销",
+        });
+        if (!delOk) return;
+
+        // 乐观更新：先本地移除目录，界面即时响应；请求转后台，失败回滚
+        const foldersSnapshot = this.uploadFolders;
+        const pathSnapshot = this.folderPath;
+        const inDeleted = this.folderPath === node.path || this.folderPath.startsWith(node.path + "/");
+        /* 先捕获将被乐观移除的目录（含子目录），供写后校正做防回退比对 */
+        const removedN = this.normalizeFolderPath(node.path);
+        const removedPaths = (this.uploadFolders || [])
+          .map((f) => this.normalizeFolderPath(f.path))
+          .filter((p) => p === removedN || p.startsWith(removedN + "/"));
+        this.applyOptimisticFolderDelete(node.path);
+        if (inDeleted) this.selectUploadFolder("", true);
+
+        try {
+          /* settle:"evidence"：请求成功后黄点保持，等验证管理器 fresh 读回
+             列表里真的没有这些路径才点亮绿点 */
+          const data = await this._syncTrack(async () => {
+            const res = await fetch(`/api/manage/folders?path=${encodeURIComponent(node.path)}&recursive=1`, { method: "DELETE", credentials: "include" });
+            const d = await res.json();
+            if (!res.ok || !d.success) throw new Error(d.error || "删除失败");
+            return d;
+          }, "删除目录", { settle: "evidence" });
+          this.showToast(`已删除目录：${node.path}`, "success");
+          /* 防回退登记 + 证据验证：KV 边缘缓存可能把刚删的目录连同旧快照
+             一起刷回来；绿点要等确凿证据才亮 */
+          removedPaths.forEach((p) => this.rememberFolderOp({ type: "delete", path: p }));
+          if (this.syncVerifier) {
+            this.syncVerifier.queueVerify(removedPaths.map((p) => ({ type: "delete", path: p })), "删除目录");
+          }
+        } catch (err) {
+          this.uploadFolders = foldersSnapshot;
+          this.folderPath = pathSnapshot;
+          this.persistFolderPath();
+          if (!err || !err._syncedShown) this.showToast(err.message, "error");
+        }
+      },
+      applyOptimisticFolderAdd(path) {
+        const normalized = this.normalizeFolderPath(path);
+        if (!normalized) return;
+        const exists = (this.uploadFolders || []).some((f) => this.normalizeFolderPath(f.path) === normalized);
+        if (!exists) this.uploadFolders = [...(this.uploadFolders || []), { path: normalized, fileCount: 0 }];
+        this.uploadFoldersFetched = true;
+      },
+      applyOptimisticFolderRename(oldPath, newPath) {
+        const oldN = this.normalizeFolderPath(oldPath);
+        const newN = this.normalizeFolderPath(newPath);
+        if (!oldN || !newN) return;
+        this.uploadFolders = (this.uploadFolders || []).map((f) => {
+          const p = this.normalizeFolderPath(f.path);
+          if (p === oldN) return { ...f, path: newN };
+          if (p.startsWith(oldN + "/")) return { ...f, path: newN + p.slice(oldN.length) };
+          return f;
+        });
+      },
+      applyOptimisticFolderDelete(oldPath) {
+        const oldN = this.normalizeFolderPath(oldPath);
+        if (!oldN) return;
+        this.uploadFolders = (this.uploadFolders || []).filter((f) => {
+          const p = this.normalizeFolderPath(f.path);
+          return p !== oldN && !p.startsWith(oldN + "/");
+        });
+      },
+      async fetchUploadFolders(force = false, opts = {}) {
+        if (force && !this.isGuest) this.pulseNodeSettle();
+        if (this.isGuest) { this.uploadFoldersLoading = false; return; }
+        if (this.uploadFoldersFetched && !force) return;
+        /* silent：写后静默校正不转圈，不打扰用户 */
+        if (!opts.silent) this.uploadFoldersLoading = true;
+        try {
+          /* 目录列表是读操作，【不】走同步状态点 —— 绿点只由用户写操作驱动。
+             fresh=1：写后校正绕开后端 fstat: 快照直扫 KV（快照键在 KV
+             最终一致/边缘缓存下可能读到旧值，把刚删的目录刷回界面） */
+          const p = new URLSearchParams({ _t: String(Date.now()) });
+          if (opts.fresh) p.set("fresh", "1");
+          const res = await fetch("/api/manage/folders?" + p, { credentials: "include" });
+          if (!res.ok) throw new Error(`目录列表获取失败（HTTP ${res.status}）`);
+          const data = await res.json();
+          /* 防回退：与「刚完成的乐观写操作」矛盾（刚删的目录复活/刚建的丢失）
+             说明是过期数据，丢弃本次刷新，保持乐观状态 */
+          if (!this.folderDataIsStale(data.folders || [])) {
+            this.uploadFolders = data.folders || [];
+            this.uploadFoldersFetched = true;
+            if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+          }
+        } catch (e) {}
+        finally { if (!opts.silent) this.uploadFoldersLoading = false; }
+      },
+
+      /* ===== 上传入口 ===== */
+      /* 统一门禁：未登录且访客上传被禁时，任何上传入口都在这里被挡住。
+         必须在「生成任务 / 发送请求 / 读取文件体」之前短路，否则被拒的访客
+         会不断重排上传任务，形成无限循环并反复打满后端。 */
+      guardUploadAllowed() {
+        if (this.authChecking) {
+          this.showToast("正在检查上传权限，请稍候", "info");
+          return false;
+        }
+        if (this.guestBlocked) {
+          this.showToast(this.uploadAccessMessage || "当前无法上传", "error");
+          return false;
+        }
+        return true;
+      },
+      triggerUpload() { if (!this.guardUploadAllowed()) return; this.$refs.fileInput.click(); },
+      handleFileSelect(e) { const files = Array.from(e.target.files || []); this.processFiles(files); e.target.value = ""; },
+      onDragOver(e) { if (e) e.preventDefault(); this.isDragging = true; },
+      onDragEnter(e) { if (e) e.preventDefault(); this.dragDepth++; this.isDragging = true; },
+      onDragLeave(e) { if (e) e.preventDefault(); this.dragDepth = Math.max(0, this.dragDepth - 1); if (this.dragDepth === 0) this.isDragging = false; },
+      async onDrop(e) {
+        if (!e) return;
+        e.preventDefault();
+        this.dragDepth = 0;
+        this.isDragging = false;
+        if (!this.guardUploadAllowed()) return;
+        const files = await this.collectFilesFromDataTransfer(e.dataTransfer);
+        this.processFiles(files);
+      },
+      async collectFilesFromDataTransfer(dataTransfer) {
+        if (!dataTransfer) return [];
+        const items = Array.from(dataTransfer.items || []);
+        const entryCapable = items.some((it) => it && typeof it.webkitGetAsEntry === "function");
+        if (!entryCapable) return Array.from(dataTransfer.files || []);
+        const entries = [];
+        for (const it of items) {
+          if (it.kind !== "file") continue;
+          try { const en = it.webkitGetAsEntry(); if (en) entries.push(en); } catch (_) {}
+        }
+        if (!entries.length) return Array.from(dataTransfer.files || []);
+        const hasDir = entries.some((en) => en.isDirectory);
+        if (hasDir) this.showToast("正在读取文件夹...", "info");
+        const out = [];
+        const stats = { count: 0, truncated: false };
+        try { await Promise.all(entries.map((en) => this.walkEntry(en, out, "", stats, 0))); } catch (err) { console.warn("[drop] 遍历目录失败:", err); }
+        if (!out.length) { this.showToast("没有从该文件夹读到可用文件", "error"); return []; }
+        if (stats.truncated) this.showToast(`文件夹文件过多，已只取前 ${stats.count} 个`, "error");
+        else if (hasDir) this.showToast(`已从文件夹读取 ${stats.count} 个文件`, "success");
+        return out;
+      },
+      walkEntry(entry, out, prefix, stats, depth) {
+        const MAX_FILES = 5000;
+        const MAX_DEPTH = 20;
+        if (stats.count >= MAX_FILES) { stats.truncated = true; return Promise.resolve(); }
+        if (depth > MAX_DEPTH) return Promise.resolve();
+        if (entry.isFile) {
+          return new Promise((resolve) => {
+            entry.file((file) => {
+              if (this.isIgnorableFile(file.name)) return resolve();
+              try { Object.defineProperty(file, "_relativePath", { value: prefix + file.name, configurable: true }); } catch (_) {}
+              out.push(file);
+              stats.count++;
+              resolve();
+            }, () => resolve());
+          });
+        }
+        if (!entry.isDirectory) return Promise.resolve();
+        const reader = entry.createReader();
+        const readAll = () => new Promise((resolve, reject) => {
+          const all = [];
+          const pump = () => {
+            reader.readEntries((batch) => {
+              if (!batch.length) return resolve(all);
+              all.push(...batch);
+              pump();
+            }, (err) => reject(err));
+          };
+          pump();
+        });
+        return readAll().then((children) =>
+          Promise.all(children.map((child) => this.walkEntry(child, out, `${prefix}${entry.name}/`, stats, depth + 1)))
+        ).catch(() => Promise.resolve());
+      },
+      isIgnorableFile(name) {
+        const n = String(name || "");
+        if (n.startsWith(".") && (n === ".DS_Store" || n === ".localized")) return true;
+        if (n.toLowerCase() === "thumbs.db" || n.toLowerCase() === "desktop.ini") return true;
+        return false;
+      },
+      preventWindowFileNav(e) {
+        if (!e) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = "copy"; } catch (_) {}
+      },
+      extractValidUrls(rawText, maxCount = 20) {
+        const lines = String(rawText || "").split(/[\r\n\s]+/);
+        const seen = new Set();
+        const out = [];
+        for (const token of lines) {
+          const trimmed = token.trim();
+          if (!trimmed || !/^https?:\/\//i.test(trimmed)) continue;
+          try {
+            const parsed = new URL(trimmed);
+            if (!["http:", "https:"].includes(parsed.protocol)) continue;
+            if (seen.has(parsed.href)) continue;
+            seen.add(parsed.href);
+            out.push(parsed.href);
+            if (out.length >= maxCount) break;
+          } catch (_) {}
+        }
+        return out;
+      },
+      onUrlInputChange() {
+        if (this.urlProbeResult && this.urlProbeResult.inputUrl !== this.urlToUpload.trim()) {
+          this.urlProbeResult = null;
+        }
+        if (this.urlProbeError) this.urlProbeError = "";
+      },
+      onUrlSinglePaste(event) {
+        const text = event?.clipboardData?.getData("text") || "";
+        const urls = this.extractValidUrls(text);
+        if (urls.length >= 2) {
+          event.preventDefault();
+          this.urlBatchMode = true;
+          this.urlBatchText = urls.join("\n");
+          this.urlProbeResult = null;
+          this.urlProbeError = "";
+          this.showToast(`已识别 ${urls.length} 条链接，已切换到批量导入`, "success");
+        }
+      },
+      async pasteUrlFromClipboard() {
+        try {
+          const text = await navigator.clipboard.readText();
+          const urls = this.extractValidUrls(text);
+          if (!urls.length) {
+            this.showToast("剪贴板中未检测到有效的 HTTP/HTTPS 链接", "warning");
+            return;
+          }
+          if (urls.length >= 2) {
+            this.urlBatchMode = true;
+            this.urlBatchText = urls.join("\n");
+            this.urlProbeResult = null;
+            this.urlProbeError = "";
+            this.showToast(`已粘贴 ${urls.length} 条链接到批量列表`, "success");
+          } else {
+            this.urlBatchMode = false;
+            this.urlToUpload = urls[0];
+            this.onUrlInputChange();
+          }
+        } catch (_) {
+          this.showToast("无法读取剪贴板，请直接粘贴", "warning");
+        }
+      },
+      async probeUrl() {
+        const raw = this.urlToUpload.trim();
+        if (!raw || !this.guardUploadAllowed()) return;
+        const urls = this.extractValidUrls(raw, 1);
+        if (!urls.length) {
+          this.urlProbeError = "请输入有效的 HTTP/HTTPS 文件直链";
+          return;
+        }
+        if (this._urlProbeAbort) {
+          try { this._urlProbeAbort.abort(); } catch (_) {}
+        }
+        const controller = new AbortController();
+        this._urlProbeAbort = controller;
+        this.urlProbing = true;
+        this.urlProbeError = "";
+        this.urlProbeResult = null;
+        try {
+          const res = await fetch(`${this.baseURL}/api/upload-from-url`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            signal: controller.signal,
+            body: JSON.stringify({
+              action: "probe",
+              url: urls[0],
+              referer: this.urlReferer.trim() || undefined,
+              customFileName: this.urlCustomFileName.trim() || undefined,
+              fileName: this.parseUrlFileName(urls[0]),
+              storageMode: this.storageMode,
+              overflowFallback: this.overflowFallbackActive,
+              overflowFallbackMode: this.overflowFallbackMode,
+            }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!res.ok || !data?.ok) {
+            throw this.uploadResponseError(res.status, data, "无法预检该链接");
+          }
+          this.urlProbeResult = { ...data, inputUrl: raw };
+        } catch (error) {
+          if (error?.name === "AbortError") return;
+          this.urlProbeError = this.recordUploadAccessError(error) || error.message || "预检失败";
+        } finally {
+          if (this._urlProbeAbort === controller) {
+            this._urlProbeAbort = null;
+            this.urlProbing = false;
+          }
+        }
+      },
+      async uploadFromUrl() {
+        const raw = this.urlToUpload.trim();
+        if (!raw || !this.guardUploadAllowed()) return;
+        const urls = this.extractValidUrls(raw, 20);
+        if (!urls.length) {
+          this.showToast("请输入有效的 HTTP/HTTPS 文件直链", "error");
+          return;
+        }
+        const customFileName = urls.length === 1 ? this.urlCustomFileName.trim() : "";
+        const referer = this.urlReferer.trim();
+        const cachedProbe =
+          urls.length === 1 &&
+          this.urlProbeResult &&
+          this.urlProbeResult.inputUrl === raw
+            ? this.urlProbeResult
+            : null;
+        const items = urls.map((url) => ({ url, customFileName, referer, probe: cachedProbe }));
+        this.enqueueUrlItems(items);
+        this.urlToUpload = "";
+        this.urlCustomFileName = "";
+        this.urlProbeResult = null;
+        this.urlProbeError = "";
+      },
+      uploadBatchUrls() {
+        if (!this.guardUploadAllowed()) return;
+        const urls = this.urlBatchParsed;
+        if (!urls.length) {
+          this.showToast("请粘贴至少一条有效的 HTTP/HTTPS 链接", "warning");
+          return;
+        }
+        const referer = this.urlReferer.trim();
+        this.enqueueUrlItems(urls.map((url) => ({ url, customFileName: "", referer })));
+        this.urlBatchText = "";
+        this.showToast(`已将 ${urls.length} 个链接加入转存队列`, "success");
+      },
+      enqueueUrlItems(items) {
+        if (!this._urlAborts) this._urlAborts = new Map();
+        const { folderPath, storageMode } = this;
+        const overflowFallback = this.overflowFallbackActive;
+        const overflowFallbackMode = this.overflowFallbackMode;
+        const shareOptions = this.buildShareOptions();
+
+        const created = [];
+        for (const item of items) {
+          let host = "";
+          try { host = new URL(item.url).hostname; } catch (_) {}
+          const fallbackName = this.parseUrlFileName(item.url);
+          const probe = item.probe || null;
+          const task = {
+            id: `url_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            url: item.url,
+            host: probe?.host || host,
+            fileName: item.customFileName || probe?.fileName || fallbackName || item.url,
+            fallbackName,
+            customFileName: item.customFileName || "",
+            referer: item.referer || "",
+            folderPath,
+            requestedStorage: storageMode,
+            overflowFallback,
+            overflowFallbackMode,
+            shareOptions,
+            storage: probe?.storage || (storageMode === "auto" ? "" : storageMode),
+            phase: "queued",
+            receivedBytes: 0,
+            totalBytes: probe?.size || null,
+            uploadedBytes: 0,
+            chunkIndex: 0,
+            totalChunks: probe?.totalChunks || null,
+            chunkSize: probe?.chunkSize || 0,
+            uploadId: "",
+            validator: probe?.validator || "",
+            probeMeta: probe,
+            rangeChunked: Boolean(probe?.rangeChunked),
+            resumedChunks: 0,
+            cooldownSeconds: 0,
+            resumeAttempt: 0,
+            resumeMax: 0,
+            acceptRanges: Boolean(probe?.acceptRanges),
+            telegramChunked: Boolean(probe?.telegramChunked),
+            speedBps: 0,
+            etaSeconds: null,
+            startedAt: 0,
+            finishedAt: 0,
+            resultUrl: "",
+            resultItem: null,
+            message: "",
+            retryable: false,
+            _lastSampleBytes: 0,
+            _lastSampleAt: 0,
+          };
+          created.push(task);
+        }
+        this.urlTasks = [...created, ...this.urlTasks].slice(0, 30);
+        this.urlTransfer = this.urlTasks[0] || null;
+        this.ensureUrlTicker();
+        this.pumpUrlQueue();
+      },
+      pumpUrlQueue() {
+        const runningPhases = new Set(["connecting", "transferring", "resuming", "saving", "finalizing"]);
+        let running = this.urlTasks.filter((t) => runningPhases.has(t.phase)).length;
+        if (running >= this.urlMaxConcurrency) return;
+        // FIFO 调度：队列底部是最早加入的 queued 任务
+        const queued = this.urlTasks.filter((t) => t.phase === "queued").reverse();
+        for (const task of queued) {
+          if (running >= this.urlMaxConcurrency) break;
+          running += 1;
+          void this.runUrlTask(task);
+        }
+      },
+      async computeUrlRangeFileId(url, size, validator = "") {
+        const raw = `url-range:${url}|${size}|${validator}`;
+        try {
+          if (crypto?.subtle?.digest) {
+            const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+            return Array.from(new Uint8Array(buf)).slice(0, 16).map((b) => b.toString(16).padStart(2, "0")).join("");
+          }
+        } catch (_) {}
+        let h1 = 0x811c9dc5;
+        let h2 = 0x9e3779b9;
+        for (let i = 0; i < raw.length; i += 1) {
+          const c = raw.charCodeAt(i);
+          h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+          h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+        }
+        return `${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}${String(size).padStart(16, "0").slice(-16)}`;
+      },
+      async sleepUrlWait(ms, signal, onTick = null) {
+        if (ms <= 0) return;
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) {
+          if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+          const remainMs = deadline - Date.now();
+          if (typeof onTick === "function") onTick(Math.max(1, Math.ceil(remainMs / 1000)));
+          const step = Math.min(remainMs, 1000);
+          await new Promise((resolve, reject) => {
+            const onAbort = () => {
+              clearTimeout(timer);
+              reject(new DOMException("Aborted", "AbortError"));
+            };
+            const timer = setTimeout(() => {
+              if (signal) signal.removeEventListener("abort", onAbort);
+              resolve();
+            }, step);
+            if (signal) signal.addEventListener("abort", onAbort, { once: true });
+          });
+        }
+        if (typeof onTick === "function") onTick(0);
+      },
+      async abortUrlChunkSession(uploadId) {
+        if (!uploadId) return;
+        await fetch(`${this.baseURL}/api/chunked-upload/abort`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ uploadId }),
+        }).catch(() => {});
+      },
+      applyUrlTaskSuccess(task, item, targetStorage) {
+        const srcName = item.src.split("/").pop().split("?")[0];
+        const name = this.safeDecodeFileName(item.fileName || item.name || item.originalName || srcName || task.fallbackName);
+        const size = Number(item.size || item.fileSize) || task.totalBytes || task.receivedBytes || 0;
+        const target = targetStorage || task.storage || task.requestedStorage;
+        const fileUrl = `${this.baseURL}${item.src}`;
+        const file = { name, fileName: name, url: fileUrl, size, selected: false };
+        this.applyShareResult(file, item);
+        this.uploadedFiles.unshift(file);
+        this.addToHistory(file, target, task.folderPath);
+
+        task.phase = "done";
+        task.storage = target;
+        task.fileName = name;
+        task.receivedBytes = size;
+        task.totalBytes = size;
+        task.etaSeconds = 0;
+        task.cooldownSeconds = 0;
+        task.finishedAt = Date.now();
+        task.resultUrl = fileUrl;
+        task.resultItem = file;
+        task.uploadId = "";
+        if (item.telegramChunked) task.telegramChunked = true;
+        if (item.totalChunks) {
+          task.chunkIndex = item.totalChunks;
+          task.totalChunks = item.totalChunks;
+        }
+        if (this.urlActiveCount === 0 && this.urlTasks.length === 1) {
+          this.showToast("URL 转存成功", "success");
+        } else {
+          this.showToast(`已完成转存：${name}`, "success");
+        }
+      },
+      async runRangeChunkedUrlTask(task, probe, controller) {
+        const signal = controller.signal;
+        task.rangeChunked = true;
+        task.acceptRanges = true;
+        task.telegramChunked = Boolean(probe.telegramChunked || probe.storage === "telegram");
+        task.storage = probe.storage;
+        task.fileName = probe.fileName || task.fileName;
+        task.host = probe.host || task.host;
+        task.totalBytes = probe.size;
+        task.chunkSize = probe.chunkSize;
+        task.totalChunks = probe.totalChunks;
+        task.validator = probe.validator || "";
+        task.phase = "connecting";
+
+        const fileId = await this.computeUrlRangeFileId(probe.finalUrl || task.url, probe.size, probe.validator || "");
+        const initRes = await fetch(`${this.baseURL}/api/chunked-upload/init`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          signal,
+          body: JSON.stringify({
+            fileName: probe.fileName,
+            fileSize: probe.size,
+            fileType: probe.contentType || "application/octet-stream",
+            totalChunks: probe.totalChunks,
+            chunkSize: probe.chunkSize,
+            storageMode: probe.storage,
+            folderPath: task.folderPath,
+            shareOptions: task.shareOptions,
+            fileId,
+            uploadId: task.uploadId || undefined,
+          }),
+        });
+        const initData = await initRes.json().catch(() => null);
+        if (!initRes.ok || !initData?.uploadId) {
+          throw this.uploadResponseError(initRes.status, initData, "初始化分片转存任务失败");
+        }
+
+        const uploadId = initData.uploadId;
+        const chunkSize = Number(initData.chunkSize) || probe.chunkSize;
+        const totalChunks = Number(initData.totalChunks) || probe.totalChunks;
+        task.uploadId = uploadId;
+        task.chunkSize = chunkSize;
+        task.totalChunks = totalChunks;
+        task.storage = initData.storageMode || probe.storage;
+        task.telegramChunked = Boolean(initData.telegramChunked || task.storage === "telegram");
+
+        const partsMap = new Map();
+        const uploadedSet = new Set(Array.isArray(initData.uploadedChunks) ? initData.uploadedChunks : []);
+        for (const p of (Array.isArray(initData.parts) ? initData.parts : [])) {
+          if (p && Number.isInteger(p.partNumber) && p.etag) {
+            partsMap.set(p.partNumber - 1, { partNumber: p.partNumber, etag: p.etag, size: p.size });
+            uploadedSet.add(p.partNumber - 1);
+          }
+        }
+
+        const chunkByteLen = (idx) => (idx === totalChunks - 1
+          ? probe.size - chunkSize * (totalChunks - 1)
+          : chunkSize);
+
+        let doneBytes = 0;
+        for (const idx of uploadedSet) doneBytes += chunkByteLen(idx);
+        task.resumedChunks = uploadedSet.size;
+        task.chunkIndex = uploadedSet.size;
+        task.receivedBytes = doneBytes;
+        task.uploadedBytes = doneBytes;
+        task._lastSampleBytes = doneBytes;
+        task._lastSampleAt = Date.now();
+        task.phase = "transferring";
+
+        const pending = [];
+        for (let i = 0; i < totalChunks; i += 1) {
+          if (!uploadedSet.has(i)) pending.push(i);
+        }
+
+        const concurrency = task.storage === "r2" ? 2 : 1;
+        let cursor = 0;
+        let fatalError = null;
+        let fallbackSingle = false;
+        let pausedByCooldown = false;
+
+        const worker = async () => {
+          while (!fatalError && !fallbackSingle && !pausedByCooldown && !signal.aborted) {
+            const pos = cursor;
+            cursor += 1;
+            if (pos >= pending.length) break;
+            const chunkIndex = pending[pos];
+            const expectedLen = chunkByteLen(chunkIndex);
+
+            let chunkOk = false;
+            for (let attempt = 1; attempt <= 5; attempt += 1) {
+              if (signal.aborted || fatalError || pausedByCooldown) break;
+              try {
+                const res = await fetch(`${this.baseURL}/api/chunked-upload/url-chunk`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  signal,
+                  body: JSON.stringify({
+                    uploadId,
+                    chunkIndex,
+                    url: probe.finalUrl || task.url,
+                    referer: task.referer || undefined,
+                    validator: probe.validator || undefined,
+                  }),
+                });
+                const data = await res.json().catch(() => null);
+
+                if (res.ok && data?.success) {
+                  partsMap.set(chunkIndex, {
+                    partNumber: data.partNumber || chunkIndex + 1,
+                    etag: data.etag,
+                    size: data.size || expectedLen,
+                  });
+                  task.cooldownSeconds = 0;
+                  if (task.phase === "resuming") task.phase = "transferring";
+                  task.chunkIndex = partsMap.size;
+                  const nextBytes = Math.min(probe.size, task.receivedBytes + expectedLen);
+                  const now = Date.now();
+                  const dt = (now - (task._lastSampleAt || task.startedAt || now)) / 1000;
+                  const dBytes = nextBytes - (task._lastSampleBytes || 0);
+                  if (dt > 0.1 && dBytes > 0) {
+                    const inst = dBytes / dt;
+                    task.speedBps = task.speedBps > 0 ? task.speedBps * 0.6 + inst * 0.4 : inst;
+                    task._lastSampleBytes = nextBytes;
+                    task._lastSampleAt = now;
+                    if (probe.size > nextBytes && task.speedBps > 0) {
+                      task.etaSeconds = Math.max(1, Math.ceil((probe.size - nextBytes) / task.speedBps));
+                    }
+                  }
+                  task.receivedBytes = nextBytes;
+                  task.uploadedBytes = nextBytes;
+                  chunkOk = true;
+                  break;
+                }
+
+                if (res.status === 429) {
+                  const retryAfter = Math.max(
+                    1,
+                    Number(data?.retryAfter || res.headers.get("Retry-After") || 5)
+                  );
+                  if (retryAfter > 300) {
+                    pausedByCooldown = true;
+                    task.phase = "paused";
+                    task.cooldownSeconds = retryAfter;
+                    task.message = `Telegram 触发长限流（约 ${retryAfter} 秒），已保留 ${partsMap.size}/${totalChunks} 片进度，可稍后点击继续`;
+                    task.finishedAt = Date.now();
+                    try { controller.abort(); } catch (_) {}
+                    break;
+                  }
+                  task.phase = "resuming";
+                  task.resumeAttempt = attempt;
+                  task.resumeMax = 5;
+                  await this.sleepUrlWait(retryAfter * 1000, signal, (sec) => {
+                    task.cooldownSeconds = sec;
+                  });
+                  task.phase = "transferring";
+                  continue;
+                }
+
+                if (res.status === 422 && data?.code === "RANGE_NOT_SUPPORTED" && partsMap.size === 0) {
+                  fallbackSingle = true;
+                  await this.abortUrlChunkSession(uploadId);
+                  task.uploadId = "";
+                  task.rangeChunked = false;
+                  break;
+                }
+
+                if (res.status === 404 && (data?.code === "UPLOAD_EXPIRED" || data?.code === "R2_UPLOAD_EXPIRED")) {
+                  task.uploadId = "";
+                  throw this.uploadResponseError(res.status, data, "分片会话已过期，请点击重试");
+                }
+
+                const retryable = Boolean(
+                  data?.retryable || [408, 500, 502, 503, 504].includes(res.status)
+                );
+                if (retryable && attempt < 5) {
+                  await this.sleepUrlWait(Math.min(5000, 800 * Math.pow(2, attempt - 1)), signal);
+                  continue;
+                }
+                throw this.uploadResponseError(res.status, data, `分片 ${chunkIndex + 1}/${totalChunks} 转存失败`);
+              } catch (err) {
+                if (err?.name === "AbortError" || signal.aborted) break;
+                const isNet = !err?.status || [408, 500, 502, 503, 504].includes(err?.status) || err?.retryable;
+                if (isNet && attempt < 5) {
+                  await this.sleepUrlWait(Math.min(5000, 800 * Math.pow(2, attempt - 1)), signal);
+                  continue;
+                }
+                fatalError = err;
+                try { controller.abort(); } catch (_) {}
+                break;
+              }
+            }
+            if (!chunkOk && !fatalError && !fallbackSingle && !pausedByCooldown && !signal.aborted) {
+              fatalError = new Error(`分片 ${chunkIndex + 1}/${totalChunks} 重试多次后仍失败`);
+              try { controller.abort(); } catch (_) {}
+              break;
+            }
+          }
+        };
+
+        await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, pending.length)) }, () => worker()));
+
+        if (fallbackSingle) return { fallbackSingle: true };
+        if (pausedByCooldown || task.phase === "paused") return { paused: true };
+        if (signal.aborted || task.phase === "canceled") {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        if (fatalError) throw fatalError;
+
+        // 合并分片（Telegram 零拷贝写清单 / R2 multipart complete）
+        task.phase = "finalizing";
+        task.etaSeconds = null;
+        task.cooldownSeconds = 0;
+        const sortedParts = Array.from(partsMap.values()).sort((a, b) => a.partNumber - b.partNumber);
+
+        let completeData = null;
+        let completeRes = null;
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            signal,
+            body: JSON.stringify({
+              uploadId,
+              parts: sortedParts,
+              shareOptions: task.shareOptions,
+            }),
+          });
+          completeData = await completeRes.json().catch(() => null);
+          if (completeRes.ok) break;
+          if ([503, 504].includes(completeRes.status) && attempt === 1 && !signal.aborted) {
+            await this.sleepUrlWait(1000, signal);
+            continue;
+          }
+          throw this.uploadResponseError(completeRes.status, completeData, "合并分片失败");
+        }
+
+        const item = Array.isArray(completeData) ? completeData[0] : (completeData?.file || completeData);
+        if (!item?.src) {
+          throw new Error("服务器未返回文件直链，无法确认合并结果。");
+        }
+        this.applyUrlTaskSuccess(task, item, task.storage);
+        return { done: true };
+      },
+      async runUrlTask(task) {
+        if (!task || task.phase !== "queued") return;
+        if (!this._urlAborts) this._urlAborts = new Map();
+        const controller = new AbortController();
+        this._urlAborts.set(task.id, controller);
+
+        const isResumingChunked = Boolean(task.uploadId && task.probeMeta?.rangeChunked);
+        task.phase = "connecting";
+        if (!isResumingChunked) {
+          task.receivedBytes = 0;
+          task.totalBytes = task.probeMeta?.size || null;
+          task.uploadedBytes = 0;
+          task.chunkIndex = 0;
+          task.totalChunks = task.probeMeta?.totalChunks || null;
+        }
+        task.resumeAttempt = 0;
+        task.resumeMax = 0;
+        task.cooldownSeconds = 0;
+        task.speedBps = 0;
+        task.etaSeconds = null;
+        task.message = "";
+        task.retryable = false;
+        if (!task.startedAt) task.startedAt = Date.now();
+        task.finishedAt = 0;
+        task._lastSampleBytes = task.receivedBytes || 0;
+        task._lastSampleAt = Date.now();
+        this.urlTransfer = task;
+        this.ensureUrlTicker();
+
+        try {
+          // 登录用户使用 Telegram / R2 / auto 时，先做轻量预检；若源站支持 Range 且超过单片阈值则走多请求 Range 分片模式（支持最高 2GB/10GB）
+          let probe = task.probeMeta;
+          const canTryRange =
+            !this.guestUploadConfig &&
+            ["telegram", "r2", "auto"].includes(task.requestedStorage);
+
+          if (canTryRange && !probe) {
+            try {
+              const probeRes = await fetch(`${this.baseURL}/api/upload-from-url`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                signal: controller.signal,
+                body: JSON.stringify({
+                  action: "probe",
+                  url: task.url,
+                  referer: task.referer || undefined,
+                  customFileName: task.customFileName || undefined,
+                  fileName: task.fallbackName,
+                  storageMode: task.requestedStorage,
+                  overflowFallback: task.overflowFallback,
+                  overflowFallbackMode: task.overflowFallbackMode,
+                }),
+              });
+              const probeData = await probeRes.json().catch(() => null);
+              if (probeRes.ok && probeData?.ok) {
+                probe = probeData;
+                task.probeMeta = probeData;
+              }
+            } catch (probeErr) {
+              if (probeErr?.name === "AbortError") throw probeErr;
+              // 预检失败不阻断，继续尝试单请求直拉
+            }
+          }
+
+          if (probe?.exceedsLimit) {
+            throw new Error(probe.limitReason || "文件大小超出当前存储节点转存上限");
+          }
+
+          if (canTryRange && probe?.rangeChunked) {
+            const rangeOutcome = await this.runRangeChunkedUrlTask(task, probe, controller);
+            if (!rangeOutcome?.fallbackSingle) return;
+          }
+
+          const res = await fetch(`${this.baseURL}/api/upload-from-url`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+            signal: controller.signal,
+            body: JSON.stringify({
+              url: task.url,
+              storageMode: task.requestedStorage,
+              overflowFallback: task.overflowFallback,
+              overflowFallbackMode: task.overflowFallbackMode,
+              folderPath: task.folderPath,
+              fileName: task.fallbackName,
+              customFileName: task.customFileName || undefined,
+              referer: task.referer || undefined,
+              shareOptions: task.shareOptions,
+            }),
+            credentials: "include",
+          });
+          const result = await this.readUrlTransfer(res, task);
+          if (result.status < 200 || result.status >= 300) {
+            throw this.uploadResponseError(result.status, result.data, "转存失败");
+          }
+          const item = Array.isArray(result.data) ? result.data[0] : null;
+          if (!item?.src) throw new Error("服务器没有返回文件链接，无法确认转存结果。");
+          this.applyUrlTaskSuccess(task, item, result.storage || task.storage || task.requestedStorage);
+        } catch (error) {
+          if (task.phase === "paused") {
+            // 暂停态保留 uploadId 与已完成分片，等待用户点击继续
+          } else if (error?.name === "AbortError" || task.phase === "canceled") {
+            task.phase = "canceled";
+            task.message = "已手动取消转存";
+            task.retryable = true;
+            task.finishedAt = Date.now();
+          } else {
+            const message = this.recordUploadAccessError(error) || error.message || "URL 转存失败";
+            task.phase = "failed";
+            task.message = message;
+            task.retryable = Boolean(error?.retryable || [408, 429, 502, 503, 504].includes(error?.status));
+            task.finishedAt = Date.now();
+            this.showToast(`${task.fileName || "URL"}：${message}`, "error");
+          }
+        } finally {
+          this._urlAborts.delete(task.id);
+          this.pumpUrlQueue();
+          if (this.urlActiveCount === 0) this.stopUrlTicker();
+        }
+      },
+      async readUrlTransfer(response, task = null) {
+        if (!response.ok || !response.headers.get("Content-Type")?.includes("application/x-ndjson")) {
+          return { status: response.status, data: await response.json().catch(() => null) };
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("浏览器无法读取转存进度。");
+        const decoder = new TextDecoder();
+        let pending = "";
+        let result;
+        const target = task || this.urlTransfer;
+        const consume = (line) => {
+          if (!line.trim()) return;
+          let event;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            throw new Error("转存流响应异常中断，请点击重试。");
+          }
+          if (event.type === "result") {
+            result = event;
+          } else if (event.type === "heartbeat") {
+            // 心跳保持流活跃，无需重置进度
+          } else if (event.type === "phase" || event.type === "progress") {
+            if (!target) return;
+            const now = Date.now();
+            if (event.phase) target.phase = event.phase;
+            if (event.storage) target.storage = event.storage;
+            if (event.fileName) target.fileName = event.fileName;
+            if (event.host) target.host = event.host;
+            if (event.acceptRanges !== undefined) target.acceptRanges = Boolean(event.acceptRanges);
+            if (event.telegramChunked !== undefined) target.telegramChunked = Boolean(event.telegramChunked);
+            if (event.totalBytes !== undefined) target.totalBytes = event.totalBytes;
+            if (event.uploadedBytes !== undefined) target.uploadedBytes = event.uploadedBytes;
+            if (event.chunkIndex !== undefined) target.chunkIndex = event.chunkIndex;
+            if (event.totalChunks !== undefined) target.totalChunks = event.totalChunks;
+            if (event.phase === "resuming") {
+              target.resumeAttempt = event.attempt || 1;
+              target.resumeMax = event.maxAttempts || 2;
+            }
+            if (event.receivedBytes !== undefined) {
+              const prevBytes = target._lastSampleBytes || 0;
+              const prevAt = target._lastSampleAt || target.startedAt || now;
+              const dt = (now - prevAt) / 1000;
+              const dBytes = event.receivedBytes - prevBytes;
+              if (dt >= 0.25 && dBytes > 0) {
+                const instSpeed = dBytes / dt;
+                target.speedBps = target.speedBps > 0
+                  ? target.speedBps * 0.65 + instSpeed * 0.35
+                  : instSpeed;
+                target._lastSampleBytes = event.receivedBytes;
+                target._lastSampleAt = now;
+                if (target.totalBytes && target.totalBytes > event.receivedBytes && target.speedBps > 0) {
+                  target.etaSeconds = Math.max(1, Math.ceil((target.totalBytes - event.receivedBytes) / target.speedBps));
+                }
+              }
+              target.receivedBytes = event.receivedBytes;
+            }
+            if (event.phase === "saving" || event.phase === "finalizing") {
+              target.etaSeconds = null;
+            }
+          }
+        };
+        try {
+          while (!result) {
+            const { done, value } = await reader.read();
+            pending += decoder.decode(value, { stream: !done });
+            const lines = pending.split("\n");
+            pending = lines.pop();
+            for (const line of lines) consume(line);
+            if (done) {
+              consume(pending);
+              break;
+            }
+          }
+          if (!result) throw new Error("转存连接已断开，无法确认文件是否已保存。");
+          return result;
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+        }
+      },
+      pauseUrlTask(task) {
+        if (!task || !task.rangeChunked) return;
+        const controller = this._urlAborts?.get(task.id);
+        task.phase = "paused";
+        task.cooldownSeconds = 0;
+        task.message = task.totalChunks
+          ? `已暂停，已保留 ${task.chunkIndex}/${task.totalChunks} 片断点进度`
+          : "已暂停，可随时点击继续";
+        task.finishedAt = Date.now();
+        if (controller) {
+          this._urlAborts.delete(task.id);
+          try { controller.abort(); } catch (_) {}
+        }
+        this.pumpUrlQueue();
+        if (this.urlActiveCount === 0) this.stopUrlTicker();
+      },
+      resumeUrlTask(task) {
+        if (!task || !this.guardUploadAllowed()) return;
+        task.phase = "queued";
+        task.message = "";
+        task.cooldownSeconds = 0;
+        task.finishedAt = 0;
+        this.ensureUrlTicker();
+        this.pumpUrlQueue();
+      },
+      cancelUrlTask(task) {
+        if (!task) return;
+        const controller = this._urlAborts?.get(task.id);
+        const pendingUploadId = task.uploadId;
+        task.phase = "canceled";
+        task.message = "已手动取消转存";
+        task.retryable = true;
+        task.cooldownSeconds = 0;
+        task.uploadId = "";
+        task.finishedAt = Date.now();
+        if (controller) {
+          this._urlAborts.delete(task.id);
+          try { controller.abort(); } catch (_) {}
+        }
+        if (pendingUploadId) {
+          void this.abortUrlChunkSession(pendingUploadId);
+        }
+        this.pumpUrlQueue();
+        if (this.urlActiveCount === 0) this.stopUrlTicker();
+      },
+      cancelAllUrlTasks() {
+        const active = new Set(["queued", "connecting", "transferring", "resuming", "saving", "finalizing", "paused"]);
+        for (const task of this.urlTasks) {
+          if (active.has(task.phase)) this.cancelUrlTask(task);
+        }
+      },
+      retryUrlTask(task) {
+        if (!task || !this.guardUploadAllowed()) return;
+        const keepChunkResume = Boolean(task.uploadId && task.probeMeta?.rangeChunked);
+        task.phase = "queued";
+        task.message = "";
+        task.error = "";
+        task.cooldownSeconds = 0;
+        if (!keepChunkResume) {
+          task.receivedBytes = 0;
+          task.uploadedBytes = 0;
+          task.chunkIndex = 0;
+          task.startedAt = 0;
+        }
+        task.speedBps = 0;
+        task.etaSeconds = null;
+        task.resumeAttempt = 0;
+        task.finishedAt = 0;
+        this.ensureUrlTicker();
+        this.pumpUrlQueue();
+      },
+      retryAllFailedUrlTasks() {
+        if (!this.guardUploadAllowed()) return;
+        let count = 0;
+        for (const task of this.urlTasks) {
+          if (task.phase === "failed" || task.phase === "canceled" || task.phase === "paused") {
+            const keepChunkResume = Boolean(task.uploadId && task.probeMeta?.rangeChunked);
+            task.phase = "queued";
+            task.message = "";
+            task.cooldownSeconds = 0;
+            if (!keepChunkResume) {
+              task.receivedBytes = 0;
+              task.uploadedBytes = 0;
+              task.chunkIndex = 0;
+              task.startedAt = 0;
+            }
+            task.speedBps = 0;
+            task.etaSeconds = null;
+            task.resumeAttempt = 0;
+            task.finishedAt = 0;
+            count += 1;
+          }
+        }
+        if (count > 0) {
+          this.ensureUrlTicker();
+          this.pumpUrlQueue();
+          this.showToast(`已重新加入 ${count} 个任务`, "success");
+        }
+      },
+      removeUrlTask(task) {
+        if (!task) return;
+        const controller = this._urlAborts?.get(task.id);
+        const pendingUploadId = task.uploadId;
+        if (controller) {
+          this._urlAborts.delete(task.id);
+          try { controller.abort(); } catch (_) {}
+        }
+        if (pendingUploadId) {
+          void this.abortUrlChunkSession(pendingUploadId);
+        }
+        this.urlTasks = this.urlTasks.filter((t) => t.id !== task.id);
+        this.urlTransfer = this.urlTasks[0] || null;
+        this.pumpUrlQueue();
+        if (this.urlActiveCount === 0) this.stopUrlTicker();
+      },
+      clearFinishedUrlTasks() {
+        this.urlTasks = this.urlTasks.filter((t) => t.phase !== "done" && t.phase !== "canceled");
+        this.urlTransfer = this.urlTasks[0] || null;
+      },
+      copyUrlTaskResult(task) {
+        if (!task?.resultUrl) return;
+        const text = task.resultItem ? this.formatLink(task.resultItem) : task.resultUrl;
+        return this.copyLinkText(text, "已复制转存链接");
+      },
+      ensureUrlTicker() {
+        if (this._urlTickTimer) return;
+        this.urlNowTick = Date.now();
+        this._urlTickTimer = setInterval(() => {
+          if (this.urlActiveCount <= 0) {
+            this.stopUrlTicker();
+            return;
+          }
+          this.urlNowTick = Date.now();
+        }, 1000);
+      },
+      stopUrlTicker() {
+        if (this._urlTickTimer) {
+          clearInterval(this._urlTickTimer);
+          this._urlTickTimer = null;
+        }
+      },
+      urlTaskPhaseLabel(task) {
+        if (!task) return "";
+        if (task.phase === "paused") {
+          return task.totalChunks
+            ? `已暂停 (${task.chunkIndex}/${task.totalChunks} 片)`
+            : "已暂停";
+        }
+        if (task.phase === "resuming") {
+          if (task.cooldownSeconds > 0) {
+            return `Telegram 限流等待 ${task.cooldownSeconds}s`;
+          }
+          return `断点续传 (${task.resumeAttempt || 1}/${task.resumeMax || 2})`;
+        }
+        if (task.phase === "saving" && task.chunkIndex > 0) {
+          return task.totalChunks
+            ? `写入分片 (${task.chunkIndex}/${task.totalChunks})`
+            : `写入分片 #${task.chunkIndex}`;
+        }
+        if (task.phase === "transferring" && task.rangeChunked) {
+          return `Range 分片传输 (${task.chunkIndex}/${task.totalChunks || "?"})`;
+        }
+        return {
+          queued: "等待队列调度",
+          connecting: "正在连接源站",
+          transferring: task.telegramChunked && task.chunkIndex > 0
+            ? `边拉边传 · 分片 ${task.chunkIndex}${task.totalChunks ? "/" + task.totalChunks : ""}`
+            : "正在读取源文件",
+          saving: "正在写入存储节点",
+          finalizing: "正在合并并生成直链",
+          done: "转存完成",
+          failed: "转存失败",
+          canceled: "已取消",
+        }[task.phase] || "";
+      },
+      urlTaskPercent(task) {
+        if (!task) return null;
+        if (task.phase === "done") return 100;
+        if (task.phase === "paused" && task.totalBytes > 0) {
+          return Math.min(99, Math.floor((task.receivedBytes / task.totalBytes) * 100));
+        }
+        if (task.phase === "saving") {
+          if (task.totalChunks && task.chunkIndex > 0) {
+            return Math.min(98, Math.max(85, Math.floor((task.chunkIndex / task.totalChunks) * 98)));
+          }
+          return task.totalBytes ? 95 : null;
+        }
+        if (task.phase === "finalizing") return 99;
+        if ((task.phase === "transferring" || task.phase === "resuming") && task.totalBytes > 0) {
+          const cap = task.rangeChunked ? 98 : 94;
+          return Math.min(cap, Math.floor((task.receivedBytes / task.totalBytes) * cap));
+        }
+        return null;
+      },
+      urlTaskStepIndex(task) {
+        if (!task) return 0;
+        switch (task.phase) {
+          case "queued": return 0;
+          case "connecting": return 1;
+          case "transferring":
+          case "resuming":
+          case "paused": return 2;
+          case "saving": return 3;
+          case "finalizing":
+          case "done": return 4;
+          default: {
+            if (task.receivedBytes > 0) return task.totalBytes && task.receivedBytes >= task.totalBytes ? 3 : 2;
+            return 1;
+          }
+        }
+      },
+      formatTransferSpeed(bps) {
+        const value = Number(bps) || 0;
+        if (value <= 0) return "";
+        if (value < 1024) return `${Math.round(value)} B/s`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB/s`;
+        return `${(value / (1024 * 1024)).toFixed(2)} MB/s`;
+      },
+      formatTransferEta(seconds) {
+        const sec = Math.ceil(Number(seconds) || 0);
+        if (sec <= 0) return "";
+        if (sec < 60) return `约 ${sec}s`;
+        const min = Math.floor(sec / 60);
+        const rem = sec % 60;
+        return rem > 0 ? `约 ${min}分${rem}秒` : `约 ${min}分`;
+      },
+      urlTaskElapsedText(task) {
+        if (!task || !task.startedAt) return "";
+        const end = task.finishedAt || this.urlNowTick || Date.now();
+        const ms = Math.max(0, end - task.startedAt);
+        if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
+        const sec = ms / 1000;
+        if (sec < 60) return `${sec.toFixed(1)}s`;
+        const min = Math.floor(sec / 60);
+        const rem = Math.round(sec % 60);
+        return `${min}m${String(rem).padStart(2, "0")}s`;
+      },
+
+      /* ===== 文件入队 ===== */
+      async processFiles(files) {
+        if (!files || !files.length) return;
+        /* 兜底门禁：任何调用方（拖拽 / 粘贴 / 文件夹 / 选择）都不得绕过。
+           访客被禁时直接拦下，不入队、不调度、不发请求。 */
+        if (!this.guardUploadAllowed()) return;
+        /* 准入校验先整批跑完（纯计算，不碰 DOM），再一次性入队。
+           拆开是必须的：一旦开始 push，每插入一个任务就会连锁触发一次渲染，
+           这时候再穿插「弹 toast 说某文件超限」就会变成几十次额外的重渲染。 */
+        const accepted = [];
+        const rejected = [];
+        for (const file of files) {
+          const targetMode = this.resolveStorageForFile(file.size);
+          const maxBytes = this.effectiveUploadLimit(targetMode);
+          if (maxBytes && file.size > maxBytes) {
+            rejected.push({ name: file.name, size: file.size, targetMode, maxBytes });
+            continue;
+          }
+          accepted.push({ file, targetMode });
+        }
+        if (rejected.length) this.rejectedUploads = this.rejectedUploads.concat(rejected);
+        if (!accepted.length) return;
+        /* 一次性整批 push，不做「每帧切一片」。
+           试过切片（每帧 24 个），实测反而更慢：浏览器每插入一个队列卡片就要
+           做一次 style invalidation，而单次失效的成本随已有 DOM 规模上升 ——
+           也就是总体呈 ~n²。切成 4 片意味着这份二次代价被付了 4 遍
+           （实测 RecalcStyleDuration 从 4.4s 涨到 7.1s），首屏早出的那点收益
+           远远补不回来。真正该做的是把「每次插入的边际成本」降下来，
+           以及别让 100 个元素各自跑一遍 CSS 过渡检测（见模板里的 :css）。 */
+        for (const entry of accepted) {
+          this.uploadingFiles.push(this.createUploadTask(entry.file, entry.targetMode));
+        }
+        this.requestUploadScheduling();
+        if (this.$nextTick) this.$nextTick(() => this.scanDeferredThumbs());
+      },
+      /* ===== 上传调度（唯一入口） =====
+         设计要点：
+         1. 并发额度是「跑完即收回的令牌」，不依赖任务对象上的状态。
+            旧实现用 status === "uploading/processing" 统计在飞数量，
+            而暂停会把 status 立刻改成 "paused"、额度却还没释放，
+            于是暂停瞬间额度虚高，调度器会多捞任务、出现「跳着传」。
+         2. 每次配置变化（并发数 / 并行开关 / 暂停 / 继续 / 新增文件）
+            都会 bump 一个全局 epoch。正在跑的 worker 每轮循环都校验
+            epoch，一旦过期就自行退出，由新一轮调度接管；同一时刻
+            只可能有一代调度器在派发任务。
+         3. 暂停 = 撤销该任务的运行令牌（runToken），并 abort 它正在飞的
+            分片请求；在飞 XHR 一旦被 abort（onabort）或超时（ontimeout），
+            必须换新令牌才能重新上传，避免迟到的回调污染新一轮进度。 */
+      uploadResponseError(status, data, fallback, retryAfterMs = 0) {
+        const error = new Error(KVault.errorMessage(data, fallback));
+        error.status = status;
+        error.code = data?.code || data?.error?.code;
+        error.requireLogin = data?.requireLogin === true;
+        error.retryable = data?.retryable === true;
+        const bodyRetrySec = Number(data?.retryAfter);
+        const bodyRetryMs = Number.isFinite(bodyRetrySec) && bodyRetrySec > 0
+          ? Math.min(3600000, Math.round(bodyRetrySec * 1000))
+          : 0;
+        const effectiveRetryMs = Math.max(Number(retryAfterMs) || 0, bodyRetryMs);
+        if (Number.isFinite(effectiveRetryMs) && effectiveRetryMs > 0) error.retryAfterMs = effectiveRetryMs;
+        return error;
+      },
+      parseRetryAfterMs(headerVal, maxMs = 3600000) {
+        if (!headerVal) return 0;
+        const raw = String(headerVal).trim();
+        if (!raw) return 0;
+        const cap = Math.max(1000, Number(maxMs) || 3600000);
+        const secs = Number(raw);
+        if (Number.isFinite(secs) && secs > 0) return Math.min(cap, Math.round(secs * 1000));
+        const ts = Date.parse(raw);
+        if (Number.isFinite(ts)) return Math.min(cap, Math.max(0, ts - Date.now()));
+        return 0;
+      },
+      isRateLimitError(err) {
+        if (!err) return false;
+        return err.code === "TG_RATE_LIMITED" || Number(err.status) === 429;
+      },
+      formatRetryReason(err) {
+        if (!err) return "传输中断";
+        if (this.isRateLimitError(err)) return "触发频控";
+        if (err.isTimeout) return "请求超时";
+        if (err.networkError) return "网络波动";
+        const status = Number(err.status);
+        if (Number.isFinite(status) && status >= 500) return "服务端繁忙";
+        return "传输中断";
+      },
+      isUploadExpiredError(err) {
+        if (!err) return false;
+        return err.code === "R2_UPLOAD_EXPIRED" || err.code === "UPLOAD_NOT_FOUND" || err.status === 404;
+      },
+      isTransientUploadError(err) {
+        if (!err) return false;
+        const msg = String(err.message || "");
+        if (msg === "__ABORTED__") return false;
+        if (this.isUploadExpiredError(err)) return false;
+        if (err.requireLogin) return false;
+        const code = String(err.code || "");
+        if (code.startsWith("GUEST_")) return false;
+        if (code === "DAILY_LIMIT_EXCEEDED" || code === "CONCURRENT_LIMIT_EXCEEDED" || code === "SLUG_CONFLICT") {
+          return false;
+        }
+        if (err.retryable === true || err.isTimeout === true || err.networkError === true) return true;
+        if (
+          code === "R2_PART_RETRY" ||
+          code === "R2_COMPLETE_RETRY" ||
+          code === "R2_HEAD_RETRY" ||
+          code === "TG_RATE_LIMITED" ||
+          code === "TG_PART_RETRY"
+        ) return true;
+        const status = Number(err.status);
+        if (Number.isFinite(status) && status > 0) {
+          return status === 408 || status === 425 || status === 429
+            || (status >= 500 && status <= 599);
+        }
+        return true;
+      },
+      computeRetryDelay(attempt, baseMs = 500, maxMs = 15000, retryAfterMs = 0) {
+        const exp = Math.min(maxMs, baseMs * Math.pow(2, Math.max(0, (attempt || 1) - 1)));
+        const floor = Math.min(200, exp);
+        const jittered = floor + Math.floor(Math.random() * Math.max(1, exp - floor));
+        const explicitMs = Number(retryAfterMs) || 0;
+        if (explicitMs > 0) {
+          /* 显式 Retry-After（如 Telegram FloodWait 45~300s）不得截断到 30s，
+             并额外附加 0.6~1.5s 正向抖动，避免时钟偏差导致提前 1 秒撞墙。 */
+          const safeAfter = Math.min(300000, explicitMs) + 600 + Math.floor(Math.random() * 900);
+          return Math.min(305000, Math.max(jittered, safeAfter));
+        }
+        return Math.min(30000, jittered);
+      },
+      async waitForOnlineWhileRunning(item, token, maxWaitMs = 60000) {
+        if (typeof navigator === "undefined" || navigator.onLine !== false) return;
+        item.statusText = "网络已断开，等待恢复...";
+        await new Promise((resolve) => {
+          let settled = false;
+          let elapsed = 0;
+          const step = 200;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearInterval(timer);
+            if (typeof window !== "undefined") window.removeEventListener("online", onOnline);
+            resolve();
+          };
+          const onOnline = () => finish();
+          if (typeof window !== "undefined") window.addEventListener("online", onOnline, { once: true });
+          const timer = setInterval(() => {
+            elapsed += step;
+            if (
+              this.schedulerDisposed || item.want !== "run" || item.runToken !== token
+              || item.cancelRequested || navigator.onLine !== false || elapsed >= maxWaitMs
+            ) {
+              finish();
+            }
+          }, step);
+        });
+      },
+      isBlockingError(err) {
+        if (!err) return false;
+        if (err.code === "TG_RATE_LIMITED") return false;
+        return ([401, 403, 413, 429].includes(err.status)
+          || err.requireLogin || String(err.code || "").startsWith("GUEST_"));
+      },
+      recordUploadAccessError(err) {
+        const guestDisabled = ["GUEST_UPLOAD_DISABLED", "GUEST_UPLOAD_FORBIDDEN"].includes(err?.code);
+        if (err?.status !== 401 && !guestDisabled) return "";
+        const sessionExpired = this.authRequired && (this.isAuthenticated || this.uploadAccessMessage.startsWith("登录已失效"));
+        this.isAuthenticated = false;
+        this.guestBlocked = true;
+        this.uploadAccessMessage = sessionExpired ? "登录已失效，请重新登录后上传"
+          : this.authRequired ? "访客上传已关闭，请登录后上传" : "访客上传已关闭";
+        return this.uploadAccessMessage;
+      },
+      isRetirableError(err) {
+        const msg = String((err && err.message) || "");
+        return msg === "__ABORTED__" || msg === "网络请求超时" || err?.isTimeout === true;
+      },
+      /* ===== 缩略图按需补建 =====
+         见 createUploadTask：大批量入队时预览图不再即时创建，而是先留占位。
+         这里用 IntersectionObserver 盯着所有占位节点，卡片滚到视口附近时才真正
+         生成 objectURL。挂着的 blob 数与 <img> 解码量因此收敛到「屏幕上看得见的
+         那十几个」，而不是队列长度（拖 100 张图时差别是两个数量级）。
+         扫描只在列表变化后跑一次（见 processFiles），不做轮询；某节点一旦有了预览
+         就会被 Vue 换成 <img> 分支，旧节点连同它的观察关系一并消失。 */
+      ensureThumbObserver() {
+        if (this._thumbIO !== undefined) return this._thumbIO;
+        if (typeof IntersectionObserver === "undefined") { this._thumbIO = null; return null; }
+        this._thumbIO = new IntersectionObserver((entries) => {
+          const hits = [];
+          for (const en of entries) {
+            if (!en.isIntersecting) continue;
+            this._thumbIO.unobserve(en.target);
+            const uid = en.target.getAttribute("data-task-uid");
+            if (uid) hits.push(uid);
+          }
+          if (hits.length) this.hydrateThumbs(hits);
+        }, { rootMargin: "260px 0px", threshold: 0 });
+        return this._thumbIO;
+      },
+      scanDeferredThumbs() {
+        const io = this.ensureThumbObserver();
+        if (!io) return;
+        const nodes = document.querySelectorAll(".task__thumb[data-task-uid]");
+        for (const el of nodes) {
+          if (el.dataset.thumbBound === "1") continue;
+          el.dataset.thumbBound = "1";
+          io.observe(el);
+        }
+      },
+      hydrateThumbs(uids) {
+        if (!uids || !uids.length) return;
+        /* 一次建索引，避免对每个命中都 find 一遍整个队列 */
+        const index = new Map();
+        for (const item of this.uploadingFiles) index.set(item.uid, item);
+        for (const uid of uids) {
+          const item = index.get(uid);
+          if (!item || item.preview || !item.previewDeferred || !item.file) continue;
+          item.previewDeferred = false;
+          item.preview = URL.createObjectURL(item.file);
+        }
+      },
+      releaseTaskThumb(item) {
+        if (item && item.preview) { try { URL.revokeObjectURL(item.preview); } catch (_) {} }
+      },
+      createUploadTask(file, targetMode) {
+        /* 缩略图不再「入队即建」。
+           每个 objectURL 都强引用着 File，同时 <img> 还要解码一遍位图：
+           一次拖 100 张图，就等于瞬间挂 100 个 blob + 解码 100 张位图，
+           首帧渲染直接卡死数秒，这也是「拖进去之后 UI 消失」的主要元凶之一。
+           策略：队列短（< TASK_PREVIEW_BUDGET）时照旧即时给图，保证日常几个文件
+           的观感；队列一长就只留占位图标，等卡片滚到视口边再由 Observer 补建。 */
+        const canThumb = !!(file.type && file.type.startsWith("image/"));
+        const inlinePreview = canThumb && this.uploadingFiles.length < TASK_PREVIEW_BUDGET;
+        return {
+          uid: `u${Date.now().toString(36)}${(this.uploadTaskSeq = (this.uploadTaskSeq || 0) + 1).toString(36)}`,
+          name: file.name, size: file.size, file: file, targetMode, folderPath: this.folderPath,
+          status: "waiting", statusText: "等待中", statusTone: "", statusHint: "", speed: "", uploadedBytes: 0,
+          preview: inlinePreview ? URL.createObjectURL(file) : null,
+          /* 「是图但还没给 URL」的任务，由 scanDeferredThumbs 在滚进视口时补上 */
+          previewDeferred: canThumb && !inlinePreview,
+          progress: 0, error: null,
+          uploadId: null, chunkDone: [], fileId: null,
+          /* 业务意图：用户想暂停 -> want !== "run"；想继续/重试 -> want === "run" */
+          want: "run",
+          /* 运行令牌：worker 派发前写入，暂停/重试校验并作废 */
+          runToken: 0,
+          xhr: null,
+          activeXhrs: null,
+          abortControllers: null,
+          cancelRequested: false,
+        };
+      },
+
+      /* 令牌失效：作废令牌 + 真正中断全部在飞请求（所有并发 XHR + fetch AbortController）+ 清空速度显示。
+         必须全部 abort，否则并发分片里的其余 5 路 XHR 会继续在后台空传占满带宽，
+         或者 Promise 永不 settle 导致该任务永久占住并发名额。 */
+      invalidateTaskRun(item) {
+        if (!item) return;
+        item.runToken = (item.runToken || 0) + 1;
+        const xhr = item.xhr;
+        item.xhr = null;
+        item.speed = "";
+        if (item.activeXhrs && item.activeXhrs.size) {
+          const xhrs = Array.from(item.activeXhrs);
+          item.activeXhrs.clear();
+          for (const x of xhrs) {
+            if (x && typeof x.abort === "function") {
+              try { x.abort(); } catch (_) {}
+            }
+          }
+        } else if (xhr && typeof xhr.abort === "function") {
+          try { xhr.abort(); } catch (_) {}
+        }
+        if (item.abortControllers && item.abortControllers.size) {
+          const ctrls = Array.from(item.abortControllers);
+          item.abortControllers.clear();
+          for (const c of ctrls) {
+            if (c && typeof c.abort === "function") {
+              try { c.abort(); } catch (_) {}
+            }
+          }
+        }
+      },
+
+      /* 唯一调度入口：任何状态变化都走这里，内部做合并与换代 */
+      requestUploadScheduling() {
+        if (this.schedulerDisposed) return;
+        this.uploadEpoch++;
+        if (this.$nextTick && typeof this.$nextTick === "function") this.$nextTick(() => this.dispatchUploads());
+        else this.dispatchUploads();
+      },
+      /* 立即接管调度（用于「继续」「重试」，避免等待一帧） */
+      restartUploadNow() {
+        if (this.schedulerDisposed) return;
+        this.uploadEpoch++;
+        this.dispatchUploads();
+      },
+      dispatchUploads() {
+        if (this.schedulerDisposed) return;
+        /* 调度器开跑期间置位，drain 收尾时复位，供外部判断「当前是否还有调度在进行」，
+           避免同一批任务被重复派发。 */
+        this.uploadSchedulerRunning = true;
+        if (!this.uploadDrainTimer) {
+          this.uploadDrainTimer = setTimeout(() => {
+            this.uploadDrainTimer = null;
+            this.drainUploadScheduler();
+          }, 0);
+        }
+      },
+      async drainUploadScheduler() {
+        if (this.schedulerDisposed) return;
+        /* 反复调度直到「没有新变化」且「确实派不出任务」为止。
+           每轮都重新统计在飞额度，上一轮跑完的任务会立刻腾出名额；
+           期间若用户改了意图/并发（epoch 变化），立刻按新配置再来一轮。 */
+        for (;;) {
+          if (this.schedulerDisposed) return;
+          const epoch = this.uploadEpoch;
+          await this.runUploadPool(epoch);
+          if (this.schedulerDisposed) return;
+          if (this.uploadEpoch !== epoch) continue;
+          if (this.pickNextUploadTask(true) || this.pickNextUploadTask(false)) continue;
+          break;
+        }
+        this.uploadSchedulerRunning = false;
+      },
+      /* 可派发任务：用户想跑、尚未开工、且没被标记取消 */
+      pickNextUploadTask(preferTelegram) {
+        const inFlight = { light: 0, heavy: 0 };
+        for (const f of this.uploadingFiles) {
+          if (f.inFlight) inFlight[this.isTelegramTask(f) ? "light" : "heavy"]++;
+        }
+        const lightN = this.concurrencyForPool("light");
+        const heavyN = this.concurrencyForPool("heavy");
+        const canRun = (item) => {
+          const blocked = this.isTelegramTask(item) ? inFlight.light >= lightN : inFlight.heavy >= heavyN;
+          return !item.inFlight && item.want === "run" && !item.cancelRequested && !item.autoRetryExhausted && (item.status === "waiting" || item.status === "error") && !blocked;
+        };
+        const preferred = this.uploadingFiles.find((f) => this.isTelegramTask(f) === preferTelegram && canRun(f));
+        if (preferred) return preferred;
+        return this.uploadingFiles.find(canRun) || null;
+      },
+      async runUploadPool(epoch) {
+        const worker = async (preferTelegram, pool) => {
+          const limit = this.concurrencyForPool(pool);
+          for (let i = 0; i < limit; i++) {
+            for (;;) {
+              if (this.schedulerDisposed) return;
+              const item = this.pickNextUploadTask(preferTelegram);
+              if (!item) {
+                /* 本代已过期：不再从这一代派发新任务，交回 drain 用新配置重排 */
+                if (this.uploadEpoch !== epoch) return;
+                return;
+              }
+              item.inFlight = true;
+              item.runToken = (item.runToken || 0) + 1;
+              const token = item.runToken;
+              try {
+                item.status = "uploading";
+                item.statusText = "上传中";
+                item.statusTone = "";
+                item.statusHint = "";
+                item.error = null;
+                await this.uploadOne(item, token);
+                /* 关键：任务本身跑完了就必须结算，不能因为「别的任务被暂停」
+                   导致 epoch 过期而丢弃它的成功结果——否则该任务会永远卡在
+                   uploading。epoch 只用来决定「还要不要派发新任务」。 */
+                this.finishUploadTask(item);
+              } catch (err) {
+                this.handleUploadError(item, err, token);
+              } finally {
+                item.inFlight = false;
+                item.xhr = null;
+              }
+              if (this.uploadEpoch !== epoch) return;
+            }
+          }
+        };
+        const lightN = this.concurrencyForPool("light");
+        const heavyN = this.concurrencyForPool("heavy");
+        if (lightN <= 1 && heavyN <= 1) { await worker(true, "light"); return; }
+        await Promise.all([worker(true, "light"), worker(false, "heavy")]);
+      },
+      finishUploadTask(item) {
+        /* 终态前必须丢掉还没落地的进度 patch：那是一次比当前 round 更早的采样，
+           迟到落地会把刚写到 100% 的进度条又拽回 99。 */
+        dropQueueView(item);
+        item.status = "success";
+        item.statusText = "已完成";
+        item.statusTone = "";
+        item.statusHint = "";
+        item.progress = 100;
+        item.uploadedBytes = item.size;
+        item.speed = "";
+        item.error = null;
+        this.scheduleQueueCleanup();
+      },
+      handleUploadError(item, err, token) {
+        const msg = String((err && err.message) || "上传失败");
+        /* 同上：任务进入终态 / 暂停态，未落地的采样不再有意义 */
+        dropQueueView(item);
+        item.speed = "";
+        item.statusTone = "";
+        item.statusHint = "";
+        /* 令牌已作废 = 这是被暂停/重试作废的旧请求，交给最新意图决定，不覆盖状态 */
+        if (item.runToken !== token) return;
+        if (item.want !== "run") { this.markTaskPaused(item); return; }
+        /* 鉴权 / 配额类终态：标记为 blocked 并终止该任务的重试意图，
+           同时引导登录。绝不进入 retryAllFailed / 续传的可重试路径。 */
+        if (this.isBlockingError(err)) {
+          item.want = "stop";
+          item.status = "blocked";
+          const accessMessage = this.recordUploadAccessError(err);
+          item.requiresLogin = this.authRequired && Boolean(accessMessage || err?.code === "GUEST_LIMIT_UNAVAILABLE");
+          item.statusText = err?.code === "GUEST_DAILY_LIMIT_REACHED" ? "今日额度已用完" : item.requiresLogin ? "需要登录" : "上传受限";
+          item.error = accessMessage || msg;
+          this.showToast(item.error, "error");
+          return;
+        }
+        /* 超长频控（> 5 分钟，如 Telegram FloodWait 600s）：不再挂起页面空等或自动重派，
+           保留已完成分片断点并置 autoRetryExhausted，让用户稍后点击续传。 */
+        if (err?.longCooldown) {
+          item.autoRetryExhausted = true;
+          item.status = "error";
+          item.statusTone = "warn";
+          const sec = Math.max(301, Math.ceil((Number(err.retryAfterMs) || 301000) / 1000));
+          const mins = Math.max(5, Math.ceil(sec / 60));
+          item.statusText = "Telegram 长时间频控，已保存断点";
+          item.statusHint = `需等待约 ${mins} 分钟，已完成分片已保留，请稍后点击续传`;
+          item.error = `Telegram 频控要求等待约 ${mins} 分钟，已完成分片已保留，请稍后点击续传`;
+          this.showToast(item.error, "warn");
+          return;
+        }
+        /* 自动重试预算：用尽后不再被调度器自动重派（canRun 会跳过），
+           但 status 仍是 error 且 want 仍是 run —— 手动重试 / 重试全部失败
+           依然能把它捡起来（那两个入口会清 autoRetryExhausted）。
+           注意不能用 want = "stop" 来停：那样会被 retryAllFailed 的过滤条件排掉。 */
+        item.autoRetries = (item.autoRetries || 0) + 1;
+        const exhausted = item.autoRetries > AUTO_RETRY_BUDGET;
+        if (exhausted) item.autoRetryExhausted = true;
+        if (this.isRetirableError(err)) {
+          /* 用户并没有想停，却收到超时/中断：算失败，可续传 */
+          item.status = "error";
+          item.statusText = exhausted ? "上传超时，请手动续传" : "上传超时，可续传";
+          item.error = msg;
+          return;
+        }
+        item.status = "error";
+        item.statusText = "上传失败";
+        item.error = msg;
+      },
+      markTaskPaused(item) {
+        this.invalidateTaskRun(item);
+        item.status = "paused";
+        item.statusText = "已暂停";
+        item.statusTone = "";
+        item.statusHint = "";
+        item.error = null;
+        /* 顺手清掉速率：速率行（.task__subline）是按 speed 的有无来收起的。
+           之前只依赖 abort 回调里的 handleUploadError 去清，
+           一旦 abort 回调没来（请求已收尾），速率行就会僵在展开态。 */
+        item.speed = "";
+      },
+      scheduleQueueCleanup() {
+        if (this.queueCleanupTimer) return;
+        this.queueCleanupTimer = setTimeout(async () => {
+          this.queueCleanupTimer = null;
+          /* 对象 URL 回收与待写 patch 的丢弃维持原语义（对全部任务执行）：
+             这部分是纯 JS，开销与任务数线性但很小，不值得为此分帧。 */
+          for (const f of this.uploadingFiles) {
+            if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
+            dropQueueView(f);
+          }
+          /* 完成高峰：一批任务同时进入 success，一次性 filter 会在同一帧里
+             卸掉几十个 .task（实测该阶段 17.5fps、97% 帧超时）。
+             改成每帧摘一批，把 DOM 卸载与 style/layout 重算摊到多帧。 */
+          await this.removeUploadingFilesWhere((f) => f.status === "success");
+        }, 2500);
+      },
+      /* 分批摘除队列任务：每帧最多摘 chunk 个，摘除前先对命中项调用 beforeRemove。
+         某帧没摘满即视为已摘干净 —— 这样无需在让出期间反复全量扫描，
+         也让出期间新进的任务能在下一轮被扫到。 */
+      async removeUploadingFilesWhere(predicate, beforeRemove, chunk = BATCH_YIELD_CHUNK) {
+        for (;;) {
+          let removed = 0;
+          for (let i = this.uploadingFiles.length - 1; i >= 0 && removed < chunk; i--) {
+            const f = this.uploadingFiles[i];
+            if (!predicate(f)) continue;
+            if (beforeRemove) beforeRemove(f);
+            this.uploadingFiles.splice(i, 1);
+            removed++;
+          }
+          if (removed < chunk) return;
+          await yieldToBrowser();
+        }
+      },
+      async uploadOne(item, token) {
+        const mode = item.targetMode || this.storageMode;
+        const limit = this.getUploadLimit(mode);
+        const threshold = this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
+        if (item.file.size > threshold && limit.supportsChunkUpload) await this.chunkedUpload(item, token);
+        else await this.directUpload(item, token);
+      },
+      async directUpload(item, token) {
+        const mode = item.targetMode || this.storageMode;
+        const shareOptions = this.buildShareOptions();
+        const buildFormData = () => {
+          const formData = new FormData();
+          formData.append("file", item.file);
+          formData.append("storageMode", mode);
+          formData.append("folderPath", item.folderPath ?? this.folderPath);
+          if (shareOptions) {
+            Object.entries(shareOptions).forEach(([key, value]) => {
+              if (value !== undefined && value !== null && value !== "") formData.append(key, String(value));
+            });
+          }
+          return formData;
+        };
+        const MAX_DIRECT_ATTEMPTS = 3;
+        let data = null;
+        for (let attempt = 1; attempt <= MAX_DIRECT_ATTEMPTS; attempt++) {
+          this.assertTaskRunning(item, token);
+          let lastTime = Date.now();
+          let lastLoaded = 0;
+          if (attempt === 1) item.statusText = "上传中";
+          try {
+            data = await this.xhrUpload(`${this.baseURL}/upload`, buildFormData(), (loaded, total) => {
+              /* 过期令牌的进度一律丢弃，避免旧请求把新进度条拽回去 */
+              if (item.runToken !== token) return;
+              const now = Date.now();
+              const diff = (now - lastTime) / 1000;
+              /* 三个展示字段合成一次合帧写入：XHR 的 onprogress 约每 50ms 就来一次，
+                 逐个赋值会让每次回调都演变成一次全队列重渲染（见 setQueueView 注释） */
+              const patch = { uploadedBytes: loaded, progress: Math.min(99, Math.round((loaded / total) * 100)) };
+              if (diff >= 0.4) {
+                patch.speed = this.formatSpeed((loaded - lastLoaded) / diff);
+                lastTime = now;
+                lastLoaded = loaded;
+              }
+              setQueueView(item, patch);
+            }, this.estimateTimeout(item.size), item);
+            break;
+          } catch (err) {
+            if (err?.message === "__ABORTED__") throw err;
+            this.assertTaskRunning(item, token);
+            if (!this.isTransientUploadError(err) || attempt >= MAX_DIRECT_ATTEMPTS) throw err;
+            setQueueView(item, { uploadedBytes: 0, progress: 0, speed: "" });
+            await this.waitForOnlineWhileRunning(item, token);
+            this.assertTaskRunning(item, token);
+            const wait = this.computeRetryDelay(attempt, 600, 8000, err.retryAfterMs);
+            item.statusText = `上传重试 (${attempt}/${MAX_DIRECT_ATTEMPTS - 1})...`;
+            await this.sleepWhileRunning(item, wait, token);
+          }
+        }
+        if (item.runToken !== token) throw new Error("__ABORTED__");
+        if (Array.isArray(data) && data[0]?.error) throw new Error(data[0]?.error || "上传未成功");
+        const src = data[0]?.src;
+        const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
+        this.applyShareResult(uploadedObj, data[0]);
+        this.uploadedFiles.unshift(uploadedObj);
+        this.addToHistory(uploadedObj, mode, item.folderPath);
+        this.submitThumbnail(item.file, src);
+      },
+      /* ===== 缩略图提交 =====
+         上传成功后，用浏览器把原图压成一张小图，再单独 PUT 给后端
+         （为什么不是随上传表单一起提交：直传与分片是两条独立落库路径，
+         只有「拿到 fileKey 后再传一次」能让它们共用同一段代码）。
+         纯增强：刻意不 await、不把异常抛给调用方 —— 失败只是这次没有缩略图，
+         列表里会 302 回原图，绝不能因此影响上传本身的成败。 */
+      async submitThumbnail(file, src) {
+        try {
+          const KV = window.KVault;
+          if (!KV || typeof KV.makeThumbnail !== "function") return;
+          const key = String(src || "").replace(/^\/?file\//, "");
+          if (!file || !key) return;
+          const thumb = await KV.makeThumbnail(file);
+          if (!thumb || !thumb.blob) return;
+          const res = await fetch(`${this.baseURL}/api/thumb/${encodeURIComponent(key)}`, {
+            method: "PUT",
+            headers: { "Content-Type": thumb.type || "image/webp" },
+            body: thumb.blob,
+            credentials: "include",
+          });
+          if (!res.ok) console.warn("thumbnail upload skipped:", res.status);
+        } catch (error) {
+          console.warn("thumbnail upload failed:", error && error.message);
+        }
+      },
+      extractDoneChunks(initData) {
+        if (!initData || typeof initData !== "object") return [];
+        const raw = initData.uploadedChunks ?? initData.uploadedParts ?? initData.completedChunks ?? initData.doneChunks ?? initData.existingChunks ?? initData.uploaded ?? (initData.resume && initData.resume.uploadedChunks);
+        if (!Array.isArray(raw)) return [];
+        const out = [];
+        for (const v of raw) {
+          let idx = null;
+          if (Number.isInteger(v)) idx = v;
+          else if (v && typeof v === "object") {
+            idx = v.index ?? v.chunkIndex ?? v.partNumber ?? v.i;
+            if (idx !== null && idx !== undefined && Number.isInteger(idx) && idx > 0) idx = idx - 1;
+          }
+          if (Number.isInteger(idx) && idx >= 0) out.push(idx);
+        }
+        return out;
+      },
+      extractDoneParts(initData) {
+        if (!initData || typeof initData !== "object") return [];
+        const raw = initData.parts ?? initData.uploadedParts ?? initData.serverParts;
+        if (!Array.isArray(raw)) return [];
+        const out = [];
+        for (const p of raw) {
+          if (!Number.isInteger(p?.partNumber) || typeof p?.etag !== "string") continue;
+          if (!p.etag) continue;
+          out.push({ partNumber: p.partNumber, etag: p.etag });
+        }
+        return out;
+      },
+      mergePartsInto(target, serverParts) {
+        if (!Array.isArray(target)) return target;
+        const seen = new Set();
+        const merged = [];
+        const take = (list) => {
+          for (const p of Array.isArray(list) ? list : []) {
+            if (!Number.isInteger(p?.partNumber) || !p?.etag) continue;
+            if (seen.has(p.partNumber)) continue;
+            seen.add(p.partNumber);
+            merged.push({ partNumber: p.partNumber, etag: p.etag });
+          }
+        };
+        take(serverParts);
+        take(target);
+        target.length = 0;
+        merged.sort((a, b) => a.partNumber - b.partNumber).forEach((p) => target.push(p));
+        return target;
+      },
+      /* 分片走「原始字节 body + 查询参数坐标」：
+         uploadId / chunkIndex 进 URL，服务端先读任务、校验归属与分片大小，
+         全部通过后才读取 body —— 无效请求不再付出一次完整分片字节的解析成本。
+         失败重试与 429 频控背压拆开计数：
+           - 普通瞬态错误（5xx / 超时 / 网络闪断）：最多 5 次尝试（4 次指数退避重试）；
+           - 429 频控限流（如 Telegram FloodWait）：视为正常背压，最多 8 次限流等待，
+             不消耗普通故障预算，且经共享冷却栅栏统一倒计时等待，避免多路并发互相撞墙。
+         会话过期（404 / R2_UPLOAD_EXPIRED）与确定性 4xx 立即快失败。 */
+      async uploadChunkWithRetry(item, body, index, ctx, uploadId) {
+        const MAX_ERROR_ATTEMPTS = 5;
+        const MAX_RATE_LIMIT_WAITS = 8;
+        const chunkUrl = uploadId
+          ? `${this.baseURL}/api/chunked-upload/chunk?uploadId=${encodeURIComponent(uploadId)}&chunkIndex=${index}`
+          : `${this.baseURL}/api/chunked-upload/chunk`;
+        let lastErr = null;
+        let errorAttempt = 0;
+        let rateLimitWaits = 0;
+        for (;;) {
+          this.assertTaskRunning(item, ctx.token);
+          let gateAcquired = false;
+          if (ctx.acquireSendGate) {
+            await ctx.acquireSendGate(index);
+            gateAcquired = true;
+          }
+          const observedBps = ctx.getObservedBps ? ctx.getObservedBps() : 0;
+          const timeoutMs = this.estimateTimeout(body?.size || 0, observedBps, ctx.minTimeoutMs || 30000);
+          try {
+            this.assertTaskRunning(item, ctx.token);
+            if (ctx.onSending) ctx.onSending(index);
+            const pr = this.xhrUpload(chunkUrl, body, (loadedChunk, totalChunk) => {
+              if (item.runToken !== ctx.token) return;
+              /* 分片并行后每片都在各自的连接里回调进度。若继续按「已完成字节 + 本片」
+                 各自计算，多路会互相覆盖 item.progress，而速度只反映其中一路 ——
+                 用户会看到速度没变快，误以为并行没生效。
+                 故调用方注入 ctx.track，由它汇总全部在飞分片后再写回 item。 */
+              if (ctx.track) {
+                ctx.track(index, loadedChunk);
+                const expectedBytes = totalChunk || body?.size || 0;
+                if (ctx.onBodySent && expectedBytes > 0 && loadedChunk >= expectedBytes) {
+                  ctx.onBodySent(index);
+                }
+                return;
+              }
+              const currentTotal = ctx.uploadedBase + loadedChunk;
+              const now = Date.now();
+              const diff = (now - ctx.lastTime) / 1000;
+              const patch = { uploadedBytes: currentTotal, progress: Math.min(99, Math.round((currentTotal / ctx.fileSize) * 99)) };
+              if (diff >= 0.4) {
+                patch.speed = this.formatSpeed((currentTotal - ctx.lastLoaded) / diff);
+                ctx.lastTime = now;
+                ctx.lastLoaded = currentTotal;
+              }
+              setQueueView(item, patch);
+            }, timeoutMs, item, uploadId ? "application/octet-stream" : null);
+            const resp = await pr;
+            this.assertTaskRunning(item, ctx.token);
+            return resp;
+          } catch (err) {
+            lastErr = err;
+            if (err?.message === "__ABORTED__") throw err;
+            this.assertTaskRunning(item, ctx.token);
+            if (this.isUploadExpiredError(err)) throw err;
+            if (!this.isTransientUploadError(err)) throw err;
+
+            if (this.isRateLimitError(err)) {
+              if (ctx.track) ctx.track(index, 0);
+              const TG_AUTO_WAIT_MAX_MS = 300000;
+              const rawRetryMs = Number(err.retryAfterMs) || 0;
+              if (rawRetryMs > TG_AUTO_WAIT_MAX_MS) {
+                if (ctx.onLongRateLimit) ctx.onLongRateLimit(index, err);
+                err.longCooldown = true;
+                err.retryAfterSec = Math.ceil(rawRetryMs / 1000);
+                throw err;
+              }
+              rateLimitWaits++;
+              const waitMs = ctx.onRateLimit ? ctx.onRateLimit(index, err) : this.computeRetryDelay(rateLimitWaits, 2000, 30000, err.retryAfterMs || 5000);
+              if (rateLimitWaits > MAX_RATE_LIMIT_WAITS) throw err;
+              if (!ctx.acquireSendGate) {
+                await this.sleepWithCountdown(item, waitMs, ctx.token, (sec) => {
+                  item.statusText = `频控等待 ${this.formatCountdownSec(sec)}...`;
+                  item.statusTone = "warn";
+                });
+              }
+              continue;
+            }
+
+            errorAttempt++;
+            if (ctx.onTransientError) ctx.onTransientError(index, err);
+            if (ctx.track) ctx.track(index, 0);
+            if (errorAttempt >= MAX_ERROR_ATTEMPTS) throw err;
+            await this.waitForOnlineWhileRunning(item, ctx.token);
+            this.assertTaskRunning(item, ctx.token);
+            const wait = this.computeRetryDelay(errorAttempt, 800, 15000, err.retryAfterMs);
+            const reason = this.formatRetryReason(err);
+            await this.sleepWithCountdown(item, wait, ctx.token, (sec) => {
+              if (ctx.onRetryTick) {
+                ctx.onRetryTick(index, { reason, sec, attempt: errorAttempt, maxRetries: MAX_ERROR_ATTEMPTS - 1 });
+              } else {
+                item.statusText = `${reason}，${sec}s 后重试第 ${index + 1} 片 (${errorAttempt}/${MAX_ERROR_ATTEMPTS - 1})`;
+                item.statusTone = "warn";
+              }
+            });
+            if (ctx.onRetryDone) ctx.onRetryDone(index);
+          } finally {
+            if (gateAcquired && ctx.releaseSendGate) ctx.releaseSendGate(index);
+          }
+        }
+      },
+      /* 任务已不该继续跑时立刻中断当前调用栈 */
+      assertTaskRunning(item, token) {
+        if (this.schedulerDisposed) throw new Error("__ABORTED__");
+        if (item.cancelRequested) throw new Error("__ABORTED__");
+        if (item.want !== "run") throw new Error("__ABORTED__");
+        if (item.runToken !== token) throw new Error("__ABORTED__");
+      },
+      /* 可中断的退避等待：暂停/重试时立即结束等待，不再空耗 */
+      sleepWhileRunning(item, ms, token) {
+        return new Promise((resolve) => {
+          const step = 120;
+          let waited = 0;
+          const timer = setInterval(() => {
+            waited += step;
+            if (this.schedulerDisposed || item.want !== "run" || item.runToken !== token || item.cancelRequested || waited >= ms) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, Math.min(step, Math.max(1, ms)));
+        });
+      },
+      /* 带逐秒倒计时回调的可中断等待：用于 429 频控冷静期与故障重试退避展示 */
+      sleepWithCountdown(item, ms, token, onTick) {
+        const totalMs = Math.max(0, Number(ms) || 0);
+        if (totalMs <= 0) return Promise.resolve();
+        const deadline = Date.now() + totalMs;
+        let lastSec = Math.max(1, Math.ceil(totalMs / 1000));
+        if (typeof onTick === "function") onTick(lastSec);
+        return new Promise((resolve) => {
+          const step = 120;
+          const timer = setInterval(() => {
+            const remain = deadline - Date.now();
+            if (this.schedulerDisposed || item.want !== "run" || item.runToken !== token || item.cancelRequested || remain <= 0) {
+              clearInterval(timer);
+              resolve();
+              return;
+            }
+            const sec = Math.max(1, Math.ceil(remain / 1000));
+            if (sec !== lastSec) {
+              lastSec = sec;
+              if (typeof onTick === "function") onTick(sec);
+            }
+          }, Math.min(step, Math.max(1, totalMs)));
+        });
+      },
+      async chunkedUpload(item, token) {
+        const file = item.file;
+        const mode = item.targetMode || this.storageMode;
+        if (!item.fileId) { item.statusText = "计算文件指纹..."; item.statusTone = "info"; item.statusHint = ""; item.fileId = await this.computeFileId(file); }
+        this.assertTaskRunning(item, token);
+
+        /* 恢复本地持久化断点（刷新页面/重选同一文件时直接带回 uploadId / chunkSize / parts） */
+        let savedChunkSize = 0;
+        if (!item.uploadId) {
+          const saved = this.readResumeState(item.fileId);
+          if (saved && saved.uploadId && saved.size === file.size && saved.mode === mode && saved.fileName === file.name) {
+            item.uploadId = saved.uploadId;
+            if (Array.isArray(saved.doneIndices) && saved.doneIndices.length) item.chunkDone = saved.doneIndices.slice();
+            if (Array.isArray(saved.parts) && saved.parts.length) item.parts = saved.parts.slice();
+            if (Number.isInteger(saved.chunkSize) && saved.chunkSize >= MIN_CHUNK_SIZE) savedChunkSize = saved.chunkSize;
+          }
+        } else if (Number.isInteger(item.chunkSize) && item.chunkSize >= MIN_CHUNK_SIZE) {
+          savedChunkSize = item.chunkSize;
+        }
+
+        const MAX_SESSION_ATTEMPTS = 2;
+        for (let sessionAttempt = 1; sessionAttempt <= MAX_SESSION_ATTEMPTS; sessionAttempt++) {
+          this.assertTaskRunning(item, token);
+          const defaultChunkSize = this.resolveChunkSizeForMode(mode, file.size);
+          const maxBackendChunk = mode === "r2" ? 50 * 1024 * 1024 : (mode === "telegram" ? 18 * 1024 * 1024 : 20 * 1024 * 1024);
+          const plannedChunkSize = (item.uploadId && savedChunkSize >= MIN_CHUNK_SIZE && savedChunkSize <= maxBackendChunk && Math.ceil(file.size / savedChunkSize) <= MAX_TOTAL_CHUNKS)
+            ? savedChunkSize
+            : defaultChunkSize;
+          const plannedTotalChunks = Math.ceil(file.size / plannedChunkSize);
+          if (mode === "telegram") {
+            this.showTgChunkedBanner({
+              fileName: file.name,
+              fileSize: file.size,
+              totalChunks: plannedTotalChunks,
+              chunkSize: plannedChunkSize,
+            });
+          }
+          const isResume = !!item.uploadId;
+          if (!isResume) { item.progress = 0; item.uploadedBytes = 0; }
+          item.statusText = isResume ? "恢复上传..." : "初始化任务...";
+          item.statusTone = "info";
+          item.statusHint = "";
+
+          /* init 控制面支持最多 3 次瞬态重试（含离线等待与 Retry-After） */
+          let initData = null;
+          const maxInitAttempts = 3;
+          for (let initAttempt = 1; initAttempt <= maxInitAttempts; initAttempt++) {
+            this.assertTaskRunning(item, token);
+            try {
+              const initRes = await this.fetchWithAbort(item, token, `${this.baseURL}/api/chunked-upload/init`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  fileName: file.name, fileSize: file.size, fileType: file.type,
+                  totalChunks: plannedTotalChunks, chunkSize: plannedChunkSize, storageMode: mode,
+                  folderPath: item.folderPath ?? this.folderPath,
+                  shareOptions: this.buildShareOptions(),
+                  fileId: item.fileId, resume: true, uploadId: item.uploadId || undefined,
+                }),
+              });
+              initData = await initRes.json().catch(() => null);
+              if (initRes.ok && initData) break;
+              const retryAfterMs = this.parseRetryAfterMs(initRes.headers.get("Retry-After"));
+              throw this.uploadResponseError(initRes.status, initData, "初始化分片失败", retryAfterMs);
+            } catch (err) {
+              if (err?.message === "__ABORTED__") throw err;
+              this.assertTaskRunning(item, token);
+              if (!this.isTransientUploadError(err) || initAttempt >= maxInitAttempts) throw err;
+              await this.waitForOnlineWhileRunning(item, token);
+              this.assertTaskRunning(item, token);
+              const wait = this.computeRetryDelay(initAttempt, 500, 8000, err.retryAfterMs);
+              await this.sleepWithCountdown(item, wait, token, (sec) => {
+                item.statusText = `初始化重试 (${initAttempt}/${maxInitAttempts - 1})，${sec}s 后继续`;
+                item.statusTone = "warn";
+              });
+            }
+          }
+          this.assertTaskRunning(item, token);
+
+          const uploadId = initData.uploadId || item.uploadId;
+          const chunkSize = (Number.isInteger(initData.chunkSize) && initData.chunkSize >= MIN_CHUNK_SIZE)
+            ? initData.chunkSize
+            : plannedChunkSize;
+          const totalChunks = (Number.isInteger(initData.totalChunks) && initData.totalChunks > 0)
+            ? initData.totalChunks
+            : Math.ceil(file.size / chunkSize);
+          const serverResumed = initData && initData.resumed === true;
+          const isFreshTask = !item.uploadId || uploadId !== item.uploadId;
+          if (isFreshTask && (item.chunkDone?.length || item.parts?.length)) this.clearResumeState(item.fileId);
+          const serverDone = this.extractDoneChunks(initData);
+          const doneSet = new Set();
+          if (isFreshTask) serverDone.forEach((idx) => doneSet.add(idx));
+          else {
+            (Array.isArray(item.chunkDone) ? item.chunkDone : []).forEach((idx) => doneSet.add(idx));
+            serverDone.forEach((idx) => doneSet.add(idx));
+          }
+          let uploadedBase = 0;
+          for (const idx of doneSet) { const s = idx * chunkSize; uploadedBase += Math.min(chunkSize, file.size - s); }
+          const collectedParts = [];
+          if (!isFreshTask && Array.isArray(item.parts)) collectedParts.push(...item.parts);
+          this.mergePartsInto(collectedParts, this.extractDoneParts(initData));
+          item.uploadId = uploadId;
+          item.chunkSize = chunkSize;
+          item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
+          if (doneSet.size) {
+            setQueueView(item, { uploadedBytes: uploadedBase, progress: Math.min(99, Math.round((uploadedBase / file.size) * 99)) });
+            item.statusText = serverResumed ? `服务端续传：已跳过 ${doneSet.size}/${totalChunks} 片` : `续传中，已跳过 ${doneSet.size}/${totalChunks} 片`;
+            item.statusTone = "info";
+          }
+
+          /* ===== 分片并发上传（R2 流式 6 路并发 / Telegram 2 路起跑 + 共享频控冷却栅栏 + 触限自动稳态单路） ===== */
+          const pending = [];
+          for (let i = 0; i < totalChunks; i++) if (!doneSet.has(i)) pending.push(i);
+
+          const effectiveMode = initData.storageMode || mode;
+          const isR2Streaming = effectiveMode === "r2";
+          const isTelegramChunked = effectiveMode === "telegram" || initData.telegramChunked === true;
+          if (isTelegramChunked) {
+            this.showTgChunkedBanner({
+              fileName: file.name,
+              fileSize: file.size,
+              totalChunks,
+              chunkSize,
+            });
+          }
+          const safeByMemory = Math.max(1, Math.floor(MEMORY_BUDGET_BYTES / (chunkSize * CHUNK_MEMORY_FACTOR)));
+          const modeCap = isR2Streaming
+            ? PARALLEL_MAX_CHUNKS
+            : isTelegramChunked
+              ? 2
+              : safeByMemory;
+          const maxWorkers = pending.length === 0
+            ? 0
+            : Math.max(1, Math.min(PARALLEL_MAX_CHUNKS, modeCap, pending.length));
+
+          const inflight = new Map();
+          const sumInflight = () => { let s = 0; for (const v of inflight.values()) s += v; return s; };
+          const awaitingUpstream = new Set();
+          const retryingChunks = new Map();
+          const chunkAttemptStart = new Map();
+          let maxDisplayedBytes = uploadedBase;
+          let speedTime = Date.now();
+          let speedLoaded = uploadedBase;
+          let ewmaBps = 0;
+          let failed = null;
+          let lastResumeWrite = 0;
+
+          /* AIMD 并发闸门 + Telegram 共享频控冷却栅栏：
+             - 初始保留 2 路并行保证前半程吞吐速度；
+             - 一旦任一路触发 429，所有路共享 cooldownUntil 冷静期（完整尊重 Retry-After 至 180s），
+               并锁定单路稳态发送 + Start-to-Start 精准节流（3.1s → 3.6s → 4.2s，贴近 Telegram 20 条/分钟上限）：
+                 · 单片传输本身已耗时 ≥3.1s 时零空等立刻发下一片，不牺牲任何正常速度；
+                 · 超高速网络（如 1s 传完 18MB）仅补足余量，避免反复撞 429。 */
+          const TG_START_INTERVAL_STEPS = [3100, 3600, 4200];
+          let activeLimit = maxWorkers;
+          let activeCount = 0;
+          let consecutiveClean = 0;
+          let cooldownUntil = 0;
+          let tgRateLimited = false;
+          let tgRateLimitHits = 0;
+          let tgPacingMs = 0;
+          let lastDispatchStartAt = 0;
+          let sendingCount = 0;
+
+          const slotWaiters = [];
+          const sendWaiters = [];
+          const wakeWaiters = () => {
+            while (activeCount < activeLimit && slotWaiters.length) {
+              const fn = slotWaiters.shift();
+              fn();
+            }
+          };
+          const wakeSendWaiters = () => {
+            while (sendWaiters.length) {
+              const fn = sendWaiters.shift();
+              fn();
+            }
+          };
+          const wakeAllWaiters = () => {
+            while (slotWaiters.length) {
+              const fn = slotWaiters.shift();
+              fn();
+            }
+            wakeSendWaiters();
+          };
+
+          const refreshStatusText = () => {
+            if (this.schedulerDisposed || item.runToken !== token || item.want !== "run" || item.cancelRequested) return;
+            const done = doneSet.size;
+            const coolRemain = cooldownUntil - Date.now();
+            if (coolRemain > 0) {
+              const sec = Math.max(1, Math.ceil(coolRemain / 1000));
+              const waitLabel = this.formatCountdownSec(sec);
+              item.statusText = isTelegramChunked
+                ? `Telegram 频控等待 ${waitLabel} · ${done}/${totalChunks} 片`
+                : `限流等待 ${waitLabel} · ${done}/${totalChunks} 片`;
+              item.statusTone = "warn";
+              item.statusHint = isTelegramChunked
+                ? "触发 Telegram 频控保护，倒计时结束后自动稳态续传"
+                : "触发服务端频控保护，倒计时结束后自动续传";
+              item.speed = "";
+              return;
+            }
+            if (retryingChunks.size > 0) {
+              const first = retryingChunks.values().next().value;
+              item.statusText = first.text;
+              item.statusTone = "warn";
+              item.statusHint = first.hint || "";
+              item.speed = "";
+              return;
+            }
+            if (isTelegramChunked && awaitingUpstream.size > 0 && awaitingUpstream.size >= Math.max(1, inflight.size)) {
+              item.statusText = `写入 Telegram · ${done}/${totalChunks} 片`;
+              item.statusTone = "info";
+              item.statusHint = "分片已送达边缘节点，等待 Telegram 确认写入";
+              return;
+            }
+            item.statusText = activeLimit > 1
+              ? `上传中 · ${done}/${totalChunks} 片 (${activeLimit}路)`
+              : `上传中 · ${done}/${totalChunks} 片`;
+            item.statusTone = "";
+            item.statusHint = (isTelegramChunked && tgRateLimited) ? "已自动切换稳态单路，防止再次触发限流" : "";
+          };
+
+          const flushResume = (force) => {
+            const now = Date.now();
+            if (!force && now - lastResumeWrite < 500) return;
+            lastResumeWrite = now;
+            item.chunkDone = Array.from(doneSet).sort((a, b) => a - b);
+            item.parts = collectedParts.slice();
+            this.writeResumeState(item.fileId, {
+              uploadId, chunkSize, doneIndices: item.chunkDone, parts: collectedParts,
+              fileName: file.name, size: file.size, mode,
+            });
+          };
+          const updateEwma = (sampleBps) => {
+            if (!Number.isFinite(sampleBps) || sampleBps <= 0) return;
+            ewmaBps = ewmaBps > 0 ? (0.35 * sampleBps + 0.65 * ewmaBps) : sampleBps;
+          };
+          const track = (index, loaded) => {
+            inflight.set(index, loaded);
+            const rawTotal = uploadedBase + sumInflight();
+            /* 单调高水位展示：单分片重试清零 in-flight 时不把进度条往回拽，消除 98%↔96% 跳动 */
+            const displayBytes = Math.max(maxDisplayedBytes, Math.min(file.size, rawTotal));
+            maxDisplayedBytes = displayBytes;
+            const patch = {
+              uploadedBytes: displayBytes,
+              progress: Math.min(99, Math.round((displayBytes / file.size) * 99)),
+            };
+            const now = Date.now();
+            const diff = (now - speedTime) / 1000;
+            if (diff >= 0.4) {
+              const delta = Math.max(0, rawTotal - speedLoaded);
+              const instBps = delta / diff;
+              if (delta > 0) updateEwma(instBps);
+              patch.speed = (Date.now() < cooldownUntil || retryingChunks.size > 0)
+                ? ""
+                : this.formatSpeedWithEta(ewmaBps || instBps, Math.max(0, file.size - displayBytes));
+              speedTime = now;
+              speedLoaded = rawTotal;
+            }
+            /* 分片并行时每路的 progress 都会打到这里，合帧后一帧只落成一次 */
+            setQueueView(item, patch);
+          };
+
+          const acquireSlot = async () => {
+            while (activeCount >= activeLimit) {
+              if (failed) return false;
+              this.assertTaskRunning(item, token);
+              await Promise.race([
+                new Promise((resolve) => slotWaiters.push(resolve)),
+                this.sleepWhileRunning(item, 250, token),
+              ]);
+            }
+            if (failed) return false;
+            this.assertTaskRunning(item, token);
+            activeCount++;
+            return true;
+          };
+          const releaseSlot = () => {
+            activeCount = Math.max(0, activeCount - 1);
+            wakeWaiters();
+          };
+          const acquireSendGate = async () => {
+            for (;;) {
+              if (failed) throw failed;
+              this.assertTaskRunning(item, token);
+              const coolRemain = cooldownUntil - Date.now();
+              if (coolRemain > 0) {
+                dropQueueView(item);
+                item.speed = "";
+                await this.sleepWithCountdown(item, coolRemain, token, () => refreshStatusText());
+                continue;
+              }
+              const maxConcurrentSends = (isTelegramChunked && tgRateLimited) ? 1 : activeLimit;
+              if (sendingCount >= Math.max(1, maxConcurrentSends)) {
+                await Promise.race([
+                  new Promise((resolve) => sendWaiters.push(resolve)),
+                  this.sleepWhileRunning(item, 250, token),
+                ]);
+                continue;
+              }
+              if (isTelegramChunked && tgPacingMs > 0 && lastDispatchStartAt > 0) {
+                const now = Date.now();
+                const gap = (lastDispatchStartAt + tgPacingMs) - now;
+                if (gap > 0) {
+                  await this.sleepWhileRunning(item, gap, token);
+                  continue;
+                }
+              }
+              lastDispatchStartAt = Date.now();
+              sendingCount++;
+              return;
+            }
+          };
+          const releaseSendGate = () => {
+            sendingCount = Math.max(0, sendingCount - 1);
+            wakeSendWaiters();
+          };
+          const onRateLimit = (index, err) => {
+            consecutiveClean = 0;
+            awaitingUpstream.delete(index);
+            retryingChunks.delete(index);
+            const now = Date.now();
+            const alreadyInCooldown = now < cooldownUntil;
+            if (!alreadyInCooldown) {
+              tgRateLimitHits++;
+            }
+            if (isTelegramChunked) {
+              tgRateLimited = true;
+              activeLimit = 1;
+              tgPacingMs = TG_START_INTERVAL_STEPS[Math.min(Math.max(0, tgRateLimitHits - 1), TG_START_INTERVAL_STEPS.length - 1)];
+            } else if (activeLimit > 1) {
+              activeLimit = Math.max(1, Math.floor(activeLimit / 2));
+            }
+            const explicitMs = Number(err?.retryAfterMs) || 0;
+            const waitMs = explicitMs > 0
+              ? Math.min(305000, Math.min(300000, explicitMs) + 600 + Math.floor(Math.random() * 600))
+              : this.computeRetryDelay(tgRateLimitHits, 2000, 30000, Math.min(60000, 5000 * tgRateLimitHits));
+            cooldownUntil = Math.max(cooldownUntil, now + waitMs);
+            /* 冷却结束后允许第一片立即起跑，再从该片发起时刻开始按 Start-to-Start 节流 */
+            lastDispatchStartAt = 0;
+            dropQueueView(item);
+            item.speed = "";
+            refreshStatusText();
+            return Math.max(0, cooldownUntil - now);
+          };
+          const onLongRateLimit = (index) => {
+            awaitingUpstream.delete(index);
+            retryingChunks.delete(index);
+            flushResume(true);
+          };
+          const onTransientError = (index) => {
+            consecutiveClean = 0;
+            awaitingUpstream.delete(index);
+            if (activeLimit > 1) {
+              activeLimit = Math.max(1, Math.floor(activeLimit / 2));
+            }
+          };
+          const onChunkSuccess = (index) => {
+            awaitingUpstream.delete(index);
+            retryingChunks.delete(index);
+            consecutiveClean++;
+            if (!tgRateLimited && activeLimit < maxWorkers && consecutiveClean >= 4) {
+              activeLimit++;
+              consecutiveClean = 0;
+              wakeWaiters();
+            }
+          };
+
+          if (maxWorkers > 0) {
+            refreshStatusText();
+          }
+          flushResume(true);
+
+          let cursor = 0;
+          const runWorker = async () => {
+            while (!failed) {
+              this.assertTaskRunning(item, token);
+              const acquired = await acquireSlot();
+              if (!acquired) return;
+              try {
+                const slot = cursor++;
+                if (slot >= pending.length) return;
+                const i = pending[slot];
+                const start = i * chunkSize;
+                const end = Math.min(start + chunkSize, file.size);
+                const chunkBytes = end - start;
+                const chunkBlob = file.slice(start, end);
+                inflight.set(i, 0);
+                try {
+                  const chunkResp = await this.uploadChunkWithRetry(item, chunkBlob, i, {
+                    uploadedBase, lastTime: Date.now(), lastLoaded: uploadedBase,
+                    fileSize: file.size, token, track,
+                    minTimeoutMs: isTelegramChunked ? 90000 : 30000,
+                    acquireSendGate,
+                    releaseSendGate,
+                    onSending: (idx) => {
+                      chunkAttemptStart.set(idx, Date.now());
+                      awaitingUpstream.delete(idx);
+                      retryingChunks.delete(idx);
+                      refreshStatusText();
+                    },
+                    onBodySent: (idx) => {
+                      if (!isTelegramChunked || awaitingUpstream.has(idx)) return;
+                      awaitingUpstream.add(idx);
+                      refreshStatusText();
+                    },
+                    onRateLimit,
+                    onLongRateLimit,
+                    onTransientError,
+                    onRetryTick: (idx, info) => {
+                      retryingChunks.set(idx, {
+                        text: `${info.reason}，${info.sec}s 后重试第 ${idx + 1} 片 (${info.attempt}/${info.maxRetries})`,
+                        hint: `已完成 ${doneSet.size}/${totalChunks} 片，正在自动重传第 ${idx + 1} 片`,
+                      });
+                      dropQueueView(item);
+                      item.speed = "";
+                      refreshStatusText();
+                    },
+                    onRetryDone: (idx) => {
+                      retryingChunks.delete(idx);
+                      refreshStatusText();
+                    },
+                    getObservedBps: () => (ewmaBps > 0 ? ewmaBps / Math.max(1, activeCount) : 0),
+                  }, uploadId);
+                  this.assertTaskRunning(item, token);
+                  if (chunkResp && typeof chunkResp.etag === "string" && Number.isInteger(chunkResp.partNumber)) {
+                    this.mergePartsInto(collectedParts, [{ partNumber: chunkResp.partNumber, etag: chunkResp.etag }]);
+                  }
+                  const startedAt = chunkAttemptStart.get(i) || Date.now();
+                  chunkAttemptStart.delete(i);
+                  const elapsedSec = Math.max(0.05, (Date.now() - startedAt) / 1000);
+                  updateEwma((chunkBytes / elapsedSec) * Math.max(1, Math.min(activeCount, sendingCount || 1)));
+                  uploadedBase += chunkBytes;
+                  maxDisplayedBytes = Math.max(maxDisplayedBytes, uploadedBase);
+                  inflight.delete(i);
+                  doneSet.add(i);
+                  onChunkSuccess(i);
+                  setQueueView(item, {
+                    uploadedBytes: maxDisplayedBytes,
+                    progress: Math.min(99, Math.round((maxDisplayedBytes / file.size) * 99)),
+                  });
+                  /* 无条件刷新状态文案：修复单路降级（activeLimit === 1）后文案永久卡死在「重试」的缺陷 */
+                  refreshStatusText();
+                  flushResume(false);
+                } catch (err) {
+                  inflight.delete(i);
+                  awaitingUpstream.delete(i);
+                  retryingChunks.delete(i);
+                  chunkAttemptStart.delete(i);
+                  if (!failed) failed = err;
+                  wakeAllWaiters();
+                  throw err;
+                }
+              } finally {
+                releaseSlot();
+              }
+            }
+          };
+
+          if (maxWorkers > 0) {
+            const results = await Promise.allSettled(
+              Array.from({ length: maxWorkers }, () => runWorker())
+            );
+            wakeAllWaiters();
+            this.assertTaskRunning(item, token);
+            flushResume(true);
+            const rejected = results.find((r) => r.status === "rejected");
+            if (rejected) {
+              if (this.isUploadExpiredError(rejected.reason) && sessionAttempt < MAX_SESSION_ATTEMPTS) {
+                item.uploadId = null;
+                item.chunkSize = 0;
+                item.chunkDone = [];
+                item.parts = null;
+                savedChunkSize = 0;
+                this.clearResumeState(item.fileId);
+                item.statusText = "云端上传会话已过期，正在自动重建...";
+                item.statusTone = "warn";
+                item.statusHint = "";
+                continue;
+              }
+              throw rejected.reason;
+            }
+          }
+
+          this.assertTaskRunning(item, token);
+          dropQueueView(item);
+          item.status = "processing";
+          item.statusText = isTelegramChunked ? "正在生成文件清单..." : "校验与合并中...";
+          item.statusTone = "info";
+          item.statusHint = isTelegramChunked ? `全部分片（${totalChunks}/${totalChunks}）已写入 Telegram` : "";
+          item.speed = "";
+          item.progress = Math.max(item.progress || 0, 99);
+
+          /* complete 阶段支持最多 5 次重试（覆盖网络抖动、5xx、R2_HEAD_RETRY、
+             R2_COMPLETE_RETRY 及 object_ready 下的可重试 METADATA_WRITE_FAILED） */
+          let completeData = null;
+          let sessionExpiredAtComplete = false;
+          const maxCompleteAttempts = 5;
+          for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
+            this.assertTaskRunning(item, token);
+            try {
+              const completeRes = await this.fetchWithAbort(item, token, `${this.baseURL}/api/chunked-upload/complete`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ uploadId, parts: collectedParts }),
+              });
+              completeData = await completeRes.json().catch(() => null);
+              if (completeRes.ok && completeData) break;
+              const retryAfterMs = this.parseRetryAfterMs(completeRes.headers.get("Retry-After"));
+              throw this.uploadResponseError(completeRes.status, completeData, "合并分片失败", retryAfterMs);
+            } catch (err) {
+              if (err?.message === "__ABORTED__") throw err;
+              this.assertTaskRunning(item, token);
+              if (this.isUploadExpiredError(err) && sessionAttempt < MAX_SESSION_ATTEMPTS) {
+                sessionExpiredAtComplete = true;
+                break;
+              }
+              const retryableComplete = this.isTransientUploadError(err)
+                || err.code === "R2_HEAD_RETRY"
+                || err.code === "R2_COMPLETE_RETRY"
+                || err.retryable === true;
+              if (!retryableComplete || attempt >= maxCompleteAttempts) throw err;
+              await this.waitForOnlineWhileRunning(item, token);
+              this.assertTaskRunning(item, token);
+              const wait = this.computeRetryDelay(attempt, 1000, 12000, err.retryAfterMs);
+              await this.sleepWithCountdown(item, wait, token, (sec) => {
+                item.statusText = `云端校验合并重试 (${attempt}/${maxCompleteAttempts - 1})，${sec}s 后继续`;
+                item.statusTone = "warn";
+              });
+            }
+          }
+
+          if (sessionExpiredAtComplete) {
+            item.uploadId = null;
+            item.chunkSize = 0;
+            item.chunkDone = [];
+            item.parts = null;
+            savedChunkSize = 0;
+            this.clearResumeState(item.fileId);
+            item.statusText = "云端上传会话已过期，正在自动重建...";
+            item.statusTone = "warn";
+            item.statusHint = "";
+            continue;
+          }
+
+          this.assertTaskRunning(item, token);
+          this.clearResumeState(item.fileId);
+          item.uploadId = null;
+          item.chunkSize = 0;
+          item.chunkDone = [];
+          item.parts = null;
+          item.uploadedBytes = file.size;
+          const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
+          this.applyShareResult(uploadedObj, completeData);
+          this.uploadedFiles.unshift(uploadedObj);
+          this.addToHistory(uploadedObj, mode, item.folderPath);
+          this.submitThumbnail(item.file, completeData.src);
+          return;
+        }
+      },
+      /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
+      retryUpload(file, fromScratch = false) {
+        if (!file || file.status === "blocked") return;
+        if (!this.guardUploadAllowed()) return;
+        file.targetMode = this.resolveStorageForFile(file.size);
+        file.status = "waiting";
+        file.statusText = fromScratch ? "重新上传" : "等待续传";
+        file.statusTone = "";
+        file.statusHint = "";
+        file.speed = "";
+        file.error = null;
+        file.want = "run";
+        file.autoRetries = 0;
+        file.autoRetryExhausted = false;
+        /* 作废上一轮令牌，旧的在飞请求即便晚到也不会再写状态 */
+        this.invalidateTaskRun(file);
+        if (fromScratch) {
+          const oldUploadId = file.uploadId;
+          file.uploadId = null;
+          file.chunkDone = [];
+          file.parts = null;
+          file.progress = 0;
+          file.uploadedBytes = 0;
+          this.clearResumeState(file.fileId);
+          if (oldUploadId) this.abortServerUpload(oldUploadId);
+        } else if (file.chunkDone && file.chunkDone.length) {
+          file.statusText = `续传（已完成 ${file.chunkDone.length} 个分片）`;
+        }
+        this.restartUploadNow();
+      },
+      async retryAllFailed() {
+        /* blocked 任务（访客被拒 / 登录失效）不参与批量续传，否则又会形成循环 */
+        const failed = this.uploadingFiles.filter((f) => f.status === "error" && f.want !== "stop");
+        if (!failed.length) return;
+        if (!this.guardUploadAllowed()) return;
+        const endBatch = beginBatchOp(failed.length);
+        try {
+          await forEachChunked(failed, (f) => {
+            f.targetMode = f.targetMode || this.resolveStorageForFile(f.size);
+            f.status = "waiting";
+            f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
+            f.statusTone = "";
+            f.statusHint = "";
+            f.error = null;
+            f.want = "run";
+            f.autoRetries = 0;
+            f.autoRetryExhausted = false;
+            this.invalidateTaskRun(f);
+          });
+          this.restartUploadNow();
+        } finally { endBatch(); }
+      },
+      pauseUpload(file) {
+        if (!file || file.status === "paused") return;
+        /* 先落意图，再作废令牌并 abort 在飞请求；顺序不能反，
+           否则 abort 引发的 onabort 回调会先于意图写入而误判成网络失败。 */
+        file.want = "pause";
+        this.markTaskPaused(file);
+        this.requestUploadScheduling();
+      },
+      resumeUpload(file) {
+        if (!file) return;
+        if (file.status === "success" || file.cancelRequested) return;
+        file.want = "run";
+        file.error = null;
+        file.status = "waiting";
+        file.statusTone = "";
+        file.statusHint = "";
+        file.autoRetries = 0;
+        file.autoRetryExhausted = false;
+        file.statusText = file.chunkDone && file.chunkDone.length ? `续传（已完成 ${file.chunkDone.length} 个分片）` : "等待续传";
+        this.invalidateTaskRun(file);
+        this.restartUploadNow();
+      },
+      async pauseAllUploads() {
+        const targets = this.uploadingFiles.filter((f) => f.status === "uploading" || f.status === "processing" || f.status === "waiting" || f.status === "error");
+        if (!targets.length) return;
+        /* 每个目标都要作废令牌并 abort 在飞 XHR，几十个同步做会占住主线程
+           （实测 50+ 任务单块 1.8s）。分帧让出，期间主线程仍能响应输入。 */
+        const endBatch = beginBatchOp(targets.length);
+        try {
+          await forEachChunked(targets, (f) => { f.want = "pause"; this.markTaskPaused(f); });
+          this.requestUploadScheduling();
+        } finally { endBatch(); }
+      },
+      async resumeAllUploads() {
+        const targets = this.uploadingFiles.filter((f) => f.status === "paused" && !f.cancelRequested);
+        if (!targets.length) return;
+        const endBatch = beginBatchOp(targets.length);
+        try {
+          await forEachChunked(targets, (f) => {
+            f.want = "run";
+            f.error = null;
+            f.status = "waiting";
+            f.statusTone = "";
+            f.statusHint = "";
+            f.autoRetries = 0;
+            f.autoRetryExhausted = false;
+            f.statusText = f.chunkDone && f.chunkDone.length ? `续传（已完成 ${f.chunkDone.length} 个分片）` : "等待续传";
+            this.invalidateTaskRun(f);
+          });
+          this.restartUploadNow();
+        } finally { endBatch(); }
+      },
+      abortServerUpload(uploadId) {
+        if (!uploadId) return;
+        fetch(`${this.baseURL}/api/chunked-upload/abort`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uploadId }),
+          credentials: "include",
+        }).catch(() => {});
+      },
+      async clearUploadQueue() {
+        const all = this.uploadingFiles.slice();
+        /* 先把「取消意图」一次性同步落地：调度器的 canRun 依赖 cancelRequested / want，
+           这样后面即使分帧摘除，也不会有任务在让出间隙被重新派发出去。 */
+        for (const f of all) { f.cancelRequested = true; f.want = "pause"; }
+        const endBatch = beginBatchOp(all.length);
+        try {
+          /* abort 在飞 XHR 是这里最贵的一步，分帧执行避免一次性占满主线程。
+             同时通知服务端终止未完成的分片会话并清理本地断点，防止 R2 孤儿分片泄漏。 */
+          await forEachChunked(all, (f) => {
+            this.invalidateTaskRun(f);
+            if (f.status !== "success") {
+              if (f.uploadId) this.abortServerUpload(f.uploadId);
+              if (f.fileId) this.clearResumeState(f.fileId);
+            }
+            this.releaseTaskThumb(f);
+            dropQueueView(f);
+          });
+          if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
+          /* 分批摘除而不是直接赋空数组：一帧内清空几十行会在单帧里做几十次 DOM 卸载。 */
+          await this.removeUploadingFilesWhere(() => true);
+          this.requestUploadScheduling();
+        } finally { endBatch(); }
+      },
+      async cancelUpload(file) {
+        file.cancelRequested = true;
+        file.want = "pause";
+        this.invalidateTaskRun(file);
+        if (file.uploadId) this.abortServerUpload(file.uploadId);
+        if (file.fileId) this.clearResumeState(file.fileId);
+        this.releaseTaskThumb(file);
+        dropQueueView(file);
+        this.uploadingFiles = this.uploadingFiles.filter((f) => f !== file);
+        this.requestUploadScheduling();
+      },
+
+      /* ===== 分享 ===== */
+      buildShareOptions() {
+        if (!this.shareEnabled) return null;
+        const rawSlug = String(this.shareSlug || "").trim();
+        const slug = this.normalizedShareSlug;
+        if (rawSlug && !slug) { this.showToast("短链只能包含字母、数字、下划线或短横线。", "error"); return null; }
+        const password = String(this.sharePassword || "");
+        if (password.length > 200) { this.showToast("访问密码过长（最多 200 个字符）。", "error"); return null; }
+        const expiresIn = Number(this.shareExpiresIn) || 0;
+        const maxRaw = String(this.shareMaxDownloads).trim();
+        const maxDownloads = maxRaw ? Number(maxRaw) : 0;
+        if (maxRaw && (!Number.isInteger(maxDownloads) || maxDownloads <= 0)) { this.showToast("下载次数上限必须为正整数。", "error"); return null; }
+        if (!expiresIn && !maxDownloads && !slug && !password) return null;
+        return { expires_in: expiresIn || undefined, max_downloads: maxDownloads || undefined, slug: slug || undefined, password: password || undefined };
+      },
+      resolveSharePath(item, explicitSlug) {
+        if (!item) return "";
+        const slug = String(explicitSlug || item.shareSlug || "").trim();
+        if (slug) return `/s/${slug}`;
+        const direct = String(item.sharePath || "").trim();
+        if (direct) return direct;
+        const fileName = String(item.fileName || item.name || "").trim();
+        if (!fileName) return "";
+        const folder = String(item.folderPath || this.folderPath || "").replace(/^\/+|\/+$/g, "");
+        return `/share/${folder ? `${folder}/` : ""}${encodeURIComponent(fileName)}`;
+      },
+      applyShareResult(target, payload, submittedSlug) {
+        if (!target || !payload) return target;
+        const slug = String(payload.shareSlug || "").trim() || String(submittedSlug || "").trim() || String(target.shareSlug || "").trim();
+        const incoming = payload.sharePath || (slug ? `/s/${slug}` : "");
+        const hasCustomSlug = Boolean(submittedSlug || target.shareSlug);
+        const nextPath = (hasCustomSlug && !payload.shareSlug) ? "" : incoming;
+        const hasShareData = Boolean(nextPath || payload.shareExpiresAt || payload.shareMaxDownloads || payload.sharePasswordProtected || submittedSlug);
+        if (!hasShareData) return target;
+        const finalPath = nextPath || this.resolveSharePath(Object.assign({}, target, { shareSlug: slug }));
+        target.shareSlug = slug;
+        target.sharePath = finalPath;
+        target.shareExpiresAt = payload.shareExpiresAt || 0;
+        target.shareMaxDownloads = payload.shareMaxDownloads || 0;
+        target.shareProtected = Boolean(payload.sharePasswordProtected);
+        target.shareDownloadCount = Number(payload.shareDownloadCount) || 0;
+        /* 分享文案回写。payload 里没有这两个键时不改动（服务端未返回＝本次没碰），
+           显式空串才清除 —— 与 slug / password 的哨兵语义保持一致。 */
+        if (payload.shareTitle !== undefined) target.shareTitle = payload.shareTitle || "";
+        if (payload.shareDescription !== undefined) target.shareDescription = payload.shareDescription || "";
+        return target;
+      },
+      hasShare(item) {
+        if (!item) return false;
+        if (item.shareEnabled === false) return false;
+        return Boolean(String(item.shareSlug || "").trim() || String(item.sharePath || "").trim() || Number(item.shareExpiresAt) > 0 || Number(item.shareMaxDownloads) > 0 || item.shareProtected);
+      },
+      shareUrlOf(item) {
+        if (!item || !this.hasShare(item)) return "";
+        const raw = this.resolveSharePath(item);
+        if (!raw) return "";
+        if (/^https?:\/\//i.test(raw)) return raw;
+        return `${this.baseURL}${raw}`;
+      },
+      copyShareLink(item) {
+        const url = this.shareUrlOf(item);
+        if (!url) { this.showToast("该文件没有分享短链", "error"); return; }
+        return this.copyLinkText(url, "已复制分享短链");
+      },
+      shareBadgeText(item) {
+        if (!item || !this.hasShare(item)) return "";
+        const bits = [];
+        if (item.shareProtected) bits.push("加密");
+        if (Number(item.shareMaxDownloads) > 0) bits.push(`${item.shareMaxDownloads} 次`);
+        if (Number(item.shareExpiresAt) > 0) bits.push(item.shareExpiresAt > Date.now() ? "限时" : "已过期");
+        return bits.length ? bits.join(" · ") : "分享中";
+      },
+
+      /* ===== 分享弹窗 ===== */
+      openShareDialog(item) {
+        if (!item) return;
+        if (!item.url && !item.path && !item.name) { this.showToast("无法识别该文件，请刷新后重试", "error"); return; }
+        const mode = this.hasShare(item) ? "manage" : "create";
+        this.shareDialogItem = item;
+        this.shareDialogItems = [item];
+        this.shareDialogMode = mode;
+        this.shareDialogError = "";
+        this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogSlug = "";
+        this.shareDialogBusy = false;
+        this.shareDialogRevoking = false;
+        this.shareDialogShowPassword = false;
+        this.shareDialogForm = {
+          expiresIn: 0,
+          maxDownloads: Number(item.shareMaxDownloads) || "",
+          password: "",
+          slug: mode === "manage" ? "" : String(item.shareSlug || ""),
+          keepPassword: true,
+          keepSlug: true,
+          /* 标题 / 说明回填当前值 —— 所见即所得，清空＝删除。 */
+          title: String(item.shareTitle || ""),
+          description: String(item.shareDescription || ""),
+        };
+        this.shareDialogVisible = true;
+      },
+      /* 分享目录入口：把某个 folderPath 下的所有文件作为一个合集来分享。
+         与 shareSelected 平行 —— 后者聚合"已选中的文件"，这里聚合"目录里的文件"。
+         成员解析交给服务端（按 folderPath 扫 KV），前端只负责把目录上下文带过去，
+         因此不需要预先收集文件 ID，也不受前端加载分页的限制。 */
+      handleShareFolder(node) {
+        if (!node) return;
+        const folder = {
+          path: this.normalizeFolderPath(node.path || ""),
+          name: node.name || (node.path ? node.path : "根目录"),
+          fileCount: Number(node.fileCount) || 0,
+          includeSubfolders: false,
+        };
+        this.shareDialogItem = null;
+        this.shareDialogItems = [];
+        this.shareDialogFolder = folder;
+        this.shareDialogMode = "create";
+        this.shareDialogError = "";
+        this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogSlug = "";
+        this.shareDialogBusy = false;
+        this.shareDialogRevoking = false;
+        this.shareDialogShowPassword = false;
+        this.shareDialogForm = {
+          expiresIn: 0,
+          maxDownloads: "",
+          password: "",
+          slug: "",
+          keepPassword: true,
+          keepSlug: true,
+          /* 目录名天然就是个好标题，但用户可能想换个说法，所以只做预填。 */
+          title: folder.name || "",
+          description: "",
+        };
+        this.shareDialogVisible = true;
+      },
+      /* 批量分享入口：把当前选中的文件作为一个合集来分享。
+         选中数 < 2 时退化为单文件分享，直接复用 openShareDialog，
+         避免出现「只有 1 个文件」的合集这种没有意义的形态。 */
+      shareSelected() {
+        const items = this.uploadedFiles.filter((f) => f.selected);
+        if (!items.length) { this.showToast("请先选择要分享的文件", "error"); return; }
+        if (items.length === 1) { this.openShareDialog(items[0]); return; }
+
+        this.shareDialogItems = items.slice();
+        this.shareDialogItem = null;
+        this.shareDialogFolder = null;
+        this.shareDialogMode = "create";
+        this.shareDialogError = "";
+        this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogBusy = false;
+        this.shareDialogRevoking = false;
+        this.shareDialogShowPassword = false;
+        /* 合集统一套用一套参数，因此从空表单起步 ——
+           成员各自已有的分享设置不参与合并（那会产生"以谁为准"的歧义）。
+           短链、标题、说明现在与单文件完全一致：可自定义，留空由服务端生成。 */
+        this.shareDialogForm = {
+          expiresIn: 0,
+          maxDownloads: "",
+          password: "",
+          slug: "",
+          keepPassword: true,
+          keepSlug: true,
+          title: "",
+          description: "",
+        };
+        this.shareDialogSlug = "";
+        this.shareDialogVisible = true;
+      },
+      closeShareDialog() {
+        this.shareDialogVisible = false;
+        this.shareDialogItem = null;
+        this.shareDialogItems = [];
+        this.shareDialogFolder = null;
+        this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogSlug = "";
+        this.shareDialogError = "";
+        this.shareDialogBusy = false;
+        this.shareDialogRevoking = false;
+      },
+      shareDialogTargetId() {
+        const item = this.shareDialogItem;
+        if (!item) return "";
+        if (item.rawId) return item.rawId;
+        let raw = String(item.url || item.path || item.name || "").trim();
+        if (!raw) return "";
+        if (/^https?:\/\//i.test(raw)) { try { raw = new URL(raw).pathname; } catch (e) {} }
+        raw = raw.replace(/^\/file\//, "").replace(/^\/+/, "");
+        raw = raw.split("?")[0].split("#")[0];
+        try { return decodeURIComponent(raw); } catch (e) { return raw; }
+      },
+      async submitShareDialog() {
+        const form = this.shareDialogForm;
+        const password = String(form.password || "");
+        if (password.length > 200) { this.shareDialogError = "访问密码过长（最多 200 个字符）。"; return; }
+        const maxRaw = String(form.maxDownloads).trim();
+        const maxDownloads = maxRaw === "" ? 0 : Number(maxRaw);
+        if (maxRaw !== "" && (!Number.isInteger(maxDownloads) || maxDownloads < 0)) { this.shareDialogError = "下载次数上限必须是非负整数（0 表示不限）。"; return; }
+        const expiresIn = Number(form.expiresIn) || 0;
+        const isManage = this.shareDialogMode === "manage";
+
+        /* 分享文案：标题 / 说明。留空表示"不设置"（分享页回退到默认标题、
+           不渲染说明块）—— 因此 manage 模式下清空输入框就是"删掉标题"，
+           不需要额外的「保留」勾选框：表单打开时已填入当前值，所见即所得。 */
+        const title = String(form.title || "").trim();
+        const description = String(form.description || "").trim();
+        if (title.length > 200) { this.shareDialogError = "分享标题最多 200 个字符。"; return; }
+        if (description.length > 2000) { this.shareDialogError = "分享说明最多 2000 个字符。"; return; }
+
+        const slugRaw = String(form.slug || "").trim();
+        const slug = slugRaw.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+        if (slugRaw && !slug) { this.shareDialogError = "短链只能包含字母、数字、下划线或短横线。"; return; }
+
+        /* 目录分享分支：按 folderPath 让服务端解析成员，前端无需收集文件 ID。
+           必须在下方「识别单文件」校验之前分流 —— 目录分享没有 item / targetId。 */
+        if (this.shareDialogFolder) {
+          await this.submitDirectoryShare({ expiresIn, maxDownloads, password, slug, title, description, isManage });
+          return;
+        }
+
+        /* 合集分支：多选时走合集接口。必须在下方「识别单文件」校验之前分流 ——
+           批量分享时 shareDialogItem 为 null，若先校验 item 会被「无法识别该文件」误拦。 */
+        if (this.isShareDialogBundle) {
+          await this.submitBundleShare({ expiresIn, maxDownloads, password, slug, title, description, isManage });
+          return;
+        }
+
+        const item = this.shareDialogItem;
+        const targetId = this.shareDialogTargetId();
+        if (!item || !targetId) { this.shareDialogError = "无法识别该文件，请刷新后重试。"; return; }
+
+        let submittedSlug = slug;
+        if (!slug && !isManage) {
+          /* 单文件分享没有"服务端生成短链"这条路径（接口把 slug 直接写进文件
+             元数据），所以前端补一个随机值 —— 否则 /s/<裸文件ID> 会很长。 */
+          const timestamp = Date.now().toString(36).slice(-4);
+          const random = Math.random().toString(36).substring(2, 6);
+          submittedSlug = timestamp + random;
+        }
+
+        const body = { action: isManage ? "update" : "create" };
+        if (isManage) {
+          body.expiresIn = Number(form.expiresIn) > 0 ? Number(form.expiresIn) : -1;
+          body.maxDownloads = maxRaw === "" ? -1 : maxDownloads;
+          body.password = password === "" && form.keepPassword ? -1 : password;
+          body.slug = slugRaw === "" && form.keepSlug ? -1 : submittedSlug;
+        } else {
+          body.expiresIn = Number(form.expiresIn) || 0;
+          body.maxDownloads = maxDownloads;
+          body.password = password;
+          body.slug = submittedSlug;
+        }
+        /* 标题 / 说明直接下发：空串即清除。与 slug / password 的 -1 哨兵不同，
+           这两个字段在表单里始终显示当前值，清空就是明确的删除动作。 */
+        body.title = title;
+        body.description = description;
+        this.shareDialogBusy = true;
+        this.shareDialogError = "";
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/share/${encodeURIComponent(targetId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) {
+            const messages = Array.isArray(data.messages) ? data.messages : [];
+            this.shareDialogError = messages[0] || data.message || data.error || `请求失败（HTTP ${res.status}）`;
+            return;
+          }
+          this.applyShareResult(item, data, isManage ? "" : slug);
+          const resolvedPath = this.resolveSharePath(item, data.shareSlug);
+          this.shareDialogResult = {
+            path: resolvedPath,
+            url: resolvedPath ? (/^https?:\/\//i.test(resolvedPath) ? resolvedPath : `${this.baseURL}${resolvedPath}`) : "",
+            slug: data.shareSlug || item.shareSlug || "",
+            expiresAt: data.shareExpiresAt || 0,
+            maxDownloads: data.shareMaxDownloads || 0,
+            passwordProtected: Boolean(data.sharePasswordProtected),
+            active: Boolean(data.active),
+            title: data.shareTitle || "",
+            description: data.shareDescription || "",
+          };
+          if (resolvedPath) item.sharePath = resolvedPath;
+          /* 创建成功后立刻切到 manage：表单里"当前值"就是刚提交的值，
+             再点一次「保存修改」是幂等的，而不是又建一个分享。 */
+          this.shareDialogCreated = !isManage;
+          this.shareDialogMode = "manage";
+          this.shareDialogForm.slug = "";
+          this.shareDialogForm.keepSlug = true;
+          this.shareDialogForm.keepPassword = true;
+          this.persistHistory();
+          this.showToast(isManage ? "分享设置已更新" : "分享已创建", "success");
+        } catch (err) {
+          console.error("分享配置失败:", err);
+          this.shareDialogError = "网络错误，请稍后重试。";
+        } finally { this.shareDialogBusy = false; }
+      },
+      /* 合集分享提交。
+         现在与单文件分享共用同一份表单语义：自定义短链、标题、说明都可用，
+         manage 模式下 `-1` 表示「保持不变」，空串表示「清除」。
+
+         这消除了旧实现里两条最刺眼的不一致：
+           · 旧版合集不能自定义短链 —— 只因为表单里挂了个 v-if；
+           · 旧版合集创建完就再也改不了 —— 没有回写 slug，第二次提交必然是新建。 */
+      async submitBundleShare({ expiresIn, maxDownloads, password, slug, title, description, isManage }) {
+        const items = this.shareDialogItems;
+        const currentSlug = String(this.shareDialogSlug || "").trim();
+        const isUpdate = Boolean(isManage && currentSlug);
+
+        /* 新建必须带成员；update 不传 fileIds 即为「只改参数不动成员」。 */
+        let fileIds = [];
+        if (!isUpdate) {
+          fileIds = items.map((it) => this.shareTargetIdOf(it)).filter(Boolean);
+          if (!fileIds.length) { this.shareDialogError = "无法识别所选文件，请刷新后重试。"; return; }
+        }
+
+        const maxRaw = String(maxDownloads === undefined ? this.shareDialogForm.maxDownloads : maxDownloads).trim();
+        const body = { action: isUpdate ? "update" : "create" };
+        if (isUpdate) {
+          /* ⚠️ slug 是「定位」用的，改名走 newSlug。服务端若把两者混用，
+             会拿新短链去查一个还不存在的合集，返回误导性的「短链不存在」。 */
+          body.slug = currentSlug;
+          body.newSlug = slug || currentSlug;
+          body.expiresIn = Number(expiresIn) > 0 ? Number(expiresIn) : -1;
+          body.maxDownloads = maxRaw === "" ? -1 : Number(maxRaw);
+          body.password = String(password || "") === "" && this.shareDialogForm.keepPassword ? -1 : String(password || "");
+        } else {
+          if (slug) body.slug = slug;
+          body.fileIds = fileIds;
+          body.expiresIn = Number(expiresIn) || 0;
+          body.maxDownloads = Number(maxRaw) || 0;
+          body.password = String(password || "");
+        }
+        body.title = title;
+        body.description = description;
+
+        this.shareDialogBusy = true;
+        this.shareDialogError = "";
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/share-bundle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) {
+            const messages = Array.isArray(data.messages) ? data.messages : [];
+            this.shareDialogError = messages[0] || data.message || data.error || `请求失败（HTTP ${res.status}）`;
+            return;
+          }
+
+          const path = data.sharePath || "";
+          const url = path ? (/^https?:\/\//i.test(path) ? path : `${this.baseURL}${path}`) : "";
+
+          /* 把失效文件名还原成人类可读的名字 —— 服务端只回传 ID，
+             用户看不懂 ID 代表哪一个文件。 */
+          const missingIds = Array.isArray(data.missing) ? data.missing : [];
+          const missingNames = missingIds.map((id) => {
+            const hit = items.find((it) => this.shareTargetIdOf(it) === id);
+            return hit ? this.getDisplayName(hit) : id;
+          });
+
+          this.shareDialogResult = {
+            path,
+            url,
+            slug: data.slug || "",
+            expiresAt: data.expiresAt || 0,
+            maxDownloads: data.maxDownloads || 0,
+            passwordProtected: Boolean(data.passwordProtected),
+            active: Boolean(data.active !== false),
+            title: data.title || "",
+            description: data.description || "",
+            bundle: true,
+            bundleCount: Number(data.fileCount) || Number(data.accepted) || 0,
+            bundleMissing: missingNames.length,
+            bundleMissingNames: missingNames,
+          };
+          /* 回写 slug 后，下一次提交就是 update 而不是又建一个分享。 */
+          this.shareDialogSlug = data.slug || currentSlug;
+          this.shareDialogCreated = !isUpdate;
+          this.shareDialogMode = "manage";
+          this.shareDialogForm.slug = "";
+          this.shareDialogForm.keepSlug = true;
+          this.shareDialogForm.keepPassword = true;
+          this.showToast(
+            isUpdate
+              ? "合集分享已更新"
+              : missingNames.length
+                ? `合集已创建，${missingNames.length} 个文件未加入`
+                : `已创建 ${data.fileCount || fileIds.length} 个文件的合集分享`,
+            "success"
+          );
+        } catch (err) {
+          console.error("合集分享提交失败:", err);
+          this.shareDialogError = "网络错误，请稍后重试。";
+        } finally { this.shareDialogBusy = false; }
+      },
+      /* 目录分享提交。
+         与 submitBundleShare 的唯一差别：成员来源不是前端的 fileIds，而是
+         请求体里的 folderPath —— 服务端会按目录自行解析出成员文件。其余的
+         参数、结果展示、错误回显逻辑完全复用合集的语义。 */
+      async submitDirectoryShare({ expiresIn, maxDownloads, password, slug, title, description, isManage }) {
+        const folder = this.shareDialogFolder;
+        if (!folder) { this.shareDialogError = "未指定要分享的目录。"; return; }
+
+        const currentSlug = String(this.shareDialogSlug || "").trim();
+        const isUpdate = Boolean(isManage && currentSlug);
+
+        const maxRaw = String(maxDownloads === undefined ? this.shareDialogForm.maxDownloads : maxDownloads).trim();
+        const body = { action: isUpdate ? "update" : "create" };
+        if (isUpdate) {
+          body.slug = currentSlug;
+          body.newSlug = slug || currentSlug;
+          body.expiresIn = Number(expiresIn) > 0 ? Number(expiresIn) : -1;
+          body.maxDownloads = maxRaw === "" ? -1 : Number(maxRaw);
+          body.password = String(password || "") === "" && this.shareDialogForm.keepPassword ? -1 : String(password || "");
+        } else {
+          if (slug) body.slug = slug;
+          body.folderPath = folder.path;
+          body.includeSubfolders = folder.includeSubfolders;
+          // 目录分享默认「实时同步」：分享的是目录本身，而非创建时刻的文件快照。
+          // 之后往该目录上传/删除文件，分享页会自动反映最新内容。
+          body.live = true;
+          body.expiresIn = Number(expiresIn) || 0;
+          body.maxDownloads = Number(maxRaw) || 0;
+          body.password = String(password || "");
+        }
+        body.title = title;
+        body.description = description;
+
+        this.shareDialogBusy = true;
+        this.shareDialogError = "";
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/share-bundle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) {
+            const messages = Array.isArray(data.messages) ? data.messages : [];
+            this.shareDialogError = messages[0] || data.message || data.error || `请求失败（HTTP ${res.status}）`;
+            return;
+          }
+
+          const path = data.sharePath || "";
+          const url = path ? (/^https?:\/\//i.test(path) ? path : `${this.baseURL}${path}`) : "";
+
+          this.shareDialogResult = {
+            path,
+            url,
+            slug: data.slug || "",
+            expiresAt: data.expiresAt || 0,
+            maxDownloads: data.maxDownloads || 0,
+            passwordProtected: Boolean(data.passwordProtected),
+            active: Boolean(data.active !== false),
+            title: data.title || "",
+            description: data.description || "",
+            bundle: true,
+            // 实时文件夹分享标记：template 据此提示"目录内容会实时同步"。
+            live: Boolean(data.live),
+            folder: Boolean(data.folder),
+            // 目录成员在服务端解析，没有"前端失效文件"，bundleMissing 恒为 0。
+            bundleCount: Number(data.fileCount) || 0,
+            bundleScanned: Number(data.scanned) || 0,
+            bundleMissing: 0,
+            bundleMissingNames: [],
+          };
+          this.shareDialogSlug = data.slug || currentSlug;
+          this.shareDialogCreated = !isUpdate;
+          this.shareDialogMode = "manage";
+          this.shareDialogForm.slug = "";
+          this.shareDialogForm.keepSlug = true;
+          this.shareDialogForm.keepPassword = true;
+          this.showToast(
+            isUpdate
+              ? `目录「${folder.name}」的分享已更新`
+              : `已创建目录「${folder.name}」的实时分享（当前 ${data.fileCount || 0} 个文件，后续上传会实时同步）`,
+            "success"
+          );
+        } catch (err) {
+          console.error("目录分享提交失败:", err);
+          this.shareDialogError = "网络错误，请稍后重试。";
+        } finally { this.shareDialogBusy = false; }
+      },
+      /* 从任意条目里解析出可用的文件 ID。与 shareDialogTargetId 同源逻辑，
+         但作用于传入的条目而非弹窗的当前条目 —— 合集要逐个解析。 */
+      shareTargetIdOf(item) {
+        if (!item) return "";
+        if (item.rawId) return String(item.rawId);
+        let raw = String(item.url || item.path || item.name || "").trim();
+        if (!raw) return "";
+        if (/^https?:\/\//i.test(raw)) { try { raw = new URL(raw).pathname; } catch (e) {} }
+        raw = raw.replace(/^\/file\//, "").replace(/^\/+/, "");
+        raw = raw.split("?")[0].split("#")[0];
+        try { return decodeURIComponent(raw); } catch (e) { return raw; }
+      },
+      async revokeShare() {
+        const item = this.shareDialogItem;
+        const targetId = this.shareDialogTargetId();
+        if (!item || !targetId) return;
+        this.shareDialogRevoking = true;
+        this.shareDialogError = "";
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/share/${encodeURIComponent(targetId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ action: "revoke" }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) { this.shareDialogError = data.message || data.error || `请求失败（HTTP ${res.status}）`; return; }
+          item.shareSlug = "";
+          item.sharePath = "";
+          item.shareExpiresAt = 0;
+          item.shareMaxDownloads = 0;
+          item.shareProtected = false;
+          if (data.shareDownloadCount !== undefined) item.shareDownloadCount = Number(data.shareDownloadCount) || 0;
+          this.persistHistory();
+          this.showToast("已取消分享", "success");
+          this.closeShareDialog();
+        } catch (err) {
+          console.error("取消分享失败:", err);
+          this.shareDialogError = "网络错误，请稍后重试。";
+        } finally { this.shareDialogRevoking = false; }
+      },
+      /* 取消合集 / 目录分享。与单文件 revoke 的差别只是端点与定位键：
+         合集没有"文件 ID"，slug 就是它的身份。 */
+      async revokeBundleShare() {
+        const slug = String(this.shareDialogSlug || (this.shareDialogResult && this.shareDialogResult.slug) || "").trim();
+        if (!slug) { this.shareDialogError = "无法定位该分享，请刷新后重试。"; return; }
+        this.shareDialogRevoking = true;
+        this.shareDialogError = "";
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/share-bundle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ action: "revoke", slug }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) { this.shareDialogError = data.message || data.error || `请求失败（HTTP ${res.status}）`; return; }
+          this.showToast("已取消分享", "success");
+          this.closeShareDialog();
+        } catch (err) {
+          console.error("取消合集分享失败:", err);
+          this.shareDialogError = "网络错误，请稍后重试。";
+        } finally { this.shareDialogRevoking = false; }
+      },
+      /* 「继续修改」：收起结果面板，把刚创建出来的分享重新变成可编辑表单。
+         前提是 shareDialogSlug 已回写且 mode 已切成 manage ——
+         否则下一次提交会再建一个分享，用户会以为"修改没生效"。 */
+      editShareAgain() {
+        this.shareDialogResult = null;
+        this.shareDialogCreated = false;
+        this.shareDialogError = "";
+        this.shareDialogMode = "manage";
+        this.shareDialogForm.slug = "";
+        this.shareDialogForm.keepSlug = true;
+        this.shareDialogForm.keepPassword = true;
+      },
+      copyShareDialogUrl() {
+        const url = this.shareDialogResult && this.shareDialogResult.url;
+        if (!url) return;
+        return this.copyLinkText(url, "已复制分享链接");
+      },
+
+      /* ===== 链接格式化 ===== */
+      formatLink(file) {
+        const url = this.getCleanFileUrl(file);
+        const name = this.getDisplayName(file);
+        if (this.linkFormat === "markdown") {
+          /* Markdown 图片语法里，alt 中的方括号会截断语法、URL 中的圆括号会截断链接，
+             所以分别转义：方括号前加反斜杠，圆括号做百分号编码。 */
+          const alt = name.replace(/[[\]]/g, "\\$&");
+          const href = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+          return `![${alt}](${href})`;
+        }
+        /* HTML 分支：文件名可能来自他人分享的内容，拼进属性前必须转义。
+           否则一个名为 x" onerror="... 的文件就能闭合 alt 属性注入任意 HTML，
+           受害者把复制出来的链接粘到第三方站点即会触发。 */
+        if (this.linkFormat === "html") {
+          return `<img src="${KVault.escapeHtml(url)}" alt="${KVault.escapeHtml(name)}">`;
+        }
+        if (this.linkFormat === "bbcode") return `[img]${url}[/img]`;
+        if (this.linkFormat === "ubb") return `[IMG]${url}[/IMG]`;
+        return url;
+      },
+      getBatchLinks() {
+        const targets = this.uploadedFiles.filter((f) => f.selected);
+        const list = targets.length ? targets : this.uploadedFiles;
+        return list.map((f) => this.formatLink(f)).join("\n");
+      },
+      getBatchTargets() {
+        const selected = this.uploadedFiles.filter((f) => f.selected);
+        return selected.length ? selected : this.uploadedFiles;
+      },
+      copyLink(file) { return this.copyLinkText(this.formatLink(file), "已复制链接"); },
+      copyBatchLinks() {
+        const count = this.getBatchTargets().length;
+        if (!count) return;
+        return this.copyLinkText(this.getBatchLinks(), `已复制 ${count} 个链接`);
+      },
+      selectAll() { const target = !this.isAllSelected; this.uploadedFiles.forEach((f) => (f.selected = target)); },
+      clearResults() { this.uploadedFiles = []; },
+      toggleSelectMode() {
+        this.lastSelectModeAt = Date.now();
+        this.resultSelectMode = !this.resultSelectMode;
+        this.resultMenuFor = null;
+        if (!this.resultSelectMode) this.uploadedFiles.forEach((f) => (f.selected = false));
+      },
+      onResultRowTap(file) {
+        if (this.resultSelectMode) file.selected = !file.selected;
+        else this.openPreview(file);
+      },
+      toggleFileMenu(idx) {
+        this.resultFormatMenuOpen = false;
+        this.resultMenuFor = this.resultMenuFor === idx ? null : idx;
+      },
+      toggleFormatMenu() { this.resultMenuFor = null; this.resultFormatMenuOpen = !this.resultFormatMenuOpen; },
+      pickFormat(key) { this.linkFormat = key; this.resultFormatMenuOpen = false; },
+      menuAct() { this.resultMenuFor = null; },
+      /* ===== 选中项的批量操作 =====
+         交付结果与历史记录共用同一套实现：两条列表里的条目都带 url
+         （形如 <origin>/file/<id>），而管理接口要的文件 ID 可以直接从
+         url 反解 —— 与分享弹窗撤销用的是同一套解析（shareTargetIdOf），
+         所以后端不必为上传结果额外回传 id。 */
+      async downloadItems(items) {
+        const list = (items || []).filter(Boolean);
+        if (!list.length) return;
+        this.showToast(`开始下载 ${list.length} 个文件，请查看浏览器下载栏`, "info");
+        for (let i = 0; i < list.length; i++) {
+          this.triggerDownload(this.getCleanFileUrl(list[i]), this.getDisplayName(list[i]));
+          /* 逐个触发之间必须留间隔：瞬间并发的多个下载会被浏览器判为
+             滥用而静默拦截，admin 的批量下载同样是这个处理。 */
+          if (i < list.length - 1) await new Promise((r) => setTimeout(r, 500));
+        }
+      },
+      downloadSelected() { this.downloadItems(this.selectedFiles); },
+      downloadHistorySelected() { this.downloadItems(this.historySorted.filter((it) => it.selected)); },
+
+      async moveItemsToFolder(items) {
+        const list = (items || []).filter(Boolean);
+        if (!list.length) return;
+        if (!this.isAuthenticated) { this.showToast("需要登录后才能移动云端文件", "error"); return; }
+        const target = await this.promptDialog(`把选中的 ${list.length} 个文件移动到哪个目录？\n留空表示根目录。`, {
+          title: "移动到目录",
+          label: "目标目录",
+          placeholder: "例如 photos/2026",
+          value: this.folderPath || "",
+          confirmText: "移动",
+        });
+        if (target == null) return;
+        /* 与后端 normalizeFolderPath 对齐：只去掉首尾斜杠，中间原样保留 */
+        const targetFolderPath = String(target || "").trim().replace(/^\/+|\/+$/g, "");
+        const ids = list.map((it) => this.shareTargetIdOf(it)).filter(Boolean);
+        if (!ids.length) { this.showToast("无法识别所选文件，请刷新后重试", "error"); return; }
+        try {
+          const res = await fetch(`${this.baseURL}/api/manage/files/move-folder`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids, targetFolderPath }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data.success === false) { this.showToast(data.error || data.message || `移动失败（HTTP ${res.status}）`, "error"); return; }
+          const moved = Number(data.moved) || 0;
+          if (!moved) { this.showToast("没有移动任何文件，所选文件可能已不在云端", "error"); return; }
+          this.showToast(`已移动 ${moved} 个文件到「${targetFolderPath || "根目录"}」`, "success");
+        } catch (e) {
+          this.showToast("移动失败，请稍后重试", "error");
+        }
+      },
+      async moveSelectedToFolder() {
+        if (this.resultBatchBusy) return;
+        this.resultBatchBusy = true;
+        try { await this.moveItemsToFolder(this.selectedFiles); }
+        finally { this.resultBatchBusy = false; }
+      },
+      async moveHistorySelectedToFolder() {
+        if (this.historyBatchBusy) return;
+        this.historyBatchBusy = true;
+        try { await this.moveItemsToFolder(this.historySorted.filter((it) => it.selected)); }
+        finally { this.historyBatchBusy = false; }
+      },
+
+      /* 云端删除的确认与执行。确认收在这里而不是各调用方，是为了让
+         交付结果和历史记录两条入口的文案、按钮、风险提示完全一致。 */
+      confirmDeleteFromCloud(count) {
+        return this.confirmDanger(
+          `将从云端删除选中的 ${count} 个文件。\n\n删除后无法通过本站恢复。`,
+          {
+            title: "删除云端文件",
+            subtitle: "危险操作",
+            confirmText: `删除 ${count} 个`,
+            cancelText: "取消",
+            note: "KV 记录与已生成的分享短链会一并清除",
+          }
+        );
+      },
+      async deleteItemsFromCloud(items, onRemoved) {
+        const list = (items || []).filter(Boolean);
+        if (!list.length) return 0;
+        if (!this.isAuthenticated) { this.showToast("需要登录后才能删除云端文件", "error"); return 0; }
+        let done = 0;
+        const failed = [];
+        for (const item of list) {
+          const id = this.shareTargetIdOf(item);
+          if (!id) { failed.push(this.getDisplayName(item)); continue; }
+          try {
+            /* 与 admin / gallery 的调用方式保持一致：不带 method 走 GET，
+               delete 处理器是 onRequest（全方法），鉴权由 manage 中间件兜住。 */
+            const res = await fetch(`${this.baseURL}/api/manage/delete/${encodeURIComponent(id)}`, {
+              credentials: "include",
+            });
+            const data = await res.json().catch(() => ({}));
+            /* 记录本来就没了（KV 已过期 / 别处已删）当作成功 —— 用户此刻
+               要的就是「这条从列表里消失」，没必要为不存在的记录报错。 */
+            const gone = res.status === 404 || res.status === 410 || /not found/i.test(String(data.error || ""));
+            if ((!res.ok && !gone) || (!gone && data.success === false)) { failed.push(this.getDisplayName(item)); continue; }
+            done += 1;
+            if (typeof onRemoved === "function") onRemoved(item);
+          } catch (e) {
+            failed.push(this.getDisplayName(item));
+          }
+        }
+        if (done) this.showToast(`已删除 ${done} 个文件`, "success");
+        if (failed.length) {
+          const preview = failed.slice(0, 3).join("、");
+          this.showToast(`${failed.length} 个文件删除失败${preview ? `：${preview}${failed.length > 3 ? " 等" : ""}` : ""}`, "error");
+        }
+        return done;
+      },
+      async deleteSelected() {
+        const list = this.selectedFiles;
+        if (!list.length || this.resultBatchBusy) return;
+        if (!(await this.confirmDeleteFromCloud(list.length))) return;
+        this.resultBatchBusy = true;
+        try {
+          await this.deleteItemsFromCloud(list, (item) => {
+            this.uploadedFiles = this.uploadedFiles.filter((f) => f !== item);
+            /* 云端记录已删，历史里的同一条也应同时失效，否则会留下点开就 404 的死链 */
+            this.markHistoryAsMissing(this.getCleanFileUrl(item));
+          });
+        } finally { this.resultBatchBusy = false; }
+      },
+      handleClearResults() {
+        /* 「完成」退场的过程中，它原先占的屏幕位置会被刚进场的「清空」接管。
+           用户点完「完成」手指还没离势再落一下，点在同一个坐标上，命中的已经是
+           「清空」——实测 200~400ms 这个窗口内会把清空 armed（文案那一跳也很突兀，
+           再点一次还会真的清空整份交付结果）。这里是第二道保险：另一道是
+           design-system.css 里的 .ctrl-leave-active{pointer-events:none}，
+           负责退场节点本身；窗口期内干脆不接受 arm，真要清空就重新点一次。 */
+        if (Date.now() - (this.lastSelectModeAt || 0) < 450) return;
+        if (!this.clearArmed) {
+          this.clearArmed = true;
+          clearTimeout(this.clearArmTimer);
+          this.clearArmTimer = setTimeout(() => { this.clearArmed = false; }, 2600);
+          return;
+        }
+        clearTimeout(this.clearArmTimer);
+        this.clearArmed = false;
+        this.resultSelectMode = false;
+        this.clearResults();
+        this.showToast("已清空交付结果", "success");
+      },
+      closeResultMenus() { this.resultMenuFor = null; this.resultFormatMenuOpen = false; },
+
+      /* ===== 下载 ===== */
+      isDownloading(item) {
+        if (!item) return false;
+        const raw = item.url ? this.getCleanFileUrl(item) : (typeof item === "string" ? item : "");
+        if (!raw) return false;
+        /* 查表用的 key 必须和 triggerDownload 写入时是同一个 —— 都经过
+           buildDownloadUrl。之前这里查的是**未加** `dl=1` 的 clean url，
+           而写入用的是带参数的下载 URL，两边永远对不上：按钮的
+           spinner 与 disabled 从未生效过，用户点下去界面零反馈，
+           「点了没反应」有一半来自这里。 */
+        return !!this.downloadingUrls[this.buildDownloadUrl(raw)];
+      },
+      /* 下载地址：在文件 URL 上追加 `dl=1`。
+         file 路由只有在看到 `dl=1` 时才把 Content-Disposition 从 inline
+         改成 attachment（见 functions/file/[[path]].js 的 isExplicitDownload）。
+         不追加这个参数时响应头是 inline —— 浏览器会「内联打开」而不是下载，
+         表现为点「下载」却跳进了预览页（docx 尤其明显，会外跳到 Office 预览）。
+         与 share.html 的 downloadUrl 保持同一约定：按「可能已有 query」拼接，
+         避免拼出 `?a=1?dl=1`。 */
+      buildDownloadUrl(url) {
+        if (!url) return url;
+        try {
+          const u = new URL(url, window.location.origin);
+          if (u.searchParams.get("dl") === "1") return url;
+          u.searchParams.set("dl", "1");
+          return u.toString();
+        } catch (e) {
+          /* 非法 URL 或非 http(s) 的边角情况：退回手工拼接，不阻断下载 */
+          return url + (url.includes("?") ? "&" : "?") + "dl=1";
+        }
+      },
+      triggerDownload(rawUrl, fileName) {
+        if (!rawUrl) return;
+        const url = this.buildDownloadUrl(rawUrl);
+        /* 微信 / QQ 内置浏览器会静默吞掉附件下载（点了没反应）。
+           命中时守卫会拦下本次下载、尽力唤起系统浏览器并弹引导层，
+           返回 true 表示已接管 —— 此时不能再往下走原生下载，否则会同时
+           弹一个「已开始下载」的 toast，把用户彻底带偏。 */
+        const kv = (typeof window !== "undefined") ? window.KVault : null;
+        if (kv && typeof kv.guardDownload === "function" && kv.guardDownload(url, fileName)) return;
+        if (this.downloadingUrls[url]) { this.showToast('下载已开始，请查看浏览器下载栏', 'info'); return; }
+        this.downloadingUrls[url] = true;
+        /* 关键：必须在这次点击的同一个同步任务里就把下载交出去。
+           旧实现先 await 一次 HEAD 探测（后端全链路，几百毫秒到数秒）
+           才触发下载 —— 那时用户手势早已耗尽，浏览器会把这次下载
+           静默排队甚至拦截，表现正是「点了没反应，刷新页面后才弹出
+           下载框」。探测的成本也不小：后端当时对 HEAD 同样会去 R2
+           把整个对象读出来。 */
+        this._doNativeDownload(url, fileName);
+        this.showToast(`已开始下载 [${fileName || '文件'}]，请查看浏览器下载栏`, 'success');
+        /* 失效探测挪到下载**之后**、完全不阻塞：它唯一的用处是把已被
+           删除的记录从历史里标出来，用户此刻已经拿到下载，不该再为它
+           等一个来回。后端对 HEAD 已短路（只取元数据），成本很低。 */
+        fetch(url, { method: 'HEAD', credentials: 'include' })
+          .then((res) => {
+            if (res.status === 404 || res.status === 410) this.markHistoryAsMissing(rawUrl);
+          })
+          .catch(() => {});
+      },
+      _doNativeDownload(url, fileName) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName || '';
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        /* click() 是同步的：下载此刻已经交给浏览器排队，<a> 继续留在
+           DOM 里没有任何作用，可以立刻移除。旧实现固定挂 2 秒才移除，
+           只是历史遗留 —— 那 2 秒其实一直在客串「下载中」的计时器。 */
+        if (a.parentNode) a.parentNode.removeChild(a);
+        /* 「下载中」状态只服务于按钮反馈：留一小段让 spinner 看得见，
+           期间重复点击会落进上面的「已开始」提示，而不是连开两次。 */
+        clearTimeout(this.downloadStateTimers[url]);
+        this.downloadStateTimers[url] = setTimeout(() => {
+          delete this.downloadingUrls[url];
+          delete this.downloadStateTimers[url];
+        }, 1500);
+      },
+      isLargeTelegramFile(file, rawUrl) {
+        const size = Number(file?.size || file?.fileSize || 0);
+        if (size <= 20 * 1024 * 1024) return false;
+        const mode = String(file?.storageMode || file?.storage || file?.targetMode || "").toLowerCase();
+        if (mode === "telegram") return true;
+        return /\/file\/telegram:/i.test(String(rawUrl || ""));
+      },
+      async startResumableDownload(rawUrl, fileName, expectedSize = 0) {
+        if (!rawUrl) return;
+        const dlUrl = this.buildDownloadUrl(rawUrl);
+        const kv = (typeof window !== "undefined") ? window.KVault : null;
+        if (!kv || typeof kv.downloadResumable !== "function") {
+          this.triggerDownload(rawUrl, fileName);
+          return;
+        }
+        if (typeof kv.guardDownload === "function" && kv.guardDownload(dlUrl, fileName)) return;
+        if (this.downloadProgress.active) {
+          this.showToast("当前已有分片加速下载在进行，本次已改用浏览器原生下载", "info");
+          this.triggerDownload(rawUrl, fileName);
+          return;
+        }
+
+        const size = Number(expectedSize) || 0;
+        let writable = null;
+        if (size > 256 * 1024 * 1024 && typeof window.showSaveFilePicker === "function") {
+          try {
+            const handle = await window.showSaveFilePicker({ suggestedName: fileName || "download" });
+            writable = await handle.createWritable();
+          } catch (e) {
+            if (e && e.name === "AbortError") return;
+            writable = null;
+          }
+        }
+
+        this.downloadProgress = {
+          active: true,
+          url: dlUrl,
+          fileName: fileName || "下载中",
+          loaded: 0,
+          total: size,
+          speed: "",
+        };
+
+        const job = kv.downloadResumable(dlUrl, {
+          fileName: fileName || "download",
+          maxConcurrency: 3,
+          writable,
+          onProgress: (p) => {
+            const loaded = p.loaded || 0;
+            const total = p.total || this.downloadProgress.total || 0;
+            let speedText = "";
+            if (p.status === "cooldown" && p.cooldownSec > 0) {
+              speedText = `频控等待 ${this.formatCountdownSec(p.cooldownSec)}`;
+            } else if (p.speedBps > 0) {
+              speedText = this.formatSpeedWithEta(p.speedBps, Math.max(0, total - loaded));
+            }
+            this.downloadProgress.loaded = loaded;
+            this.downloadProgress.total = total;
+            this.downloadProgress.speed = speedText;
+          },
+        });
+
+        try {
+          const res = await job.promise;
+          if (res && res.fallbackNative) {
+            this.showToast(
+              "超大 Telegram 文件已切换浏览器原生下载；若中途中断，建议用桌面 Chrome/Edge 或支持 Range 续传的下载器",
+              "info"
+            );
+            this._doNativeDownload(dlUrl, fileName);
+          } else {
+            this.showToast(`已下载 [${fileName || "文件"}]`, "success");
+          }
+        } catch (err) {
+          if (writable && typeof writable.abort === "function") {
+            try { await writable.abort(); } catch (_) {}
+          }
+          if (err && (err.status === 404 || err.status === 410)) {
+            this.markHistoryAsMissing(rawUrl);
+          }
+          if (!err || err.message !== "__CANCELLED__") {
+            this.showToast((err && err.message) || "分片下载失败，请稍后重试", "error");
+          }
+        } finally {
+          this.downloadProgress.active = false;
+          this.downloadProgress.speed = "";
+        }
+      },
+      downloadFile(file) {
+        const rawUrl = this.getCleanFileUrl(file);
+        const fileName = this.getDisplayName(file);
+        const kv = (typeof window !== "undefined") ? window.KVault : null;
+        if (
+          this.isLargeTelegramFile(file, rawUrl) &&
+          kv &&
+          typeof kv.downloadResumable === "function" &&
+          !(typeof kv.detectInAppBrowser === "function" && kv.detectInAppBrowser())
+        ) {
+          const size = Number(file?.size || file?.fileSize || 0);
+          const canStreamLarge = size <= 256 * 1024 * 1024 || typeof window.showSaveFilePicker === "function";
+          if (canStreamLarge) {
+            this.startResumableDownload(rawUrl, fileName, size);
+            return;
+          }
+          this.triggerDownload(rawUrl, fileName);
+          this.showToast(
+            "超大 Telegram 文件已走浏览器原生下载；若免费版限制导致中断，建议用桌面 Chrome/Edge 或支持 Range 续传的下载器",
+            "info"
+          );
+          return;
+        }
+        this.triggerDownload(rawUrl, fileName);
+      },
+      previewImage(file) {
+        const url = this.getCleanFileUrl(file);
+        this.previewData = { type: "native-image", url, fileName: this.getDisplayName(file) };
+      },
+      openPreview(file) {
+        const name = this.getDisplayName(file);
+        const url = this.getCleanFileUrl(file);
+        const ext = name.split(".").pop().toLowerCase();
+        if (["jpg", "jpeg", "png", "webp", "gif", "svg"].includes(ext)) { this.previewData = { type: "native-image", url, fileName: name }; return; }
+        /* 站内预览页的 iframe 地址。所有非图片格式都走这里，
+           由 preview.html 依据扩展名自行选择渲染器。 */
+        const iframeUrl = `${LOCAL_PREVIEW_PAGE}?url=${encodeURIComponent(url)}&title=${encodeURIComponent(name)}&embed=1`;
+        if (["mp4", "webm", "mp3", "wav", "pdf"].includes(ext)) { this.previewData = { type: "iframe", iframeUrl, url, fileName: name }; return; }
+        /* Office 系列（docx/xlsx/pptx 及兼容格式）同样在站内弹层里预览。
+           之前这些格式不在白名单里，会掉进 downloadFile —— 于是「预览」和
+           「下载」变成同一条路：都只是打开文件直链，再被增强预览接管。
+           现在预览留在站内弹层，下载则明确走 buildDownloadUrl 的 dl=1 附件流。 */
+        if (["docx", "doc", "docm", "dotx", "dotm", "dot", "rtf", "odt",
+             "xlsx", "xls", "xlsm", "xlsb", "xlt", "xltm", "ods", "fods",
+             "pptx", "ppt", "pptm", "ppsx", "ppsm", "potx", "potm", "odp"].includes(ext)) {
+          this.previewData = { type: "iframe", iframeUrl, url, fileName: name };
+          return;
+        }
+        /* 其余未知格式仍退回下载：没有可用渲染器，站内预览只会给一片空白 */
+        this.downloadFile(file);
+      },
+      closePreview() {
+        if (this.$refs.previewIframe) this.$refs.previewIframe.src = "about:blank";
+        this.previewData = null;
+      },
+      copyPreviewLink() {
+        if (this.previewData) { return this.copyLinkText(this.previewData.url, "直链已复制"); }
+      },
+      downloadPreviewFile() {
+        if (this.previewData) this.triggerDownload(this.previewData.url, this.previewData.fileName || "file");
+      },
+
+      /* ===== 历史管理 ===== */
+      /* 历史落盘 = 一次全表 JSON.stringify + 一次同步的 localStorage.setItem。
+         单文件上传时写一次无所谓；批量上传时每完成一个文件都会各写一次 ——
+         100 个文件就是 100 次整表序列化，而 localStorage 是同步 API，每次都会把
+         主线程钉住若干毫秒。这里改成防抖写：窗口内的多次变更合并为一次落盘，
+         关页 / 卸载时再强制补写（见 flushHistoryNow 的调用方）。 */
+      persistHistory(options) {
+        if (options && options.immediate) {
+          if (this._historyFlushTimer) { clearTimeout(this._historyFlushTimer); this._historyFlushTimer = null; }
+          this.flushHistoryNow();
+          return;
+        }
+        if (this._historyFlushTimer) return;
+        this._historyFlushTimer = setTimeout(() => {
+          this._historyFlushTimer = null;
+          this.flushHistoryNow();
+        }, 800);
+      },
+      flushHistoryNow() {
+        try {
+          const serialized = this.uploadHistory.map((it) => ({
+            id: it.id, name: it.name, fileName: it.fileName, url: it.url,
+            size: it.size, storageMode: it.storageMode, folderPath: it.folderPath,
+            uploadTime: it.uploadTime,
+            shareSlug: it.shareSlug || "", sharePath: it.sharePath || "",
+            shareExpiresAt: Number(it.shareExpiresAt) || 0,
+            shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
+            shareProtected: Boolean(it.shareProtected),
+            shareDownloadCount: Number(it.shareDownloadCount) || 0,
+          }));
+          localStorage.setItem("uploadHistory", JSON.stringify(serialized));
+        } catch (e) {
+          try {
+            this.uploadHistory = this.uploadHistory.slice(0, Math.max(50, Math.floor(this.uploadHistory.length / 2)));
+            localStorage.setItem("uploadHistory", JSON.stringify(this.uploadHistory));
+          } catch (_) {}
+        }
+      },
+      loadHistory() {
+        try {
+          const raw = localStorage.getItem("uploadHistory");
+          if (!raw) return;
+          const arr = JSON.parse(raw);
+          if (!Array.isArray(arr)) return;
+          this.uploadHistory = arr.map((it, i) => ({
+            id: it.id || `h_legacy_${i}_${Math.random().toString(36).slice(2, 6)}`,
+            name: it.name || "", fileName: it.fileName || it.name || "未命名文件",
+            url: it.url || it.path || "", size: Number(it.size) || 0,
+            storageMode: it.storageMode || "", folderPath: it.folderPath || "",
+            uploadTime: Number(it.uploadTime || it.time) || 0, selected: false,
+            shareSlug: it.shareSlug || "", sharePath: it.sharePath || "",
+            shareExpiresAt: Number(it.shareExpiresAt) || 0,
+            shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
+            shareProtected: Boolean(it.shareProtected),
+            shareDownloadCount: Number(it.shareDownloadCount) || 0,
+          }));
+        } catch (e) { this.uploadHistory = []; }
+      },
+      addToHistory(file, modeOverride, folderPath = this.folderPath) {
+        const url = this.getCleanFileUrl(file);
+        const resolvedMode = modeOverride || file.storageMode || this.storageMode;
+        const entry = {
+          id: `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name || "", fileName: file.fileName || file.name || "未命名文件",
+          url: file.url || file.path || "", size: Number(file.size) || 0,
+          storageMode: resolvedMode, folderPath: folderPath || "",
+          uploadTime: Date.now(), selected: false,
+          shareSlug: file.shareSlug || "", sharePath: file.sharePath || "",
+          shareExpiresAt: Number(file.shareExpiresAt) || 0,
+          shareMaxDownloads: Number(file.shareMaxDownloads) || 0,
+          shareProtected: Boolean(file.shareProtected),
+          shareDownloadCount: Number(file.shareDownloadCount) || 0,
+        };
+        const dupIdx = this.uploadHistory.findIndex((it) => this.getCleanFileUrl(it) === url);
+        if (dupIdx > -1) this.uploadHistory.splice(dupIdx, 1);
+        this.uploadHistory.unshift(entry);
+        if (this.uploadHistory.length > this.historyMaxItems) this.uploadHistory = this.uploadHistory.slice(0, this.historyMaxItems);
+        this.persistHistory();
+      },
+      async clearHistory() {
+        if (!this.uploadHistory.length) return;
+        const clearOk = await this.confirmDanger(`将清空全部 ${this.uploadHistory.length} 条本地历史记录。\n\n清空后无法恢复。`, {
+          title: "清空历史",
+          subtitle: "危险操作",
+          confirmText: "全部清空",
+          cancelText: "再想想",
+          note: "仅影响本地记录，云端文件不受影响",
+        });
+        if (!clearOk) return;
+        this.uploadHistory = [];
+        try { localStorage.removeItem("uploadHistory"); } catch (e) {}
+        this.showToast("本地历史已清空", "success");
+      },
+      historyDelete(item) {
+        const idx = this.uploadHistory.findIndex((it) => it.id === item.id);
+        if (idx > -1) this.uploadHistory.splice(idx, 1);
+        this.persistHistory();
+        this.showToast("已删除该历史记录");
+      },
+      markHistoryAsMissing(url) {
+        const cleanUrl = (u) => { if (!u) return ''; return u.startsWith('http') ? u : `${this.baseURL}${u}`; };
+        const target = cleanUrl(url);
+        const hit = this.uploadHistory.filter((it) => cleanUrl(this.getCleanFileUrl(it)) === target);
+        if (!hit.length) return;
+        const ids = new Set(hit.map((it) => it.id));
+        this.uploadHistory = this.uploadHistory.filter((it) => !ids.has(it.id));
+        this.persistHistory();
+      },
+      async cleanupExpiredHistory() {
+        if (!this.uploadHistory.length) { this.showToast("历史记录为空"); return; }
+        if (this.historyCleanupRunning) return;
+        this.historyCleanupRunning = true;
+        this.historyCleanupProgress = { checked: 0, total: this.uploadHistory.length };
+        const items = [...this.uploadHistory];
+        const expiredIds = new Set();
+        let cursor = 0;
+        const CONCURRENCY = 5;
+        const worker = async () => {
+          while (true) {
+            const i = cursor++;
+            if (i >= items.length) return;
+            const item = items[i];
+            const url = this.getCleanFileUrl(item);
+            try {
+              const res = await fetch(url, { method: 'HEAD', credentials: 'include' });
+              if (res.status === 404 || res.status === 410) expiredIds.add(item.id);
+            } catch (e) {}
+            this.historyCleanupProgress.checked++;
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker()));
+        if (expiredIds.size > 0) {
+          this.uploadHistory = this.uploadHistory.filter((it) => !expiredIds.has(it.id));
+          this.persistHistory();
+          this.showToast(`已清理 ${expiredIds.size} 条失效记录`, "success");
+        } else {
+          this.showToast("没有发现失效记录", "info");
+        }
+        this.historyCleanupRunning = false;
+      },
+      async deleteHistorySelected() {
+        const list = this.historySorted.filter((it) => it.selected);
+        if (!list.length) return;
+        if (this.historyBatchBusy) return;
+        if (!(await this.confirmDeleteFromCloud(list.length))) return;
+        this.historyBatchBusy = true;
+        try {
+          await this.deleteItemsFromCloud(list, (item) => {
+            this.uploadHistory = this.uploadHistory.filter((it) => it !== item);
+            this.persistHistory();
+          });
+        } finally { this.historyBatchBusy = false; }
+      },
+      toggleHistorySelectAll() {
+        const target = !this.historyAllSelected;
+        this.historySorted.forEach((it) => { it.selected = target; });
+      },
+      historyCopyLink(item) { return this.copyLinkText(this.formatLink(item), "已复制链接"); },
+      copyHistorySelected() {
+        const list = this.historySorted.filter((it) => it.selected);
+        if (!list.length) return;
+        const text = list.map((it) => this.formatLink(it)).join("\n");
+        return this.copyLinkText(text, `已复制 ${list.length} 条链接`);
+      },
+      historyPreview(item) { this.openPreview(item); },
+      historyDownload(item) { this.triggerDownload(this.getCleanFileUrl(item), this.getDisplayName(item)); },
+      addHistorySelectedToResults() {
+        const list = this.historySorted.filter((it) => it.selected);
+        if (!list.length) return;
+        let added = 0;
+        list.forEach((it) => {
+          const url = this.getCleanFileUrl(it);
+          if (this.uploadedFiles.some((f) => this.getCleanFileUrl(f) === url)) return;
+          this.uploadedFiles.unshift({
+            name: it.name, fileName: it.fileName, url: it.url, size: it.size, selected: false,
+            shareSlug: it.shareSlug || "", sharePath: it.sharePath || "",
+            shareExpiresAt: Number(it.shareExpiresAt) || 0,
+            shareMaxDownloads: Number(it.shareMaxDownloads) || 0,
+            shareProtected: Boolean(it.shareProtected),
+          });
+          added++;
+        });
+        if (added) this.showToast(`已加入 ${added} 条到交付结果`, "success");
+        else this.showToast("所选记录已存在于结果列表中");
+      },
+      exportHistory() {
+        const list = this.historySorted;
+        if (!list.length) return;
+        const lines = list.map((it) => `${this.getDisplayName(it)}\t${this.getCleanFileUrl(it)}\t${this.formatSize(it.size)}\t${this.formatHistoryTime(it.uploadTime)}`);
+        const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `upload-history-${new Date().toISOString().slice(0, 10)}.txt`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1200);
+        this.showToast(`已导出 ${list.length} 条记录`, "success");
+      },
+      /* 一次降级：缩略图失败先退回原图；原图也失败才隐藏图片、退到文件图标。 */
+      handleThumbError(e, item) {
+        if (item && !item._thumbFallback) {
+          item._thumbFallback = true;
+          e.target.src = this.getCleanFileUrl(item);
+          return;
+        }
+        if (item) item._imgError = true;
+        this.$forceUpdate();
+      },
+
+      /* ===== Auth ===== */
+      async checkAuth() {
+        this.authChecking = true;
+        try {
+          const res = await fetch("/api/auth/check", { credentials: "include" });
+          const data = await res.json();
+          // 隔空投送能力：无论后面走哪个分支（含访客早退），都要先落到 data 上。
+          // 未登录时后端也会下发一份「收端够用」的最小能力（见 auth/check.js），
+          // 否则扫码接收会被入口误判成"没有中转节点"。
+          if (data.airdrop) {
+            this.airdropCapability = data.airdrop;
+            this.airdropCapabilityLoaded = true;
+          }
+          if (!res.ok) throw new Error("上传权限检查失败");
+          this.authRequired = data.authRequired === true;
+          this.isAuthenticated = Boolean(data.authenticated) && data.authRequired !== false;
+          this.isGuest = !this.isAuthenticated;
+          this.guestBlocked = false;
+          this.uploadAccessMessage = "";
+          await this.checkStorageTarget(data.guestUpload);
+        } catch (e) {
+          this.guestBlocked = true;
+          this.uploadAccessMessage = "暂时无法检查上传权限，请刷新后重试";
+        } finally {
+          this.authChecking = false;
+          // 将探测期间的点击交给已确认的隔空投送能力处理。
+          if (this.pendingAirdropOpen) {
+            this.pendingAirdropOpen = false;
+            this.$nextTick(() => this.openAirdrop());
+          }
+        }
+      },
+      /* ── 隔空投送（Beta）─────────────────────────────────
+         入口门禁放在这里而不是组件里：是否放行取决于整页的登录态
+         （this.isGuest），组件不该自己去猜访问者是谁。
+
+         这里**只拦"功能整体不可用"**（后端关闭 / 没有可用中转节点）。
+         访客的收发权限不在这一层判定 —— 访客拿别人的连接码来接收是
+         完全合法的用法，早年在入口就把访客整体挡掉，导致"扫了二维码
+         也进不来"。具体能发还是能收，由面板内的 maySend / mayReceive
+         分别判定（见 assets/js/airdrop.js）。
+
+         ⚠️ authChecking 这一层不能省：airdropCapability 的初始值就是
+         enabled:false，而 checkAuth() 在 mounted 里是异步 await 的
+         （且排在 markBooted() 之后 —— 首屏在它返回前就已可点）。
+         于是"页面刚加载就点隔空投送"会命中初始值，误报"未开启"。
+         这里把"还在探测"与"确实不可用"区分开：前者提示稍候并自动重试，
+         后者才是真的报错。
+
+         ⚠️ 同理，`airdropCapabilityLoaded` 也不能省：只有**收到过**后端
+         明确答复，nodes 为空才能解释成"没配中转节点"。答复里没有 airdrop
+         字段（旧后端 / 探测异常）时 nodes 同样是空数组，但那是"未知"，
+         拿它去报"缺少可用储存节点"会把人指向完全错误的方向 —— 未登录
+         扫码接收时曾出现这一误报。 */
+      openAirdrop() {
+        if (!this.airdropCapability.enabled) {
+          // 能力尚未下发：不是"不可用"，只是还没问完后端 —— 等它回来再判
+          if (this.authChecking) {
+            this.showToast("正在检查隔空投送可用性，请稍候…", "info");
+            this.pendingAirdropOpen = true;
+            return;
+          }
+          // 已问完后端但没拿到能力：状态未知，不要替后端下结论
+          if (!this.airdropCapabilityLoaded) {
+            this.showToast("隔空投送状态获取失败，请刷新页面重试", "error");
+            return;
+          }
+          // 已确认不可用：给出准确的两种原因，而不是笼统一句
+          const nodes = this.airdropCapability.nodes;
+          const backendDown = !Array.isArray(nodes) || nodes.length === 0;
+          this.showToast(
+            backendDown
+              ? "缺少可用的中转存储节点（需绑定 R2 或配置 Telegram）"
+              : "隔空投送未开启，请在管理后台打开",
+            "error"
+          );
+          return;
+        }
+        this.airdropVisible = true;
+      },
+      closeAirdrop() {
+        this.airdropVisible = false;
+      },
+      pushAirdropToast(message, tone) {
+        this.showToast(message, tone || "info");
+      },
+      async checkStorageTarget(guestFromAuth) {
+        this.beginNodeSettle();
+        try {
+          const res = await fetch("/api/status", { credentials: "include" });
+          const st = await res.json();
+          if (this.isGuest) this.setGuestUploadAccess(st.guestUpload || guestFromAuth, res.status);
+          this.uploadLimits = st.uploadLimits || {};
+          const isEnabled = (backend) => !!(backend && (backend.connected || backend.configured || backend.enabled) && backend.enabled !== false);
+          this.r2Available = isEnabled(st.r2);
+          this.s3Available = isEnabled(st.s3);
+          this.discordAvailable = isEnabled(st.discord);
+          this.huggingfaceAvailable = isEnabled(st.huggingface);
+          this.githubAvailable = isEnabled(st.github);
+          if (Number.isFinite(st.smallFileThreshold) && st.smallFileThreshold > 0) this.uploadConfig.smallFileThreshold = st.smallFileThreshold;
+          try {
+            const savedFallback = localStorage.getItem("overflowFallback");
+            if (savedFallback === "0") this.overflowFallback = false;
+            else if (savedFallback === "1") this.overflowFallback = true;
+          } catch (e) {}
+          this.restoreParallelSettings();
+          const saved = localStorage.getItem("storageMode") || "telegram";
+          if (saved === "auto") {
+            // 兼容旧版「智能节点」：平滑迁移至 Telegram 主节点 + 超限自动回落开启
+            this.overflowFallback = true;
+            try { localStorage.setItem("overflowFallback", "1"); } catch (e) {}
+            this.setStorageMode("telegram", true);
+          } else if (this.isStorageAvailable(saved)) {
+            this.setStorageMode(saved, true);
+          } else {
+            this.setStorageMode("telegram", true);
+          }
+        } catch (e) {
+          if (this.isGuest) this.setGuestUploadAccess(guestFromAuth);
+          this.setStorageMode("telegram", true);
+          this.restoreParallelSettings();
+        }
+      },
+      setGuestUploadAccess(config, status) {
+        if (config?.enabled) {
+          this.guestUploadConfig = {
+            maxFileSize: config.maxFileSize || 5 * 1024 * 1024,
+            maxDailyUploads: config.dailyLimit || 10,
+          };
+          this.guestBlocked = false;
+          this.uploadAccessMessage = "";
+          return;
+        }
+        this.guestUploadConfig = null;
+        this.guestBlocked = true;
+        if (status === 401 || config?.enabled === false) {
+          this.uploadAccessMessage = this.authRequired ? "访客上传已关闭，请登录后上传" : "访客上传已关闭";
+        } else {
+          this.uploadAccessMessage = "暂时无法检查上传权限，请刷新后重试";
+        }
+      },
+      finishNodeSettle() {
+        if (!this.nodeResolving) return;
+        clearTimeout(this.nodeResolveTimer);
+        this.nodeResolveTimer = setTimeout(() => { this.nodeResolving = false; this.nodeResolveTimer = null; }, 620);
+      },
+      async handleLogout() {
+        try {
+          await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+          window.location.href = "/login.html";
+        } catch (e) {}
+      },
+
+      markBooted() {
+        const apply = () => {
+          const el = document.getElementById("app");
+          if (el) el.classList.add("is-booted");
+        };
+        /* 弱动效偏好下入场动画被全局冻到 0.01ms（design-system.css），
+           无需再等 900ms 让「升起」动画跑完 —— 直接关掉门控，
+           与 admin.html 的 bootDelay(60ms) 对齐，避免静态布局晚出现。 */
+        const reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+        if (reduce) { setTimeout(apply, 60); return; }
+        if (typeof requestAnimationFrame !== "function") { setTimeout(apply, 120); return; }
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          setTimeout(apply, 900);
+        }));
+      },
+    },
+    created() {
+      /* 同步状态点：状态机在共享层，这里只创建 + 订阅。
+         失败重试 2 次由 track() 内部完成（退避 600ms / 1500ms），
+         重试期间保持「同步中」不闪红，只有真正耗尽才置红。 */
+      try {
+        this.syncTracker = KVault.createSyncTracker({ maxRetries: 2 });
+        /* 验证管理器：写请求成功后黄点保持，周期性 fresh 读回云端 KV，
+           亲眼确认变更已生效才点亮绿点（绿点 = 确切证据，不是请求成功） */
+        this.syncVerifier = KVault.createSyncVerifier({
+          tracker: this.syncTracker,
+          fetcher: () => fetch("/api/manage/folders?fresh=1&_t=" + Date.now(), { credentials: "include" })
+            .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }),
+          onApply: (folders) => {
+            /* 证据数据是云端真实状态，直接应用（与 fetchUploadFolders 成功路径同构） */
+            const list = Array.isArray(folders) ? folders : [];
+            if (!this.folderDataIsStale(list)) {
+              this.uploadFolders = list;
+              this.uploadFoldersFetched = true;
+              if (this.folderPath) this.autoExpandAncestors(this.folderPath);
+            }
+          },
+        });
+        this._syncUnsub = this.syncTracker.subscribe((state, detail) => {
+          const prev = this.syncState;
+          this.syncState = state;
+          this.syncDetail = detail || { attempts: 0, lastError: null };
+          /* 只在「刚转为失败」的那一次提示，避免重试期间的中间态也弹 toast */
+          if (state === "failed" && prev !== "failed") {
+            const err = this.syncDetail.lastError;
+            const msg = (err && err.message) ? err.message : "网络异常";
+            this.showToast(`同步失败（已自动重试 2 次）：${msg}`, "error");
+          }
+        });
+      } catch (e) {
+        this.syncTracker = null;
+      }
+    },
+    async mounted() {
+      /* 顶栏版本标签：/api/version 公开端点，Git 集成部署时后端能拿到
+         CF_PAGES_COMMIT_SHA，补全为「版本号 · 提交号」；direct upload 未配置
+         APP_COMMIT_SHA 时 commit 为空，保持只显示版本号。
+         静默失败（不阻塞、不弹错）：这只是个展示性标签。 */
+      fetch("/api/version", { headers: { Accept: "application/json" } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((v) => {
+          if (v && v.version) {
+            this.versionLabel = v.commit ? `${v.version} · ${v.commit}` : v.version;
+          }
+        })
+        .catch(() => {});
+      /* 统一对话框：全局键盘接管（Esc 取消 / Enter 确认） */
+      this._dlgKeyHandler = (e) => this.dlgHandleGlobalKey(e);
+      window.addEventListener("keydown", this._dlgKeyHandler, true);
+      /* 页面隐藏 / 关闭时把防抖中的历史记录立刻落盘，
+         否则「最后 800ms 内完成的上传」会从历史里凭空消失。 */
+      this._pageHideHandler = () => this.persistHistory({ immediate: true });
+      window.addEventListener("pagehide", this._pageHideHandler);
+      /* L7：窗口尺寸变化时让 dock 拖拽的几何缓存失效（正常拖拽中途不会 resize，
+         这条只是兜底，防止极端时序下拿到过期槽位宽度） */
+      this._dockGeoHandler = () => { this._dockGeo = null; };
+      window.addEventListener("resize", this._dockGeoHandler, { passive: true });
+      /* 不再按硬件自动降级（原 hardwareConcurrency / deviceMemory / saveData
+         判据误判率高，会让中端设备被动失去全部动效）。
+         现在 data-perf 只由 applyPerfMode() 写入 —— 即用户主动关掉「灵动引擎」时。 */
+      this.syncLiveEngineFromPerf();
+
+      try {
+        const th = localStorage.getItem("theme") || "light";
+        this.currentTheme = th;
+        document.documentElement.setAttribute("data-theme", th);
+        const ex = localStorage.getItem("folderTreeExpanded");
+        if (ex) this.expandedFolders = JSON.parse(ex) || {};
+        try { localStorage.removeItem("imageCompressSettings"); } catch (e) {}
+        this.loadHistory();
+      } catch (e) {}
+
+      /* 首屏入场门控：必须在挂载时就启动，且不依赖任何网络请求。
+         原写法把 markBooted() 排在 await checkAuth()/checkStorageTarget()/
+         fetchUploadFolders() 之后 —— 弱网或后端不可达时门控 #app:not(.is-booted)
+         迟迟不关，期间切视图会反复重播 riseIn（切目录抽搐根因，admin.html 已修，
+         这里对齐）。改为挂载即触发，门控按固定延时关闭。 */
+      this.markBooted();
+
+      this.beginNodeSettle();
+
+      await this.checkAuth();
+      this.finishNodeSettle();
+      this.fetchUploadFolders();
+
+      this.globalPasteHandler = (e) => {
+        if (["INPUT", "TEXTAREA"].includes(e.target?.tagName)) return;
+        const files = Array.from(e.clipboardData?.files || []);
+        if (files.length) {
+          e.preventDefault();
+          if (!this.guardUploadAllowed()) return;
+          this.processFiles(files);
+          this.showToast(`已捕获 ${files.length} 个剪贴板文件并加入上传`, "success");
+        }
+      };
+      document.addEventListener("paste", this.globalPasteHandler);
+      this.globalDragGuard = this.preventWindowFileNav;
+      window.addEventListener("dragover", this.globalDragGuard);
+      window.addEventListener("drop", this.globalDragGuard);
+      this.resultMenuCloseHandler = () => this.closeResultMenus();
+      document.addEventListener("click", this.resultMenuCloseHandler);
+    },
+    beforeUnmount() {
+      if (this._dlgKeyHandler) {
+        window.removeEventListener("keydown", this._dlgKeyHandler, true);
+        this._dlgKeyHandler = null;
+      }
+      /* 解除同步状态订阅，避免组件销毁后回调仍改已卸载的响应式状态 */
+      try { if (this._syncUnsub) this._syncUnsub(); } catch (e) {}
+      /* 卸载时兜底放行所有仍在等待的对话框请求，避免 Promise 永久挂起 */
+      if (this.dlgQueue && this.dlgQueue.length) {
+        for (const job of this.dlgQueue) { try { job.resolve(false); } catch (_) {} }
+        this.dlgQueue = [];
+      }
+      if (this.dlg && typeof this.dlg.resolver === "function") {
+        const r = this.dlg.resolver; this.dlg.resolver = null; r(false);
+      }
+      this.schedulerDisposed = true;
+      this.uploadEpoch++;
+      /* 卸载即结算：防抖窗口里挂着的历史变更要在这里真正写下去 */
+      this.persistHistory({ immediate: true });
+      if (this._pageHideHandler) { window.removeEventListener("pagehide", this._pageHideHandler); this._pageHideHandler = null; }
+      if (this._dockGeoHandler) { window.removeEventListener("resize", this._dockGeoHandler); this._dockGeoHandler = null; this._dockGeo = null; }
+      if (this.uploadDrainTimer) { clearTimeout(this.uploadDrainTimer); this.uploadDrainTimer = null; }
+      if (this.queueCleanupTimer) { clearTimeout(this.queueCleanupTimer); this.queueCleanupTimer = null; }
+      for (const f of this.uploadingFiles) {
+        f.cancelRequested = true;
+        this.invalidateTaskRun(f);
+        if (f.preview) { try { URL.revokeObjectURL(f.preview); } catch (_) {} }
+      }
+      this.stopUrlTicker();
+      if (this._urlProbeAbort) { try { this._urlProbeAbort.abort(); } catch (_) {} this._urlProbeAbort = null; }
+      if (this._urlAborts) {
+        for (const ctrl of this._urlAborts.values()) { try { ctrl.abort(); } catch (_) {} }
+        this._urlAborts.clear();
+      }
+      if (this.nodeResolveTimer) clearTimeout(this.nodeResolveTimer);
+      if (this.globalPasteHandler) document.removeEventListener("paste", this.globalPasteHandler);
+      if (this.resultMenuCloseHandler) document.removeEventListener("click", this.resultMenuCloseHandler);
+      if (this.globalDragGuard) {
+        window.removeEventListener("dragover", this.globalDragGuard);
+        window.removeEventListener("drop", this.globalDragGuard);
+      }
+    },
+  });
+
+  app.mount("#app");
