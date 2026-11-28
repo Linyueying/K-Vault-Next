@@ -23,7 +23,7 @@ import re
 import sys
 from collections import defaultdict
 
-PAGES = ['index.html', 'upload.html', 'admin.html', 'gallery.html', 'show.html', 'paste.html',
+PAGES = ['index.html', 'promo.html', 'upload.html', 'admin.html', 'gallery.html', 'show.html', 'paste.html',
          'share.html', 'preview.html', 'webdav.html', 'login.html']
 
 SHARED_CSS = 'assets/css/design-system.css'

@@ -71,12 +71,12 @@ K-Vault-Next 是一个跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图
 
 ### 1. 前端
 
-- **形态**：11 个页面入口（根目录 HTML）+ `assets/` 共享层，**无构建步骤**。公共 CSS / JS 外置到 `assets/css/` 与 `assets/js/`，页面本身只保留本页增量样式与脚本
+- **形态**：12 个页面入口（根目录 HTML）+ `assets/` 共享层，**无构建步骤**。公共 CSS / JS 外置到 `assets/css/` 与 `assets/js/`，页面本身只保留本页增量样式与脚本
 - **设计系统**：`assets/css/design-system.css` 是全站唯一的设计令牌、通用组件与 `@keyframes` 事实来源
 - **共享 JS**：`assets/js/app-core.js`（挂载在 `window.KVault`）—— `formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` 等全局唯一实现
 - **页面级样式只允许写本页增量**，禁止在页面内联 `<style>` 定义 `@keyframes` 或覆盖共享实现
 - **守卫脚本**：`npm run check` 一键串联 `check_style.py`、`check_tokens.py`、`check_styles.py`、`check_shared.py`、`check_functions.py` 与 `verify-templates.mjs`
-- **页面清单**：`/`（产品首页）、`/upload.html`（上传工作台）、`/admin.html`（管理后台，分区 `/admin/files|shares|storage|system`）、`/gallery.html`（图库）、`/show.html`（公开精选画廊）、`/vault.html`（零知识密码库）、`/paste.html`（文本粘贴）、`/share.html`（分享落地页）、`/preview.html`（预览页）、`/webdav.html`（WebDAV 指南）、`/login.html`（登录页）
+- **页面清单**：`/`（登录鉴权总控台与仪表盘）、`/promo.html`（公开产品宣传页）、`/upload.html`（上传工作台）、`/admin.html`（管理后台，分区 `/admin/files|shares|storage|system`）、`/gallery.html`（图库）、`/show.html`（公开精选画廊）、`/vault.html`（零知识密码库）、`/paste.html`（文本粘贴）、`/share.html`（分享落地页）、`/preview.html`（预览页）、`/webdav.html`（WebDAV 指南）、`/login.html`（登录页）
 
 ### 2. 后端
 
