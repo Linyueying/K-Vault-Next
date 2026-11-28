@@ -376,7 +376,7 @@ export async function registerFileRecord(env, kvKey, metadata, options = {}) {
     : deriveIndexId(kvKey, prefixes);
 
   if (!id) return { ok: false, error: 'empty-id' };
-  return putFileRecord(env, id, kvKey, metadata);
+  return putFileRecord(env, id, kvKey, metadata, options);
 }
 
 /**
@@ -443,8 +443,8 @@ export async function deleteRecordIndex(env, fileId) {
  * @param {string} id - 裸 ID
  * @returns {Promise<boolean>}
  */
-export async function removeFileRecord(env, id) {
-  const removed = await deleteFileRecord(env, id);
+export async function removeFileRecord(env, id, options) {
+  const removed = await deleteFileRecord(env, id, options);
   // 删除必须同步失效 —— 否则缓存副本会让已删文件在 TTL 内继续可下载。
   await forgetRecordCache(env, String(id || '')).catch(() => {});
   return removed;

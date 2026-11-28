@@ -136,6 +136,9 @@
       .access-panel.is-active { display: block; animation: riseIn 0.36s var(--ease-fluid) backwards; }
       .access-panel .ui-group { margin-top: 4px; }
       .access-panel .ui-actions { margin-top: 12px; }
+      .dav-root-row { flex-wrap: wrap; }
+      .dav-root-row .select { flex: 1 1 180px; min-width: 0; }
+      .dav-root-status { margin-inline: var(--sp-4); }
 
       .seg-tabs {
         display: flex;
@@ -332,6 +335,20 @@
               <a href="/admin/access" aria-label="后台修改密码" style="text-decoration:none"><i class="fas fa-chevron-right ui-chevron"></i></a>
             </div>
           </div>
+
+          <section id="davRootSettings" hidden>
+            <form id="davRootForm" class="ui-group">
+              <div class="ui-row dav-root-row">
+                <label class="ui-row__label" for="davRoot">挂载根目录</label>
+                <select class="select" id="davRoot" aria-describedby="davRootStatus" disabled>
+                  <option value="">文件库根目录（默认）</option>
+                </select>
+                <button type="submit" class="ui-btn ui-btn--secondary" id="davRootSave" disabled>保存</button>
+              </div>
+              <p class="ui-note dav-root-status" id="davRootStatus" role="status"></p>
+            </form>
+            <p class="ui-note">保存后，所有使用 /dav/ 的客户端都会看到所选目录的内容。切换前建议暂停备份任务。</p>
+          </section>
 
           <div class="ui-actions">
             <button class="ui-btn" type="button" data-open-sheet="dav-test"><i class="fas fa-satellite-dish"></i>测试连接</button>
@@ -732,9 +749,92 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
                 $("probeUser").value = w.username;
               }
               $("davPass").textContent = w.hasPassword ? "已设置" : "尚未设置";
+              return loadMountRoot();
             })
             .catch(setDavStatusUnknown);
         }
+
+        var mountRoot = null;
+
+        function renderMountRoot(data) {
+          mountRoot = data;
+          var select = $("davRoot");
+          var options = [new Option("文件库根目录（默认）", "")];
+          if (data.status === "missing") {
+            var missing = new Option(data.rootPath + "（挂载已停用）", "");
+            missing.disabled = true;
+            options.unshift(missing);
+          }
+          data.folders.forEach(function (path) { options.push(new Option(path, path)); });
+          select.replaceChildren.apply(select, options);
+          if (data.status === "missing") {
+            select.selectedIndex = 0;
+          } else {
+            select.value = data.rootPath;
+          }
+          select.disabled = data.status === "unsupported";
+          refreshMountSave();
+          $("davRootStatus").textContent = data.status === "missing"
+            ? "原文件夹已被删除或移动，WebDAV 已暂停。请重新选择并保存。"
+            : data.status === "unsupported"
+              ? "设置独立挂载目录需要绑定 D1 文件数据库。"
+              : !data.folders.length
+                ? "在管理后台新建备份文件夹后，刷新本页即可选择。"
+                : "当前挂载：" + (data.rootPath || "文件库根目录");
+        }
+
+        function refreshMountSave() {
+          var select = $("davRoot");
+          var choosing = select.selectedIndex !== -1 && !select.selectedOptions[0].disabled;
+          $("davRootSave").disabled = select.disabled || !mountRoot || !choosing ||
+            (mountRoot.status !== "missing" && mountRoot.rootPath === select.value);
+        }
+
+        async function loadMountRoot() {
+          $("davRootSettings").hidden = false;
+          $("davRootStatus").textContent = "正在读取挂载根目录…";
+          try {
+            var res = await fetch("/api/manage/webdav-root", { credentials: "include", cache: "no-store" });
+            if (!res.ok) throw new Error();
+            renderMountRoot(await res.json());
+          } catch (error) {
+            $("davRootStatus").textContent = "暂时无法读取挂载根目录，请刷新页面重试。";
+          }
+        }
+
+        $("davRoot").addEventListener("change", refreshMountSave);
+        $("davRootForm").addEventListener("submit", async function (event) {
+          event.preventDefault();
+          if ($("davRootSave").disabled) return;
+          var select = $("davRoot");
+          var path = select.value;
+          if (!window.confirm("将所有 WebDAV 客户端的挂载根目录切换到「" + (path || "文件库根目录") + "」？")) return;
+
+          select.disabled = true;
+          refreshMountSave();
+          $("davRootStatus").textContent = "正在保存…";
+          try {
+            var res = await fetch("/api/manage/webdav-root", {
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ rootPath: path })
+            });
+            var data = await res.json();
+            if (res.status === 409) {
+              await loadMountRoot();
+              $("davRootStatus").textContent = data.error;
+              return;
+            }
+            if (!res.ok) throw new Error(data.error || "保存失败");
+            renderMountRoot(data);
+          } catch (error) {
+            $("davRootStatus").textContent = error.message || "保存失败，请重试。";
+          } finally {
+            if (mountRoot && mountRoot.status !== "unsupported") select.disabled = false;
+            refreshMountSave();
+          }
+        });
 
         function setDavStatusUnknown() {
           setBadge($("davBadge"), null, "状态未知");
@@ -795,6 +895,8 @@ bearer_token_env_var = "KVAULT_API_TOKEN"</code></pre>
               out.textContent = "认证失败：用户名或密码不正确。";
             } else if (res.status === 404) {
               out.textContent = "服务未开启：请先在后台启用 WebDAV。";
+            } else if (res.headers.get("X-WebDAV-Mount") === "missing") {
+              out.textContent = "挂载根目录已不存在，请在 WebDAV 设置中重新选择。";
             } else {
               out.textContent = "服务端返回 " + res.status + "，请检查配置。";
             }

@@ -53,6 +53,7 @@ import {
   WEBDAV_MAX_FILE_SIZE,
 } from '../utils/webdav-server.js';
 import { onRequest as fileHandler } from '../file/[[path]].js';
+import { isDavSegment, readWebdavMount } from '../utils/webdav-mount.js';
 
 /** WebDAV 挂载前缀。 */
 const MOUNT = '/dav';
@@ -127,6 +128,7 @@ function errorResponse(error) {
   if (code === 'FORBIDDEN') return forbidden(message);
   if (code === 'PRECONDITION_FAILED') return textResponse(message, 412);
   if (code === 'PAYLOAD_TOO_LARGE') return textResponse(message, 413);
+  if (code === 'MOUNT_UNAVAILABLE') return textResponse(message, 503, { 'X-WebDAV-Mount': 'unavailable' });
   if (code === 'BAD_REQUEST') return textResponse(message, 400);
   console.error('WebDAV error:', message);
   return textResponse(message, 500);
@@ -151,32 +153,77 @@ export async function onRequest(context) {
       return unauthorized();
     }
 
+    const mount = await readWebdavMount(env).catch(() => null);
+    if (!mount || mount.status === 'missing') {
+      return textResponse(
+        mount ? 'The WebDAV root folder is missing. Select a folder again in WebDAV settings.'
+          : 'The WebDAV root folder cannot be verified.',
+        503,
+        { 'X-WebDAV-Mount': mount ? 'missing' : 'unavailable' }
+      );
+    }
     // 写方法在只读模式下拦截
     const writeMethods = new Set(['PUT', 'DELETE', 'MKCOL', 'MOVE', 'COPY']);
     if (auth.readOnly && writeMethods.has(method)) {
       return forbidden('WebDAV 服务端当前为只读模式。');
     }
 
-    const davPath = normalizeDavPath(new URL(request.url).pathname, MOUNT);
+    const scoped = mount.status === 'ready' ? mount.rootPath : '';
+    const url = new URL(request.url);
+    const visiblePath = scoped ? parseScopedPath(url.pathname) : normalizeDavPath(url.pathname, MOUNT);
+    if (visiblePath === null) return textResponse('无效的 WebDAV 路径。', 400);
+    const davPath = scoped ? joinDavPath(mount.rootPath, visiblePath) : visiblePath;
+
+    // The empty client path is the mount itself, even when its storage path is nonempty.
+    if (scoped && !visiblePath) {
+      if (method === 'MKCOL') return textResponse('根目录已存在。', 405);
+      if (method === 'PUT') return textResponse('缺少文件名。', 400);
+      if (['DELETE', 'MOVE', 'COPY'].includes(method)) return forbidden('不能修改根目录。');
+      if (method === 'GET' || method === 'HEAD') return notFound('根目录不可下载。');
+    }
+
+    let destination;
+    if (scoped && (method === 'MOVE' || method === 'COPY')) {
+      const header = request.headers.get('Destination');
+      if (!header) return textResponse('缺少 Destination 头。', 400);
+      let target;
+      try { target = new URL(header, url); } catch { return forbidden('无效的目标地址。'); }
+      const visibleTarget = target.origin === url.origin ? parseScopedPath(target.pathname) : null;
+      if (!visibleTarget || target.search || target.hash || target.username || target.password) {
+        return forbidden('目标必须位于当前 WebDAV 挂载目录内。');
+      }
+      destination = joinDavPath(mount.rootPath, visibleTarget);
+      if (destination.startsWith(davPath + '/') || davPath.startsWith(destination + '/') ||
+          (method === 'COPY' && destination === davPath)) {
+        return forbidden('源路径与目标路径不能重叠。');
+      }
+    }
+
+    if (scoped && (destination || method === 'MKCOL' || method === 'PUT')) {
+      const { folderPath } = splitDavPath(destination || davPath, true);
+      if ((await statDavPath(env, folderPath, true)).type !== 'folder') {
+        return textResponse('目标父目录不存在。', 409);
+      }
+    }
 
     switch (method) {
       case 'OPTIONS':
         return handleOptions();
       case 'PROPFIND':
-        return await handlePropfind(env, request, davPath);
+        return await handlePropfind(env, request, davPath, visiblePath, scoped);
       case 'GET':
       case 'HEAD':
-        return await handleGet(context, davPath);
+        return await handleGet(context, davPath, scoped);
       case 'PUT':
-        return await handlePut(env, request, davPath, auth.backend);
+        return await handlePut(env, request, davPath, auth.backend, scoped);
       case 'DELETE':
-        return await handleDelete(env, davPath);
+        return await handleDelete(env, davPath, scoped);
       case 'MKCOL':
-        return await handleMkcol(env, davPath);
+        return await handleMkcol(env, davPath, scoped);
       case 'MOVE':
-        return await handleMove(env, request, davPath);
+        return await handleMove(env, request, davPath, destination, scoped);
       case 'COPY':
-        return await handleCopy(env, request, davPath);
+        return await handleCopy(env, request, davPath, destination, scoped);
       default:
         return textResponse(`不支持的方法：${method}`, 405, { Allow: ALLOW_HEADER });
     }
@@ -188,6 +235,18 @@ export async function onRequest(context) {
 // ============================================================================
 // 各方法实现
 // ============================================================================
+
+function parseScopedPath(pathname) {
+  if (pathname.toLowerCase() === MOUNT) return '';
+  if (!pathname.toLowerCase().startsWith(MOUNT + '/')) return null;
+  const segments = pathname.slice(MOUNT.length + 1).split('/').filter(Boolean);
+  try {
+    const decoded = segments.map(segment => decodeURIComponent(segment));
+    return decoded.every(isDavSegment) ? decoded.join('/') : null;
+  } catch {
+    return null;
+  }
+}
 
 function handleOptions() {
   return new Response(null, {
@@ -206,23 +265,23 @@ function handleOptions() {
  * resourcetype / getcontentlength / getlastmodified / getcontenttype）。
  * 这对所有主流客户端都兼容，且省掉解析 XML 请求体的复杂度。
  */
-async function handlePropfind(env, request, davPath) {
+async function handlePropfind(env, request, davPath, visiblePath, scoped) {
   const depthHeader = String(request.headers.get('Depth') || '1').trim();
   const depth = depthHeader === '0' ? 0 : 1;
-  const isRoot = davPath === '';
+  const isRoot = visiblePath === '';
 
   const entries = [];
-  const selfHref = isRoot ? `${MOUNT}/` : `${MOUNT}/${davPath}`;
+  const selfHref = isRoot ? `${MOUNT}/` : `${MOUNT}/${visiblePath}`;
 
   if (isRoot) {
     entries.push({ href: selfHref, isFolder: true, displayName: '/' });
   } else {
-    const stat = await statDavPath(env, davPath);
+    const stat = await statDavPath(env, davPath, scoped);
     if (stat.type === 'none') {
       return notFound('路径不存在。');
     }
     if (stat.type === 'folder') {
-      entries.push({ href: `${selfHref}/`, isFolder: true, displayName: splitDavPath(davPath).name });
+      entries.push({ href: `${selfHref}/`, isFolder: true, displayName: splitDavPath(davPath, scoped).name });
     } else {
       const meta = stat.record?.metadata || {};
       entries.push({
@@ -232,15 +291,15 @@ async function handlePropfind(env, request, davPath) {
         mtime: Number(meta.TimeStamp) || Date.now(),
         mime: meta.mime || meta.contentType || 'application/octet-stream',
         etag: meta.etag,
-        displayName: meta.fileName || splitDavPath(davPath).name,
+        displayName: meta.fileName || splitDavPath(davPath, scoped).name,
       });
     }
   }
 
   if (depth === 1) {
-    const { items } = await listDavChildren(env, davPath);
+    const { items } = await listDavChildren(env, davPath, scoped);
     for (const item of items) {
-      const childPath = joinDavPath(davPath, item.name);
+      const childPath = joinDavPath(visiblePath, item.name);
       entries.push({
         href: item.isFolder ? `${MOUNT}/${childPath}/` : `${MOUNT}/${childPath}`,
         isFolder: item.isFolder,
@@ -263,11 +322,11 @@ async function handlePropfind(env, request, davPath) {
  * 由于用的是同一个 handler 函数（而不是再发一次网络请求），没有任何
  * 额外往返或序列化开销。
  */
-async function handleGet(context, davPath) {
+async function handleGet(context, davPath, scoped) {
   const { env, request } = context;
   if (!davPath) return notFound('根目录不可下载。');
 
-  const stat = await statDavPath(env, davPath);
+  const stat = await statDavPath(env, davPath, scoped);
   if (stat.type === 'none') return notFound('文件不存在。');
   if (stat.type === 'folder') return notFound('目标是目录。');
 
@@ -300,7 +359,7 @@ async function handleGet(context, davPath) {
   });
 }
 
-async function handlePut(env, request, davPath, backend) {
+async function handlePut(env, request, davPath, backend, scoped) {
   if (!davPath) return textResponse('缺少文件名。', 400);
 
   // 内容长度预检：能在读 body 前拒绝就不要先把几十 MB 读进内存
@@ -312,33 +371,33 @@ async function handlePut(env, request, davPath, backend) {
     );
   }
 
-  const result = await davPutFile(env, davPath, request, backend);
+  const result = await davPutFile(env, davPath, request, backend, scoped);
   return new Response(null, {
     status: result.created ? 201 : 204,
     headers: davHeaders({ 'Content-Length': '0' }),
   });
 }
 
-async function handleDelete(env, davPath) {
+async function handleDelete(env, davPath, scoped) {
   if (!davPath) return forbidden('不能删除根目录。');
 
-  const stat = await statDavPath(env, davPath);
+  const stat = await statDavPath(env, davPath, scoped);
   if (stat.type === 'none') return notFound('路径不存在。');
 
   if (stat.type === 'folder') {
-    await davDeleteCollection(env, davPath);
+    await davDeleteCollection(env, davPath, scoped);
   } else {
-    const ok = await davDeleteFileByPath(env, davPath);
+    const ok = await davDeleteFileByPath(env, davPath, scoped);
     if (!ok) return notFound('文件不存在。');
   }
   return new Response(null, { status: 204, headers: davHeaders({ 'Content-Length': '0' }) });
 }
 
-async function handleMkcol(env, davPath) {
+async function handleMkcol(env, davPath, scoped) {
   if (!davPath) return textResponse('根目录已存在。', 405);
 
   try {
-    await davMakeCollection(env, davPath);
+    await davMakeCollection(env, davPath, scoped);
     return new Response(null, { status: 201, headers: davHeaders({ 'Content-Length': '0' }) });
   } catch (error) {
     return errorResponse(error);
@@ -358,16 +417,16 @@ function resolveDestination(request, destHeader) {
   return normalizeDavPath(pathname, MOUNT);
 }
 
-async function handleMove(env, request, davPath) {
+async function handleMove(env, request, davPath, destination, scoped) {
   if (!davPath) return forbidden('不能移动根目录。');
 
-  const dest = resolveDestination(request, request.headers.get('Destination'));
+  const dest = destination ?? resolveDestination(request, request.headers.get('Destination'));
   if (!dest) return textResponse('缺少 Destination 头。', 400);
 
   const overwrite = String(request.headers.get('Overwrite') || 'T').toUpperCase() !== 'F';
 
   try {
-    const result = await davMovePath(env, davPath, dest, overwrite);
+    const result = await davMovePath(env, davPath, dest, overwrite, scoped);
     return new Response(null, {
       status: result.overwritten ? 204 : 201,
       headers: davHeaders({ 'Content-Length': '0' }),
@@ -377,25 +436,25 @@ async function handleMove(env, request, davPath) {
   }
 }
 
-async function handleCopy(env, request, davPath) {
+async function handleCopy(env, request, davPath, destination, scoped) {
   if (!davPath) return forbidden('不能复制根目录。');
 
-  const dest = resolveDestination(request, request.headers.get('Destination'));
+  const dest = destination ?? resolveDestination(request, request.headers.get('Destination'));
   if (!dest) return textResponse('缺少 Destination 头。', 400);
 
   const overwrite = String(request.headers.get('Overwrite') || 'T').toUpperCase() !== 'F';
 
   try {
-    const stat = await statDavPath(env, davPath);
+    const stat = await statDavPath(env, davPath, scoped);
     if (stat.type === 'none') return notFound('源路径不存在。');
 
     let overwritten = false;
 
     if (stat.type === 'folder') {
       // 目录复制：递归展开为「建目录 + 逐文件复制」
-      overwritten = await copyTree(env, davPath, dest, overwrite);
+      overwritten = await copyTree(env, davPath, dest, overwrite, scoped);
     } else {
-      const result = await davCopyFile(env, davPath, dest, overwrite);
+      const result = await davCopyFile(env, davPath, dest, overwrite, scoped);
       overwritten = !result.created;
     }
 
@@ -409,8 +468,8 @@ async function handleCopy(env, request, davPath) {
 }
 
 /** 递归复制目录树。返回目标是否已存在（决定 201 / 204）。 */
-async function copyTree(env, sourcePath, destPath, overwrite) {
-  const destStat = await statDavPath(env, destPath);
+async function copyTree(env, sourcePath, destPath, overwrite, scoped) {
+  const destStat = await statDavPath(env, destPath, scoped);
   const existed = destStat.type !== 'none';
 
   if (existed && !overwrite) {
@@ -426,17 +485,17 @@ async function copyTree(env, sourcePath, destPath, overwrite) {
     err.code = 'PRECONDITION_FAILED';
     throw err;
   } else {
-    await davMakeCollection(env, destPath);
+    await davMakeCollection(env, destPath, scoped);
   }
 
-  const { items } = await listDavChildren(env, sourcePath);
+  const { items } = await listDavChildren(env, sourcePath, scoped);
   for (const item of items) {
     const childSrc = joinDavPath(sourcePath, item.name);
     const childDest = joinDavPath(destPath, item.name);
     if (item.isFolder) {
-      await copyTree(env, childSrc, childDest, overwrite);
+      await copyTree(env, childSrc, childDest, overwrite, scoped);
     } else {
-      await davCopyFile(env, childSrc, childDest, overwrite);
+      await davCopyFile(env, childSrc, childDest, overwrite, scoped);
     }
   }
   return existed;

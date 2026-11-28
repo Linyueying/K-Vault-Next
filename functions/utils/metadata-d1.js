@@ -201,7 +201,7 @@ function metadataToColumns(metadata = {}, kvKey = '') {
  * @param {object} metadata - 与 KV metadata 同结构
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
-export async function putFileRecord(env, id, kvKey, metadata) {
+export async function putFileRecord(env, id, kvKey, metadata, { expectedLocation } = {}) {
   await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return { ok: false, error: 'd1-disabled' };
 
@@ -209,7 +209,7 @@ export async function putFileRecord(env, id, kvKey, metadata) {
   const ts = now();
 
   try {
-    await env.DB.prepare(
+    const result = await env.DB.prepare(
       `INSERT INTO files (
          id, kv_key, is_folder, storage, storage_key, storage_extra, file_type,
          file_name, file_size, mime, folder_path, uploaded_at, content_sha,
@@ -218,7 +218,8 @@ export async function putFileRecord(env, id, kvKey, metadata) {
          share_expires_at, share_max_downloads,
          share_title, share_description,
          created_at, updated_at
-       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       ) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+       ${expectedLocation ? 'WHERE EXISTS (SELECT 1 FROM files WHERE id = ? AND is_folder = 0 AND trashed_at IS NULL AND folder_path IS ? AND file_name = ? AND storage_key IS ?)' : 'WHERE 1'}
        ON CONFLICT(id) DO UPDATE SET
          kv_key = excluded.kv_key,
          is_folder = excluded.is_folder,
@@ -251,8 +252,10 @@ export async function putFileRecord(env, id, kvKey, metadata) {
       c.share_slug, c.share_password_salt, c.share_password_hash,
       c.share_expires_at, c.share_max_downloads,
       c.share_title, c.share_description,
-      ts, ts
+      ts, ts,
+      ...(expectedLocation ? [id, expectedLocation.folderPath, expectedLocation.fileName, expectedLocation.storageKey] : [])
     ).run();
+    if (expectedLocation && !changedCount(result)) return { ok: false, error: 'file-changed' };
 
     // 记录内容刚被整体重写（可能是改名、换存储键、改分享设置）→
     // 记录快路径缓存里的旧副本必须立刻作废，否则读侧会在 TTL 内继续拿到旧值。
@@ -668,12 +671,18 @@ export async function aggregateFileStats(env, options = {}) {
  * @param {string} id
  * @returns {Promise<boolean>}
  */
-export async function deleteFileRecord(env, id) {
+export async function deleteFileRecord(env, id, { expectedLocation } = {}) {
   await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return false;
 
   try {
-    await env.DB.prepare('DELETE FROM files WHERE id = ?').bind(String(id)).run();
+    const args = [String(id)];
+    if (expectedLocation) args.push(expectedLocation.folderPath, expectedLocation.fileName, expectedLocation.storageKey);
+    const result = await env.DB.prepare(
+      `DELETE FROM files WHERE id = ?${expectedLocation ?
+        ' AND is_folder = 0 AND trashed_at IS NULL AND folder_path IS ? AND file_name = ? AND storage_key IS ?' : ''}`
+    ).bind(...args).run();
+    if (expectedLocation && !changedCount(result)) return false;
     // 删除后缓存副本若存活，等于文件「复活」—— 必须同步失效。
     await forgetRecordCache(env, String(id)).catch(() => {});
     return true;
@@ -761,7 +770,7 @@ export async function updateShareOptions(env, id, sharePatch = {}) {
  * @param {object} patch - 允许的键：fileName / folderPath
  * @returns {Promise<{ok: boolean, updated?: number, disabled?: boolean, error?: string}>}
  */
-export async function updateFileMetadataFields(env, id, patch = {}) {
+export async function updateFileMetadataFields(env, id, patch = {}, { expectedLocation } = {}) {
   await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return { ok: false, disabled: true };
 
@@ -788,10 +797,12 @@ export async function updateFileMetadataFields(env, id, patch = {}) {
   assignments.push('updated_at = ?');
   values.push(now());
   values.push(String(id));
+  if (expectedLocation) values.push(expectedLocation.folderPath, expectedLocation.fileName, expectedLocation.storageKey);
 
   try {
     const res = await env.DB.prepare(
-      `UPDATE files SET ${assignments.join(', ')} WHERE id = ? AND trashed_at IS NULL`
+      `UPDATE files SET ${assignments.join(', ')} WHERE id = ? AND trashed_at IS NULL${expectedLocation ?
+        ' AND is_folder = 0 AND folder_path IS ? AND file_name = ? AND storage_key IS ?' : ''}`
     ).bind(...values).run();
     await forgetRecordCache(env, String(id)).catch(() => {});
     return { ok: true, updated: changedCount(res) };
@@ -968,8 +979,8 @@ export async function deleteFolderMarkers(env, path, recursive = false) {
       const res = await env.DB.prepare(
         `DELETE FROM files
           WHERE is_folder = 1
-            AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`
-      ).bind(path, escapeLike(path) + '/%').run();
+            AND (folder_path = ? OR substr(folder_path, 1, length(?)) = ?)`
+      ).bind(path, path + '/', path + '/').run();
       return changedCount(res);
     }
     const res = await env.DB.prepare(
@@ -1000,24 +1011,24 @@ export async function moveFolderTree(env, sourcePath, targetPath) {
     return { updatedFiles: 0, updatedMarkers: 0 };
   }
 
-  // substr(folder_path, sourcePath.length + 1) 取出 sourcePath 之后的剩余部分，
+  // substr(folder_path, length(sourcePath) + 1) 取出 sourcePath 之后的剩余部分，
   // 再拼上 targetPath。用 substr 而非 replace()，避免路径中间恰好出现
   // 同名字符串时被误替换。
   const sql = `UPDATE files
-       SET folder_path = ? || substr(folder_path, ?),
+       SET folder_path = ? || substr(folder_path, length(?) + 1),
            updated_at = ?
      WHERE is_folder = ?
        AND trashed_at IS NULL
-       AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`;
-  const likePattern = escapeLike(sourcePath) + '/%';
+       AND (folder_path = ? OR substr(folder_path, 1, length(?)) = ?)`;
+  const sourcePrefix = sourcePath + '/';
   const ts = now();
 
   try {
     const files = await env.DB.prepare(sql)
-      .bind(targetPath, sourcePath.length + 1, ts, 0, sourcePath, likePattern)
+      .bind(targetPath, sourcePath, ts, 0, sourcePath, sourcePrefix, sourcePrefix)
       .run();
     const markers = await env.DB.prepare(sql)
-      .bind(targetPath, sourcePath.length + 1, ts, 1, sourcePath, likePattern)
+      .bind(targetPath, sourcePath, ts, 1, sourcePath, sourcePrefix, sourcePrefix)
       .run();
 
     // 标记的 id 与 kv_key 都内嵌了路径，必须同步改写；
@@ -1027,8 +1038,8 @@ export async function moveFolderTree(env, sourcePath, targetPath) {
           SET id = 'folder:' || folder_path,
               kv_key = 'folder:' || folder_path
         WHERE is_folder = 1
-          AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`
-    ).bind(targetPath, escapeLike(targetPath) + '/%').run();
+          AND (folder_path = ? OR substr(folder_path, 1, length(?)) = ?)`
+    ).bind(targetPath, targetPath + '/', targetPath + '/').run();
 
     return {
       updatedFiles: changedCount(files),

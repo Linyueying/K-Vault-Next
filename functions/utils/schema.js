@@ -571,6 +571,28 @@ const M0022_TELEGRAM_UPLOAD_GUARDS = [
   ON telegram_upload_guards(retain_until)`,
 ];
 
+const M0023_WEBDAV_MOUNT = [
+  `CREATE TABLE IF NOT EXISTS webdav_mount (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  root_path TEXT NOT NULL,
+  invalidated INTEGER NOT NULL DEFAULT 0
+)`,
+  `CREATE TRIGGER IF NOT EXISTS webdav_mount_on_folder_delete
+  AFTER DELETE ON files
+  WHEN OLD.is_folder = 1
+  BEGIN
+    UPDATE webdav_mount SET invalidated = 1
+      WHERE id = 1 AND root_path = OLD.folder_path AND invalidated = 0;
+  END`,
+  `CREATE TRIGGER IF NOT EXISTS webdav_mount_on_folder_change
+  AFTER UPDATE OF folder_path, is_folder, trashed_at ON files
+  WHEN OLD.is_folder = 1 AND (OLD.folder_path IS NOT NEW.folder_path OR NEW.is_folder != 1 OR NEW.trashed_at IS NOT NULL)
+  BEGIN
+    UPDATE webdav_mount SET invalidated = 1
+      WHERE id = 1 AND root_path = OLD.folder_path AND invalidated = 0;
+  END`,
+];
+
 export const MIGRATIONS = [
   { id: '0001_files', statements: M0001_FILES },
   {
@@ -637,6 +659,7 @@ export const MIGRATIONS = [
   { id: '0020_trash_indexes', statements: M0020_TRASH_INDEXES },
   { id: '0021_vault_records', statements: M0021_VAULT_RECORDS },
   { id: '0022_telegram_upload_guards', statements: M0022_TELEGRAM_UPLOAD_GUARDS },
+  { id: '0023_webdav_mount', statements: M0023_WEBDAV_MOUNT },
 ];
 
 // ============================================================================

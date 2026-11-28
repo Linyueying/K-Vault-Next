@@ -36,6 +36,8 @@
  */
 
 import { envValue } from './env-config.js';
+import { isDavFolderPath, isDavSegment, readWebdavMount } from './webdav-mount.js';
+import { isD1Enabled, rowToRecord, updateFileMetadataFields } from './metadata-d1.js';
 import { safeStringEqual } from './auth.js';
 import {
   getWebdavServerConfig,
@@ -43,6 +45,7 @@ import {
 } from './runtime-config.js';
 import {
   getRecordWithKey,
+  deriveIndexId,
   removeFileRecord,
   registerFileRecord,
   putKvFileMetadata,
@@ -128,8 +131,8 @@ export function normalizeDavPath(value, mountPrefix = '/dav') {
  * @param {string} davPath - 形如 `a/b/c.txt`
  * @returns {{folderPath: string, name: string}} 根目录下为 `{folderPath:'', name:'c.txt'}`
  */
-export function splitDavPath(davPath) {
-  const normalized = normalizeDavPath(davPath, '');
+export function splitDavPath(davPath, decoded = false) {
+  const normalized = decoded ? davPath : normalizeDavPath(davPath, '');
   if (!normalized) return { folderPath: '', name: '' };
   const segs = normalized.split('/');
   const name = segs.pop();
@@ -312,16 +315,19 @@ export function buildMultiStatus(entries) {
  * @returns {Promise<{items: Array<object>}>}
  *   item: { name, isFolder, size, mtime, mime, etag }
  */
-export async function listDavChildren(env, folderPath) {
-  const normalized = normalizeDavPath(folderPath, '');
+export async function listDavChildren(env, folderPath, scoped = false) {
+  const normalized = scoped ? folderPath : normalizeDavPath(folderPath, '');
   const items = [];
 
   // 文件：D1 精确一层查询（listRecordsInFolder 内部已走 folder_path 索引）
   const filesResult = await listRecordsInFolder(env, normalized, false);
+  if (scoped && filesResult?.disabled) throw new Error('WebDAV folder listing is unavailable.');
+  const seen = new Set();
   for (const file of filesResult?.files || []) {
     const meta = file?.metadata || {};
     const name = meta.fileName || String(file.name || '').split('/').pop();
-    if (!name) continue;
+    if (!name || (scoped && (!isDavSegment(name) || seen.has(name)))) continue;
+    if (scoped) seen.add(name);
     items.push({
       name,
       isFolder: false,
@@ -335,13 +341,17 @@ export async function listDavChildren(env, folderPath) {
 
   // 子目录：从文件夹标记里筛出「父路径 === 当前目录」的那些
   const markers = await listMarkers(env);
-  const seen = new Set();
+  if (scoped && (markers.error || markers.disabled)) throw new Error('WebDAV folder listing is unavailable.');
   for (const marker of markers?.folders || []) {
     const path = String(marker.path || '');
-    if (!path) continue;
-    const { folderPath: parent, name } = splitDavPath(path);
+    if (!path || (scoped && !isDavFolderPath(path))) continue;
+    const { folderPath: parent, name } = splitDavPath(path, scoped);
     if (parent !== normalized || !name) continue;
-    if (seen.has(name)) continue;
+    if (seen.has(name)) {
+      const index = scoped ? items.findIndex(item => item.name === name && !item.isFolder) : -1;
+      if (index === -1) continue;
+      items.splice(index, 1);
+    }
     seen.add(name);
     items.push({
       name,
@@ -362,17 +372,33 @@ export async function listDavChildren(env, folderPath) {
  * @param {string} davPath
  * @returns {Promise<{type:'file'|'folder'|'none', record?:object, kvKey?:string}>}
  */
-export async function statDavPath(env, davPath) {
-  const normalized = normalizeDavPath(davPath, '');
+export async function statDavPath(env, davPath, scoped = false) {
+  const normalized = scoped ? davPath : normalizeDavPath(davPath, '');
   if (!normalized) return { type: 'folder' };
 
   // 1) 先当文件查
-  const { record, kvKey } = await getRecordWithKey(env, normalized, { fresh: true });
-  if (record?.metadata) {
-    return { type: 'file', record, kvKey };
+  if (!scoped) {
+    const { record, kvKey } = await getRecordWithKey(env, normalized, { fresh: true });
+    if (record?.metadata && !record.metadata.folderMarker) return { type: 'file', record, kvKey };
   }
 
-  // 2) 再当目录查（自身标记，或有以它为父的标记）
+  if (isD1Enabled(env)) {
+    const { folderPath, name } = splitDavPath(normalized, scoped);
+    const row = await env.DB.prepare(`
+      SELECT * FROM files WHERE trashed_at IS NULL AND (
+        (is_folder = 1 AND id = ? AND folder_path = ?) OR
+        (is_folder = 0 AND (folder_path = ? OR (? = '' AND folder_path IS NULL)) AND file_name = ?)
+      ) ORDER BY is_folder DESC, uploaded_at DESC, id LIMIT 1
+    `).bind('folder:' + normalized, normalized, folderPath, folderPath, name).first();
+    if (row?.is_folder) return { type: 'folder' };
+    if (row) return {
+      type: 'file', record: rowToRecord(row), kvKey: row.kv_key || row.id, id: row.id,
+      location: { folderPath: row.folder_path, fileName: row.file_name, storageKey: row.storage_key },
+    };
+    if (scoped) return { type: 'none' };
+  }
+
+  // 2) 再当目录查（兼容旧标记）
   const markers = await listMarkers(env);
   for (const marker of markers?.folders || []) {
     const path = String(marker.path || '');
@@ -541,11 +567,11 @@ async function deleteFromBackend(kvKey, metadata, env) {
  * @param {string} backend
  * @returns {Promise<{created:boolean, kvKey:string}>}
  */
-export async function davPutFile(env, davPath, request, backend) {
-  const normalized = normalizeDavPath(davPath, '');
+export async function davPutFile(env, davPath, request, backend, scoped = false) {
+  const normalized = scoped ? davPath : normalizeDavPath(davPath, '');
   if (!normalized) throw new Error('缺少文件名。');
 
-  const { folderPath, name } = splitDavPath(normalized);
+  const { folderPath, name } = splitDavPath(normalized, scoped);
   if (!name) throw new Error('缺少文件名。');
 
   const buffer = await request.arrayBuffer();
@@ -563,11 +589,16 @@ export async function davPutFile(env, davPath, request, backend) {
   const mime = request.headers.get('Content-Type') || 'application/octet-stream';
 
   // 是否覆盖已有文件（决定返回 201 还是 204）
-  const existing = await statDavPath(env, normalized);
+  const existing = await statDavPath(env, normalized, scoped);
+  if (scoped && existing.type === 'folder') {
+    const error = new Error('目标已是文件夹。');
+    error.code = 'PRECONDITION_FAILED';
+    throw error;
+  }
   const existed = existing.type === 'file';
 
   // 覆盖时先把旧的后端对象清掉，避免存储侧留下孤儿对象
-  if (existed && existing.kvKey && existing.kvKey !== normalized) {
+  if (!scoped && !existing.id && existed && existing.kvKey && existing.kvKey !== normalized) {
     await deleteFromBackend(existing.kvKey, existing.record?.metadata, env);
   }
 
@@ -587,11 +618,7 @@ export async function davPutFile(env, davPath, request, backend) {
   };
 
   // kvKey 统一取 DAV 路径：与 folder_path 同命名空间，保证路径 ↔ 记录双射
-  const kvKey = normalized; // 如 `docs/a.txt`
-
-  // KV 双写受「存储回滚模式」开关控制；D1 登记始终执行
-  await putKvFileMetadata(env, kvKey, metadata);
-  await registerFileRecord(env, kvKey, metadata);
+  const kvKey = await storeDavFile(env, normalized, metadata, existing, scoped);
 
   return { created: !existed, kvKey };
 }
@@ -601,14 +628,14 @@ export async function davPutFile(env, davPath, request, backend) {
 // ============================================================================
 
 /** 建目录（MKCOL）。已存在返回 alreadyExists。 */
-export async function davMakeCollection(env, davPath) {
-  const normalized = normalizeDavPath(davPath, '');
+export async function davMakeCollection(env, davPath, scoped = false) {
+  const normalized = scoped ? davPath : normalizeDavPath(davPath, '');
   if (!normalized) {
     const err = new Error('根目录已存在。');
     err.code = 'ALREADY_EXISTS';
     throw err;
   }
-  const stat = await statDavPath(env, normalized);
+  const stat = await statDavPath(env, normalized, scoped);
   if (stat.type !== 'none') {
     const err = new Error('资源已存在。');
     err.code = 'ALREADY_EXISTS';
@@ -616,6 +643,7 @@ export async function davMakeCollection(env, davPath) {
   }
 
   const result = await ensureFolderMarker(env, normalized);
+  if (scoped && !result?.ok) throw new Error('WebDAV folder creation failed.');
   if (result && result.disabled) {
     // D1 未绑定：退回 KV 写标记，保持与既有 folder 机制一致
     if (env?.img_url) {
@@ -633,8 +661,8 @@ export async function davMakeCollection(env, davPath) {
  * 递归删除目录及其下所有文件。
  * @returns {Promise<{deletedFiles:number}>}
  */
-export async function davDeleteCollection(env, davPath) {
-  const normalized = normalizeDavPath(davPath, '');
+export async function davDeleteCollection(env, davPath, scoped = false) {
+  const normalized = scoped ? davPath : normalizeDavPath(davPath, '');
   if (!normalized) {
     const err = new Error('不能删除根目录。');
     err.code = 'FORBIDDEN';
@@ -642,16 +670,16 @@ export async function davDeleteCollection(env, davPath) {
   }
 
   // 逐层递归：先删子目录，再删本层文件与自身标记
-  const { items } = await listDavChildren(env, normalized);
+  const { items } = await listDavChildren(env, normalized, scoped);
   let deletedFiles = 0;
 
   for (const item of items) {
     const childPath = joinDavPath(normalized, item.name);
     if (item.isFolder) {
-      const res = await davDeleteCollection(env, childPath);
+      const res = await davDeleteCollection(env, childPath, scoped);
       deletedFiles += res.deletedFiles;
     } else {
-      const ok = await davDeleteFileByPath(env, childPath);
+      const ok = await davDeleteFileByPath(env, childPath, scoped);
       if (ok) deletedFiles += 1;
     }
   }
@@ -677,15 +705,26 @@ function idFromKvKey(kvKey) {
 }
 
 /** 删除单个文件：元数据 + 后端对象。 */
-export async function davDeleteFileByPath(env, davPath) {
-  const normalized = normalizeDavPath(davPath, '');
-  const { record, kvKey } = await getRecordWithKey(env, normalized, { fresh: true });
+export async function davDeleteFileByPath(env, davPath, scoped = false) {
+  const normalized = scoped ? davPath : normalizeDavPath(davPath, '');
+  const stat = await statDavPath(env, normalized, scoped);
+  const { record, kvKey } = stat;
   if (!record?.metadata) return false;
 
-  await deleteFromBackend(kvKey, record.metadata, env);
-  // 删 D1 记录（id 由 kvKey 推导，保留完整路径）
-  const id = idFromKvKey(kvKey);
-  await removeFileRecord(env, id).catch(() => {});
+  const id = stat.id || idFromKvKey(kvKey);
+  if (scoped) {
+    // Claim the exact record before deleting bytes. A concurrent web move or
+    // overwrite may have changed its location or storage object.
+    if (!(await removeFileRecord(env, id, { expectedLocation: stat.location }))) {
+      const error = new Error('目标文件已发生变化，请重试。');
+      error.code = 'PRECONDITION_FAILED';
+      throw error;
+    }
+    await deleteFromBackend(kvKey, record.metadata, env);
+  } else {
+    await deleteFromBackend(kvKey, record.metadata, env);
+    await removeFileRecord(env, id).catch(() => {});
+  }
   // 清 KV 副作用键
   if (env?.img_url) {
     await env.img_url.delete(String(kvKey)).catch(() => {});
@@ -704,9 +743,9 @@ export async function davDeleteFileByPath(env, davPath) {
  *
  * @returns {Promise<{overwritten:boolean}>}
  */
-export async function davMovePath(env, sourcePath, destPath, overwrite = false) {
-  const source = normalizeDavPath(sourcePath, '');
-  const dest = normalizeDavPath(destPath, '');
+export async function davMovePath(env, sourcePath, destPath, overwrite = false, scoped = false) {
+  const source = scoped ? sourcePath : normalizeDavPath(sourcePath, '');
+  const dest = scoped ? destPath : normalizeDavPath(destPath, '');
   if (!source || !dest) {
     const err = new Error('缺少源或目标路径。');
     err.code = 'BAD_REQUEST';
@@ -714,14 +753,14 @@ export async function davMovePath(env, sourcePath, destPath, overwrite = false) 
   }
   if (dest === source) return { overwritten: false };
 
-  const srcStat = await statDavPath(env, source);
+  const srcStat = await statDavPath(env, source, scoped);
   if (srcStat.type === 'none') {
     const err = new Error('源路径不存在。');
     err.code = 'NOT_FOUND';
     throw err;
   }
 
-  const destStat = await statDavPath(env, dest);
+  const destStat = await statDavPath(env, dest, scoped);
   if (destStat.type !== 'none') {
     if (!overwrite) {
       const err = new Error('目标已存在。');
@@ -729,12 +768,13 @@ export async function davMovePath(env, sourcePath, destPath, overwrite = false) 
       throw err;
     }
     // 覆盖：先删目标
-    if (destStat.type === 'folder') await davDeleteCollection(env, dest);
-    else await davDeleteFileByPath(env, dest);
+    if (destStat.type === 'folder') await davDeleteCollection(env, dest, scoped);
+    else await davDeleteFileByPath(env, dest, scoped);
   }
 
   if (srcStat.type === 'folder') {
     const moved = await moveFolder(env, source, dest);
+    if (scoped && (moved?.disabled || moved?.error)) throw new Error('WebDAV folder move failed.');
     if (moved?.disabled && env?.img_url) {
       // KV 兜底：至少把标记搬过去（文件记录需逐条改，超出本模块范围）
       await env.img_url.put(`${FOLDER_PREFIX}${dest}`, '', {
@@ -744,8 +784,17 @@ export async function davMovePath(env, sourcePath, destPath, overwrite = false) 
     }
   } else {
     // 文件：目的路径拆成 folderPath + name
-    const { folderPath, name } = splitDavPath(dest);
+    const { folderPath, name } = splitDavPath(dest, scoped);
     const kvKey = srcStat.kvKey;
+    if (srcStat.id) {
+      const patch = { fileName: name, folderPath };
+      const result = await updateFileMetadataFields(env, srcStat.id, patch, {
+        expectedLocation: scoped ? srcStat.location : undefined,
+      });
+      if (!result.ok || !result.updated) throw new Error('WebDAV file move failed.');
+      await putKvFileMetadata(env, kvKey, { ...srcStat.record.metadata, ...patch });
+      return { overwritten: destStat.type !== 'none' };
+    }
     const metadata = {
       ...(srcStat.record?.metadata || {}),
       fileName: name,
@@ -776,32 +825,32 @@ export async function davMovePath(env, sourcePath, destPath, overwrite = false) 
  *
  * @returns {Promise<{created:boolean}>}
  */
-export async function davCopyFile(env, sourcePath, destPath, overwrite = false) {
-  const source = normalizeDavPath(sourcePath, '');
-  const dest = normalizeDavPath(destPath, '');
-  const srcStat = await statDavPath(env, source);
+export async function davCopyFile(env, sourcePath, destPath, overwrite = false, scoped = false) {
+  const source = scoped ? sourcePath : normalizeDavPath(sourcePath, '');
+  const dest = scoped ? destPath : normalizeDavPath(destPath, '');
+  const srcStat = await statDavPath(env, source, scoped);
   if (srcStat.type !== 'file') {
     const err = new Error('源文件不存在或不是文件。');
     err.code = 'NOT_FOUND';
     throw err;
   }
 
-  const destStat = await statDavPath(env, dest);
+  const destStat = await statDavPath(env, dest, scoped);
   if (destStat.type !== 'none') {
     if (!overwrite) {
       const err = new Error('目标已存在。');
       err.code = 'PRECONDITION_FAILED';
       throw err;
     }
-    if (destStat.type === 'folder') await davDeleteCollection(env, dest);
-    else await davDeleteFileByPath(env, dest);
+    if (destStat.type === 'folder') await davDeleteCollection(env, dest, scoped);
+    else if (!scoped && !destStat.id) await davDeleteFileByPath(env, dest, scoped);
   }
 
   // 读出源文件内容（用于 COPY）
   const buffer = await readBackendBytes(env, source, srcStat);
   if (!buffer) throw new Error('读取源文件失败。');
 
-  const { folderPath, name } = splitDavPath(dest);
+  const { folderPath, name } = splitDavPath(dest, scoped);
   const mime = srcStat.record?.metadata?.mime || 'application/octet-stream';
   const stored = await putToBackend(buffer, name, mime, srcStat.record?.metadata?.storageType || 'telegram', env);
   const metadata = {
@@ -816,11 +865,50 @@ export async function davCopyFile(env, sourcePath, destPath, overwrite = false) 
     ...(folderPath ? { folderPath } : {}),
     ...stored.extra,
   };
-  // 与 davPutFile 同一约定：kvKey = DAV 目标路径（保证路径 ↔ 记录双射）
-  const kvKey = dest;
-  await putKvFileMetadata(env, kvKey, metadata);
-  await registerFileRecord(env, kvKey, metadata);
+  await storeDavFile(env, dest, metadata, destStat, scoped);
   return { created: destStat.type === 'none' };
+}
+
+async function storeDavFile(env, path, metadata, existing, scoped) {
+  if (!scoped && !existing.id) {
+    await putKvFileMetadata(env, path, metadata);
+    await registerFileRecord(env, path, metadata);
+    return path;
+  }
+
+  // A record can keep its old key after a web UI move. Allocate a new key independently
+  // of the path so a scoped PUT cannot overwrite that record outside the mount.
+  const replacing = existing.type === 'file';
+  let kvKey = existing.kvKey;
+  if (!replacing) {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(path));
+    const key = 'dav-' + Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
+    const owner = await env.DB.prepare('SELECT folder_path, file_name, trashed_at FROM files WHERE id = ?').bind(key).first();
+    kvKey = owner && (owner.trashed_at || owner.folder_path !== metadata.folderPath || owner.file_name !== metadata.fileName)
+      ? 'dav-' + crypto.randomUUID()
+      : key;
+  }
+  const id = replacing ? existing.id : deriveIndexId(kvKey);
+  if (scoped) {
+    const mount = await readWebdavMount(env).catch(() => null);
+    if (mount?.status !== 'ready' || mount.rootPath !== scoped) {
+      await deleteFromBackend(kvKey, metadata, env);
+      const error = new Error('挂载根目录已变更，请检查 WebDAV 设置后重试。');
+      error.code = 'MOUNT_UNAVAILABLE';
+      throw error;
+    }
+  }
+  const options = { indexId: id, expectedLocation: scoped && replacing ? existing.location : undefined };
+  const registered = await registerFileRecord(env, kvKey, metadata, options);
+  if (!registered.ok) {
+    await deleteFromBackend(kvKey, metadata, env);
+    const error = new Error(registered.error === 'file-changed' ? '目标文件已发生变化，请重试。' : 'WebDAV file metadata write failed.');
+    if (registered.error === 'file-changed') error.code = 'PRECONDITION_FAILED';
+    throw error;
+  }
+  await putKvFileMetadata(env, kvKey, metadata);
+  if (replacing) await deleteFromBackend(kvKey, existing.record.metadata, env);
+  return kvKey;
 }
 
 /**
