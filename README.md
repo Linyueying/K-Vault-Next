@@ -150,8 +150,10 @@ node scripts/kvault-upload.mjs upload ./demo.png --folder blog
 
 ---
 
-## 致谢与许可证
+## 版权与开源协议
 
-后端能力源自 [katelya77/K-Vault](https://github.com/katelya77/K-Vault)（本仓库为纯 Cloudflare Pages 精简强化版，移除 Docker / 遥测 / 内容审核，新增大文件分片、WebDAV 服务端、分享落地页、隔空投送、密码库与 MCP）。
+Copyright © 2026 **Linyueying**. All rights reserved.
 
-许可证：**[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**。
+本项目基于 **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)** 开源：你可以自由使用、修改与自托管本项目；但如果你修改了本项目代码并对外提供网络服务，须同样以 AGPL-3.0 协议公开修改后的完整源码，并保留原作者版权与许可声明。
+
+早期后端基础能力衍生自 [katelya77/K-Vault](https://github.com/katelya77/K-Vault)（CC0 1.0 Universal 公有领域奉献，本仓库为纯 Cloudflare Pages 精简强化版，移除 Docker / 遥测 / 内容审核，新增大文件分片、WebDAV 服务端、分享落地页、隔空投送、密码库、Show 展廊与 MCP）。完整版权与上游声明请参阅 [NOTICE](NOTICE)。

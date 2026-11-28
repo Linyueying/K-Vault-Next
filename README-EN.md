@@ -150,8 +150,10 @@ node scripts/kvault-upload.mjs upload ./demo.png --folder blog
 
 ---
 
-## Credits & License
+## Copyright & License
 
-Backend foundations originated from [katelya77/K-Vault](https://github.com/katelya77/K-Vault). K-Vault-Next is a streamlined Cloudflare Pages-only edition removing Docker, telemetry, and moderation while adding large-file chunking, WebDAV server, share landing pages, Airdrop, zero-knowledge Vault, and MCP.
+Copyright © 2026 **Linyueying**. All rights reserved.
 
-License: **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
+This project is licensed under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**. You are free to use, modify, and self-host it; if you run a modified version as a network service for users, you must make the complete modified source code available under AGPL-3.0 and preserve the copyright and license notices.
+
+Early backend foundations originated from [katelya77/K-Vault](https://github.com/katelya77/K-Vault) (CC0 1.0 Universal public domain dedication). K-Vault-Next is a streamlined Cloudflare Pages-only edition removing Docker, telemetry, and moderation while adding large-file chunking, WebDAV server, share landing pages, Airdrop, zero-knowledge Vault, Show gallery, and MCP. See [NOTICE](NOTICE) for full copyright and upstream attribution details.

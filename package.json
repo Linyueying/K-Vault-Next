@@ -2,7 +2,12 @@
   "name": "k-vault-next",
   "description": "K-Vault-Next - Free File Hosting Service (Cloudflare Pages + multi storage backend)",
   "version": "1.0.0",
-  "license": "AGPL-3.0",
+  "author": "Linyueying",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Linyueying/K-Vault-Next.git"
+  },
   "scripts": {
     "build": "node -e \"console.log('No build step required. For Cloudflare Pages Git integration, leave Build command and Build output directory empty.')\"",
     "start": "npx wrangler pages dev ./ --kv \"img_url\" --r2=R2_BUCKET --compatibility-date=2026-05-03 --port 8080 --binding BASIC_USER=admin --binding BASIC_PASS=123 --persist-to ./data",
