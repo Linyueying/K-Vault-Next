@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>密码库 | K-Vault</title>
+<title>密码库 | K-Vault Next</title>
+<meta name="referrer" content="no-referrer">
 <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico">
 <link rel="apple-touch-icon" href="/assets/img/logo-180.png">
 <link rel="shortcut icon" href="/assets/img/favicon.ico">
@@ -16,484 +17,211 @@
 <script src="/assets/js/vault-wordlist.js"></script>
 <script src="/assets/js/vault-core.js"></script>
 <script src="/assets/js/vault-sync.js"></script>
-<style>
-/* 设计令牌 / 通用组件 / 动效关键帧 统一取自 design-system.css */
-
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{
-  background:var(--bg-gradient);background-attachment:scroll;color:var(--text-main);
-  font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  min-height:100vh;line-height:1.55;-webkit-font-smoothing:antialiased;
-}
-a{color:inherit;text-decoration:none}
-button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
-.orb-1{width:340px;height:340px;background:rgba(var(--primary-rgb),.28);top:-90px;left:-80px}
-.orb-2{width:300px;height:300px;background:rgba(56,189,248,.22);bottom:-100px;right:-70px}
-
-#app{position:relative;z-index:1;max-width:1320px;margin:0 auto;padding:22px 20px 80px}
-
-/* ===== 顶栏（与 paste.html 同构） ===== */
-.micro-topbar{
-  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  background:var(--glass-surface);backdrop-filter:blur(18px);
-  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
-  box-shadow:var(--shadow-soft);padding:12px 18px;margin-bottom:20px;
-}
-.brand-box{display:flex;align-items:center;gap:11px;cursor:pointer}
-.brand-logo{
-  width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:1.05rem;flex-shrink:0;
-}
-.brand-text{font-weight:800;font-size:1.02rem;letter-spacing:-.01em}
-.brand-sub{font-size:.72rem;color:var(--text-muted);font-weight:600}
-.topbar-spacer{flex:1}
-.nav-pills{display:flex;gap:6px;flex-wrap:wrap}
-.nav-pill{
-  display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;
-  padding:7px 13px;border-radius:var(--radius-pill);color:var(--text-sub);
-  border:1px solid transparent;cursor:pointer;transition:var(--transition);background:transparent;
-}
-.nav-pill:hover{background:rgba(var(--primary-rgb),.09);color:var(--primary)}
-.nav-pill.active{background:var(--primary-surface);color:var(--primary-dark);border-color:var(--glass-border-ice)}
-
-/* ===== 通用 ===== */
-.liquid-card{padding:20px}
-.card-title{display:flex;align-items:center;gap:9px;font-weight:800;font-size:.95rem;margin-bottom:4px}
-.card-title i{color:var(--primary)}
-.card-desc{font-size:.76rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6}
-.chip{
-  display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;
-  padding:2px 8px;border-radius:var(--radius-pill);
-  background:rgba(var(--primary-rgb),.1);color:var(--primary-dark);
-}
-html[data-theme="dark"] .chip{color:var(--primary-light)}
-.chip-warn{background:rgba(245,158,11,.14);color:#b45309}
-html[data-theme="dark"] .chip-warn{color:#fbbf24}
-.chip-danger{background:rgba(239,68,68,.14);color:#dc2626}
-html[data-theme="dark"] .chip-danger{color:#fca5a5}
-.chip-ok{background:rgba(16,185,129,.15);color:#047857}
-html[data-theme="dark"] .chip-ok{color:#6ee7b7}
-.icon-btn{
-  width:30px;height:30px;border-radius:9px;border:1px solid var(--glass-border-ice);
-  background:transparent;color:var(--text-muted);cursor:pointer;transition:var(--transition);
-  display:inline-flex;align-items:center;justify-content:center;font-size:.78rem;flex-shrink:0;
-}
-.icon-btn:hover{color:var(--primary);border-color:var(--primary)}
-.icon-btn.danger:hover{color:#fff;background:#ef4444;border-color:#ef4444}
-.sec{position:relative}
-.mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
-.btn-row{display:flex;gap:10px;flex-wrap:wrap}
-/* 新增下拉菜单 */
-.menu-pop{
-  position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:158px;
-  background:var(--glass-elevated);border:1px solid var(--glass-border);border-radius:var(--radius-md);
-  box-shadow:var(--shadow-elevated);padding:6px;display:flex;flex-direction:column;gap:2px;
-  animation:pop .2s var(--ease-spring) backwards;
-}
-.menu-item{
-  display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;background:transparent;
-  color:var(--text-sub);cursor:pointer;font-size:.8rem;font-weight:600;padding:8px 10px;border-radius:var(--radius-xs);
-}
-.menu-item:hover{background:rgba(var(--primary-rgb),.1);color:var(--primary)}
-.menu-item i{width:15px;text-align:center;color:var(--primary)}
-/* 带文字说明的开关行（.switch 的 track/thumb 是绝对定位，文字必须放在 .switch 之外） */
-.toggle-row{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:.8rem;padding:3px 0}
-.toggle-row .switch{flex:none}
-
-/* ===== 门禁 / 锁定 ===== */
-.lock-wrap{max-width:460px;margin:60px auto 0;animation:riseIn .52s var(--ease-fluid) backwards}
-.lock-icon{
-  width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:1.3rem;margin-bottom:16px;
-}
-
-/* ===== 主壳：侧栏 | 列表 | 详情 ===== */
-.vault-shell{
-  display:grid;grid-template-columns:206px minmax(280px,340px) minmax(0,1fr);
-  gap:16px;align-items:start;
-}
-.vault-shell > *{animation:riseIn .5s var(--ease-fluid) backwards}
-.vault-shell > *:nth-child(2){animation-delay:.05s}
-.vault-shell > *:nth-child(3){animation-delay:.09s}
-
-/* 侧栏 */
-.vault-sidebar{padding:14px 12px;position:sticky;top:14px}
-.side-sec{margin-bottom:14px}
-.side-sec:last-child{margin-bottom:0}
-.side-label{
-  font-size:.65rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--text-muted);padding:0 8px 6px;display:flex;align-items:center;justify-content:space-between;
-}
-.side-item{
-  display:flex;align-items:center;gap:9px;width:100%;text-align:left;
-  padding:8px 10px;border-radius:var(--radius-sm);border:1px solid transparent;
-  background:transparent;color:var(--text-sub);cursor:pointer;transition:var(--transition);font-size:.8rem;font-weight:600;
-}
-.side-item:hover{background:rgba(var(--primary-rgb),.08);color:var(--primary)}
-.side-item.active{background:var(--primary-surface);color:var(--primary-dark);border-color:var(--glass-border-ice)}
-.side-item i.si{width:16px;text-align:center;flex-shrink:0}
-.side-item .si-count{margin-left:auto;font-size:.68rem;color:var(--text-muted);font-weight:700}
-.side-item .si-act{margin-left:auto;display:none;gap:2px}
-.side-item:hover .si-act{display:inline-flex}
-.side-item .si-act button{
-  width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--text-muted);cursor:pointer;font-size:.68rem;
-}
-.side-item .si-act button:hover{background:rgba(var(--primary-rgb),.15);color:var(--primary)}
-
-/* 列表列 */
-.vault-list{padding:14px;position:sticky;top:14px;max-height:calc(100vh - 120px);display:flex;flex-direction:column}
-.list-toolbar{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
-.search-wrap{position:relative;display:flex;align-items:center}
-.search-wrap i{position:absolute;left:11px;font-size:.78rem;color:var(--text-muted);pointer-events:none}
-.search-wrap .input{padding-left:32px;padding-right:32px}
-.search-clear{
-  position:absolute;right:7px;width:22px;height:22px;border:0;background:transparent;color:var(--text-muted);
-  cursor:pointer;border-radius:6px;font-size:.72rem;
-}
-.search-clear:hover{background:rgba(var(--primary-rgb),.12);color:var(--primary)}
-.list-actions{display:flex;align-items:center;gap:8px}
-.list-actions .select{flex:1;min-width:0}
-.sync-trigger{
-  display:inline-flex;align-items:center;gap:6px;padding:3px 8px;margin-left:-8px;
-  border:0;border-radius:var(--r-pill);background:transparent;color:var(--text-muted);
-  font-size:.76rem;cursor:pointer;transition:background .16s ease,color .16s ease;
-}
-.sync-trigger:hover:not(:disabled){background:rgba(var(--primary-rgb),.1);color:var(--primary)}
-.sync-trigger:disabled{opacity:.65;cursor:default}
-.sync-trigger i{font-size:.7rem;opacity:.8}
-.btn--sm-icon{width:var(--h-ctrl);padding:0;border-radius:var(--radius-sm)}
-.vault-items{overflow:auto;display:flex;flex-direction:column;gap:8px;padding-right:2px}
-.vault-item{
-  display:flex;align-items:center;gap:11px;text-align:left;width:100%;
-  border:1px solid var(--glass-border-ice);border-radius:var(--radius-md);
-  background:var(--glass-subtle);padding:10px 12px;cursor:pointer;transition:var(--transition);
-}
-.vault-item:hover{box-shadow:var(--shadow-soft);transform:translateY(-1px)}
-.vault-item.active{border-color:var(--primary);background:var(--primary-surface)}
-html[data-theme="dark"] .vault-item.active{background:rgba(var(--primary-rgb),.16)}
-.vi-icon{
-  width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
-  background:rgba(var(--primary-rgb),.12);color:var(--primary);font-size:.9rem;flex-shrink:0;
-  position:relative;overflow:hidden;
-}
-/* 网站图标：叠在类型图标之上，加载完成才淡入；失败则整体移除、回退类型图标 */
-.vi-icon .vi-fav{
-  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
-  background:#fff;padding:3px;opacity:0;transition:opacity .22s var(--ease-fluid);
-}
-.vi-icon .vi-fav.loaded{opacity:1}
-.vi-main{min-width:0;flex:1}
-.vi-title{font-weight:700;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vi-sub{font-size:.72rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vi-star{color:#f59e0b;font-size:.75rem;flex-shrink:0}
-
-/* 详情 / 编辑器列 */
-.vault-pane{padding:20px;min-height:420px}
-.detail-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px}
-.detail-icon{
-  width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--primary),var(--primary-light));color:#fff;font-size:1.05rem;flex-shrink:0;
-  position:relative;overflow:hidden;
-}
-.detail-icon .detail-fav{
-  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
-  background:#fff;padding:5px;opacity:0;transition:opacity .22s var(--ease-fluid);
-}
-.detail-icon .detail-fav.loaded{opacity:1}
-.detail-name{font-weight:800;font-size:1.06rem;line-height:1.3}
-.detail-sub{font-size:.74rem;color:var(--text-muted)}
-.detail-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
-.field-block{
-  border:1px solid var(--glass-border-ice);border-radius:var(--radius-sm);background:var(--glass-subtle);
-  padding:11px 13px;margin-top:12px;
-}
-.chip-sm{background:rgba(var(--primary-rgb),.1);color:var(--primary-dark);padding:3px 9px;border-radius:var(--radius-pill);font-family:'JetBrains Mono',monospace;font-size:.8rem;font-weight:600}
-html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
-.fb-label{font-size:.68rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
-.fb-value{display:flex;align-items:center;gap:8px;margin-top:3px;flex-wrap:wrap}
-.fb-value .val{font-size:.85rem;word-break:break-all;flex:1;min-width:0}
-.fb-value .val.mask-letter{letter-spacing:.14em}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.form-grid .span-2{grid-column:1/-1}
-@media (max-width:640px){.form-grid{grid-template-columns:1fr}}
-.editor-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.editor-type-pill{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-size:.9rem}
-.editor-foot{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
-.uris-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.uris-row .input{flex:1;min-width:0}
-.cf-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.cf-row .cf-name{width:32%;min-width:110px}
-.cf-row .cf-val{flex:1;min-width:180px;display:flex;gap:6px}
-.cf-row .cf-val .select{width:82px;flex:none}
-.settings-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--glass-border-ice)}
-.settings-row:last-child{border-bottom:0}
-
-/* 生成器 */
-.gen-output{
-  font-family:'JetBrains Mono',monospace;font-size:1.02rem;font-weight:700;word-break:break-all;
-  background:var(--glass-subtle);border:1px solid var(--glass-border-ice);border-radius:var(--radius-sm);
-  padding:14px;text-align:center;letter-spacing:.02em;min-height:54px;
-}
-.strength-bar{height:6px;border-radius:4px;background:rgba(100,116,139,.18);overflow:hidden;margin-top:10px}
-.strength-bar span{display:block;height:100%;border-radius:4px;transition:width .3s var(--ease-fluid),background .3s}
-.gen-tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
-.gen-tab{
-  padding:6px 14px;border-radius:var(--radius-pill);border:1px solid var(--glass-border-ice);
-  background:transparent;color:var(--text-sub);cursor:pointer;font-size:.78rem;font-weight:700;transition:var(--transition);
-}
-.gen-tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
-
-/* TOTP 环 */
-.totp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
-.totp-card{
-  display:flex;align-items:center;gap:12px;border:1px solid var(--glass-border-ice);
-  border-radius:var(--radius-md);background:var(--glass-subtle);padding:12px 14px;
-}
-.totp-code{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:800;letter-spacing:.12em}
-.totp-ring{transform:rotate(-90deg)}
-.totp-ring circle{fill:none;stroke-width:3.5}
-.totp-ring .bg{stroke:rgba(100,116,139,.2)}
-.totp-ring .fg{stroke:var(--primary);transition:stroke-dashoffset .9s linear}
-
-/* 弹窗 */
-.modal-backdrop{
-  position:fixed;inset:0;z-index:60;background:rgba(8,15,30,.5);
-  display:flex;align-items:center;justify-content:center;padding:18px;
-}
-.modal-card{
-  width:100%;max-width:640px;max-height:88vh;display:flex;flex-direction:column;
-  background:var(--glass-elevated);border:1px solid var(--glass-border);
-  border-radius:var(--radius-lg);box-shadow:var(--shadow-elevated);overflow:hidden;
-}
-.modal-card.wide{max-width:820px}
-.modal-head{display:flex;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid var(--glass-border-ice);flex-wrap:wrap}
-.modal-title{font-weight:800;font-size:.95rem}
-.modal-body{padding:18px;overflow:auto}
-.modal-foot{display:flex;gap:10px;padding:13px 18px;border-top:1px solid var(--glass-border-ice);flex-wrap:wrap;justify-content:flex-end}
-.gate{text-align:center}
-.gate-error{font-size:.75rem;color:#ef4444;margin-top:8px;min-height:1em}
-
-.security-stat{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;
-}
-.security-stat .st{
-  border:1px solid var(--glass-border-ice);border-radius:var(--radius-sm);background:var(--glass-subtle);
-  padding:12px;text-align:center;cursor:pointer;transition:var(--transition);
-}
-.security-stat .st:hover{border-color:var(--primary)}
-.security-stat .st.active{border-color:var(--primary);background:var(--primary-surface)}
-.security-stat .st b{display:block;font-size:1.2rem;font-weight:800}
-.security-stat .st span{font-size:.7rem;color:var(--text-muted);font-weight:700}
-
-.loading-block{text-align:center;padding:26px;color:var(--text-muted);font-size:.8rem}
-.muted{color:var(--text-muted)}
-.hr{height:1px;background:var(--glass-border-ice);margin:14px 0;border:0}
-.hint{font-size:.72rem;color:var(--text-muted);line-height:1.55}
-/* 主密码强度提示配色 */
-.field-help.ok{color:var(--c-success)}
-.field-help.warn{color:var(--c-warn)}
-.field-help.danger{color:var(--c-danger-strong)}
-
-/* 响应式：窄屏折叠为单列，侧栏变横向 chips，列表与详情上下堆叠 */
-@media (max-width:1080px){
-  .vault-shell{grid-template-columns:1fr}
-  .vault-sidebar,.vault-list{position:static;max-height:none}
-  .vault-sidebar{display:flex;flex-wrap:wrap;gap:8px}
-  .vault-sidebar .side-sec{margin:0}
-}
-</style>
+<link rel="stylesheet" href="/assets/css/vault.css">
 </head>
 <body>
 
-<div class="ambient-glow">
-  <div class="ambient-orb orb-1"></div>
-  <div class="ambient-orb orb-2"></div>
-</div>
-
 <div id="app" v-cloak>
-
-  <header class="micro-topbar">
-    <div class="brand-box" @click="goHome">
-      <div class="brand-logo"><i class="fas fa-shield-halved"></i></div>
-      <div>
-        <div class="brand-text">密码库</div>
-        <div class="brand-sub">Password Vault · K-Vault</div>
-      </div>
-    </div>
-    <div class="topbar-spacer"></div>
-    <nav class="nav-pills">
-      <a class="nav-pill" href="./index.html"><i class="fas fa-cloud-arrow-up"></i>上传</a>
-      <a class="nav-pill" href="/show"><i class="fas fa-images"></i>Show</a>
-      <a class="nav-pill active" href="./vault.html"><i class="fas fa-shield-halved"></i>密码库</a>
-      <a class="nav-pill" href="/admin/files"><i class="fas fa-sliders"></i>管理后台</a>
-      <button class="nav-pill" v-if="phase==='unlocked'" @click="lock"><i class="fas fa-lock"></i>锁定</button>
-      <button class="nav-pill" @click="logout"><i class="fas fa-right-from-bracket"></i>退出</button>
+  <header class="vault-header">
+    <a class="vault-brand" href="./index.html">
+      <span class="brand-logo"><img src="/assets/img/logo-64.png" width="25" height="25" alt=""></span>
+      <span><strong>K-Vault Next</strong><small>密码库</small></span>
+    </a>
+    <nav class="nav-pills" aria-label="项目导航">
+      <a class="nav-pill" href="./index.html">上传</a>
+      <a class="nav-pill" href="/show">Show</a>
+      <a class="nav-pill active" href="./vault.html" aria-current="page">密码库</a>
+      <a class="nav-pill" href="/admin/files">管理后台</a>
     </nav>
+    <div class="header-actions">
+      <button class="btn btn--sm" v-if="phase==='unlocked'" @click="lock"><i aria-hidden="true" class="fas fa-lock"></i>锁定</button>
+      <button type="button" class="icon-btn" data-theme-toggle aria-label="切换到夜间模式" title="切换到夜间模式"><i aria-hidden="true" class="fas fa-moon" data-theme-icon></i></button>
+      <button class="icon-btn" v-if="authenticated" @click="logout" title="退出登录" aria-label="退出登录"><i aria-hidden="true" class="fas fa-right-from-bracket"></i></button>
+    </div>
   </header>
 
+  <main class="vault-main">
   <!-- 启动中 -->
-  <div v-if="phase==='loading'" class="liquid-card loading-block">
-    <i class="fas fa-circle-notch fa-spin"></i> 正在校验登录状态…
+  <div v-if="phase==='loading'" class="vault-surface loading-block" role="status">
+    <i aria-hidden="true" class="fas fa-circle-notch fa-spin"></i> 正在校验登录状态…
   </div>
 
   <!-- 未登录 -->
-  <div v-else-if="!authenticated" class="liquid-card empty-state">
-    <i class="fas fa-lock"></i>
+  <div v-else-if="!authenticated" class="vault-surface empty-state">
+    <i aria-hidden="true" class="fas fa-lock"></i>
     <div>需要登录后才能使用密码库。</div>
     <div class="btn-row" style="justify-content:center;margin-top:14px">
-      <a class="btn btn--primary" href="./login.html?redirect=%2Fvault.html"><i class="fas fa-right-to-bracket"></i>前往登录</a>
+      <a class="btn btn--primary" href="./login.html?redirect=%2Fvault.html"><i aria-hidden="true" class="fas fa-right-to-bracket"></i>前往登录</a>
     </div>
   </div>
 
   <!-- 环境不支持 -->
-  <div v-else-if="!cryptoOk" class="liquid-card empty-state">
-    <i class="fas fa-triangle-exclamation"></i>
+  <div v-else-if="!cryptoOk || phase==='unsupported'" class="vault-surface empty-state">
+    <i aria-hidden="true" class="fas fa-triangle-exclamation"></i>
     <div>当前环境不支持 Web Crypto，无法加密密码库。</div>
     <div class="hint" style="max-width:440px;margin:8px auto 0">请通过 HTTPS 或 localhost 访问本站，并使用较新版本的现代浏览器。</div>
   </div>
 
   <template v-else>
 
-    <!-- ===== 首次创建主密码 ===== -->
-    <section v-if="phase==='setup'" class="liquid-card lock-wrap boot-rise">
-      <div class="lock-icon"><i class="fas fa-user-shield"></i></div>
-      <div class="card-title"><i class="fas fa-key"></i>创建主密码</div>
-      <div class="card-desc">主密码用于在本地加密整个密码库（PBKDF2 + AES-GCM，零知识）。它<strong>不会</strong>被保存或上传，一旦遗忘将无法找回。</div>
-      <div class="field">
-        <label>主密码</label>
-        <input class="input" type="password" v-model="masterPassword" autocomplete="new-password" placeholder="至少 8 位" @keyup.enter="setupVault">
-        <div class="field-help" v-if="masterPassword" :class="strengthAdviceClass(masterPassword)">{{ strengthAdviceText(masterPassword) }}</div>
-      </div>
-      <div class="field">
-        <label>确认主密码</label>
-        <input class="input" type="password" v-model="masterPassword2" autocomplete="new-password" placeholder="再输一次" @keyup.enter="setupVault">
-      </div>
-      <div class="gate-error" style="text-align:left">{{ lockError }}</div>
-      <button class="btn btn--primary btn--block" :disabled="busy" style="margin-top:8px" @click="setupVault">
-        <i class="fas" :class="busy ? 'fa-circle-notch fa-spin' : 'fa-shield-halved'"></i>{{ busy ? '创建中…' : '创建密码库' }}
-      </button>
-      <div class="hint" style="margin-top:12px"><i class="fas fa-triangle-exclamation"></i> 请牢记主密码：我们无法重置它。</div>
-    </section>
+    <div v-if="phase==='setup' || phase==='locked'" class="vault-gateway">
+      <section class="gateway-intro" aria-labelledby="vault-title">
+        <div class="vault-emblem" aria-hidden="true"><i aria-hidden="true" class="fas fa-shield-halved"></i></div>
+        <h1 id="vault-title">密码库</h1>
+        <p>集中保管登录信息、银行卡、身份资料和安全笔记。密码库在此设备解密，云端同步仅传输密文。</p>
+        <div class="gateway-features">
+          <span><i aria-hidden="true" class="fas fa-lock"></i> AES-GCM 加密</span>
+          <span><i aria-hidden="true" class="fas fa-clock-rotate-left"></i> 两步验证码</span>
+        </div>
+      </section>
+      <form v-if="phase==='setup'" class="vault-surface lock-wrap" @submit.prevent="setupVault">
+        <div class="lock-icon"><i aria-hidden="true" class="fas fa-user-shield"></i></div>
+        <h2 class="gate-title">创建主密码</h2>
+        <div class="card-desc">请设置至少 8 位的主密码。忘记主密码后，已加密的内容将无法找回。</div>
+        <div class="field">
+          <label for="setup-master">主密码</label>
+          <input id="setup-master" class="input" type="password" v-model="masterPassword" autocomplete="new-password" placeholder="至少 8 位" :disabled="busy">
+          <div class="field-help" v-if="masterPassword" :class="strengthAdviceClass(masterPassword)">{{ strengthAdviceText(masterPassword) }}</div>
+        </div>
+        <div class="field">
+          <label for="setup-confirm">确认主密码</label>
+          <input id="setup-confirm" class="input" type="password" v-model="masterPassword2" autocomplete="new-password" placeholder="再输一次" :disabled="busy">
+        </div>
+        <div class="gate-error" aria-live="polite">{{ lockError }}</div>
+        <button class="btn btn--primary btn--block" :disabled="busy" type="submit">
+          <i aria-hidden="true" class="fas" :class="busy ? 'fa-circle-notch fa-spin' : 'fa-shield-halved'"></i>{{ busy ? '创建中…' : '创建密码库' }}
+        </button>
+      </form>
 
-    <!-- ===== 解锁 ===== -->
-    <section v-else-if="phase==='locked'" class="liquid-card lock-wrap boot-rise">
-      <div class="lock-icon"><i class="fas fa-lock"></i></div>
-      <div class="card-title"><i class="fas fa-shield-halved"></i>解锁密码库</div>
-      <div class="card-desc">已检测到加密的密码库，请输入主密码解锁。</div>
-      <div class="field">
-        <label>主密码</label>
-        <input class="input" type="password" v-model="masterPassword" autocomplete="current-password" placeholder="输入主密码"
-               :disabled="unlockLockedSeconds > 0" @keyup.enter="unlock">
-      </div>
-      <div class="gate-error" style="text-align:left" v-if="unlockLockedSeconds > 0">
-        <i class="fas fa-hourglass-half"></i> 尝试过于频繁，请 {{ formatDuration(unlockLockedSeconds * 1000) }}后再试。
-      </div>
-      <div class="gate-error" style="text-align:left" v-else>{{ lockError }}</div>
-      <button class="btn btn--primary btn--block" :disabled="busy || unlockLockedSeconds > 0" style="margin-top:8px" @click="unlock">
-        <i class="fas fa-unlock" v-if="!busy && unlockLockedSeconds === 0"></i><i class="fas fa-circle-notch fa-spin" v-else-if="busy"></i><i class="fas fa-hourglass-half" v-else></i>{{ busy ? '解锁中…' : (unlockLockedSeconds > 0 ? '已锁定' : '解锁') }}
-      </button>
-      <div class="hint" style="margin-top:10px" v-if="unlockGuard.fails > 0 && unlockLockedSeconds === 0">
-        <i class="fas fa-triangle-exclamation"></i> 已连续失败 {{ unlockGuard.fails }} 次，剩余 {{ unlockFailsLeft }} 次尝试后进入冷却。
-      </div>
-      <div class="hint" style="margin-top:12px">密码库位置：{{ syncRevision > 0 ? ('云端已同步 · v' + syncRevision) : '仅本地' }} · {{ envelope && envelope.meta ? (envelope.meta.itemCount||0) : 0 }} 条记录</div>
-    </section>
+      <form v-else class="vault-surface lock-wrap" @submit.prevent="unlock">
+        <div class="lock-icon"><i aria-hidden="true" class="fas fa-lock"></i></div>
+        <h2 class="gate-title">解锁密码库</h2>
+        <div class="card-desc">输入主密码，在此设备查看和编辑记录。</div>
+        <div class="field">
+          <label for="unlock-master">主密码</label>
+          <input id="unlock-master" class="input" type="password" v-model="masterPassword" autocomplete="current-password" placeholder="输入主密码"
+                 :disabled="busy || unlockLockedSeconds > 0">
+        </div>
+        <div class="gate-error" v-if="unlockLockedSeconds > 0">
+          <i aria-hidden="true" class="fas fa-hourglass-half"></i> 尝试过于频繁，请 {{ formatDuration(unlockLockedSeconds * 1000) }}后再试。
+        </div>
+        <div class="gate-error" aria-live="polite" v-else>{{ lockError }}</div>
+        <button class="btn btn--primary btn--block" :disabled="busy || unlockLockedSeconds > 0" type="submit">
+          <i aria-hidden="true" class="fas fa-unlock" v-if="!busy && unlockLockedSeconds === 0"></i><i aria-hidden="true" class="fas fa-circle-notch fa-spin" v-else-if="busy"></i><i aria-hidden="true" class="fas fa-hourglass-half" v-else></i>{{ busy ? '解锁中…' : (unlockLockedSeconds > 0 ? '已锁定' : '解锁') }}
+        </button>
+        <div class="hint" style="margin-top:10px" v-if="unlockGuard.fails > 0 && unlockLockedSeconds === 0">
+          <i aria-hidden="true" class="fas fa-triangle-exclamation"></i> 已连续失败 {{ unlockGuard.fails }} 次，剩余 {{ unlockFailsLeft }} 次尝试后进入冷却。
+        </div>
+        <div class="hint" style="margin-top:12px">密码库位置：{{ syncRevision > 0 ? ('云端已同步 · v' + syncRevision) : '仅本地' }} · {{ envelope && envelope.meta ? (envelope.meta.itemCount||0) : 0 }} 条记录</div>
+      </form>
+    </div>
 
-    <!-- ===== 已解锁：主壳 ===== -->
-    <div v-else class="vault-shell">
+    <template v-else>
+      <section class="workspace-head" aria-labelledby="workspace-title">
+        <div>
+          <h1 id="workspace-title">密码库</h1>
+          <p class="workspace-status">
+            <span><i aria-hidden="true" class="fas fa-shield-halved"></i> 已解锁</span>
+            <button type="button" class="sync-trigger" :disabled="syncState==='syncing'"
+                    @click="syncNow({ manual: true })" title="立即同步" :aria-description="lastSyncedAt ? '上次同步 ' + formatTime(lastSyncedAt) : undefined">
+              <span :class="syncDotClass" aria-hidden="true"></span>
+              <span role="status">{{ syncText }}</span>
+              <i aria-hidden="true" class="fas fa-rotate" :class="{'fa-spin': syncState==='syncing'}"></i>
+            </button>
+          </p>
+        </div>
+        <div class="workspace-tools" aria-label="密码库工具">
+          <button class="btn btn--sm" @click="openGenerator()"><i aria-hidden="true" class="fas fa-wand-magic-sparkles"></i>生成器</button>
+          <button class="btn btn--sm" @click="openSecurity()"><i aria-hidden="true" class="fas fa-stethoscope"></i>安全检查</button>
+          <button class="btn btn--sm" @click="showIo=true"><i aria-hidden="true" class="fas fa-file-import"></i>导入导出</button>
+          <button class="btn btn--sm" @click="showSettings=true"><i aria-hidden="true" class="fas fa-gear"></i>设置</button>
+        </div>
+      </section>
+
+    <div class="vault-shell" :data-view="uiView">
 
       <!-- 侧栏 -->
-      <aside class="liquid-card vault-sidebar">
+      <aside class="vault-surface vault-sidebar" aria-label="记录分类">
         <div class="side-sec">
           <div class="side-label">视图</div>
           <button class="side-item" :class="{active:filterType==='all' && !filterFolder}" @click="setFilter('all')">
-            <i class="fas fa-inbox si"></i>全部项目<span class="si-count">{{ liveCount('all') }}</span>
+            <i aria-hidden="true" class="fas fa-inbox si"></i>全部项目<span class="si-count">{{ liveCount('all') }}</span>
           </button>
           <button class="side-item" :class="{active:filterType==='favorites'}" @click="setFilter('favorites')">
-            <i class="fas fa-star si"></i>收藏<span class="si-count">{{ liveCount('favorites') }}</span>
+            <i aria-hidden="true" class="fas fa-star si"></i>收藏<span class="si-count">{{ liveCount('favorites') }}</span>
           </button>
           <button class="side-item" :class="{active:filterType==='totp'}" @click="setFilter('totp')">
-            <i class="fas fa-clock-rotate-left si"></i>验证码<span class="si-count">{{ totpItems.length }}</span>
+            <i aria-hidden="true" class="fas fa-clock-rotate-left si"></i>验证码<span class="si-count">{{ totpItems.length }}</span>
           </button>
           <button class="side-item" :class="{active:filterType==='trash'}" @click="setFilter('trash')">
-            <i class="fas fa-trash-can si"></i>回收站<span class="si-count">{{ doc.deleted.length }}</span>
+            <i aria-hidden="true" class="fas fa-trash-can si"></i>回收站<span class="si-count">{{ doc.deleted.length }}</span>
           </button>
         </div>
         <div class="side-sec">
           <div class="side-label">类型</div>
           <button class="side-item" v-for="t in typeList" :key="t.key"
                   :class="{active:filterType===t.key}" @click="setFilter(t.key)">
-            <i class="fas si" :class="t.icon"></i>{{ t.label }}<span class="si-count">{{ liveCount(t.key) }}</span>
+            <i aria-hidden="true" class="fas si" :class="t.icon"></i>{{ t.label }}<span class="si-count">{{ liveCount(t.key) }}</span>
           </button>
         </div>
         <div class="side-sec">
-          <div class="side-label">文件夹<span class="side-label-add"><i class="fas fa-plus" style="cursor:pointer" @click="startAddFolder" title="新建文件夹"></i></span></div>
+          <div class="side-label">文件夹<button class="icon-btn" @click="startAddFolder" title="新建文件夹" aria-label="新建文件夹"><i aria-hidden="true" class="fas fa-plus"></i></button></div>
           <div v-if="addingFolder" style="padding:0 4px 6px">
-            <input class="input" style="height:32px;font-size:.78rem" v-model="newFolderName" placeholder="文件夹名称" @keyup.enter="confirmAddFolder" @keyup.esc="addingFolder=false" @blur="confirmAddFolder">
+            <input ref="folderInput" class="input" v-model="newFolderName" aria-label="文件夹名称" placeholder="文件夹名称" @keyup.enter="confirmAddFolder" @keyup.esc="cancelAddFolder" @blur="confirmAddFolder">
           </div>
-          <button class="side-item" :class="{active:filterFolder===null && ['all','login','card','identity','note'].includes(filterType)}" v-if="doc.folders.length" @click="filterFolder=null">
-            <i class="fas fa-layer-group si"></i>所有文件夹
-          </button>
-          <div v-for="f in sortedFolders" :key="f.id" class="side-item" :class="{active:filterFolder===f.id}" @click="setFolder(f.id)">
-            <i class="fas fa-folder si"></i>{{ f.name }}
+          <div v-for="f in sortedFolders" :key="f.id" class="folder-row">
+            <button class="side-item" :class="{active:filterFolder===f.id}" :aria-pressed="filterFolder===f.id" @click="setFolder(f.id)">
+              <i aria-hidden="true" class="fas fa-folder si"></i><span>{{ f.name }}</span>
+            </button>
             <span class="si-act">
-              <button @click.stop="renameFolder(f)" title="重命名"><i class="fas fa-pen"></i></button>
-              <button @click.stop="deleteFolder(f)" title="删除"><i class="fas fa-trash"></i></button>
+              <button class="icon-btn" @click="renameFolder(f)" title="重命名文件夹" :aria-label="'重命名 ' + f.name"><i aria-hidden="true" class="fas fa-pen"></i></button>
+              <button class="icon-btn danger" @click="deleteFolder(f)" title="删除文件夹" :aria-label="'删除 ' + f.name"><i aria-hidden="true" class="fas fa-trash"></i></button>
             </span>
           </div>
         </div>
       </aside>
 
       <!-- 列表 -->
-      <section class="liquid-card vault-list">
+      <section class="vault-surface vault-list" aria-labelledby="list-title">
         <div class="list-toolbar">
-          <div class="search-wrap">
-            <i class="fas fa-magnifying-glass"></i>
-            <input class="input" v-model="search" placeholder="搜索名称 / 用户名 / 网址 / 备注" @keyup.esc="search=''">
-            <button class="search-clear" v-if="search" @click="search=''" title="清空"><i class="fas fa-xmark"></i></button>
-          </div>
-          <div class="list-actions">
-            <select class="select" v-model="sort" title="排序">
-              <option value="edited">最近修改</option>
-              <option value="created">最近创建</option>
-              <option value="name">名称 A-Z</option>
-            </select>
-            <div class="sec" style="position:relative">
-              <button class="btn btn--sm-icon" :class="'btn--primary'" @click="menuNew=!menuNew" title="新增项目"><i class="fas fa-plus"></i></button>
-              <div v-if="menuNew" class="menu-pop" @mouseleave="menuNew=false">
+          <div class="list-heading">
+            <div>
+              <h2 id="list-title">{{ listTitle }}</h2>
+              <p class="hint">{{ displayedCount }} 项</p>
+            </div>
+            <div class="sec" ref="newMenu" @keydown.esc.stop="closeNewMenu(true)">
+              <button ref="newTrigger" class="btn btn--primary btn--sm" @click="toggleNewMenu"
+                      :aria-expanded="menuNew" aria-controls="vault-new-options"><i aria-hidden="true" class="fas fa-plus"></i>新建</button>
+              <div v-if="menuNew" id="vault-new-options" class="menu-pop">
                 <button v-for="t in typeList" :key="t.key" class="menu-item" @click="newItem(t.key)">
-                  <i class="fas" :class="t.icon"></i>{{ t.label }}
+                  <i aria-hidden="true" class="fas" :class="t.icon"></i>{{ t.label }}
                 </button>
               </div>
             </div>
           </div>
           <div class="list-actions">
-            <button class="btn btn--sm" style="flex:1" @click="openGenerator()"><i class="fas fa-wand-magic-sparkles"></i>生成器</button>
-            <button class="btn btn--sm" style="flex:1" @click="openSecurity()"><i class="fas fa-stethoscope"></i>安全检查</button>
-          </div>
-          <div class="list-actions">
-            <button class="btn btn--sm" style="flex:1" @click="showIo=true"><i class="fas fa-file-import"></i>导入导出</button>
-            <button class="btn btn--sm" style="flex:1" @click="showSettings=true"><i class="fas fa-gear"></i>设置</button>
-          </div>
-          <div class="list-actions" style="justify-content:space-between">
-            <button type="button" class="sync-trigger" :disabled="syncState==='syncing'"
-                    @click="syncNow({ manual: true })"
-                    :title="syncRevision > 0 ? ('云端版本 v' + syncRevision + ' · 点击立即与云端双向同步') : '点击立即同步到云端'">
-              <span :class="syncDotClass"></span>
-              <span>{{ syncText }}</span>
-              <i class="fas fa-rotate" :class="{'fa-spin': syncState==='syncing'}"></i>
-            </button>
-            <span class="hint">{{ visibleItems.length }} / {{ liveTotal }} 项</span>
+            <div class="search-wrap">
+              <i aria-hidden="true" class="fas fa-magnifying-glass"></i>
+              <input ref="searchInput" class="input" v-model="search" aria-label="搜索密码库"
+                     placeholder="搜索记录" @keydown.esc.stop="search=''">
+              <button class="search-clear" v-if="search" @click="clearSearch" title="清空搜索" aria-label="清空搜索"><i aria-hidden="true" class="fas fa-xmark"></i></button>
+            </div>
+            <select class="select" v-model="sort" title="排序" aria-label="排序">
+              <option value="edited">最近修改</option>
+              <option value="created">最近创建</option>
+              <option value="name">名称 A–Z</option>
+            </select>
           </div>
         </div>
 
         <!-- 验证码视图 -->
         <div v-if="filterType==='totp'" class="vault-items">
-          <div v-if="!totpItems.length" class="empty-state empty-state--sm"><i class="fas fa-clock-rotate-left"></i><div>没有绑定 TOTP 的登录项。</div></div>
-          <div v-for="it in totpItems" :key="'t'+it.id" class="totp-card">
+          <div v-if="!visibleTotpItems.length" class="empty-state empty-state--sm"><i aria-hidden="true" class="fas fa-clock-rotate-left"></i><div>{{ search ? '没有匹配的验证码' : '没有绑定 TOTP 的登录项' }}</div></div>
+          <div v-for="it in visibleTotpItems" :key="'t'+it.id" class="totp-card">
             <div class="vi-icon">
-              <i class="fas fa-shield-halved"></i>
+              <i aria-hidden="true" class="fas fa-shield-halved"></i>
               <img v-if="itemIcon(it)" class="vi-fav" :class="{loaded: isIconLoaded(itemHost(it))}"
-                   :src="itemIcon(it)" alt="" loading="lazy" decoding="async"
+                   :src="itemIcon(it)" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"
                    @load="onIconLoad(it)" @error="onIconError(it)">
             </div>
             <div class="vi-main">
@@ -501,57 +229,60 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <div class="totp-code">{{ formatTotp(totpMap[it.id] && totpMap[it.id].code) }}</div>
             </div>
             <div class="sec">
-              <svg class="totp-ring" width="34" height="34" viewBox="0 0 34 34">
+              <svg aria-hidden="true" class="totp-ring" width="34" height="34" viewBox="0 0 34 34">
                 <circle class="bg" cx="17" cy="17" r="14"></circle>
                 <circle class="fg" cx="17" cy="17" r="14" :stroke-dasharray="ringLen" :stroke-dashoffset="ringOffset(it.id)"></circle>
               </svg>
             </div>
-            <button class="icon-btn" @click="copyField(totpMap[it.id] && totpMap[it.id].code, '验证码已复制')" title="复制验证码"><i class="fas fa-copy"></i></button>
+            <button class="icon-btn" @click="copyField(totpMap[it.id] && totpMap[it.id].code, '验证码已复制')" :disabled="!totpMap[it.id]" title="复制验证码"><i aria-hidden="true" class="fas fa-copy"></i></button>
           </div>
         </div>
 
         <!-- 常规列表 -->
         <div v-else-if="visibleItems.length" class="vault-items">
           <button class="vault-item" v-for="it in visibleItems" :key="it.id"
-                  :class="{active:selectedId===it.id}" @click="openItem(it)">
+                  :class="{active:selectedId===it.id}" :aria-pressed="selectedId===it.id" @click="openItem(it, $event)">
             <div class="vi-icon">
-              <i class="fas" :class="typeIcon(it.type)"></i>
+              <i aria-hidden="true" class="fas" :class="typeIcon(it.type)"></i>
               <img v-if="itemIcon(it)" class="vi-fav" :class="{loaded: isIconLoaded(itemHost(it))}"
-                   :src="itemIcon(it)" alt="" loading="lazy" decoding="async"
+                   :src="itemIcon(it)" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"
                    @load="onIconLoad(it)" @error="onIconError(it)">
             </div>
             <div class="vi-main">
               <div class="vi-title">{{ it.name || '（无名称）' }}</div>
               <div class="vi-sub">{{ subtitle(it) }}</div>
             </div>
-            <i class="fas fa-star vi-star" v-if="it.favorite"></i>
+            <i aria-hidden="true" class="fas fa-star vi-star" v-if="it.favorite"></i>
           </button>
         </div>
         <div v-else class="empty-state empty-state--sm">
-          <i class="fas fa-inbox"></i>
+          <i aria-hidden="true" class="fas fa-inbox"></i>
           <div v-if="filterType==='trash'">回收站是空的。</div>
           <div v-else-if="search">没有匹配「{{ search }}」的项目。</div>
-          <div v-else>还没有项目，点左上「+」新建一条。</div>
+          <div v-else>此视图没有记录。你可以新建一条。</div>
         </div>
       </section>
 
       <!-- 详情 / 编辑器 -->
-      <section class="liquid-card vault-pane">
+      <section class="vault-surface vault-pane" aria-label="记录详情">
+        <button v-if="uiView!=='list'" class="btn btn--sm pane-back" @click="backToList">
+          <i aria-hidden="true" class="fas fa-chevron-left"></i>返回列表
+        </button>
         <!-- 编辑器 -->
         <div v-if="editor">
           <div class="editor-head">
-            <div class="editor-type-pill"><i class="fas" :class="typeIcon(editor.type)"></i>{{ editor._isNew ? '新建' : '编辑' }}{{ typeLabel(editor.type) }}</div>
+            <h2 class="editor-type-pill"><i aria-hidden="true" class="fas" :class="typeIcon(editor.type)"></i>{{ editor._isNew ? '新建' : '编辑' }}{{ typeLabel(editor.type) }}</h2>
             <div style="margin-left:auto;display:flex;gap:8px">
               <button class="icon-btn" @click="draft.favorite=!draft.favorite" :title="draft.favorite?'取消收藏':'收藏'">
-                <i class="fas fa-star" :style="draft.favorite?'color:#f59e0b':''"></i>
+                <i aria-hidden="true" class="fas fa-star" :style="draft.favorite?'color:#f59e0b':''"></i>
               </button>
             </div>
           </div>
 
           <div class="form-grid">
             <div class="field span-2">
-              <label>名称</label>
-              <input class="input" v-model="draft.name" placeholder="例如：GitHub" @keyup.enter="saveDraft">
+              <label for="record-name">名称</label>
+              <input ref="recordName" id="record-name" class="input" v-model="draft.name" placeholder="例如：GitHub" @keyup.enter="saveDraft">
             </div>
             <div class="field">
               <label>文件夹</label>
@@ -565,7 +296,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           <!-- 登录 -->
           <template v-if="draft.type==='login'">
             <div class="hr"></div>
-            <div class="card-title" style="font-size:.85rem"><i class="fas fa-key"></i>登录信息</div>
+            <div class="card-title" style="font-size:.85rem"><i aria-hidden="true" class="fas fa-key"></i>登录信息</div>
             <div class="field" style="margin-top:10px">
               <label>用户名</label>
               <input class="input" v-model="draft.login.username" autocomplete="off">
@@ -574,29 +305,29 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <label>密码</label>
               <div style="display:flex;gap:8px">
                 <input class="input mono" :type="draft._revealPw?'text':'password'" v-model="draft.login.password" autocomplete="new-password">
-                <button class="icon-btn" @click="draft._revealPw=!draft._revealPw" type="button" :title="draft._revealPw?'隐藏':'显示'"><i class="fas" :class="draft._revealPw?'fa-eye-slash':'fa-eye'"></i></button>
-                <button class="icon-btn" @click="openGenerator('password', true)" type="button" title="生成密码"><i class="fas fa-wand-magic-sparkles"></i></button>
+                <button class="icon-btn" @click="draft._revealPw=!draft._revealPw" type="button" :title="draft._revealPw?'隐藏':'显示'"><i aria-hidden="true" class="fas" :class="draft._revealPw?'fa-eye-slash':'fa-eye'"></i></button>
+                <button class="icon-btn" @click="openGenerator('password', true)" type="button" title="生成密码"><i aria-hidden="true" class="fas fa-wand-magic-sparkles"></i></button>
               </div>
             </div>
             <div class="field">
               <label>TOTP 密钥</label>
-              <input class="input mono" v-model="draft.login.totp" placeholder="base32 密钥或 otpauth:// 链接（可选）" autocomplete="off">
+              <input class="input mono" type="password" v-model="draft.login.totp" placeholder="base32 密钥或 otpauth:// 链接（可选）" autocomplete="off">
               <div class="field-help" v-if="draftTotpPreview">{{ draftTotpPreview }}</div>
             </div>
             <div class="field">
               <label>网址</label>
               <div class="uris-row" v-for="(u,idx) in draft.login.uris" :key="'u'+idx">
                 <input class="input" v-model="u.uri" placeholder="https://…">
-                <button class="icon-btn danger" @click="draft.login.uris.splice(idx,1)" title="移除"><i class="fas fa-xmark"></i></button>
+                <button class="icon-btn danger" @click="draft.login.uris.splice(idx,1)" title="移除"><i aria-hidden="true" class="fas fa-xmark"></i></button>
               </div>
-              <button class="text-btn" @click="draft.login.uris.push({uri:'',match:null})"><i class="fas fa-plus"></i> 添加网址</button>
+              <button class="text-btn" @click="draft.login.uris.push({uri:'',match:null})"><i aria-hidden="true" class="fas fa-plus"></i> 添加网址</button>
             </div>
           </template>
 
           <!-- 银行卡 -->
           <template v-else-if="draft.type==='card'">
             <div class="hr"></div>
-            <div class="card-title" style="font-size:.85rem"><i class="fas fa-credit-card"></i>银行卡详情</div>
+            <div class="card-title" style="font-size:.85rem"><i aria-hidden="true" class="fas fa-credit-card"></i>银行卡详情</div>
             <div class="form-grid" style="margin-top:10px">
               <div class="field span-2"><label>持卡人姓名</label><input class="input" v-model="draft.card.cardholderName"></div>
               <div class="field span-2"><label>卡号</label><input class="input mono" v-model="draft.card.number"></div>
@@ -617,7 +348,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           <!-- 身份 -->
           <template v-else-if="draft.type==='identity'">
             <div class="hr"></div>
-            <div class="card-title" style="font-size:.85rem"><i class="fas fa-id-card"></i>身份详情</div>
+            <div class="card-title" style="font-size:.85rem"><i aria-hidden="true" class="fas fa-id-card"></i>身份详情</div>
             <div class="form-grid" style="margin-top:10px">
               <div class="field" v-for="f in identityFields" :key="f.key" :class="{'span-2':f.wide}">
                 <label>{{ f.label }}</label>
@@ -629,7 +360,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           <!-- 安全笔记 -->
           <template v-else>
             <div class="hr"></div>
-            <div class="card-title" style="font-size:.85rem"><i class="fas fa-note-sticky"></i>笔记内容</div>
+            <div class="card-title" style="font-size:.85rem"><i aria-hidden="true" class="fas fa-note-sticky"></i>笔记内容</div>
             <div class="field" style="margin-top:10px">
               <textarea class="textarea" v-model="draft.notes" placeholder="在下方备注里写下任意内容…" style="min-height:120px"></textarea>
             </div>
@@ -646,7 +377,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
 
           <!-- 自定义字段 -->
           <div class="hr"></div>
-          <div class="card-title" style="font-size:.85rem"><i class="fas fa-list"></i>自定义字段</div>
+          <div class="card-title" style="font-size:.85rem"><i aria-hidden="true" class="fas fa-list"></i>自定义字段</div>
           <div v-for="(f,idx) in draft.fields" :key="f.id" class="cf-row" style="margin-top:8px">
             <input class="input cf-name" v-model="f.name" placeholder="字段标签">
             <div class="cf-val" style="display:flex;gap:6px">
@@ -658,14 +389,14 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <input v-if="f.type!=='boolean'" class="input" :type="f.type==='hidden'?'password':'text'" v-model="f.value" style="flex:1;min-width:0">
               <label v-else class="switch" style="margin:auto 0"><input type="checkbox" v-model="f.value"><span class="switch__track"></span><span class="switch__thumb"></span></label>
             </div>
-            <button class="icon-btn danger cf-del" @click="draft.fields.splice(idx,1)" title="移除"><i class="fas fa-xmark"></i></button>
+            <button class="icon-btn danger cf-del" @click="draft.fields.splice(idx,1)" title="移除"><i aria-hidden="true" class="fas fa-xmark"></i></button>
           </div>
-          <button class="text-btn" style="margin-top:8px" @click="addCustomField"><i class="fas fa-plus"></i> 添加字段</button>
+          <button class="text-btn" style="margin-top:8px" @click="addCustomField"><i aria-hidden="true" class="fas fa-plus"></i> 添加字段</button>
 
           <div class="editor-foot">
-            <button class="btn btn--primary" :disabled="busy" @click="saveDraft"><i class="fas fa-check"></i>保存</button>
+            <button class="btn btn--primary" :disabled="busy" @click="saveDraft"><i aria-hidden="true" class="fas fa-check"></i>保存</button>
             <button class="btn" @click="cancelEdit">取消</button>
-            <button class="btn btn--danger" v-if="!editor._isNew" @click="deleteItem(draft.id)"><i class="fas fa-trash"></i>删除</button>
+            <button class="btn btn--danger" v-if="!editor._isNew" @click="deleteItem(draft.id)"><i aria-hidden="true" class="fas fa-trash"></i>删除</button>
           </div>
         </div>
 
@@ -673,23 +404,31 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
         <div v-else-if="selected">
           <div class="detail-head">
             <div class="detail-icon">
-              <i class="fas" :class="typeIcon(selected.type)"></i>
+              <i aria-hidden="true" class="fas" :class="typeIcon(selected.type)"></i>
               <img v-if="itemIcon(selected)" class="detail-fav" :class="{loaded: isIconLoaded(itemHost(selected))}"
-                   :src="itemIcon(selected)" alt="" loading="lazy" decoding="async"
+                   :src="itemIcon(selected)" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"
                    @load="onIconLoad(selected)" @error="onIconError(selected)">
             </div>
             <div>
-              <div class="detail-name">{{ selected.name || '（无名称）' }}</div>
+              <h2 ref="detailTitle" tabindex="-1" class="detail-name">{{ selected.name || '（无名称）' }}</h2>
               <div class="detail-sub">
                 {{ typeLabel(selected.type) }}
-                <template v-if="folderName(selected.folderId)"> · <i class="fas fa-folder"></i> {{ folderName(selected.folderId) }}</template>
-                <span class="chip chip-warn" v-if="selected.favorite" style="margin-left:6px"><i class="fas fa-star"></i>收藏</span>
+                <template v-if="folderName(selected.folderId)"> · <i aria-hidden="true" class="fas fa-folder"></i> {{ folderName(selected.folderId) }}</template>
+                <span class="chip chip-warn" v-if="selected.favorite" style="margin-left:6px"><i aria-hidden="true" class="fas fa-star"></i>收藏</span>
               </div>
             </div>
-            <div class="detail-actions">
-              <button class="icon-btn" @click="toggleFavorite(selected)" :title="selected.favorite?'取消收藏':'收藏'"><i class="fas fa-star" :style="selected.favorite?'color:#f59e0b':''"></i></button>
-              <button class="btn btn--sm" @click="editItem(selected)"><i class="fas fa-pen"></i>编辑</button>
-              <button class="icon-btn danger" @click="deleteItem(selected.id)" title="删除"><i class="fas fa-trash"></i></button>
+            <div v-if="!selectedDeleted" class="detail-actions">
+              <button class="icon-btn" @click="toggleFavorite(selected)" :title="selected.favorite?'取消收藏':'收藏'"><i aria-hidden="true" class="fas fa-star" :style="selected.favorite?'color:#f59e0b':''"></i></button>
+              <button class="btn btn--sm" @click="editItem(selected)"><i aria-hidden="true" class="fas fa-pen"></i>编辑</button>
+              <button class="icon-btn danger" @click="deleteItem(selected.id)" title="删除"><i aria-hidden="true" class="fas fa-trash"></i></button>
+            </div>
+          </div>
+
+          <div v-if="selectedDeleted" class="trash-actions">
+            <p>已于 {{ formatTime(selected.deletedAt) }}移入回收站</p>
+            <div class="btn-row">
+              <button class="btn btn--primary btn--sm" @click="restoreItem(selected)"><i aria-hidden="true" class="fas fa-rotate-left"></i>恢复</button>
+              <button class="btn btn--danger btn--sm" @click="purgeItem(selected)">永久删除</button>
             </div>
           </div>
 
@@ -698,15 +437,15 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
             <div class="field-block" v-if="selected.login.username">
               <div class="fb-label">用户名</div>
               <div class="fb-value"><span class="val">{{ selected.login.username }}</span>
-                <button class="icon-btn" @click="copyField(selected.login.username,'用户名已复制')" title="复制"><i class="fas fa-copy"></i></button>
+                <button class="icon-btn" @click="copyField(selected.login.username,'用户名已复制')" title="复制"><i aria-hidden="true" class="fas fa-copy"></i></button>
               </div>
             </div>
             <div class="field-block" v-if="selected.login.password">
               <div class="fb-label">密码</div>
               <div class="fb-value">
                 <span class="val mono" :class="{'mask-letter':!isRevealed('pw')}">{{ isRevealed('pw') ? selected.login.password : maskSecret(selected.login.password) }}</span>
-                <button class="icon-btn" @click="toggleReveal('pw')" :title="isRevealed('pw')?'隐藏':'显示'"><i class="fas" :class="isRevealed('pw')?'fa-eye-slash':'fa-eye'"></i></button>
-                <button class="icon-btn" @click="copyPassword(selected.login.password)" title="复制密码"><i class="fas fa-copy"></i></button>
+                <button class="icon-btn" @click="toggleReveal('pw')" :title="isRevealed('pw')?'隐藏':'显示'"><i aria-hidden="true" class="fas" :class="isRevealed('pw')?'fa-eye-slash':'fa-eye'"></i></button>
+                <button class="icon-btn" @click="copyPassword(selected.login.password)" title="复制密码"><i aria-hidden="true" class="fas fa-copy"></i></button>
                 <span class="chip" :class="strengthClass(selected.login.password)">{{ strengthLabel(selected.login.password) }}</span>
               </div>
             </div>
@@ -715,14 +454,14 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <div class="fb-value">
                 <span class="chip-sm">{{ formatTotp(totpMap[selected.id] && totpMap[selected.id].code) }}</span>
                 <span class="hint">{{ totpMap[selected.id] && totpMap[selected.id].secondsLeft || 0 }}s 后刷新</span>
-                <button class="icon-btn" @click="copyField(totpMap[selected.id] && totpMap[selected.id].code,'验证码已复制')" title="复制验证码"><i class="fas fa-copy"></i></button>
+                <button class="icon-btn" :disabled="!totpMap[selected.id]" @click="copyField(totpMap[selected.id] && totpMap[selected.id].code,'验证码已复制')" title="复制验证码"><i aria-hidden="true" class="fas fa-copy"></i></button>
               </div>
             </div>
             <div class="field-block" v-for="(u,idx) in (selected.login.uris||[]).filter(x=>x.uri)" :key="'du'+idx">
               <div class="fb-label">网址 {{ idx+1 }}</div>
               <div class="fb-value"><span class="val">{{ u.uri }}</span>
-                <a class="icon-btn" :href="u.uri" target="_blank" rel="noopener" title="打开"><i class="fas fa-arrow-up-right-from-square"></i></a>
-                <button class="icon-btn" @click="copyField(u.uri,'网址已复制')" title="复制"><i class="fas fa-copy"></i></button>
+                <a v-if="websiteUrl(u.uri)" class="icon-btn" :href="websiteUrl(u.uri)" target="_blank" rel="noopener noreferrer" title="打开网址"><i aria-hidden="true" class="fas fa-arrow-up-right-from-square"></i></a>
+                <button class="icon-btn" @click="copyField(u.uri,'网址已复制')" title="复制"><i aria-hidden="true" class="fas fa-copy"></i></button>
               </div>
             </div>
           </template>
@@ -732,8 +471,9 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
             <template v-for="f in cardFields" :key="f.key">
               <div class="field-block" v-if="selected.card[f.key]">
                 <div class="fb-label">{{ f.label }}</div>
-                <div class="fb-value"><span class="val mono">{{ selected.card[f.key] }}</span>
-                  <button class="icon-btn" @click="copyField(selected.card[f.key], f.label+'已复制')" title="复制"><i class="fas fa-copy"></i></button>
+                <div class="fb-value"><span class="val mono">{{ (f.key==='number' || f.key==='code') && !isRevealed('card:'+f.key) ? maskSecret(selected.card[f.key]) : selected.card[f.key] }}</span>
+                  <button v-if="f.key==='number' || f.key==='code'" class="icon-btn" @click="toggleReveal('card:'+f.key)" :title="isRevealed('card:'+f.key)?'隐藏':'显示'"><i aria-hidden="true" class="fas" :class="isRevealed('card:'+f.key)?'fa-eye-slash':'fa-eye'"></i></button>
+                  <button class="icon-btn" @click="copyField(selected.card[f.key], f.label+'已复制', f.key==='number' || f.key==='code')" title="复制"><i aria-hidden="true" class="fas fa-copy"></i></button>
                 </div>
               </div>
             </template>
@@ -745,7 +485,7 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <div class="field-block" v-if="selected.identity[f.key]">
                 <div class="fb-label">{{ f.label }}</div>
                 <div class="fb-value"><span class="val">{{ selected.identity[f.key] }}</span>
-                  <button class="icon-btn" @click="copyField(selected.identity[f.key], f.label+'已复制')" title="复制"><i class="fas fa-copy"></i></button>
+                  <button class="icon-btn" @click="copyField(selected.identity[f.key], f.label+'已复制')" title="复制"><i aria-hidden="true" class="fas fa-copy"></i></button>
                 </div>
               </div>
             </template>
@@ -771,8 +511,8 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <div class="fb-value">
                 <span style="font-size:.72rem;color:var(--text-muted);min-width:72px">{{ f.name }}</span>
                 <span class="val" :class="{'mono':f.type==='hidden'}">{{ customFieldDisplay(f, selected.id) }}</span>
-                <button class="icon-btn" v-if="f.type==='hidden'" @click="toggleReveal('cf:'+f.id)" :title="isRevealed('cf:'+f.id)?'隐藏':'显示'"><i class="fas" :class="isRevealed('cf:'+f.id)?'fa-eye-slash':'fa-eye'"></i></button>
-                <button class="icon-btn" @click="copyField(f.type==='boolean'?(f.value?'true':'false'):f.value,'已复制')" title="复制"><i class="fas fa-copy"></i></button>
+                <button class="icon-btn" v-if="f.type==='hidden'" @click="toggleReveal('cf:'+f.id)" :title="isRevealed('cf:'+f.id)?'隐藏':'显示'"><i aria-hidden="true" class="fas" :class="isRevealed('cf:'+f.id)?'fa-eye-slash':'fa-eye'"></i></button>
+                <button class="icon-btn" @click="copyField(f.type==='boolean'?(f.value?'true':'false'):f.value,'已复制', f.type==='hidden')" title="复制"><i aria-hidden="true" class="fas fa-copy"></i></button>
               </div>
             </div>
           </div>
@@ -782,28 +522,40 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
             <div class="fb-value" style="flex-direction:column;align-items:flex-start;gap:4px;font-size:.75rem;color:var(--text-muted)">
               <span>创建：{{ formatTime(selected.createdAt) }}</span>
               <span>最后修改：{{ formatTime(selected.updatedAt) }}</span>
-              <span v-if="(selected.passwordHistory||[]).length">密码历史：{{ selected.passwordHistory.length }} 条</span>
+
             </div>
           </div>
+          <details v-if="selected.passwordHistory.length" :key="selected.id" class="field-block history-block" @toggle="hideHistory($event)">
+            <summary>密码历史（{{ selected.passwordHistory.length }}）</summary>
+            <div v-for="(entry, idx) in selected.passwordHistory" :key="idx" class="history-row">
+              <span class="hint">{{ formatTime(entry.updatedAt) }}</span>
+              <div class="fb-value">
+                <span class="val mono">{{ isRevealed('history:'+idx) ? entry.password : maskSecret(entry.password) }}</span>
+                <button class="icon-btn" @click="toggleReveal('history:'+idx)" :title="isRevealed('history:'+idx)?'隐藏旧密码':'显示旧密码'"><i aria-hidden="true" class="fas" :class="isRevealed('history:'+idx)?'fa-eye-slash':'fa-eye'"></i></button>
+                <button class="icon-btn" @click="copyPassword(entry.password)" title="复制旧密码"><i aria-hidden="true" class="fas fa-copy"></i></button>
+              </div>
+            </div>
+          </details>
         </div>
 
-        <!-- 空态 -->
-        <div v-else class="empty-state" style="padding-top:60px">
-          <i class="fas fa-shield-halved"></i>
-          <div>从左侧选择一条记录查看详情，或点「+」新建。</div>
+        <div v-else class="empty-state pane-empty">
+          <div class="vault-emblem" aria-hidden="true"><i aria-hidden="true" class="fas fa-shield-halved"></i></div>
+          <h2>查看记录</h2>
+          <p>从列表选择一条记录，或使用「新建」添加记录。</p>
         </div>
       </section>
     </div>
+    </template>
   </template>
+  </main>
 
   <!-- ===== 生成器弹窗 ===== -->
-  <transition name="dialog">
-  <div v-if="showGenerator" class="modal-backdrop" @click.self="closeGenerator">
+  <dialog v-if="showGenerator" v-vault-dialog class="vault-dialog" aria-labelledby="generator-title" @cancel.prevent="closeGenerator" @click.self="closeGenerator">
     <div class="modal-card">
       <div class="modal-head">
-        <i class="fas fa-wand-magic-sparkles" style="color:var(--primary)"></i>
-        <div class="modal-title">密码生成器</div>
-        <div style="margin-left:auto"><button class="icon-btn" @click="closeGenerator"><i class="fas fa-xmark"></i></button></div>
+        <i aria-hidden="true" class="fas fa-wand-magic-sparkles" style="color:var(--primary)"></i>
+        <div id="generator-title" class="modal-title">密码生成器</div>
+        <div style="margin-left:auto"><button class="icon-btn" aria-label="关闭" @click="closeGenerator"><i aria-hidden="true" class="fas fa-xmark"></i></button></div>
       </div>
       <div class="modal-body">
         <div class="gen-output">{{ generatorResult }}</div>
@@ -812,8 +564,8 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           <span>{{ genStrengthText }}</span><span>{{ generatorResult.length }} 个字符</span>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn btn--primary" style="flex:1" @click="regenerate"><i class="fas fa-rotate"></i>重新生成</button>
-          <button class="btn" style="flex:1" @click="copyGenerator"><i class="fas fa-copy"></i>复制</button>
+          <button class="btn btn--primary" style="flex:1" @click="regenerate"><i aria-hidden="true" class="fas fa-rotate"></i>重新生成</button>
+          <button class="btn" style="flex:1" @click="copyGenerator"><i aria-hidden="true" class="fas fa-copy"></i>复制</button>
           <button class="btn btn--ghost" v-if="generatorTarget" @click="applyGeneratorToDraft">用于当前条目</button>
         </div>
 
@@ -857,68 +609,64 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           </div>
         </template>
 
-        <div class="hint" style="margin-top:14px"><i class="fas fa-lock"></i> 生成过程完全在本地进行，不会发送到服务器。</div>
+        <div class="hint" style="margin-top:14px"><i aria-hidden="true" class="fas fa-lock"></i> 生成过程完全在本地进行，不会发送到服务器。</div>
       </div>
     </div>
-  </div>
-  </transition>
+  </dialog>
 
   <!-- ===== 安全检查弹窗 ===== -->
-  <transition name="dialog">
-  <div v-if="showSecurity" class="modal-backdrop" @click.self="showSecurity=false">
-    <div class="modal-card wide">
+  <dialog v-if="showSecurity" v-vault-dialog class="vault-dialog dialog-wide" aria-labelledby="security-title" @cancel.prevent="closeSecurity" @click.self="closeSecurity">
+    <div class="modal-card">
       <div class="modal-head">
-        <i class="fas fa-stethoscope" style="color:var(--primary)"></i>
-        <div class="modal-title">密码安全检查</div>
-        <div style="margin-left:auto"><button class="icon-btn" @click="showSecurity=false"><i class="fas fa-xmark"></i></button></div>
+        <i aria-hidden="true" class="fas fa-stethoscope" style="color:var(--primary)"></i>
+        <div id="security-title" class="modal-title">密码安全检查</div>
+        <div style="margin-left:auto"><button class="icon-btn" aria-label="关闭" @click="closeSecurity"><i aria-hidden="true" class="fas fa-xmark"></i></button></div>
       </div>
       <div class="modal-body">
-        <div v-if="securityLoading" class="loading-block"><i class="fas fa-circle-notch fa-spin"></i> 正在检查…</div>
+        <div v-if="securityLoading" class="loading-block"><i aria-hidden="true" class="fas fa-circle-notch fa-spin"></i> 正在检查…</div>
         <template v-else-if="security">
           <div class="security-stat">
-            <div class="st" :class="{active:secFilter==='weak'}" @click="secFilter = secFilter==='weak'?'all':'weak'">
+            <button class="st" :class="{active:secFilter==='weak'}" :aria-pressed="secFilter==='weak'" @click="secFilter = secFilter==='weak'?'all':'weak'">
               <b style="color:#f59e0b">{{ security.weak }}</b><span>弱密码</span>
-            </div>
-            <div class="st" :class="{active:secFilter==='reused'}" @click="secFilter = secFilter==='reused'?'all':'reused'">
+            </button>
+            <button class="st" :class="{active:secFilter==='reused'}" :aria-pressed="secFilter==='reused'" @click="secFilter = secFilter==='reused'?'all':'reused'">
               <b style="color:#ef4444">{{ security.reused }}</b><span>重复使用</span>
-            </div>
-            <div class="st" :class="{active:secFilter==='all'}" @click="secFilter='all'">
+            </button>
+            <button class="st" :class="{active:secFilter==='all'}" :aria-pressed="secFilter==='all'" @click="secFilter='all'">
               <b>{{ security.checked }}</b><span>已检查</span>
-            </div>
+            </button>
           </div>
           <div v-if="filteredSecurityResults.length" style="display:flex;flex-direction:column;gap:8px;max-height:44vh;overflow:auto">
             <div class="vault-item" style="cursor:default" v-for="r in filteredSecurityResults" :key="r.id">
-              <div class="vi-icon"><i class="fas fa-key"></i></div>
+              <div class="vi-icon"><i aria-hidden="true" class="fas fa-key"></i></div>
               <div class="vi-main">
                 <div class="vi-title">{{ r.name }}</div>
                 <div class="vi-sub mono">{{ isRevealed('sec:'+r.id) ? r.password : maskSecret(r.password) }}</div>
               </div>
-              <span class="chip chip-danger" v-if="r.weak"><i class="fas fa-triangle-exclamation"></i>弱</span>
-              <span class="chip chip-danger" v-if="r.reused"><i class="fas fa-clone"></i>重复 {{ r.reusedCount }}</span>
-              <button class="icon-btn" @click="toggleReveal('sec:'+r.id)" :title="isRevealed('sec:'+r.id)?'隐藏':'显示'"><i class="fas" :class="isRevealed('sec:'+r.id)?'fa-eye-slash':'fa-eye'"></i></button>
-              <button class="icon-btn" @click="jumpToItem(r.id)" title="查看条目"><i class="fas fa-arrow-right"></i></button>
+              <span class="chip chip-danger" v-if="r.weak"><i aria-hidden="true" class="fas fa-triangle-exclamation"></i>弱</span>
+              <span class="chip chip-danger" v-if="r.reused"><i aria-hidden="true" class="fas fa-clone"></i>重复 {{ r.reusedCount }}</span>
+              <button class="icon-btn" @click="toggleReveal('sec:'+r.id)" :title="isRevealed('sec:'+r.id)?'隐藏':'显示'"><i aria-hidden="true" class="fas" :class="isRevealed('sec:'+r.id)?'fa-eye-slash':'fa-eye'"></i></button>
+              <button class="icon-btn" @click="jumpToItem(r.id)" title="查看条目"><i aria-hidden="true" class="fas fa-arrow-right"></i></button>
             </div>
           </div>
-          <div v-else class="empty-state empty-state--sm"><i class="fas fa-circle-check"></i><div>{{ security.checked ? '未发现密码风险。' : '没有可检查的登录项。' }}</div></div>
-          <div class="hint" style="margin-top:12px"><i class="fas fa-shield-halved"></i> 检查仅在本地进行：基于密码强度与重复使用，不上传、不联网查询。</div>
+          <div v-else class="empty-state empty-state--sm"><i aria-hidden="true" class="fas fa-circle-check"></i><div>{{ security.checked ? '未发现密码风险。' : '没有可检查的登录项。' }}</div></div>
+          <div class="hint" style="margin-top:12px"><i aria-hidden="true" class="fas fa-shield-halved"></i> 检查仅在本地进行：基于密码强度与重复使用，不上传、不联网查询。</div>
         </template>
       </div>
       <div class="modal-foot" style="justify-content:space-between">
-        <button class="btn" @click="runSecurityCheck"><i class="fas fa-rotate"></i>重新检查</button>
-        <button class="btn btn--primary" @click="showSecurity=false">关闭</button>
+        <button class="btn" @click="runSecurityCheck"><i aria-hidden="true" class="fas fa-rotate"></i>重新检查</button>
+        <button class="btn btn--primary" @click="closeSecurity">关闭</button>
       </div>
     </div>
-  </div>
-  </transition>
+  </dialog>
 
   <!-- ===== 导入导出弹窗 ===== -->
-  <transition name="dialog">
-  <div v-if="showIo" class="modal-backdrop" @click.self="showIo=false">
-    <div class="modal-card wide">
+  <dialog v-if="showIo" v-vault-dialog class="vault-dialog dialog-wide" aria-labelledby="io-title" @cancel.prevent="closeIo" @click.self="closeIo">
+    <div class="modal-card">
       <div class="modal-head">
-        <i class="fas fa-file-import" style="color:var(--primary)"></i>
-        <div class="modal-title">导入 / 导出</div>
-        <div style="margin-left:auto"><button class="icon-btn" @click="showIo=false"><i class="fas fa-xmark"></i></button></div>
+        <i aria-hidden="true" class="fas fa-file-import" style="color:var(--primary)"></i>
+        <div id="io-title" class="modal-title">导入 / 导出</div>
+        <div style="margin-left:auto"><button class="icon-btn" aria-label="关闭" @click="closeIo"><i aria-hidden="true" class="fas fa-xmark"></i></button></div>
       </div>
       <div class="modal-body">
         <div class="gen-tabs">
@@ -935,8 +683,8 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
               <option value="bitwarden_csv">Bitwarden (CSV)</option>
             </select>
           </div>
-          <div class="hint"><i class="fas fa-triangle-exclamation" style="color:#f59e0b"></i> 导出的文件包含<strong>明文</strong>密码，请妥善保管、切勿公开分享。</div>
-          <div class="modal-foot" style="padding:14px 0 0"><button class="btn btn--primary btn--block" @click="doExport"><i class="fas fa-download"></i>导出并下载</button></div>
+          <div class="hint"><i aria-hidden="true" class="fas fa-triangle-exclamation" style="color:#f59e0b"></i> 导出的文件包含<strong>明文</strong>密码，请妥善保管、切勿公开分享。</div>
+          <div class="modal-foot" style="padding:14px 0 0"><button class="btn btn--primary btn--block" @click="doExport"><i aria-hidden="true" class="fas fa-download"></i>导出并下载</button></div>
         </template>
 
         <template v-else>
@@ -956,28 +704,26 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           <div class="hint">导入会<strong>合并</strong>到当前密码库（不覆盖已有条目）。</div>
           <div class="modal-foot" style="padding:14px 0 0">
             <button class="btn btn--primary btn--block" :disabled="!importFile || busy" @click="doImport">
-              <i class="fas" :class="busy?'fa-circle-notch fa-spin':'fa-file-import'"></i>导入
+              <i aria-hidden="true" class="fas" :class="busy?'fa-circle-notch fa-spin':'fa-file-import'"></i>导入
             </button>
           </div>
         </template>
       </div>
     </div>
-  </div>
-  </transition>
+  </dialog>
 
   <!-- ===== 设置弹窗 ===== -->
-  <transition name="dialog">
-  <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings=false">
+  <dialog v-if="showSettings" v-vault-dialog class="vault-dialog" aria-labelledby="settings-title" @cancel.prevent="closeSettings" @click.self="closeSettings">
     <div class="modal-card">
       <div class="modal-head">
-        <i class="fas fa-gear" style="color:var(--primary)"></i>
-        <div class="modal-title">密码库设置</div>
-        <div style="margin-left:auto"><button class="icon-btn" @click="showSettings=false"><i class="fas fa-xmark"></i></button></div>
+        <i aria-hidden="true" class="fas fa-gear" style="color:var(--primary)"></i>
+        <div id="settings-title" class="modal-title">密码库设置</div>
+        <div style="margin-left:auto"><button class="icon-btn" aria-label="关闭" @click="closeSettings"><i aria-hidden="true" class="fas fa-xmark"></i></button></div>
       </div>
       <div class="modal-body">
         <div class="settings-row">
           <div><div style="font-weight:700;font-size:.85rem">自动锁定</div><div class="hint">无操作多久后自动锁定密码库</div></div>
-          <select class="select" style="width:130px" v-model.number="doc.settings.autoLockMinutes" @change="onSettingsChange">
+          <select class="select" style="width:130px" aria-label="自动锁定" v-model.number="doc.settings.autoLockMinutes" :disabled="busy" @change="onSettingsChange">
             <option :value="1">1 分钟</option>
             <option :value="5">5 分钟</option>
             <option :value="15">15 分钟</option>
@@ -986,8 +732,8 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           </select>
         </div>
         <div class="settings-row">
-          <div><div style="font-weight:700;font-size:.85rem">剪贴板清除</div><div class="hint">复制密码后自动清空剪贴板（尽力而为）</div></div>
-          <select class="select" style="width:130px" v-model.number="doc.settings.clipboardClearSeconds" @change="onSettingsChange">
+          <div><div style="font-weight:700;font-size:.85rem">剪贴板清除</div><div class="hint">浏览器已授权读取剪贴板时，自动清除尚未替换的密码</div></div>
+          <select class="select" style="width:130px" aria-label="剪贴板清除" v-model.number="doc.settings.clipboardClearSeconds" :disabled="busy" @change="onSettingsChange">
             <option :value="0">从不</option>
             <option :value="15">15 秒</option>
             <option :value="30">30 秒</option>
@@ -995,28 +741,27 @@ html[data-theme="dark"] .chip-sm{color:var(--primary-light)}
           </select>
         </div>
         <div class="settings-row">
-          <div><div style="font-weight:700;font-size:.85rem">显示网站图标</div><div class="hint">为含网址的登录项加载站点图标，便于识别（请求直接发往目标网站）</div></div>
-          <label class="switch"><input type="checkbox" v-model="doc.settings.showFavicons" @change="onSettingsChange"><span class="switch__track"></span><span class="switch__thumb"></span></label>
+          <div><div style="font-weight:700;font-size:.85rem">显示网站图标</div><div class="hint">开启后，浏览器会直接向登录项对应的网站请求图标</div></div>
+          <label class="switch"><input type="checkbox" aria-label="显示网站图标" v-model="doc.settings.showFavicons" :disabled="busy" @change="onSettingsChange"><span class="switch__track"></span><span class="switch__thumb"></span></label>
         </div>
         <div class="hr"></div>
-        <div class="card-title" style="font-size:.85rem"><i class="fas fa-key"></i>修改主密码</div>
-        <div class="field" style="margin-top:10px"><label>新主密码</label><input class="input" type="password" v-model="newMaster" autocomplete="new-password" placeholder="至少 8 位">
+        <div class="card-title" style="font-size:.85rem"><i aria-hidden="true" class="fas fa-key"></i>修改主密码</div>
+        <div class="field" style="margin-top:10px"><label>新主密码</label><input class="input" type="password" v-model="newMaster" :disabled="busy" autocomplete="new-password" placeholder="至少 8 位">
           <div class="field-help" v-if="newMaster" :class="strengthAdviceClass(newMaster)">{{ strengthAdviceText(newMaster) }}</div>
         </div>
-        <div class="field"><label>确认新主密码</label><input class="input" type="password" v-model="newMaster2" autocomplete="new-password"></div>
+        <div class="field"><label>确认新主密码</label><input class="input" type="password" v-model="newMaster2" :disabled="busy" autocomplete="new-password"></div>
         <div class="gate-error" style="text-align:left">{{ settingsError }}</div>
         <div style="display:flex;gap:8px;margin-top:8px">
-          <button class="btn" @click="changeMasterPassword" :disabled="busy"><i class="fas fa-key"></i>重设主密码</button>
-          <button class="btn btn--danger" @click="lockAndClose"><i class="fas fa-lock"></i>立即锁定</button>
+          <button class="btn" @click="changeMasterPassword" :disabled="busy"><i aria-hidden="true" class="fas fa-key"></i>修改主密码</button>
+          <button class="btn btn--danger" @click="lockAndClose"><i aria-hidden="true" class="fas fa-lock"></i>立即锁定</button>
         </div>
       </div>
     </div>
-  </div>
-  </transition>
+  </dialog>
 
-  <div class="toast-stack">
+  <div class="toast-stack" aria-live="polite">
     <div class="toast" :class="toast.type" v-for="toast in toasts" :key="toast.id">
-      <i class="fas" :class="toastIcon(toast.type)"></i>{{ toast.text }}
+      <i aria-hidden="true" class="fas" :class="toastIcon(toast.type)"></i>{{ toast.text }}
     </div>
   </div>
 
@@ -1045,7 +790,6 @@ setTimeout(function () {
 
   var VAULT_API = "./api/manage/vault";
   var LS_SETTINGS = "kvault.vault.uiSettings";
-  var LS_ICONS = "kvault.vault.iconCache";
   var ICON_ERR_TTL = 24 * 3600 * 1000; // 网站图标加载失败后 24h 内不再重试
   var SYNC_POLL_INTERVAL_MS = 30 * 1000; // 已解锁且前台可见时，30s 轻量轮询 ?metaOnly=1
 
@@ -1118,6 +862,7 @@ setTimeout(function () {
         editor: null,           // draft 或 null
         draft: null,
         menuNew: false,
+        returnFocus: null,
 
         // 过滤 / 搜索 / 排序
         search: "",
@@ -1126,6 +871,7 @@ setTimeout(function () {
         filterFolder: null,
         revealed: {},           // { key: true }
         clipboardTimer: null,
+        clipboardRevision: 0,
 
         // 文件夹
         addingFolder: false,
@@ -1174,17 +920,21 @@ setTimeout(function () {
         identityFields: IDENTITY_FIELDS,
         cardFields: CARD_FIELDS,
 
-        _lockTimer: null,
-        _saveChain: Promise.resolve(),
-        _enqueueSave: null
+        lockTimer: null,
+        saveChain: Promise.resolve(),
+        editRevision: 0,
+        enqueueSave: null
       };
     },
 
     computed: {
-      liveTotal: function () {
-        if (!this.doc) return 0;
-        if (this.filterType === "trash") return this.doc.deleted.length;
-        return this.doc.items.length;
+      listTitle: function () {
+        return this.folderName(this.filterFolder) ||
+          ({ all: "全部记录", favorites: "收藏", totp: "两步验证码", trash: "回收站" })[this.filterType] ||
+          this.typeLabel(this.filterType);
+      },
+      displayedCount: function () {
+        return this.filterType === "totp" ? this.visibleTotpItems.length : this.visibleItems.length;
       },
       sortedFolders: function () {
         if (!this.doc) return [];
@@ -1204,8 +954,7 @@ setTimeout(function () {
         var self = this;
         return list.filter(function (it) {
           if (type === "favorites" && !it.favorite) return false;
-          if (type === "trash") { /* 回收站只受搜索影响 */ }
-          else if (["login", "card", "identity", "note"].includes(type) && it.type !== type) return false;
+          if (["login", "card", "identity", "note"].includes(type) && it.type !== type) return false;
           if (self.filterFolder && it.folderId !== self.filterFolder) return false;
           if (q && !self.itemMatches(it, q)) return false;
           return true;
@@ -1213,16 +962,23 @@ setTimeout(function () {
       },
       totpItems: function () {
         if (!this.doc) return [];
-        return this.doc.items
-          .filter(function (it) { return it.type === "login" && it.login && it.login.totp; })
-          .sort(function (a, b) { return collator.compare(a.name || "", b.name || ""); });
+        return this.doc.items.filter(function (it) { return it.type === "login" && it.login && it.login.totp; });
+      },
+      visibleTotpItems: function () {
+        var q = this.search.trim().toLowerCase();
+        return this.totpItems.filter(function (it) { return !q || this.itemMatches(it, q); }, this)
+          .sort(bySortDir(this.sort));
       },
       selected: function () {
         if (!this.doc || !this.selectedId) return null;
         return this.doc.items.concat(this.doc.deleted).find(function (it) { return it.id === this.selectedId; }, this) || null;
       },
+      selectedDeleted: function () {
+        return !!this.selected && this.doc.deleted.includes(this.selected);
+      },
       draftTotpPreview: function () {
         if (!this.draft || this.draft.type !== "login" || !this.draft.login.totp) return "";
+            if (!validTotp(this.draft.login.totp)) return "无法识别此 TOTP 密钥";
         var cfg = READ.parseTotpConfig(this.draft.login.totp);
         if (!cfg.secret) return "";
         var code = this.totpMap["__draft__"];
@@ -1268,18 +1024,23 @@ setTimeout(function () {
     },
 
     watch: {
-      search: function () { this.persistUi(); },
       sort: function () { this.persistUi(); },
-      filterType: function () { this.filterFolder = null; }
+      selectedId: function () { this.revealed = {}; },
+      phase: function (phase) {
+        if (phase === "locked") this.$nextTick(function () { document.getElementById("unlock-master")?.focus(); });
+      }
     },
 
     mounted: function () {
       var self = this;
-      this._enqueueSave = KVault.debounce(function () { self._runSave(); }, 900);
+      this.enqueueSave = KVault.debounce(function () { self._runSave(); }, 900);
       this.restoreUi();
-      this.restoreIconCache();
+      try { localStorage.removeItem("kvault.vault.iconCache"); } catch (e) {}
       this.restoreUnlockGuard();
       this.init();
+      document.addEventListener("click", function (event) {
+        if (self.menuNew && !self.$refs.newMenu?.contains(event.target)) self.closeNewMenu();
+      });
       setInterval(function () { self.tick(); }, 1000);
       setInterval(function () {
         if (document.visibilityState === "visible" && self.phase === "unlocked" && self.syncState !== "syncing") {
@@ -1311,7 +1072,7 @@ setTimeout(function () {
       /* ---------------- 通用 ---------------- */
       showToast: function (text, type) {
         var id = Date.now() + Math.random();
-        this.toasts.push({ id: id, text: text, type: type || "info" });
+        this.toasts = [{ id: id, text: text, type: type || "info" }];
         var self = this;
         setTimeout(function () {
           self.toasts = self.toasts.filter(function (t) { return t.id !== id; });
@@ -1356,13 +1117,24 @@ setTimeout(function () {
         if (key === "trash") return this.doc.deleted.length;
         return items.filter(function (i) { return i.type === key; }).length;
       },
-      goHome: function () { location.href = "./index.html"; },
-      logout: function () {
-        fetch("./api/auth/logout", { method: "POST", credentials: "include" }).catch(function () {});
-        location.href = "./login.html";
+      logout: async function () {
+        if (this.phase === "unlocked") this.lock();
+        await this.saveChain;
+        try {
+          var response = await fetch("./api/auth/logout", { method: "POST", credentials: "include" });
+          if (!response.ok) throw new Error();
+          location.href = "./login.html";
+        } catch (e) {
+          this.showToast("退出登录失败，请重试", "error");
+        }
       },
       isRevealed: function (k) { return !!this.revealed[k]; },
       toggleReveal: function (k) { this.revealed[k] = !this.revealed[k]; },
+      hideHistory: function (event) {
+        if (event.target.open) return;
+        Object.keys(this.revealed).filter(function (key) { return key.startsWith("history:"); })
+          .forEach(function (key) { delete this.revealed[key]; }, this);
+      },
       maskSecret: function (s) { var n = Math.min(24, Math.max(8, String(s || "").length)); return "•".repeat(n); },
       strengthLabel: function (pw) { return READ.strengthLabel(READ.estimateStrength(pw)); },
       strengthClass: function (pw) {
@@ -1376,14 +1148,19 @@ setTimeout(function () {
       },
 
       /* -------- 网站图标（favicon）识别 -------- */
-      /** 从网址解析主机名；未带协议的自动补 https:// */
-      hostFromUri: function (uri) {
+      websiteUrl: function (uri) {
         var raw = String(uri || "").trim();
-        if (!raw) return "";
+        if (!raw || /[\u0000-\u0020\u007f\\]/.test(raw)) return "";
+        var hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw);
+        if (hasScheme && !/^https?:\/\//i.test(raw) && !/^(?:localhost|[^/:]+\.[^/:]+):\d+(?:[/?#]|$)/i.test(raw)) return "";
         try {
-          var normalized = /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
-          return new URL(normalized).hostname || "";
+          var url = new URL(/^https?:\/\//i.test(raw) ? raw : "https://" + raw);
+          return url.username || url.password ? "" : url.href;
         } catch (e) { return ""; }
+      },
+      hostFromUri: function (uri) {
+        var url = this.websiteUrl(uri);
+        return url ? new URL(url).hostname : "";
       },
       /** 取条目首个有效网址的主机名（仅登录类） */
       itemHost: function (it) {
@@ -1401,7 +1178,7 @@ setTimeout(function () {
        * 返回空串表示不显示（功能关闭 / 无网址 / 已知失败且在 TTL 内）。
        */
       itemIcon: function (it) {
-        if (!this.doc || this.doc.settings.showFavicons === false) return "";
+        if (!this.doc?.settings.showFavicons) return "";
         var host = this.itemHost(it);
         if (!host) return "";
         var failedAt = this.iconCache.err[host];
@@ -1414,26 +1191,12 @@ setTimeout(function () {
         if (!host) return;
         this.iconCache.ok[host] = true;
         delete this.iconCache.err[host];
-        this.persistIconCache();
       },
       onIconError: function (it) {
         var host = this.itemHost(it);
         if (!host) return;
         delete this.iconCache.ok[host];
         this.iconCache.err[host] = Date.now();
-        this.persistIconCache();
-      },
-      restoreIconCache: function () {
-        try {
-          var s = JSON.parse(localStorage.getItem(LS_ICONS) || "{}");
-          if (s && typeof s === "object") {
-            this.iconCache.ok = s.ok || {};
-            this.iconCache.err = s.err || {};
-          }
-        } catch (e) {}
-      },
-      persistIconCache: function () {
-        try { localStorage.setItem(LS_ICONS, JSON.stringify(this.iconCache)); } catch (e) {}
       },
       formatTotp: function (code) { if (!code) return "------"; return code.length === 6 ? code.slice(0, 3) + " " + code.slice(3) : code; },
       ringOffset: function (id) {
@@ -1441,28 +1204,29 @@ setTimeout(function () {
         if (!t || !t.period) return 0;
         return this.ringLen * (1 - t.secondsLeft / t.period);
       },
-      copyField: function (value, message) {
-        var v = String(value == null ? "" : value);
-        if (!v) return;
-        KVault.copy(v).then(function (ok) {
-          if (ok) this.showToast(message || "已复制", "success");
-          else window.prompt("手动复制", v);
-        }.bind(this));
-      },
-      copyPassword: function (pw) {
+      copyField: async function (value, message, sensitive) {
+        var text = String(value == null ? "" : value);
+        if (!text) return;
+        var revision = ++this.clipboardRevision;
+        clearTimeout(this.clipboardTimer);
+        var ok = await KVault.copy(text);
+        if (this.clipboardRevision !== revision || this.phase !== "unlocked") return;
+        if (!ok) { window.prompt("手动复制", text); return; }
+        this.showToast(message || "已复制", "success");
+
+        var seconds = this.doc?.settings.clipboardClearSeconds;
+        if (!sensitive || !(seconds > 0) || !navigator.clipboard?.readText || !navigator.permissions) return;
         var self = this;
-        KVault.copy(pw).then(function (ok) {
-          if (!ok) { window.prompt("手动复制", pw); return; }
-          self.showToast("密码已复制", "success");
-          var secs = self.doc && self.doc.settings && self.doc.settings.clipboardClearSeconds;
-          if (secs > 0) {
-            if (self.clipboardTimer) clearTimeout(self.clipboardTimer);
-            self.clipboardTimer = setTimeout(function () {
-              KVault.copy("").catch(function () {});
-            }, secs * 1000);
-          }
-        });
+        this.clipboardTimer = setTimeout(async function () {
+          try {
+            var permission = await navigator.permissions.query({ name: "clipboard-read" });
+            if (permission.state !== "granted" || self.clipboardRevision !== revision) return;
+            var current = await navigator.clipboard.readText();
+            if (current === text && self.clipboardRevision === revision) await navigator.clipboard.writeText("");
+          } catch (e) { /* 浏览器可能限制后台剪贴板访问 */ }
+        }, seconds * 1000);
       },
+      copyPassword: function (pw) { this.copyField(pw, "密码已复制", true); },
 
       /* ---------------- 初始化 / 认证 ---------------- */
       init: async function () {
@@ -1565,46 +1329,47 @@ setTimeout(function () {
 
       /* ---------------- 云端双向同步（乐观锁 + 冲突合并） ---------------- */
       _runSave: function () {
-        return this.syncNow({ push: true, silent: true });
+        return this.syncNow({ silent: true });
       },
       _flushSave: function () {
-        if (this._enqueueSave && this._enqueueSave.flush) this._enqueueSave.flush();
+        if (this.enqueueSave && this.enqueueSave.flush) this.enqueueSave.flush();
         else if (this.hasPendingLocalChanges) this._runSave();
       },
       markDirty: function () {
         if (this.phase !== "unlocked") return;
         this.hasPendingLocalChanges = true;
+        this.editRevision += 1;
         if (this.doc) this.doc.updatedAt = Date.now();
-        if (this._enqueueSave) this._enqueueSave();
+        if (this.enqueueSave) this.enqueueSave();
       },
       syncNow: function (opts) {
         var self = this;
         var o = opts || {};
-        this._saveChain = this._saveChain
+        this.saveChain = this.saveChain
           .then(function () { return self._performSync(o); })
           .catch(function () {});
-        return this._saveChain;
+        return this.saveChain;
       },
       _performSync: async function (opts) {
         var doc = (opts && opts.doc) || this.doc;
+        var editRevision = this.editRevision;
         var key = (opts && opts.key) || this.key;
         var kdf = (opts && opts.kdf) || this.kdf;
         var detached = Boolean(opts && opts.detached);
         if (!SYNC || !doc || !key || !kdf) return null;
         var manual = Boolean(opts && opts.manual);
         var silent = Boolean(opts && opts.silent);
-        var force = Boolean(opts && opts.force);
-        var shouldPush = Boolean(opts && opts.push) || this.hasPendingLocalChanges || force;
+        var shouldPush = Boolean(opts && opts.push) || this.hasPendingLocalChanges;
+        var snapshot = JSON.parse(JSON.stringify(doc));
 
         this.syncState = "syncing";
         try {
           var result = await SYNC.sync({
-            doc: doc,
+            doc: snapshot,
             key: key,
             kdf: kdf,
-            revision: (opts && opts.revision != null) ? opts.revision : this.syncRevision,
-            hasLocalChanges: shouldPush,
-            force: force
+            revision: this.syncRevision,
+            hasLocalChanges: shouldPush
           });
 
           if (result.action === "reauth_required") {
@@ -1612,14 +1377,20 @@ setTimeout(function () {
             this.syncRevision = result.revision || this.syncRevision;
             this.syncState = "idle";
             if (!detached) {
-              this.lock();
+              if (this.phase === "unlocked") this.lock({ save: false });
               this.showToast("主密码已在其他设备变更，请使用新主密码重新解锁", "info");
             }
             return result;
           }
 
-          if (!detached && result.doc) {
-            this.doc = normalizeDoc(result.doc);
+          var editedWhileSyncing = this.editRevision !== editRevision;
+          if (!detached && this.phase === "unlocked" && result.doc) {
+            if (result.action === "pulled" || result.action === "merged") {
+              var currentSettings = this.doc.settings;
+              var changedSettings = editedWhileSyncing && JSON.stringify(currentSettings) !== JSON.stringify(snapshot.settings);
+              this.doc = normalizeDoc(editedWhileSyncing ? READ.mergeVaultDocs(this.doc, result.doc) : result.doc);
+              if (changedSettings) this.doc.settings = currentSettings;
+            }
             if (this.selectedId && !this.doc.items.concat(this.doc.deleted).some(function (x) { return x.id === this.selectedId; }, this)) {
               this.selectedId = null;
               if (this.uiView === "detail") this.uiView = "list";
@@ -1628,8 +1399,7 @@ setTimeout(function () {
           if (result.envelope) this.envelope = result.envelope;
           if (result.revision != null) this.syncRevision = result.revision;
           if (result.updatedAt) this.lastSyncedAt = result.updatedAt;
-          this.hasPendingLocalChanges = false;
-
+          if (!editedWhileSyncing) this.hasPendingLocalChanges = false;
           if (!detached && (result.action === "pulled" || result.action === "merged")) {
             this.tickTotp();
           }
@@ -1653,9 +1423,13 @@ setTimeout(function () {
           return result;
         } catch (e) {
           this.syncState = "failed";
-          if (shouldPush) this.hasPendingLocalChanges = true;
+          if (shouldPush) {
+            this.hasPendingLocalChanges = true;
+            var local = SYNC.readLocalState();
+            if (local.pendingPush && local.envelope?.kdf.salt === READ.b64encode(kdf.salt)) this.envelope = local.envelope;
+          }
           if (!detached && (!silent || manual || shouldPush)) {
-            this.showToast("云端同步失败（已保存在本地）：" + (e && e.message ? e.message : "网络错误"), "error");
+            this.showToast("云端同步失败：" + (e && e.message ? e.message : "网络错误"), "error");
           }
           return null;
         }
@@ -1708,6 +1482,7 @@ setTimeout(function () {
         return lv >= 3 ? "ok" : (lv === 2 ? "warn" : "danger");
       },
       setupVault: async function () {
+        if (this.busy) return;
         this.lockError = "";
         if (String(this.masterPassword).length < 8) { this.lockError = "主密码至少 8 位。"; return; }
         if (this.masterPassword !== this.masterPassword2) { this.lockError = "两次输入的主密码不一致。"; return; }
@@ -1749,6 +1524,7 @@ setTimeout(function () {
         } finally { this.busy = false; }
       },
       unlock: async function () {
+        if (this.busy) return;
         this.lockError = "";
         if (this.unlockLockedSeconds > 0) {
           this.lockError = "尝试过于频繁，请 " + this.formatDuration(this.unlockLockedSeconds * 1000) + "后再试。";
@@ -1757,6 +1533,7 @@ setTimeout(function () {
         if (!this.masterPassword) { this.lockError = "请输入主密码。"; return; }
         this.busy = true;
         try {
+          await this.saveChain;
           var opened = await READ.openVault(this.masterPassword, this.envelope);
           this.key = opened.key; this.kdf = opened.kdf; this.doc = normalizeDoc(opened.doc);
           this.resetUnlockGuard();
@@ -1780,98 +1557,167 @@ setTimeout(function () {
         this.tickTotp();
         if (this.uiView === "editor") { this.editor = null; this.draft = null; this.uiView = "list"; }
       },
-      lock: function () {
-        if (this.hasPendingLocalChanges && this.doc && this.key && this.kdf) {
-          this.syncNow({
-            push: true,
-            silent: true,
-            detached: true,
-            doc: this.doc,
-            key: this.key,
-            kdf: this.kdf,
-            revision: this.syncRevision
-          });
+      lock: function (options) {
+        if (options?.save !== false && this.hasPendingLocalChanges && this.doc && this.key && this.kdf) {
+          this.syncNow({ push: true, silent: true, detached: true, doc: this.doc, key: this.key, kdf: this.kdf });
         }
         this.doc = null; this.key = null; this.kdf = null;
         this.selectedId = null; this.editor = null; this.draft = null; this.revealed = {};
         this.totpMap = {};
-        this.showGenerator = this.showSecurity = this.showIo = this.showSettings = false;
-        if (this._lockTimer) { clearTimeout(this._lockTimer); this._lockTimer = null; }
+        this.iconCache = { ok: {}, err: {} };
+        this.uiView = "list";
+        this.returnFocus = null;
+        this.closeNewMenu();
+        this.cancelAddFolder();
+        this.search = "";
+        this.closeGenerator();
+        this.closeSecurity();
+        this.closeIo();
+        this.closeSettings();
+        this.toasts = [];
+        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
         this.phase = "locked";
         this.masterPassword = "";
+        this.lockError = "";
       },
       lockAndClose: function () { this.showSettings = false; this.lock(); },
       resetAutoLock: function () {
-        if (this._lockTimer) { clearTimeout(this._lockTimer); this._lockTimer = null; }
+        if (this.lockTimer) { clearTimeout(this.lockTimer); this.lockTimer = null; }
         if (this.phase !== "unlocked" || !this.doc) return;
         var min = Number(this.doc.settings.autoLockMinutes);
         if (!(min > 0)) return;
         var self = this;
-        this._lockTimer = setTimeout(function () { self.lock(); }, min * 60000);
+        this.lockTimer = setTimeout(function () { self.lock(); }, min * 60000);
       },
       onSettingsChange: function () { this.markDirty(); this.resetAutoLock(); },
       changeMasterPassword: async function () {
+        if (this.busy) return;
         this.settingsError = "";
-        if (String(this.newMaster).length < 8) { this.settingsError = "新主密码至少 8 位。"; return; }
+        if (this.newMaster.length < 8) { this.settingsError = "新主密码至少 8 位。"; return; }
         if (this.newMaster !== this.newMaster2) { this.settingsError = "两次输入的新主密码不一致。"; return; }
         this.busy = true;
+        var self = this;
+        var password = this.newMaster;
         try {
-          // 更换主密码前先与云端同步合并，确保不丢失其他设备刚写入的条目
-          await this.syncNow({ silent: true });
-          if (this.phase !== "unlocked" || !this.doc) return;
+          this.saveChain = this.saveChain.then(async function () {
+            if (!self.showSettings || self.phase !== "unlocked") return;
+            var synced = await self._performSync({ silent: true });
+            if (!self.showSettings || self.phase !== "unlocked") return;
+            if (!synced) { self.settingsError = "请先同步密码库，再修改主密码。"; return; }
 
-          var sealed = await READ.sealVault(this.doc, this.newMaster, READ.KDF_ITERATIONS);
-          this.key = sealed.key; this.kdf = sealed.kdf; this.envelope = sealed.envelope;
-          this.hasPendingLocalChanges = true;
-          this.newMaster = ""; this.newMaster2 = "";
-          var res = await this.syncNow({ push: true, force: true });
-          if (res && (res.action === "pushed" || res.action === "merged")) {
-            this.showToast("主密码已更新并同步至云端", "success");
-            this.showSettings = false;
-          } else {
-            this.settingsError = "本地主密码已更新，但云端同步失败，请稍后重试同步。";
-          }
-        } catch (e) {
-          this.settingsError = "重设失败：" + e.message;
+            var key = self.key;
+            var revision = self.syncRevision;
+            var editRevision = self.editRevision;
+            var sealed = await READ.sealVault(self.doc, password, READ.KDF_ITERATIONS);
+            if (!self.showSettings || self.key !== key) return;
+            var result = await SYNC.push({ envelope: sealed.envelope, expectedRevision: revision });
+            if (result.status === "conflict") {
+              if (self.showSettings) self.settingsError = "云端记录有更新，请重新点击修改主密码。";
+              return;
+            }
+
+            self.envelope = sealed.envelope;
+            self.syncRevision = result.revision;
+            self.lastSyncedAt = result.updatedAt;
+            var pending = self.editRevision !== editRevision;
+            if (!pending) self.hasPendingLocalChanges = false;
+            SYNC.writeLocalState({
+              revision: result.revision,
+              envelope: sealed.envelope,
+              updatedAt: result.updatedAt,
+              pendingPush: false
+            });
+            if (self.phase === "unlocked" && self.key === key) {
+              self.key = sealed.key;
+              self.kdf = sealed.kdf;
+              self.closeSettings();
+              self.showToast("主密码已更新并同步至云端", "success");
+            }
+          }).catch(function (error) {
+            if (self.showSettings) self.settingsError = "主密码修改结果未确认：" + error.message;
+          });
+          await this.saveChain;
         } finally { this.busy = false; }
       },
 
       /* ---------------- 列表交互 ---------------- */
-      setFilter: function (key) { this.filterType = key; this.selectedId = null; },
-      setFolder: function (id) {
-        this.filterFolder = id;
-        if (["trash", "totp", "favorites"].includes(this.filterType)) this.filterType = "all";
+      clearSearch: function () { this.search = ""; this.$refs.searchInput.focus(); },
+      toggleNewMenu: function () {
+        if (this.menuNew) { this.closeNewMenu(); return; }
+        this.menuNew = true;
+        this.$nextTick(function () { this.$refs.newMenu?.querySelector(".menu-item")?.focus(); });
       },
-      openItem: function (it) {
+      closeNewMenu: function (focus) {
+        if (!this.menuNew) return;
+        this.menuNew = false;
+        if (focus) this.$refs.newTrigger?.focus();
+      },
+      setFilter: function (key) {
+        this.filterType = key;
+        this.filterFolder = null;
+        this.backToList(false);
+      },
+      setFolder: function (id) {
+        this.filterType = "all";
+        this.filterFolder = id;
+        this.backToList(false);
+      },
+      backToList: function (focus) {
+        this.uiView = "list";
+        this.selectedId = null;
+        this.editor = null;
+        this.draft = null;
+        this.revealed = {};
+        this.closeNewMenu();
+        var target = this.returnFocus;
+        this.returnFocus = null;
+        if (focus !== false) this.$nextTick(function () {
+          if (target?.isConnected) target.focus();
+          else this.$refs.searchInput?.focus();
+        });
+      },
+      openItem: function (it, event) {
+        this.returnFocus = event?.currentTarget || null;
         this.selectedId = it.id;
+        this.revealed = {};
         this.editor = null; this.draft = null;
         this.uiView = "detail";
+        this.$nextTick(function () { this.$refs.detailTitle?.focus(); });
       },
       jumpToItem: function (id) {
-        this.showSecurity = false;
+        this.closeSecurity();
         if (!this.doc) return;
         var it = this.doc.items.find(function (x) { return x.id === id; });
-        if (it) { this.filterType = "all"; this.filterFolder = null; this.openItem(it); }
+        if (it) { this.filterType = "all"; this.filterFolder = null; this.search = ""; this.openItem(it); }
       },
 
       /* ---------------- CRUD ---------------- */
       newItem: function (type) {
-        this.menuNew = false;
+        this.closeNewMenu();
+        this.returnFocus = this.$refs.newTrigger;
         var draft = buildEmptyDraft(type);
+        draft.folderId = this.filterFolder;
         this.draft = draft;
         this.editor = draft;
         this.selectedId = null;
         this.uiView = "editor";
+        if (this.filterType === "trash" || this.filterType === "totp" || this.filterType === "favorites" ||
+            (this.filterType !== "all" && this.filterType !== type)) this.filterType = "all";
+        this.$nextTick(function () { this.$refs.recordName?.focus(); });
       },
       editItem: function (it) {
         var draft = draftFromItem(it);
         this.draft = draft;
         this.editor = draft;
         this.uiView = "editor";
+        this.revealed = {};
+        this.$nextTick(function () { this.$refs.recordName?.focus(); });
       },
       cancelEdit: function () {
+        if (!this.selectedId) { this.backToList(); return; }
         this.editor = null; this.draft = null;
-        this.uiView = this.selectedId ? "detail" : "list";
+        this.uiView = "detail";
+        this.$nextTick(function () { this.$refs.detailTitle?.focus(); });
       },
       addCustomField: function () {
         this.draft.fields.push({ id: READ.uuid(), name: "", type: "text", value: "" });
@@ -1879,6 +1725,10 @@ setTimeout(function () {
       saveDraft: function () {
         var d = this.draft;
         if (!d || !String(d.name || "").trim()) { this.showToast("项目名称不能为空", "error"); return; }
+        if (d.type === "login" && d.login.totp !== (this.selected?.login?.totp || "") && !validTotp(d.login.totp)) {
+          this.showToast("请输入有效的 Base32 密钥或 TOTP 链接", "error");
+          return;
+        }
         if (d._isNew) {
           var item = draftToItem(d);
           item.createdAt = Date.now(); item.updatedAt = Date.now();
@@ -1890,8 +1740,8 @@ setTimeout(function () {
           var oldPw = existing.login && existing.login.password;
           var updated = draftToItem(d);
           updated.createdAt = existing.createdAt;
-          updated.updatedAt = Date.now();
-          if (d.type === "login" && updated.login.password && updated.login.password !== oldPw) {
+          updated.updatedAt = nextItemStamp(existing);
+          if (d.type === "login" && updated.login.password !== oldPw) {
             var hist = (existing.passwordHistory || []).slice();
             if (oldPw) hist.unshift({ password: oldPw, updatedAt: Date.now() });
             var limit = Number(this.doc.settings.passwordHistoryLimit || 5);
@@ -1904,31 +1754,61 @@ setTimeout(function () {
           this.selectedId = updated.id;
         }
         this.editor = null; this.draft = null; this.uiView = "detail";
+        this.revealed = {};
         this.markDirty();
+        this.tickTotp();
+        this.$nextTick(function () { this.$refs.detailTitle?.focus(); });
         this.showToast("已保存", "success");
       },
       deleteItem: function (id) {
         var it = this.doc.items.find(function (x) { return x.id === id; });
         if (!it) return;
         if (!window.confirm("删除「" + (it.name || "未命名") + "」？将移入回收站。")) return;
-        var now = Date.now();
+        var now = nextItemStamp(it);
         it.deletedAt = now;
         it.updatedAt = now;
         this.doc.items = this.doc.items.filter(function (x) { return x.id !== id; });
         this.doc.deleted.unshift(it);
-        if (this.selectedId === id) { this.selectedId = null; this.uiView = "list"; }
-        if (this.editor && this.editor.id === id) { this.editor = null; this.draft = null; this.uiView = "list"; }
+        if (this.selectedId === id || this.editor?.id === id) this.backToList();
         this.markDirty();
         this.showToast("已移入回收站", "success");
       },
+      restoreItem: function (it) {
+        if (!this.doc.deleted.includes(it)) return;
+        this.doc.deleted = this.doc.deleted.filter(function (entry) { return entry.id !== it.id; });
+        it.updatedAt = nextItemStamp(it);
+        delete it.deletedAt;
+        if (!this.doc.folders.some(function (folder) { return folder.id === it.folderId; })) it.folderId = null;
+        this.doc.items.unshift(it);
+        this.markDirty();
+        this.search = "";
+        this.filterType = "all";
+        this.filterFolder = null;
+        this.openItem(it);
+        this.tickTotp();
+        this.showToast("已恢复记录", "success");
+      },
+      purgeItem: function (it) {
+        if (!this.doc.deleted.includes(it) || !window.confirm("永久删除「" + (it.name || "未命名") + "」？此操作无法撤销。")) return;
+        this.doc.deleted = this.doc.deleted.filter(function (entry) { return entry.id !== it.id; });
+        this.doc.purged.push({ id: it.id, purgedAt: nextItemStamp(it) });
+        this.markDirty();
+        this.backToList();
+        this.showToast("已永久删除", "success");
+      },
       toggleFavorite: function (it) {
         it.favorite = !it.favorite;
-        it.updatedAt = Date.now();
+        it.updatedAt = nextItemStamp(it);
         this.markDirty();
       },
 
       /* ---------------- 文件夹 ---------------- */
-      startAddFolder: function () { this.addingFolder = true; this.newFolderName = ""; this.$nextTick(function () {}); },
+      startAddFolder: function () {
+        this.addingFolder = true;
+        this.newFolderName = "";
+        this.$nextTick(function () { this.$refs.folderInput?.focus(); });
+      },
+      cancelAddFolder: function () { this.addingFolder = false; this.newFolderName = ""; },
       confirmAddFolder: function () {
         var name = String(this.newFolderName || "").trim();
         this.addingFolder = false;
@@ -1965,13 +1845,15 @@ setTimeout(function () {
       tickTotp: async function () {
         if (!this.doc) return;
         var items = this.doc.items.filter(function (it) { return it.type === "login" && it.login && it.login.totp; });
-        var draftTotp = this.draft && this.draft.type === "login" && this.draft.login.totp ? this.draft.login.totp : "";
+        var key = this.key;
+        var draftTotp = this.draft?.login?.totp || "";
         var jobs = items.map(function (it) { return { id: it.id, secret: it.login.totp }; });
-        if (draftTotp) jobs.push({ id: "__draft__", secret: draftTotp });
+        if (draftTotp && validTotp(draftTotp)) jobs.push({ id: "__draft__", secret: draftTotp });
         if (!jobs.length) { this.totpMap = {}; return; }
         var results = await Promise.all(jobs.map(function (j) {
           return READ.calcTotpNow(j.secret).then(function (r) { return { id: j.id, r: r }; }, function () { return { id: j.id, r: null }; });
         }));
+        if (this.phase !== "unlocked" || this.key !== key || (this.draft?.login?.totp || "") !== draftTotp) return;
         var map = {};
         results.forEach(function (x) { if (x.r) map[x.id] = x.r; });
         this.totpMap = map;
@@ -1984,7 +1866,11 @@ setTimeout(function () {
         this.showGenerator = true;
         this.regenerate();
       },
-      closeGenerator: function () { this.showGenerator = false; this.generatorTarget = null; },
+      closeGenerator: function () {
+        this.showGenerator = false;
+        this.generatorTarget = null;
+        this.generatorResult = "";
+      },
       regenerate: function () {
         var mode = this.gen.mode;
         if (mode === "passphrase") this.generatorResult = READ.generatePassphrase(this.gen);
@@ -1993,7 +1879,7 @@ setTimeout(function () {
         this.persistUi();
       },
       regenIfNeeded: function () { this.regenerate(); },
-      copyGenerator: function () { this.copyField(this.generatorResult, "已复制"); },
+      copyGenerator: function () { this.copyField(this.generatorResult, "已复制", true); },
       applyGeneratorToDraft: function () {
         if (this.draft && this.draft.type === "login") {
           this.draft.login.password = this.generatorResult;
@@ -2005,15 +1891,31 @@ setTimeout(function () {
 
       /* ---------------- 安全检查 ---------------- */
       openSecurity: function () { this.showSecurity = true; this.runSecurityCheck(); },
+      closeSecurity: function () {
+        this.showSecurity = false;
+        this.security = null;
+        this.revealed = {};
+      },
       runSecurityCheck: async function () {
         this.securityLoading = true;
         try {
-          this.security = await READ.analyzePasswords(this.doc.items);
-          this.secFilter = "all";
+          var key = this.key;
+          var report = await READ.analyzePasswords(this.doc.items);
+          if (this.showSecurity && this.key === key) {
+            this.security = report;
+            this.secFilter = "all";
+          }
         } finally { this.securityLoading = false; }
       },
 
       /* ---------------- 导入导出 ---------------- */
+      closeIo: function () { this.showIo = false; this.importFile = null; },
+      closeSettings: function () {
+        this.showSettings = false;
+        this.newMaster = "";
+        this.newMaster2 = "";
+        this.settingsError = "";
+      },
       onImportFile: function (e) {
         var f = e.target.files && e.target.files[0];
         this.importFile = f || null;
@@ -2037,7 +1939,9 @@ setTimeout(function () {
         if (!this.importFile) return;
         this.busy = true;
         try {
+          var key = this.key;
           var text = await this.importFile.text();
+          if (!this.showIo || this.key !== key) return;
           var fmt = this.importFormat;
           if (fmt === "auto") {
             var head = text.trimStart();
@@ -2054,7 +1958,8 @@ setTimeout(function () {
 
           // 合并：文件夹按名去重，条目追加
           var self = this;
-          var folderMap = {};
+          var folderMap = Object.create(null);
+          var itemIds = new Set(this.doc.items.concat(this.doc.deleted, this.doc.purged).map(function (it) { return it.id; }));
           this.doc.folders.forEach(function (f) { folderMap[f.name.toLowerCase()] = f.id; });
           (imported.folders || []).forEach(function (f) {
             var key = f.name.toLowerCase();
@@ -2066,7 +1971,8 @@ setTimeout(function () {
           });
           var added = 0;
           (imported.items || []).forEach(function (it) {
-            it.id = it.id && !self.doc.items.some(function (x) { return x.id === it.id; }) ? it.id : READ.uuid();
+            if (!it.id || itemIds.has(it.id)) it.id = READ.uuid();
+            itemIds.add(it.id);
             if (it.folderId) {
               var fname = (imported.folders || []).find(function (f) { return f.id === it.folderId; });
               it.folderId = fname ? folderMap[fname.name.toLowerCase()] : null;
@@ -2078,8 +1984,7 @@ setTimeout(function () {
           });
           this.markDirty();
           this.showToast("已导入 " + added + " 条记录", "success");
-          this.showIo = false;
-          this.importFile = null;
+          this.closeIo();
         } catch (e) {
           this.showToast("导入失败：" + e.message, "error");
         } finally { this.busy = false; }
@@ -2089,6 +1994,18 @@ setTimeout(function () {
 
   /* ================= 辅助函数（组件外部，纯函数） ================= */
   var collator = new Intl.Collator("zh-Hans-CN", { numeric: true, sensitivity: "base" });
+
+  function nextItemStamp(item) {
+    return Math.max(Date.now(), num(item.updatedAt) + 1, num(item.deletedAt) + 1, num(item.createdAt) + 1);
+  }
+
+  function validTotp(value) {
+    var input = String(value || "").trim();
+    if (!input) return true;
+    if (/^otpauth:/i.test(input) && !/^otpauth:\/\/totp\//i.test(input)) return false;
+    var secret = READ.parseTotpConfig(input).secret.replace(/[\s-]/g, "");
+    return /^[a-z2-7]{2,}=*$/i.test(secret) && READ.base32ToBytes(secret).length > 0;
+  }
 
   function num(v) { return Number(v) || 0; }
 
@@ -2104,7 +2021,7 @@ setTimeout(function () {
       vaultId: READ.uuid(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      settings: { autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: true },
+      settings: { autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: false },
       folders: [],
       deletedFolders: [],
       items: [],
@@ -2119,7 +2036,7 @@ setTimeout(function () {
     doc.vaultId = doc.vaultId || READ.uuid();
     doc.createdAt = num(doc.createdAt) || Date.now();
     doc.updatedAt = num(doc.updatedAt) || Date.now();
-    doc.settings = Object.assign({ autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: true }, doc.settings || {});
+    doc.settings = Object.assign({ autoLockMinutes: 15, clipboardClearSeconds: 30, itemSort: "edited", folderSort: "name", passwordHistoryLimit: 5, showFavicons: false }, doc.settings || {});
     doc.folders = Array.isArray(doc.folders) ? doc.folders : [];
     doc.deletedFolders = Array.isArray(doc.deletedFolders) ? doc.deletedFolders : [];
     doc.items = Array.isArray(doc.items) ? doc.items : [];
@@ -2187,6 +2104,10 @@ setTimeout(function () {
     setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
   }
 
+  vaultApp.directive("vault-dialog", {
+    mounted: function (dialog) { dialog.showModal(); },
+    beforeUnmount: function (dialog) { dialog.close(); }
+  });
   vaultApp.mount("#app");
 })();
 </script>
