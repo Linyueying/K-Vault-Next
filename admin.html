@@ -454,7 +454,7 @@ html[data-theme="dark"] .folder-crumb{color:var(--primary-light)}
 /* 默认不带 backdrop-filter：卡片数量 = 列表长度，每张都模糊等于每帧重算 N 层，
    hover 的 transform 又会为每张卡再建一次合成层 —— admin 列表是本项目最大单项开销。
    底色改用 --glass-surface-flat（不透明度高一档，补偿没有 blur 时的对比度损失）。 */
-.vault-card{position:relative;background:var(--glass-surface-flat);border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple);display:flex;flex-direction:column;}
+.vault-card{position:relative;background:var(--glass-surface-flat);border:1px solid var(--glass-border);border-radius:var(--r-lg);transition:border-color .3s var(--ease-apple),transform .38s var(--ease-spring),box-shadow .38s var(--ease-apple),background .45s var(--ease-apple);display:flex;flex-direction:column;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
 @media(hover:hover){.vault-card:hover{border-color:var(--primary-light);transform:translateY(-3px) scale(1.006);box-shadow:0 10px 26px -6px rgba(var(--primary-rgb),.22)}}
 .vault-card:active{transform:translateY(-1px) scale(.985);transition-duration:.1s}
 .vault-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px rgba(var(--primary-rgb),.2)}
@@ -540,7 +540,7 @@ html[data-theme="dark"] .vault-row.is-folder .row-meta .tag{color:#fcd34d}
 /* 列表视图（错峰入场，见动画应用层） */
 .vault-list{display:flex;flex-direction:column;gap:7px;width:100%;flex:1}
 /* 同 .vault-card：列表行数量随数据量增长，逐行模糊扛不住。 */
-.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface-flat);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple);width:100%;box-sizing:border-box;}
+.vault-row{display:flex;align-items:center;gap:var(--sp-3);min-height:64px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-lg);border:1px solid var(--glass-border);background:var(--glass-surface-flat);transition:border-color .3s var(--ease-apple),transform .34s var(--ease-spring),box-shadow .34s var(--ease-apple),background .45s var(--ease-apple);width:100%;box-sizing:border-box;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
 @media(hover:hover){.vault-row:hover{border-color:var(--primary-light);transform:translateX(3px)}}
 .vault-row:active{transform:scale(.99);transition-duration:.1s}
 .vault-row.selected{border-color:var(--primary);background:var(--primary-surface)}
@@ -2104,44 +2104,51 @@ html[data-perf="low"] .dock{transition:none}
 <div id="app" v-cloak :class="{'is-booted': booted, 'dock-hold': dockHold, 'dock-hold--snap': dockSnap}">
 
   <!-- ===== 顶栏 ===== -->
-  <header class="micro-topbar">
-    <div class="brand-box">
-      <div class="brand-logo-wrap" @click="goHome" title="返回首页">
-        <img :src="logoSrc" alt="Logo" @error="logoSrc='/assets/img/favicon.ico'">
+  <div class="kv-header-wrap">
+        <header class="kv-header" data-kv-header>
+          <a class="kv-brand" href="/" @click.prevent="goHome" title="返回首页">
+            <span class="kv-brand__mark"><img src="/assets/img/logo-64.png" alt="K-Vault-Next" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" /></span>
+            <span class="kv-brand__name" data-brand-name>K-Vault-Next</span>
+            <span class="kv-brand__tag">管理后台</span>
+          </a>
+          <nav class="kv-nav" aria-label="主导航">
+            <span class="kv-nav__pill" aria-hidden="true"></span>
+            <a href="/">首页</a>
+            <a href="/upload.html">上传</a>
+            <a href="/show">Show</a>
+            <a href="/vault.html">密码库</a>
+            <a href="/webdav.html">接入</a>
+            <a href="/admin/files" aria-current="page">后台</a>
+          </nav>
+          <div class="kv-actions">
+            <button type="button" class="kv-icon-btn" @click="openShowManager" title="管理 Show" aria-label="管理 Show">
+              <i class="fas fa-images" aria-hidden="true"></i>
+            </button>
+            <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
+              <span class="status-pulse" :class="{'is-settling': statusChecking}"></span>
+              <span class="status-chip" v-for="s in statusItems" :key="s.key">
+                <i class="fas" :class="statusIcon(s.key)" :style="{color: dot(s.key)}"></i>
+                <span>{{ s.short }}</span>
+              </span>
+            </div>
+            <button type="button" class="kv-icon-btn kv-icon-btn--danger" @click="logout" title="退出登录" aria-label="退出登录">
+              <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
+            </button>
+            <button class="kv-theme" type="button" @click="toggleTheme" :title="currentTheme==='dark'?'浅色模式':'深色模式'" aria-label="切换主题">
+              <svg class="kv-theme__ico kv-theme__ico--moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+              <svg class="kv-theme__ico kv-theme__ico--sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              </svg>
+            </button>
+            <button class="kv-nav-toggle" type="button" data-kv-nav-toggle aria-label="展开导航菜单" aria-expanded="false">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            </button>
+          </div>
+        </header>
       </div>
-      <div class="brand-text-wrap">
-        <h1>管理后台</h1>
-        <span>K-Vault Console</span>
-      </div>
-    </div>
-
-    <div class="top-actions">
-      <!-- 必须用绝对路径：本页走 /admin/<section> 分区路由（goSection 里 pushState），
-           href="./" 会被解析成 /admin/，点了等于没走。 -->
-      <!-- 只留图标：与「主题 / 登出」同规格的圆形按钮，三个并排收在标题右侧。
-           用房子而非云朵 —— 它的实际行为是「回首页」，云朵图标会让人
-           以为这里能直接上传。 -->
-      <a href="/" class="icon-round" title="返回首页" aria-label="返回首页">
-        <i class="fas fa-house"></i>
-      </a>
-      <button type="button" class="icon-round" @click="openShowManager" title="管理 Show" aria-label="管理 Show">
-        <i class="fas fa-images" aria-hidden="true"></i>
-      </button>
-      <div class="status-cluster" @click="checkStatus" title="点击检查全部连接状态">
-        <span class="status-pulse" :class="{'is-settling': statusChecking}"></span>
-        <span class="status-chip" v-for="s in statusItems" :key="s.key">
-          <i class="fas" :class="statusIcon(s.key)" :style="{color: dot(s.key)}"></i>
-          <span>{{ s.short }}</span>
-        </span>
-      </div>
-      <button class="icon-round" @click="toggleTheme" :title="currentTheme==='dark'?'浅色模式':'深色模式'">
-        <i :class="currentTheme==='dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
-      </button>
-      <button class="icon-round danger" @click="logout" title="退出登录">
-        <i class="fas fa-right-from-bracket"></i>
-      </button>
-    </div>
-  </header>
 
   <!-- ===== 工具栏 ===== -->
   <!-- ===== 板块容器：dock 切换的四个分页 =====
@@ -2380,15 +2387,15 @@ html[data-perf="low"] .dock{transition:none}
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-card"
              :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, dragging: drag.ids.indexOf(item.id||item.name)>-1, 'menu-open': openMenu==='card:'+item.name, 'is-deleting': deletingNames.indexOf(item.name)>-1, 'is-restoring': restoringNames.indexOf(item.name)>-1}"
-             :draggable="!item.__isFolder"
-             @dragstart="!item.__isFolder && dragStart(item,$event)"
+             :draggable="true"
+             @dragstart="dragStart(item,$event)"
              @dragend="dragEnd"
              @pointerdown="onCardPressStart(item, $event)"
              @pointermove="onCardPressMove($event)"
              @pointerup="onCardPressEnd()"
              @pointercancel="onCardPressEnd()"
              @pointerleave="onCardPressEnd()"
-             @contextmenu.prevent="item.__isFolder || (item.selected = true, longPressActive = true)"
+             @contextmenu.prevent="selectItemOnContext(item)"
              @dragover.prevent="item.__isFolder && (drag.target=item.path)"
              @dragleave="item.__isFolder && (drag.target=null)"
              @drop.prevent="item.__isFolder && dropFolder(item.path,$event)">
@@ -2398,12 +2405,13 @@ html[data-perf="low"] .dock{transition:none}
                因此不复用文件卡片的元信息区，只保留「名称 + 计数 + 进入」，
                并给出重命名 / 删除入口。整张卡片可点即进入该目录。 -->
           <template v-if="item.__isFolder">
-            <div class="card-thumb card-thumb--folder" @click="selectFolder(item.path)"
+            <span v-if="item.selected" class="card-picked" aria-hidden="true"><i class="fas fa-check"></i></span>
+            <div class="card-thumb card-thumb--folder" @click="onCardTap(item, () => selectFolder(item.path))"
                  :class="{ 'drop-target': drag.target===item.path }">
               <i class="fas fa-folder"></i>
               <span class="card-badge">文件夹</span>
             </div>
-            <div class="card-body" @click="selectFolder(item.path)">
+            <div class="card-body" @click="onCardTap(item, () => selectFolder(item.path))">
               <div class="card-name" :title="item.folderName">{{ item.folderName }}</div>
               <div class="card-meta">
                 <span><i class="fas fa-folder-open"></i> {{ item.fileCount }} 个文件</span>
@@ -2421,6 +2429,7 @@ html[data-perf="low"] .dock{transition:none}
                      在挂载时播同一个 menuIn。 -->
                 <div :class="['dropdown-panel','right','act-menu','act-menu--anim',{'up':menuUp}]" v-if="openMenu==='card:'+item.name">
                   <button class="dropdown-item" @click.stop="openFolderShare(item.path, item.folderName)"><i class="fas fa-share-nodes"></i><span>分享文件夹</span></button>
+                  <button class="dropdown-item" @click.stop="openMoveFolder(item.path, item.folderName)"><i class="fas fa-folder-tree"></i><span>移动到目录</span></button>
                   <button class="dropdown-item" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-pen"></i><span>重命名</span></button>
                   <div class="dropdown-divider"></div>
                   <button class="dropdown-item danger-item" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-trash"></i><span>删除文件夹</span></button>
@@ -2440,7 +2449,7 @@ html[data-perf="low"] .dock{transition:none}
           <span v-if="item.selected" class="card-picked" aria-hidden="true"><i class="fas fa-check"></i></span>
 
           <div class="card-thumb" @click="onCardTap(item, () => openPreview(item))">
-            <img v-if="type(item.name)==='image'" :src="thumbOf(item)" loading="lazy" decoding="async"
+            <img v-if="type(item.name)==='image'" :src="thumbOf(item)" loading="lazy" decoding="async" draggable="false"
                  :alt="item.metadata.fileName || item.name" @error="onThumbError($event, item)">
             <i v-else :class="icon(item.name)"></i>
             <span class="card-badge">{{ typeLabelOf(item.name) }}</span>
@@ -2508,21 +2517,24 @@ html[data-perf="low"] .dock{transition:none}
         <div v-for="item in pageEntries" :key="item.name"
              class="vault-row"
              :class="{selected:item.selected, 'is-folder':item.__isFolder, 'picking':longPressActive, 'menu-open': openMenu==='row:'+item.name, 'is-deleting': deletingNames.indexOf(item.name)>-1, 'is-restoring': restoringNames.indexOf(item.name)>-1}"
+             :draggable="true"
+             @dragstart="dragStart(item,$event)"
+             @dragend="dragEnd"
              @pointerdown="onCardPressStart(item, $event)"
              @pointermove="onCardPressMove($event)"
              @pointerup="onCardPressEnd()"
              @pointercancel="onCardPressEnd()"
              @pointerleave="onCardPressEnd()"
-             @contextmenu.prevent="item.__isFolder || (item.selected = true, longPressActive = true)"
+             @contextmenu.prevent="selectItemOnContext(item)"
              @dragover.prevent="item.__isFolder && (drag.target=item.path)"
              @dragleave="item.__isFolder && (drag.target=null)"
              @drop.prevent="item.__isFolder && dropFolder(item.path,$event)">
           <!-- 文件夹分支：无下载 / 大小 / 存储，整行可点进入 -->
           <template v-if="item.__isFolder">
-            <div class="row-thumb row-thumb--folder" @click="selectFolder(item.path)">
+            <div class="row-thumb row-thumb--folder" @click="onCardTap(item, () => selectFolder(item.path))">
               <i class="fas fa-folder"></i>
             </div>
-            <div class="row-info" @click="selectFolder(item.path)">
+            <div class="row-info" @click="onCardTap(item, () => selectFolder(item.path))">
               <div class="row-name" :title="item.folderName">{{ item.folderName }}</div>
               <div class="row-meta">
                 <span class="tag">文件夹</span>
@@ -2538,6 +2550,7 @@ html[data-perf="low"] .dock{transition:none}
                 <!-- L2：同上，去掉 v-for 内每行一个的 <transition name="menu"> -->
                 <div :class="['dropdown-panel','right','act-menu','act-menu--anim',{'up':menuUp}]" v-if="openMenu==='row:'+item.name">
                   <button class="dropdown-item" @click.stop="openFolderShare(item.path, item.folderName)"><i class="fas fa-share-nodes"></i><span>分享文件夹</span></button>
+                  <button class="dropdown-item" @click.stop="openMoveFolder(item.path, item.folderName)"><i class="fas fa-folder-tree"></i><span>移动到目录</span></button>
                   <button class="dropdown-item" @click.stop="handleRenameFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-pen"></i><span>重命名</span></button>
                   <div class="dropdown-divider"></div>
                   <button class="dropdown-item danger-item" @click.stop="handleDeleteFolderNode({path:item.path,name:item.folderName})"><i class="fas fa-trash"></i><span>删除文件夹</span></button>
@@ -2550,7 +2563,7 @@ html[data-perf="low"] .dock{transition:none}
                下载并入「…」菜单。选中态靠 .vault-row.selected 描边表示。 -->
           <template v-else>
             <div class="row-thumb" @click="onCardTap(item, () => openPreview(item))">
-              <img v-if="type(item.name)==='image'" :src="thumbOf(item)" loading="lazy" decoding="async"
+              <img v-if="type(item.name)==='image'" :src="thumbOf(item)" loading="lazy" decoding="async" draggable="false"
                    :alt="item.metadata.fileName || item.name" @error="onThumbError($event, item)">
               <i v-else :class="icon(item.name)"></i>
             </div>
@@ -3758,6 +3771,29 @@ html[data-perf="low"] .dock{transition:none}
             <a class="ui-btn ui-btn--secondary" href="/webdav.html" target="_blank" rel="noopener">打开接入页</a>
           </div>
           <button type="button" class="ui-btn ui-btn--danger" style="width:100%;margin-top:6px" :disabled="webdavSaving" @click="resetWebdavSettings">恢复默认</button>
+
+          <div class="ui-section-label" style="margin-top:22px">挂载根目录</div>
+          <div class="ui-group">
+            <div class="ui-field">
+              <label class="ui-field__label" for="adminDavRoot">目录</label>
+              <select id="adminDavRoot" v-model="webdavMountSelected" :disabled="webdavMountDisabled" aria-describedby="adminDavRootStatus">
+                <option v-if="webdavMount.status === 'missing'" value="__missing__" disabled>{{ webdavMount.rootPath }}（挂载已停用）</option>
+                <option value="">文件库根目录（默认）</option>
+                <option v-for="folder in webdavMount.folders" :key="folder" :value="folder">{{ folder }}</option>
+              </select>
+              <button type="button" class="ui-copy" :disabled="webdavMountLoading || webdavMountSaving" @click="loadWebdavMountRoot" aria-label="刷新文件夹列表" title="刷新文件夹列表">
+                <i class="fas fa-rotate-right" :class="{ 'fa-spin': webdavMountLoading }"></i>
+              </button>
+            </div>
+          </div>
+          <p class="ui-note" id="adminDavRootStatus" role="status" v-if="webdavMountStatusText">{{ webdavMountStatusText }}</p>
+          <p class="ui-note">保存后，所有使用 <code>/dav/</code> 的客户端都会看到所选目录的内容。切换前建议暂停备份任务。</p>
+          <div class="ui-actions">
+            <button type="button" class="ui-btn ui-btn--secondary" :disabled="!webdavMountCanSave" @click="saveWebdavMountRoot">
+              <i class="fas" :class="webdavMountSaving ? 'fa-circle-notch fa-spin' : 'fa-folder-tree'"></i>
+              <span>{{ webdavMountSaving ? '保存中…' : '保存挂载目录' }}</span>
+            </button>
+          </div>
         </template>
 
         <p class="ui-note" v-else>关闭时 <code>/dav</code> 返回 404。</p>
@@ -4273,22 +4309,46 @@ html[data-perf="low"] .dock{transition:none}
        :duration 直接给出 { enter: 340, leave: 200 }，与两个关键帧严格对齐，
        Vue 改用定时器收尾，不再嗅探、不再依赖事件是否真的派发 -->
   <transition name="bar" :duration="{ enter: 340, leave: 200 }">
-  <div class="batch-dock" v-if="selectedFiles.length">
-    <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedFiles.length }}</strong> 项</span>
+  <div class="batch-dock" v-if="longPressActive || selectedCount">
+    <span class="batch-dock__info"><i class="fas fa-check-circle"></i> 已选 <strong>{{ selectedCount }}</strong> 项</span>
     <div class="batch-dock__actions">
-      <button class="dock-act" @click="batchCopy" title="复制所选文件的直链"><i class="fas fa-link"></i><span>复制链接</span></button>
+      <button class="dock-act" @click="toggleSelectAllPage" :title="allPageSelected ? '取消全选当前页' : '全选当前页项目'"><i class="fas fa-check-double"></i><span>{{ allPageSelected ? '全不选' : '全选' }}</span></button>
+      <button v-if="selectedCount === 1" class="dock-act" @click="renameSelectedSingle" title="重命名所选项"><i class="fas fa-pen"></i><span>重命名</span></button>
+      <button v-if="selectedFiles.length" class="dock-act" @click="batchCopy" title="复制所选文件的直链"><i class="fas fa-link"></i><span>复制链接</span></button>
       <button v-if="selectedFiles.some(isShowMedia)" class="dock-act" @click="publishShow()" :disabled="showBusy" title="将所选图片和视频发布到 Show"><i class="fas fa-images" aria-hidden="true"></i><span>添加到 Show</span></button>
-      <button class="dock-act" @click="openBundleShare()" title="生成分享链接（单个或多个文件均可）"><i class="fas fa-share-nodes"></i><span>分享</span></button>
-      <button class="dock-act" @click="openMove()" title="把所选文件移动到其它目录"><i class="fas fa-folder-tree"></i><span>移动到</span></button>
-      <button class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
-      <button class="dock-act danger" @click="batchDelete" title="批量移入回收站"><i class="fas fa-trash"></i><span>删除</span></button>
-      <button class="dock-act" @click="clearSelection" title="取消选择"><i class="fas fa-xmark"></i><span>取消</span></button>
+      <button v-if="selectedFiles.length || (selectedFolders.length === 1 && !selectedFiles.length)" class="dock-act" @click="shareSelected" title="生成分享链接"><i class="fas fa-share-nodes"></i><span>分享</span></button>
+      <button v-if="selectedCount" class="dock-act" @click="openMoveSelected" title="将所选文件或文件夹移动到其它目录"><i class="fas fa-folder-tree"></i><span>移动到</span></button>
+      <button v-if="selectedFiles.length" class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
+      <button v-if="selectedCount" class="dock-act danger" @click="batchDeleteSelected" title="删除所选项"><i class="fas fa-trash"></i><span>删除</span></button>
+      <button class="dock-act" @click="clearSelection" title="退出多选"><i class="fas fa-xmark"></i><span>取消</span></button>
     </div>
   </div>
   </transition>
 
   </main>
   <!-- /.section-host -->
+
+  <footer class="kv-footer kv-footer--dock">
+        <div class="kv-footer__meta">
+          <span class="kv-footer__brand">
+            <img src="/assets/img/logo-64.png" alt="K-Vault-Next" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" />
+            <span data-brand-name>K-Vault-Next</span>
+          </span>
+          <span class="kv-footer__dot" aria-hidden="true">·</span>
+          <a class="kv-footer__license" href="https://github.com/Linyueying/K-Vault-Next/blob/HEAD/LICENSE" target="_blank" rel="noopener noreferrer">© 2026 Linyueying · AGPL-3.0 开源协议</a>
+        </div>
+        <nav class="kv-footer__links" aria-label="页脚导航">
+          <a href="https://github.com/Linyueying/K-Vault-Next" target="_blank" rel="noopener noreferrer">
+            <svg class="kv-footer__gh-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+            <span>GitHub</span>
+          </a>
+          <a href="/promo.html">宣传页</a>
+          <a href="/show">Show</a>
+          <a href="/vault.html">密码库</a>
+          <a href="/webdav.html">WebDAV / MCP</a>
+          <a href="/admin/files">管理后台</a>
+        </nav>
+      </footer>
 
   <dialog ref="showPublishDialog" class="dialog-panel show-manager" aria-labelledby="show-publish-title"
           @cancel="showBusy && $event.preventDefault()" @close="showPublishFiles = []">
@@ -4386,10 +4446,13 @@ html[data-perf="low"] .dock{transition:none}
     <div class="dialog-panel">
       <h2 class="dialog-title">
         <i class="fas fa-folder-tree"></i>
-        <span>移动文件</span>
+        <span>{{ moveFolderSources.length && !moveFiles.length ? '移动文件夹' : (moveFolderSources.length ? '移动已选项目' : '移动文件') }}</span>
       </h2>
       <div class="dialog-message">
-        已选 <strong>{{ moveFiles.length }}</strong> 个文件，目标：<strong>{{ moveTarget || '根目录' }}</strong>
+        <template v-if="moveFolderSources.length && moveFiles.length">已选 <strong>{{ moveFolderSources.length }}</strong> 个文件夹、<strong>{{ moveFiles.length }}</strong> 个文件</template>
+        <template v-else-if="moveFolderSources.length === 1">移动文件夹 <strong>{{ moveFolderSources[0] }}</strong></template>
+        <template v-else-if="moveFolderSources.length > 1">已选 <strong>{{ moveFolderSources.length }}</strong> 个文件夹</template>
+        <template v-else>已选 <strong>{{ moveFiles.length }}</strong> 个文件</template>，目标：<strong>{{ moveTarget || '根目录' }}</strong>
       </div>
 
       <div class="search-box mb-sm">
@@ -4748,6 +4811,7 @@ const folderNodeComponent = {
       this.$emit('toggle', this.node.path);
     },
     onRename(e) { e.stopPropagation(); this.$emit('rename', this.node); },
+    onMove(e)   { e.stopPropagation(); this.$emit('move', this.node); },
     onDelete(e) { e.stopPropagation(); this.$emit('delete', this.node); },
     onShare(e)  { e.stopPropagation(); this.$emit('share', this.node); },
     onDragOver()  { this.$emit('dragover-node', this.node.path); },
@@ -4775,6 +4839,7 @@ const folderNodeComponent = {
         </transition>
         <div class="folder-tree-acts">
           <button class="folder-tree-act" @click="onShare" title="分享此目录"><i class="fas fa-share-nodes"></i></button>
+          <button class="folder-tree-act" @click="onMove" title="移动目录"><i class="fas fa-folder-tree"></i></button>
           <button class="folder-tree-act" @click="onRename" title="重命名"><i class="fas fa-pen"></i></button>
           <button class="folder-tree-act danger" @click="onDelete" title="删除目录"><i class="fas fa-trash"></i></button>
         </div>
@@ -4790,6 +4855,7 @@ const folderNodeComponent = {
                          @select="$emit('select', $event)"
                          @toggle="$emit('toggle', $event)"
                          @rename="$emit('rename', $event)"
+                         @move="$emit('move', $event)"
                          @delete="$emit('delete', $event)"
                          @share="$emit('share', $event)"
                          @dragover-node="$emit('dragover-node', $event)"
@@ -4809,7 +4875,7 @@ const DOCK_SLOT_BY_SECTION = Object.fromEntries(SECTION_ORDER.map((section, inde
 
 /* 长按判定阈值（毫秒）。450~500ms 是移动端长按的常见区间：
    短于 400ms 会与「点按」混淆，长于 600ms 用户会以为没反应。 */
-const LONG_PRESS_MS = 480;
+const LONG_PRESS_MS = 380;
 
 /* ============ q-tip：标题旁的灰色小问号 + 说明浮层 ============
    把设置区大量常驻的「功能解释」收进浮层，悬停显示、点击固定。
@@ -4987,10 +5053,10 @@ const __kvApp = Vue.createApp({
 
     logoSrc: '/assets/img/logo-64.png',
 
-    drag: { ids: [], target: null },
+    drag: { ids: [], folderPath: '', target: null },
     preview: null,
 
-    moveVisible: false, moveFiles: [], moveTarget: '', moveSearch: '', newFolder: '',
+    moveVisible: false, moveFiles: [], moveFolderSources: [], moveTarget: '', moveSearch: '', newFolder: '',
 
     /* 合集分享：把选中文件聚合成一个分享链接 */
     bundleVisible: false,
@@ -5031,6 +5097,7 @@ const __kvApp = Vue.createApp({
     menuUp: false,
     /* 长按多选：longPressActive 为真时卡片/行处于「点一下就切换选中」模式 */
     longPressActive: false,
+    selectedFolders: [],
     filterSheetOpen: false,
     toasts: [],
 
@@ -5188,6 +5255,13 @@ const __kvApp = Vue.createApp({
       { value:'r2',       label:'Cloudflare R2' }
     ],
     webdavAddrCopied: false,
+    webdavMountLoading: false,
+    webdavMountSaving: false,
+    webdavMountLoaded: false,
+    webdavMountError: '',
+    /* WebDAV 服务端挂载根目录（D1 webdav_mount 表）：status = library | ready | missing | unsupported */
+    webdavMount: { status: 'library', rootPath: '', folders: [] },
+    webdavMountSelected: '',
 
     /* ---------- MCP 端点（把本项目的上传/读取/删除能力开放给 AI Agent） ----------
        与 WebDAV 服务端同构：默认关闭，由管理员在后台显式开启。
@@ -5367,7 +5441,30 @@ const __kvApp = Vue.createApp({
     webdavAccessSummary() {
       if (!this.webdavForm.enabled) return '挂载为网络磁盘';
       const short = { telegram: 'Telegram', r2: 'Cloudflare R2', s3: 'S3', webdav: 'WebDAV', github: 'GitHub' };
-      return (this.webdavForm.readOnly ? '只读' : '读写') + ' · ' + (short[this.webdavForm.backend] || this.webdavForm.backend);
+      let text = (this.webdavForm.readOnly ? '只读' : '读写') + ' · ' + (short[this.webdavForm.backend] || this.webdavForm.backend);
+      if (this.webdavMountLoaded) {
+        if (this.webdavMount.status === 'missing') text += ' · 挂载目录已失效';
+        else if (this.webdavMount.rootPath) text += ' · /' + this.webdavMount.rootPath;
+      }
+      return text;
+    },
+    webdavMountDisabled() {
+      return this.webdavMountLoading || this.webdavMountSaving || this.webdavMount.status === 'unsupported';
+    },
+    webdavMountCanSave() {
+      if (this.webdavMountDisabled || !this.webdavMountLoaded) return false;
+      if (this.webdavMountSelected === '__missing__') return false;
+      if (this.webdavMount.status === 'missing') return true;
+      return this.webdavMountSelected !== this.webdavMount.rootPath;
+    },
+    webdavMountStatusText() {
+      if (this.webdavMountLoading) return '正在读取挂载根目录…';
+      if (this.webdavMountError) return this.webdavMountError;
+      if (!this.webdavMountLoaded) return '';
+      if (this.webdavMount.status === 'missing') return '原文件夹已被删除或移动，WebDAV 已暂停。请重新选择并保存。';
+      if (this.webdavMount.status === 'unsupported') return '设置独立挂载目录需要绑定 D1 文件数据库。';
+      if (!this.webdavMount.folders.length) return '在文件管理中新建文件夹后，点击刷新即可选择。';
+      return '当前挂载：' + (this.webdavMount.rootPath || '文件库根目录');
     },
     mcpAccessSummary() {
       if (!this.mcpForm.enabled) return '让 AI 直接读写文件';
@@ -5541,7 +5638,7 @@ const __kvApp = Vue.createApp({
           path: p,
           folderName: f.name || p.split('/').pop() || p,
           fileCount: f.fileCount || 0,
-          selected: false,
+          selected: this.selectedFolders.indexOf(p) > -1,
         });
       });
       return out.sort((a, b) => a.folderName.localeCompare(b.folderName, 'zh-CN'));
@@ -5644,12 +5741,22 @@ const __kvApp = Vue.createApp({
       }
       return out;
     },
+    selectedCount() {
+      return this.selectedFiles.length + this.selectedFolders.length;
+    },
+    allPageSelected() {
+      const entries = this.pageEntries || [];
+      return entries.length > 0 && entries.every(x => x.selected);
+    },
     moveOptions() {
       const kw = this.moveSearch.trim().toLowerCase();
+      const sources = (this.moveFolderSources || []).map(s => this.normalizeFolderPath(s)).filter(Boolean);
       const a = [{ path: '', label: '根目录', count: '' }];
       (this.folders || []).forEach(f => {
         const p = this.normalizeFolderPath(f.path || f.folderPath || '');
-        if (p) a.push({ path: p, label: p, count: (f.fileCount || 0) + ' 个文件' });
+        if (!p) return;
+        if (sources.some(src => p === src || p.startsWith(src + '/'))) return;
+        a.push({ path: p, label: p, count: (f.fileCount || 0) + ' 个文件' });
       });
       return a
         .filter(x => !kw || x.label.toLowerCase().includes(kw))
@@ -5945,9 +6052,31 @@ const __kvApp = Vue.createApp({
        打断「缩略图 + 文件名」的阅读节奏，且桌面端很少用得到多选。
        这里统一用 Pointer Events：按下起计时，超过阈值判定为长按；
        期间任意移动 / 抬起 / 取消都会撤销，避免与滚动、拖拽冲突。 */
+    setFolderSelected(path, selected) {
+      const p = this.normalizeFolderPath(path || '');
+      if (!p) return;
+      const idx = this.selectedFolders.indexOf(p);
+      if (selected && idx === -1) this.selectedFolders.push(p);
+      else if (!selected && idx > -1) this.selectedFolders.splice(idx, 1);
+    },
+
+    toggleFolderSelect(path) {
+      const p = this.normalizeFolderPath(path || '');
+      if (!p) return;
+      this.setFolderSelected(p, this.selectedFolders.indexOf(p) === -1);
+    },
+
+    selectItemOnContext(item) {
+      if (!item) return;
+      if (item.__isFolder) this.setFolderSelected(item.path, true);
+      else item.selected = true;
+      this.longPressActive = true;
+    },
+
     onCardPressStart(item, event) {
-      // 文件夹不参与多选（长按留给未来的拖拽排序等），直接放行
-      if (item && item.__isFolder) return;
+      if (!item) return;
+      // 点击右上角菜单按钮或内部交互控件时不触发长按
+      if (event && event.target && event.target.closest('button, a, input, .act-wrap')) return;
       // 只响应主键 / 触摸 / 笔，右键交给 @contextmenu
       if (event && event.button != null && event.button !== 0) return;
       this.cancelCardPress();
@@ -5957,8 +6086,10 @@ const __kvApp = Vue.createApp({
         this._pressTimer = null;
         this._pressFiredAt = Date.now();   // 供 onCardTap 吞掉紧随其后的 click
         this._pressFiredId = item?.name ?? null;  // 只吞「这一项」的补发 click
-        // 长按 = 选中该项并进入多选模式；已是选中状态则保持，便于「长按后继续点其它项」
-        if (item) item.selected = true;
+        this.openMenu = null;
+        // 长按 = 选中该项（文件或文件夹）并进入多选模式
+        if (item.__isFolder) this.setFolderSelected(item.path, true);
+        else item.selected = true;
         this.longPressActive = true;
         if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
       }, LONG_PRESS_MS);
@@ -5969,7 +6100,90 @@ const __kvApp = Vue.createApp({
       if (!this._pressTimer || !this._pressStart) return;
       const dx = Math.abs((event?.clientX ?? 0) - this._pressStart.x);
       const dy = Math.abs((event?.clientY ?? 0) - this._pressStart.y);
-      if (dx > 10 || dy > 10) this.cancelCardPress();
+      if (dx > 14 || dy > 14) this.cancelCardPress();
+    },
+
+    toggleSelectAllPage() {
+      const entries = this.pageEntries || [];
+      if (!entries.length) return;
+      const next = !this.allPageSelected;
+      entries.forEach(entry => {
+        if (entry.__isFolder) this.setFolderSelected(entry.path, next);
+        else entry.selected = next;
+      });
+      this.longPressActive = true;
+    },
+
+    renameSelectedSingle() {
+      if (this.selectedFiles.length === 1 && !this.selectedFolders.length) {
+        this.editName(this.selectedFiles[0]);
+      } else if (this.selectedFolders.length === 1 && !this.selectedFiles.length) {
+        this.renameFolderAt(this.selectedFolders[0]);
+      }
+    },
+
+    shareSelected() {
+      if (this.selectedFolders.length === 1 && !this.selectedFiles.length) {
+        const p = this.selectedFolders[0];
+        this.openFolderShare(p, p.split('/').pop() || p);
+      } else if (this.selectedFiles.length) {
+        this.openBundleShare();
+      }
+    },
+
+    openMoveSelected() {
+      if (!this.selectedCount) { this.showToast('请先选择文件或文件夹', 'error'); return; }
+      this.moveFiles = this.selectedFiles.slice();
+      this.moveFolderSources = this.selectedFolders.slice();
+      this.moveTarget = this.folderPath;
+      this.moveSearch = '';
+      this.newFolder = '';
+      this.moveVisible = true;
+    },
+
+    async batchDeleteSelected() {
+      const folders = this.selectedFolders.slice();
+      const files = this.selectedFiles.slice();
+      if (!folders.length && !files.length) return;
+      if (!folders.length) {
+        return this.batchDelete();
+      }
+      const parts = [];
+      if (folders.length) parts.push(`${folders.length} 个文件夹`);
+      if (files.length) parts.push(`${files.length} 个文件`);
+      const ok = await this.askConfirm(
+        `确定删除已选的 ${parts.join(' 和 ')}？<br><span style="color:var(--text-muted);font-size:.8rem">文件夹内的文件将移回根目录（直链不失效），所选文件将移入回收站。</span>`,
+        '批量删除',
+        true
+      );
+      if (!ok) return;
+
+      let deletedFolders = 0;
+      for (const path of folders) {
+        try {
+          const r = await fetch('/api/manage/folders?path=' + encodeURIComponent(path) + '&recursive=1', {
+            method: 'DELETE', credentials: 'include'
+          }).then(res => res.json());
+          if (r && r.success) deletedFolders += 1;
+        } catch (e) {}
+      }
+
+      let deletedFiles = 0;
+      for (const item of files) {
+        try {
+          const r = await fetch('/api/manage/delete/' + encodeURIComponent(item.name), {
+            method: 'DELETE', credentials: 'include'
+          }).then(res => res.json());
+          if (r && r.success) deletedFiles += 1;
+        } catch (e) {}
+      }
+
+      this.clearSelection();
+      const summary = [];
+      if (deletedFolders) summary.push(`${deletedFolders} 个文件夹`);
+      if (deletedFiles) summary.push(`${deletedFiles} 个文件`);
+      this.showToast(summary.length ? `已删除 ${summary.join('、')}` : '未能删除所选项目', summary.length ? 'success' : 'error');
+      await this.refresh();
     },
 
     /* 抬起：结束本次按压。
@@ -6001,7 +6215,8 @@ const __kvApp = Vue.createApp({
         return;                               // 长按刚触发，忽略本次 click
       }
       if (this.longPressActive) {
-        if (item && !item.__isFolder) item.selected = !item.selected;
+        if (item && item.__isFolder) this.toggleFolderSelect(item.path);
+        else if (item) item.selected = !item.selected;
         return;
       }
       if (typeof fallback === 'function') fallback();
@@ -6857,6 +7072,7 @@ const __kvApp = Vue.createApp({
         this.loadTransferRecords();
       } else if (name === 'system') {
         this.loadSettings();
+        this.loadWebdavMountRoot();
         this.tokenSecret = null;
         this.resetTokenForm();
         this.loadTokens();
@@ -7229,22 +7445,46 @@ const __kvApp = Vue.createApp({
 
     /* ================= 拖拽移动 ================= */
     dragStart(item, e) {
+      this.cancelCardPress();
+      if (item && item.__isFolder) {
+        const folderPath = this.normalizeFolderPath(item.path || '');
+        if (!folderPath) return;
+        this.drag.folderPath = folderPath;
+        this.drag.ids = [];
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', 'folder:' + folderPath);
+        }
+        return;
+      }
       const ids = (item.selected && this.selectedFiles.length)
         ? this.selectedFiles.map(f => f.id || f.name)
         : [item.id || item.name];
+      this.drag.folderPath = '';
       this.drag.ids = ids;
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', ids.join(','));
       }
     },
-    dragEnd() { this.drag.ids = []; this.drag.target = null; },
+    dragEnd() { this.drag.ids = []; this.drag.folderPath = ''; this.drag.target = null; },
 
     async dropFolder(path, e) {
       e.preventDefault();
+      const rawText = e.dataTransfer ? String(e.dataTransfer.getData('text/plain') || '') : '';
+      const draggingFolder = this.drag.folderPath || (rawText.startsWith('folder:') ? rawText.slice('folder:'.length) : '');
+      if (draggingFolder) {
+        this.dragEnd();
+        try {
+          await this.moveFolderInto(draggingFolder, path);
+        } catch (err) {
+          this.showToast(err.message || '移动文件夹失败', 'error');
+        }
+        return;
+      }
       const ids = this.drag.ids.length
         ? this.drag.ids
-        : String(e.dataTransfer.getData('text/plain') || '').split(',').filter(Boolean);
+        : rawText.split(',').filter(Boolean);
       const files = ids.map(id => this.files.find(f => (f.id || f.name) === id)).filter(Boolean);
       this.dragEnd();
       if (!files.length) return;
@@ -7259,6 +7499,7 @@ const __kvApp = Vue.createApp({
       if (files && !Array.isArray(files)) files = [files];
       files = files || this.selectedFiles;
       if (!files.length) { this.showToast('请先选择文件', 'error'); return; }
+      this.moveFolderSources = [];
       this.moveFiles = files.slice();
       this.moveTarget = this.folderPath;
       this.moveSearch = '';
@@ -7266,10 +7507,79 @@ const __kvApp = Vue.createApp({
       this.moveVisible = true;
     },
 
+    openMoveFolder(path) {
+      const source = this.normalizeFolderPath(path || '');
+      if (!source) return;
+      this.openMenu = null;
+      const parts = source.split('/');
+      parts.pop();
+      const parentPath = parts.join('/');
+      this.moveFolderSources = [source];
+      this.moveFiles = [];
+      this.moveTarget = parentPath;
+      this.moveSearch = '';
+      this.newFolder = '';
+      this.moveVisible = true;
+    },
+
+    handleMoveFolderNode(node) { if (node && node.path) this.openMoveFolder(node.path); },
+
+    async moveFolderInto(sourcePath, targetParentPath, opts = {}) {
+      const source = this.normalizeFolderPath(sourcePath || '');
+      const parent = this.normalizeFolderPath(targetParentPath || '');
+      if (!source) return false;
+      const folderName = source.split('/').pop();
+      const targetPath = this.normalizeFolderPath(parent ? parent + '/' + folderName : folderName);
+      if (targetPath === source) {
+        if (!opts.silent) this.showToast('文件夹已在目标目录下，无需移动', 'info');
+        return false;
+      }
+      if (targetPath === source || targetPath.startsWith(source + '/')) {
+        throw new Error('不能将文件夹移动到自身或子目录内');
+      }
+      const r = await fetch('/api/manage/folders', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourcePath: source, targetPath })
+      }).then(res => res.json());
+      if (!r.success) throw new Error(KVault.errorMessage(r, '移动文件夹失败'));
+
+      if (this.folderPath === source || this.folderPath.startsWith(source + '/')) {
+        const suffix = this.folderPath === source ? '' : this.folderPath.slice(source.length);
+        this.folderPath = targetPath + suffix;
+        try { localStorage.setItem('adminFolderPath', this.folderPath); } catch (e) {}
+      }
+      if (!opts.silent) {
+        this.showToast(`已将文件夹移动到 ${parent || '根目录'}`, 'success');
+        await this.refresh();
+      }
+      return true;
+    },
+
+    async executeMoveModal(targetParent) {
+      const folders = this.moveFolderSources.slice();
+      const files = this.moveFiles.slice();
+      let movedFolders = 0;
+      for (const src of folders) {
+        const ok = await this.moveFolderInto(src, targetParent, { silent: true });
+        if (ok) movedFolders += 1;
+      }
+      if (files.length) {
+        await this.moveTo(files, targetParent);
+      } else if (movedFolders > 0) {
+        this.showToast(`已移动 ${movedFolders} 个文件夹到 ${targetParent || '根目录'}`, 'success');
+        this.clearSelection();
+        await this.refresh();
+      } else if (folders.length) {
+        this.showToast('所选文件夹已在目标目录下，无需移动', 'info');
+      }
+    },
+
     async confirmMove() {
       try {
-        await this.moveTo(this.moveFiles, this.moveTarget);
+        await this.executeMoveModal(this.moveTarget);
         this.moveVisible = false;
+        this.moveFolderSources = [];
       } catch (e) {
         this.showToast(e.message || '移动失败', 'error');
       }
@@ -7278,6 +7588,10 @@ const __kvApp = Vue.createApp({
     async createAndMove() {
       const path = this.normalizeFolderPath(this.newFolder);
       if (!path) { this.showToast('请输入目录路径', 'error'); return; }
+      if (this.moveFolderSources.some(src => path === src || path.startsWith(src + '/'))) {
+        this.showToast('不能将文件夹移动到自身或子目录内', 'error');
+        return;
+      }
       try {
         const r = await fetch('/api/manage/folders', {
           method: 'POST', credentials: 'include',
@@ -7286,8 +7600,9 @@ const __kvApp = Vue.createApp({
         }).then(r => r.json());
         if (!r.success) throw new Error(KVault.errorMessage(r, '创建失败'));
         this.moveTarget = path;
-        await this.moveTo(this.moveFiles, path);
+        await this.executeMoveModal(path);
         this.moveVisible = false;
+        this.moveFolderSources = [];
       } catch (e) {
         this.showToast(e.message || '新建并移动失败', 'error');
       }
@@ -7325,6 +7640,7 @@ const __kvApp = Vue.createApp({
        只清 selected 而留下 longPressActive 会让界面停在"点一下变选中"的怪状态。 */
     clearSelection() {
       this.files.forEach(f => { f.selected = false; });
+      this.selectedFolders = [];
       this.longPressActive = false;
     },
 
@@ -7543,6 +7859,7 @@ const __kvApp = Vue.createApp({
     openAccessSheet(name) {
       this.accessSheet = name;
       document.documentElement.classList.add('ui-sheet-open');
+      if (name === 'webdav') this.loadWebdavMountRoot();
     },
     closeAccessSheet() {
       if (!this.accessSheet) return;
@@ -8063,6 +8380,70 @@ const __kvApp = Vue.createApp({
         this.showToast(e.message || '重置失败', 'error');
       } finally {
         this.webdavSaving = false;
+      }
+    },
+
+    applyWebdavMountView(data) {
+      const status = data && data.status ? String(data.status) : 'library';
+      const rootPath = data && typeof data.rootPath === 'string' ? data.rootPath : '';
+      const folders = Array.isArray(data && data.folders) ? data.folders : [];
+      this.webdavMount = { status, rootPath, folders };
+      this.webdavMountSelected = status === 'missing' ? '__missing__' : rootPath;
+      this.webdavMountLoaded = true;
+      this.webdavMountError = '';
+    },
+
+    async loadWebdavMountRoot() {
+      this.webdavMountLoading = true;
+      this.webdavMountError = '';
+      try {
+        const res = await fetch('/api/manage/webdav-root', { credentials: 'include', cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '暂时无法读取挂载根目录，请刷新重试。'));
+        this.applyWebdavMountView(data);
+      } catch (e) {
+        this.webdavMountError = e.message || '暂时无法读取挂载根目录，请刷新重试。';
+      } finally {
+        this.webdavMountLoading = false;
+      }
+    },
+
+    async saveWebdavMountRoot() {
+      if (!this.webdavMountCanSave) return;
+      const path = this.webdavMountSelected;
+      const label = path || '文件库根目录';
+      const ok = await this.askConfirm(
+        '将所有 WebDAV 客户端的挂载根目录切换到「' + label + '」？切换前建议暂停备份任务。',
+        '切换 WebDAV 挂载根目录'
+      );
+      if (!ok) return;
+
+      this.webdavMountSaving = true;
+      this.webdavMountError = '';
+      try {
+        const res = await fetch('/api/manage/webdav-root', {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rootPath: path })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          await this.loadWebdavMountRoot();
+          const msg = KVault.errorMessage(data, '目标文件夹已不存在，请刷新后重新选择。');
+          this.webdavMountError = msg;
+          this.showToast(msg, 'error');
+          return;
+        }
+        if (!res.ok) throw new Error(KVault.errorMessage(data, '保存挂载根目录失败'));
+        this.applyWebdavMountView(data);
+        this.showToast('WebDAV 挂载根目录已切换为：' + label, 'success');
+      } catch (e) {
+        const msg = e.message || '保存挂载根目录失败，请重试。';
+        this.webdavMountError = msg;
+        this.showToast(msg, 'error');
+      } finally {
+        this.webdavMountSaving = false;
       }
     },
 

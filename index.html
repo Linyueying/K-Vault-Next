@@ -1227,53 +1227,58 @@
 
     <!-- Main Control Center Shell -->
     <div class="cc-shell" id="ccApp">
-      <div class="cc-topbar-wrap">
-        <header class="cc-topbar">
-          <a class="cc-brand" href="/">
-            <span class="cc-brand__mark">
-              <img src="/assets/img/logo-64.png" alt="K-Vault-Next" />
-            </span>
-            <span class="cc-brand__text">
-              <span class="cc-brand__name" data-brand-name>K-Vault-Next</span>
-              <span class="cc-brand__ver" id="ccVersion">
-                <span id="ccVerNum">总控台</span>
-                <span class="cc-brand__sha" id="ccVerSha"></span>
-              </span>
-            </span>
+      <div class="kv-header-wrap kv-header-wrap--flush">
+        <header class="kv-header" data-kv-header>
+          <a class="kv-brand" href="/">
+            <span class="kv-brand__mark"><img src="/assets/img/logo-64.png" alt="K-Vault-Next" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" /></span>
+            <span class="kv-brand__name" data-brand-name>K-Vault-Next</span>
+            <span class="kv-brand__tag"><span id="ccVersion"><span id="ccVerNum">总控台</span><span class="cc-brand__sha" id="ccVerSha"></span></span></span>
           </a>
-
-          <div class="cc-search">
-            <i class="fas fa-magnifying-glass cc-search__ico" aria-hidden="true"></i>
-            <input
-              type="search"
-              id="ccSearchInput"
-              class="cc-search__input"
-              placeholder="筛选功能模块或最近文件，回车前往文件管理…"
-              aria-label="全局快速筛选"
-              autocomplete="off"
-            />
-            <span class="cc-search__kbd" aria-hidden="true">⌘K</span>
-          </div>
-
-          <div class="cc-top-actions">
-            <button type="button" class="cc-ico-btn" id="ccRefreshBtn" title="刷新仪表盘数据" aria-label="刷新仪表盘数据">
+          <nav class="kv-nav" aria-label="主导航">
+            <span class="kv-nav__pill" aria-hidden="true"></span>
+            <a href="/" aria-current="page">首页</a>
+            <a href="/upload.html">上传</a>
+            <a href="/show">Show</a>
+            <a href="/vault.html">密码库</a>
+            <a href="/webdav.html">接入</a>
+            <a href="/admin/files">后台</a>
+          </nav>
+          <div class="kv-actions">
+            <button type="button" class="kv-icon-btn" id="ccRefreshBtn" title="刷新仪表盘数据" aria-label="刷新仪表盘数据">
               <i class="fas fa-rotate" aria-hidden="true"></i>
-              <span>刷新</span>
             </button>
-            <a class="cc-ico-btn" href="/promo.html" title="查看公开产品宣传页">
+            <a class="kv-icon-btn" href="/promo.html" title="查看公开产品宣传页" aria-label="宣传页">
               <i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i>
-              <span>宣传页</span>
             </a>
-            <button type="button" class="cc-ico-btn" data-theme-toggle title="切换浅色 / 深色主题" aria-label="切换浅色或深色主题">
-              <i class="fas fa-moon cc-theme-moon" aria-hidden="true"></i>
-              <i class="fas fa-sun cc-theme-sun" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="cc-ico-btn cc-ico-btn--danger" id="ccLogoutBtn" title="退出当前登录会话" aria-label="退出登录">
+            <button type="button" class="kv-icon-btn kv-icon-btn--danger" id="ccLogoutBtn" title="退出当前登录会话" aria-label="退出登录">
               <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
-              <span>登出</span>
+            </button>
+            <button class="kv-theme" type="button" data-theme-toggle aria-label="切换主题">
+              <svg class="kv-theme__ico kv-theme__ico--moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+              <svg class="kv-theme__ico kv-theme__ico--sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              </svg>
+            </button>
+            <button class="kv-nav-toggle" type="button" data-kv-nav-toggle aria-label="展开导航菜单" aria-expanded="false">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
             </button>
           </div>
         </header>
+      </div>
+      <div class="cc-search" style="max-width:560px;margin:6px auto 14px;">
+        <i class="fas fa-magnifying-glass cc-search__ico" aria-hidden="true"></i>
+        <input
+          type="search"
+          id="ccSearchInput"
+          class="cc-search__input"
+          placeholder="筛选功能模块或最近文件，回车前往文件管理…"
+          aria-label="全局快速筛选"
+          autocomplete="off"
+        />
+        <span class="cc-search__kbd" aria-hidden="true">⌘K</span>
       </div>
 
       <div class="cc-banner" id="ccBanner" role="alert">
@@ -1659,17 +1664,26 @@
         </section>
       </main>
 
-      <footer class="cc-footer">
-        <div>
-          <strong data-brand-name>K-Vault-Next</strong> · © 2026 Linyueying ·
-          <a href="https://github.com/Linyueying/K-Vault-Next/blob/HEAD/LICENSE" target="_blank" rel="noopener noreferrer">AGPL-3.0 开源协议</a>
+      <footer class="kv-footer kv-footer--flush">
+        <div class="kv-footer__meta">
+          <span class="kv-footer__brand">
+            <img src="/assets/img/logo-64.png" alt="K-Vault-Next" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" />
+            <span data-brand-name>K-Vault-Next</span>
+          </span>
+          <span class="kv-footer__dot" aria-hidden="true">·</span>
+          <a class="kv-footer__license" href="https://github.com/Linyueying/K-Vault-Next/blob/HEAD/LICENSE" target="_blank" rel="noopener noreferrer">© 2026 Linyueying · AGPL-3.0 开源协议</a>
         </div>
-        <div class="cc-footer__links">
-          <a href="/promo.html">产品宣传页</a>
-          <a href="/upload.html">上传台</a>
+        <nav class="kv-footer__links" aria-label="页脚导航">
+          <a href="https://github.com/Linyueying/K-Vault-Next" target="_blank" rel="noopener noreferrer">
+            <svg class="kv-footer__gh-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+            <span>GitHub</span>
+          </a>
+          <a href="/promo.html">宣传页</a>
+          <a href="/show">Show</a>
+          <a href="/vault.html">密码库</a>
+          <a href="/webdav.html">WebDAV / MCP</a>
           <a href="/admin/files">管理后台</a>
-          <a href="https://github.com/Linyueying/K-Vault-Next" target="_blank" rel="noopener noreferrer">GitHub</a>
-        </div>
+        </nav>
       </footer>
     </div>
 

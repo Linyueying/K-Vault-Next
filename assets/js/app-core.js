@@ -1733,6 +1733,118 @@
     };
   }
 
+
+  /* ------------------------------------------------------------------ *
+   * 统一液态玻璃导航栏（promo 同款）：
+   *   1. 滚动吸顶变为液态玻璃胶囊（带迟滞阈值防抖动）
+   *   2. 胶囊内滑动指示器（跟随悬停 / 聚焦 / 当前页）
+   *   3. 移动端汉堡按钮展开 / 收起（点击外部、Esc、点链接自动收起）
+   * ------------------------------------------------------------------ */
+  function initNavbar(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var headers = scope.querySelectorAll("[data-kv-header]");
+    for (var i = 0; i < headers.length; i++) {
+      bindSingleNavbar(headers[i]);
+    }
+  }
+
+  function bindSingleNavbar(headerEl) {
+    if (!headerEl || headerEl.dataset.kvNavBound === "1") return;
+    headerEl.dataset.kvNavBound = "1";
+
+    var lastScrolled = false;
+    function syncHeaderGlass() {
+      var y = window.scrollY || window.pageYOffset || 0;
+      var scrolled = lastScrolled ? y > 8 : y > 18;
+      if (scrolled === lastScrolled) return;
+      lastScrolled = scrolled;
+      headerEl.classList.toggle("is-scrolled", scrolled);
+    }
+    window.addEventListener("scroll", syncHeaderGlass, { passive: true });
+    syncHeaderGlass();
+
+    var nav = headerEl.querySelector(".kv-nav");
+    if (nav) {
+      var links = Array.prototype.slice.call(nav.querySelectorAll("a"));
+      var hoveredLink = null;
+      var focusedLink = null;
+
+      function getCurrentLink() {
+        for (var j = 0; j < links.length; j++) {
+          var ac = links[j].getAttribute("aria-current");
+          if (ac && ac !== "false") return links[j];
+        }
+        return null;
+      }
+
+      function positionPill() {
+        var current = getCurrentLink();
+        var target = hoveredLink || focusedLink || current;
+        nav.style.setProperty("--pill-opacity", target ? "1" : "0");
+        if (!target) return;
+        var navBounds = nav.getBoundingClientRect();
+        var targetBounds = target.getBoundingClientRect();
+        if (!targetBounds.width) return;
+        nav.style.setProperty("--pill-x", (targetBounds.left - navBounds.left - nav.clientLeft) + "px");
+        nav.style.setProperty("--pill-width", targetBounds.width + "px");
+      }
+
+      links.forEach(function (link) {
+        link.addEventListener("pointerenter", function (event) {
+          if (event.pointerType === "touch") return;
+          hoveredLink = link;
+          positionPill();
+        });
+        link.addEventListener("focus", function () {
+          focusedLink = link;
+          positionPill();
+        });
+        link.addEventListener("blur", function () {
+          focusedLink = null;
+          positionPill();
+        });
+      });
+      nav.addEventListener("pointerleave", function () {
+        hoveredLink = null;
+        positionPill();
+      });
+      if ("ResizeObserver" in window) {
+        new ResizeObserver(positionPill).observe(nav);
+      } else {
+        window.addEventListener("resize", positionPill);
+      }
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(positionPill).catch(function () {});
+      }
+      positionPill();
+    }
+
+    var wrap = headerEl.closest(".kv-header-wrap");
+    var toggle = headerEl.querySelector("[data-kv-nav-toggle]");
+    if (wrap && toggle) {
+      function setOpen(open) {
+        wrap.classList.toggle("is-nav-open", open);
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      toggle.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setOpen(!wrap.classList.contains("is-nav-open"));
+      });
+      document.addEventListener("click", function (e) {
+        if (!wrap.classList.contains("is-nav-open")) return;
+        if (!wrap.contains(e.target)) setOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && wrap.classList.contains("is-nav-open")) setOpen(false);
+      });
+      if (nav) {
+        nav.addEventListener("click", function (e) {
+          if (e.target && e.target.closest("a")) setOpen(false);
+        });
+      }
+    }
+  }
+
   window.KVault = {
     version: "1.4.0",
     formatBytes: formatBytes,
@@ -1765,6 +1877,7 @@
     buildBrowserIntentUrl: buildBrowserIntentUrl,
     showInAppGuide: showInAppGuide,
     installDownloadGuard: installDownloadGuard,
+    initNavbar: initNavbar,
   };
 
   /* 自动初始化：纯增强、可失败。
@@ -1776,6 +1889,8 @@
       try { glassInit(); } catch (e) { /* noop */ }
       try { revealOnScroll(document); } catch (e) { /* noop */ }
       try { installDownloadGuard(); } catch (e) { /* noop */ }
+      try { initNavbar(document); } catch (e) { /* noop */ }
+      setTimeout(function () { try { initNavbar(document); } catch (e) { /* noop */ } }, 250);
     };
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", bootGlass, { once: true });
