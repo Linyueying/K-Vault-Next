@@ -1972,12 +1972,13 @@ html[data-perf="low"] .dock{transition:none}
 .cfg-alert i{color:var(--c-warn);margin-top:2px;flex:none}
 .cfg-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:16px;padding:14px 0 2px;border-top:1px solid var(--hairline)}
 .cfg-actions__spacer{margin-right:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.cfg-actions-wrap{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,0,0);transition:grid-template-rows .26s var(--ease-apple),opacity .2s var(--ease-apple),visibility 0s linear .26s}
-.cfg-actions-wrap.is-open{grid-template-rows:1fr;opacity:1;visibility:visible;pointer-events:auto;transition:grid-template-rows .26s var(--ease-apple),opacity .22s var(--ease-apple),visibility 0s}
-.cfg-actions-wrap__inner{overflow:hidden;min-height:0}
-.cfg-actions__dirty{display:inline-flex;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,0,0);transition:opacity .2s var(--ease-apple),visibility 0s linear .2s}
-.cfg-actions__dirty.is-open{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .22s var(--ease-apple),visibility 0s}
-.cfg-actions__dirty-inner{display:inline-flex;align-items:center;gap:10px;overflow:hidden;min-height:0}
+.cfg-reset-link{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:var(--r-pill);border:1px solid var(--hairline);background:transparent;color:var(--text-muted);font-family:inherit;font-size:.7rem;font-weight:650;cursor:pointer;white-space:nowrap;transition:color .16s ease,border-color .16s ease,background .16s ease}
+.cfg-reset-link:hover:not(:disabled){color:var(--primary);border-color:rgba(var(--primary-rgb),.38);background:rgba(var(--primary-rgb),.07)}
+.cfg-reset-link:disabled{opacity:.45;cursor:not-allowed}
+.cfg-subrows{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,0,0);transition:grid-template-rows .24s var(--ease-apple),opacity .18s var(--ease-apple),visibility 0s linear .24s}
+.cfg-subrows.is-open{grid-template-rows:1fr;opacity:1;visibility:visible;pointer-events:auto;transition:grid-template-rows .24s var(--ease-apple),opacity .2s var(--ease-apple),visibility 0s}
+.cfg-subrows__inner{overflow:hidden;min-height:0}
+.cfg-subrows__inner > .cfg-row:first-child{border-top:1px solid var(--hairline)}
 .cfg-usage-idle{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px;border-radius:var(--group-radius);background:var(--group-bg);border:1px solid var(--hairline)}
 .cfg-usage-idle__text{display:flex;align-items:center;gap:11px;min-width:0;flex:1}
 .cfg-usage-idle__text i{color:var(--primary);font-size:1.05rem;flex:none}
@@ -2022,9 +2023,6 @@ html[data-perf="low"] .dock{transition:none}
   .cfg-actions{justify-content:stretch}
   .cfg-actions .btn{flex:1 1 auto;justify-content:center}
   .cfg-actions__spacer{width:100%;margin-right:0}
-  .cfg-actions__dirty{display:grid;grid-template-rows:0fr;width:100%;margin-top:-10px;transition:grid-template-rows .26s var(--ease-apple),margin-top .26s var(--ease-apple),opacity .2s var(--ease-apple),visibility 0s linear .26s}
-  .cfg-actions__dirty.is-open{grid-template-rows:1fr;margin-top:0;transition:grid-template-rows .26s var(--ease-apple),margin-top .26s var(--ease-apple),opacity .22s var(--ease-apple),visibility 0s}
-  .cfg-actions__dirty-inner{display:flex;width:100%;gap:10px}
   .share-metrics{grid-template-columns:repeat(2,1fr)}
   .share-metrics .share-metric:nth-child(2n){border-right:0}
   .share-metrics .share-metric:nth-child(n+3){border-top:1px solid var(--hairline)}
@@ -2037,7 +2035,7 @@ html[data-perf="low"] .dock{transition:none}
   .share-search-box{flex:none;width:100%;min-width:0}
 }
 @media (prefers-reduced-motion:reduce){
-  .cfg-actions-wrap,.cfg-actions__dirty{transition:none}
+  .cfg-subrows{transition:none}
 }
 </style>
 </head>
@@ -2980,12 +2978,20 @@ html[data-perf="low"] .dock{transition:none}
             <i class="fas fa-user-lock"></i>
             <span>上传与存储策略</span>
           </h2>
-          <p class="cfg-head__sub">控制访客上传权限与 D1/KV 元数据写入方式，保存后立即生效。</p>
+          <p class="cfg-head__sub">控制访客上传权限与 D1/KV 元数据写入方式，修改后自动生效。</p>
         </div>
         <div class="cfg-head__right">
-          <span class="cfg-pill" :class="{ 'cfg-pill--custom': settingsSource === 'kv' || storageSource === 'kv' }">
-            {{ (settingsSource === 'kv' || storageSource === 'kv') ? '已自定义' : '环境变量默认' }}
+          <span v-if="settingsSaving" class="cfg-pill cfg-pill--custom">
+            <i class="fas fa-circle-notch fa-spin"></i> 保存中…
           </span>
+          <template v-else>
+            <button v-if="settingsSource === 'kv' || storageSource === 'kv'" type="button" class="cfg-reset-link" @click="resetGuestSettings">
+              <i class="fas fa-rotate-left"></i> 恢复默认
+            </button>
+            <span class="cfg-pill" :class="{ 'cfg-pill--custom': settingsSource === 'kv' || storageSource === 'kv' }">
+              {{ (settingsSource === 'kv' || storageSource === 'kv') ? '已自定义' : '环境变量默认' }}
+            </span>
+          </template>
         </div>
       </div>
 
@@ -3004,35 +3010,44 @@ html[data-perf="low"] .dock{transition:none}
             <div class="cfg-row__ctrl">
               <label class="switch">
                 <input type="checkbox" v-model="guestForm.enabled" role="switch"
-                       :aria-checked="String(guestForm.enabled)" />
+                       :aria-checked="String(guestForm.enabled)"
+                       @change="flushAutoSave('guest')" />
                 <span class="switch__track"></span>
                 <span class="switch__thumb"></span>
               </label>
             </div>
           </div>
 
-          <div class="cfg-row" v-if="guestForm.enabled">
-            <div class="cfg-row__meta">
-              <strong>单文件上限</strong>
-              <span>默认基线 {{ formatSize(settingsEnvBaseline.maxFileSize) }}</span>
-            </div>
-            <div class="cfg-row__ctrl">
-              <div class="cfg-num-wrap">
-                <input type="number" min="1" v-model.number="guestForm.maxFileSizeMb" aria-label="访客单文件上限">
-                <span class="cfg-num-unit">MB</span>
+          <div class="cfg-subrows" :class="{ 'is-open': guestForm.enabled }" :aria-hidden="String(!guestForm.enabled)">
+            <div class="cfg-subrows__inner">
+              <div class="cfg-row">
+                <div class="cfg-row__meta">
+                  <strong>单文件上限</strong>
+                  <span>默认基线 {{ formatSize(settingsEnvBaseline.maxFileSize) }}</span>
+                </div>
+                <div class="cfg-row__ctrl">
+                  <div class="cfg-num-wrap">
+                    <input type="number" min="1" v-model.number="guestForm.maxFileSizeMb"
+                           @input="scheduleAutoSave('guest')" @change="flushAutoSave('guest')"
+                           aria-label="访客单文件上限">
+                    <span class="cfg-num-unit">MB</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
-          <div class="cfg-row" v-if="guestForm.enabled">
-            <div class="cfg-row__meta">
-              <strong>每日上传次数</strong>
-              <span>按访客 IP 每日自动重置（默认 {{ settingsEnvBaseline.dailyLimit || '—' }}）</span>
-            </div>
-            <div class="cfg-row__ctrl">
-              <div class="cfg-num-wrap">
-                <input type="number" min="1" step="1" v-model.number="guestForm.dailyLimit" aria-label="访客每日上传次数">
-                <span class="cfg-num-unit">次/天</span>
+              <div class="cfg-row">
+                <div class="cfg-row__meta">
+                  <strong>每日上传次数</strong>
+                  <span>按访客 IP 每日自动重置（默认 {{ settingsEnvBaseline.dailyLimit || '—' }}）</span>
+                </div>
+                <div class="cfg-row__ctrl">
+                  <div class="cfg-num-wrap">
+                    <input type="number" min="1" step="1" v-model.number="guestForm.dailyLimit"
+                           @input="scheduleAutoSave('guest')" @change="flushAutoSave('guest')"
+                           aria-label="访客每日上传次数">
+                    <span class="cfg-num-unit">次/天</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3048,7 +3063,8 @@ html[data-perf="low"] .dock{transition:none}
             <div class="cfg-row__ctrl">
               <label class="switch">
                 <input type="checkbox" v-model="storageForm.writeKvLegacy" role="switch"
-                       :aria-checked="String(storageForm.writeKvLegacy)" />
+                       :aria-checked="String(storageForm.writeKvLegacy)"
+                       @change="flushAutoSave('guest')" />
                 <span class="switch__track"></span>
                 <span class="switch__thumb"></span>
               </label>
@@ -3064,21 +3080,6 @@ html[data-perf="low"] .dock{transition:none}
           <i class="fas fa-triangle-exclamation"></i>
           <span>未检测到 D1（DB）绑定，当前仍以 KV 为唯一元数据存储，关闭双写不会生效。</span>
         </div>
-
-        <div class="cfg-actions-wrap" :class="{ 'is-open': guestDirty }" :aria-hidden="String(!guestDirty)">
-          <div class="cfg-actions-wrap__inner">
-            <div class="cfg-actions">
-              <button type="button" class="btn" :disabled="settingsSaving" @click="resetGuestSettings">
-                <i class="fas fa-rotate-left"></i>
-                <span>恢复默认</span>
-              </button>
-              <button type="button" class="btn btn--primary" :disabled="settingsSaving" @click="saveGuestSettings">
-                <i class="fas" :class="settingsSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-                <span>{{ settingsSaving ? '保存中…' : '保存设置' }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
       </template>
     </section>
 
@@ -3090,12 +3091,20 @@ html[data-perf="low"] .dock{transition:none}
             <i class="fas fa-image"></i>
             <span>图片缩略图</span>
           </h2>
-          <p class="cfg-head__sub">上传时在浏览器生成 WebP 预览图，显著加快图库与列表加载，缺失时自动回退原图。</p>
+          <p class="cfg-head__sub">上传时在浏览器生成 WebP 预览图，加快图库与列表加载，修改后自动生效。</p>
         </div>
         <div class="cfg-head__right">
-          <span class="cfg-pill" :class="{ 'cfg-pill--custom': thumbSource === 'kv' }">
-            {{ thumbSource === 'kv' ? '已自定义' : '环境变量默认' }}
+          <span v-if="thumbSaving" class="cfg-pill cfg-pill--custom">
+            <i class="fas fa-circle-notch fa-spin"></i> 保存中…
           </span>
+          <template v-else>
+            <button v-if="thumbSource === 'kv'" type="button" class="cfg-reset-link" @click="resetThumbSettings">
+              <i class="fas fa-rotate-left"></i> 恢复默认
+            </button>
+            <span class="cfg-pill" :class="{ 'cfg-pill--custom': thumbSource === 'kv' }">
+              {{ thumbSource === 'kv' ? '已自定义' : '环境变量默认' }}
+            </span>
+          </template>
         </div>
       </div>
 
@@ -3113,7 +3122,8 @@ html[data-perf="low"] .dock{transition:none}
             <div class="cfg-row__ctrl">
               <label class="switch">
                 <input type="checkbox" v-model="thumbForm.enabled" role="switch"
-                       :aria-checked="String(thumbForm.enabled)" />
+                       :aria-checked="String(thumbForm.enabled)"
+                       @change="flushAutoSave('thumb')" />
                 <span class="switch__track"></span>
                 <span class="switch__thumb"></span>
               </label>
@@ -3127,7 +3137,9 @@ html[data-perf="low"] .dock{transition:none}
             </div>
             <div class="cfg-row__ctrl">
               <div class="cfg-num-wrap">
-                <input type="number" min="64" max="2048" v-model.number="thumbForm.maxEdge" aria-label="缩略图最长边">
+                <input type="number" min="64" max="2048" v-model.number="thumbForm.maxEdge"
+                       @input="scheduleAutoSave('thumb')" @change="flushAutoSave('thumb')"
+                       aria-label="缩略图最长边">
                 <span class="cfg-num-unit">px</span>
               </div>
             </div>
@@ -3140,7 +3152,9 @@ html[data-perf="low"] .dock{transition:none}
             </div>
             <div class="cfg-row__ctrl">
               <div class="cfg-num-wrap">
-                <input type="number" min="0.1" max="1" step="0.01" v-model.number="thumbForm.quality" aria-label="缩略图质量">
+                <input type="number" min="0.1" max="1" step="0.01" v-model.number="thumbForm.quality"
+                       @input="scheduleAutoSave('thumb')" @change="flushAutoSave('thumb')"
+                       aria-label="缩略图质量">
                 <span class="cfg-num-unit">Q</span>
               </div>
             </div>
@@ -3152,24 +3166,10 @@ html[data-perf="low"] .dock{transition:none}
               <span>图片量大优先选 R2 或 D1，减少 KV 写入消耗</span>
             </div>
             <div class="cfg-row__ctrl">
-              <select class="cfg-select" v-model="thumbForm.backend" aria-label="缩略图存储位置">
+              <select class="cfg-select" v-model="thumbForm.backend"
+                      @change="flushAutoSave('thumb')" aria-label="缩略图存储位置">
                 <option v-for="b in thumbBackends" :key="b.value" :value="b.value">{{ b.label }}</option>
               </select>
-            </div>
-          </div>
-        </div>
-
-        <div class="cfg-actions-wrap" :class="{ 'is-open': thumbDirty }" :aria-hidden="String(!thumbDirty)">
-          <div class="cfg-actions-wrap__inner">
-            <div class="cfg-actions">
-              <button type="button" class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
-                <i class="fas fa-rotate-left"></i>
-                <span>恢复默认</span>
-              </button>
-              <button type="button" class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
-                <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-                <span>{{ thumbSaving ? '保存中…' : '保存设置' }}</span>
-              </button>
             </div>
           </div>
         </div>
@@ -3394,12 +3394,20 @@ html[data-perf="low"] .dock{transition:none}
           <span>隔空投送</span>
           <span class="badge-beta">BETA</span>
         </h2>
-        <p class="cfg-head__sub">跨设备扫码或输入连接码瞬时传输文件，经中转节点送达后自动释放。</p>
+        <p class="cfg-head__sub">跨设备扫码或输入连接码瞬时传输文件，经中转节点送达后自动释放，修改后自动生效。</p>
       </div>
       <div class="cfg-head__right">
-        <span class="cfg-pill" :class="{ 'cfg-pill--custom': airdropSource === 'kv' }">
-          {{ airdropSource === 'kv' ? '已自定义' : '环境变量默认' }}
+        <span v-if="airdropSaving" class="cfg-pill cfg-pill--custom">
+          <i class="fas fa-circle-notch fa-spin"></i> 保存中…
         </span>
+        <template v-else>
+          <button v-if="airdropSource === 'kv'" type="button" class="cfg-reset-link" @click="resetAirdropSettings">
+            <i class="fas fa-rotate-left"></i> 恢复默认
+          </button>
+          <span class="cfg-pill" :class="{ 'cfg-pill--custom': airdropSource === 'kv' }">
+            {{ airdropSource === 'kv' ? '已自定义' : '环境变量默认' }}
+          </span>
+        </template>
       </div>
     </div>
 
@@ -3418,7 +3426,8 @@ html[data-perf="low"] .dock{transition:none}
           <div class="cfg-row__ctrl">
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.enabled" role="switch"
-                     :aria-checked="String(airdropForm.enabled)" />
+                     :aria-checked="String(airdropForm.enabled)"
+                     @change="flushAutoSave('airdrop')" />
               <span class="switch__track"></span>
               <span class="switch__thumb"></span>
             </label>
@@ -3433,7 +3442,8 @@ html[data-perf="low"] .dock{transition:none}
           <div class="cfg-row__ctrl">
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
-                     :aria-checked="String(airdropForm.guestAllowed)" />
+                     :aria-checked="String(airdropForm.guestAllowed)"
+                     @change="flushAutoSave('airdrop')" />
               <span class="switch__track"></span>
               <span class="switch__thumb"></span>
             </label>
@@ -3448,7 +3458,8 @@ html[data-perf="low"] .dock{transition:none}
           <div class="cfg-row__ctrl">
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
-                     :aria-checked="String(airdropForm.guestReceiveAllowed)" />
+                     :aria-checked="String(airdropForm.guestReceiveAllowed)"
+                     @change="flushAutoSave('airdrop')" />
               <span class="switch__track"></span>
               <span class="switch__thumb"></span>
             </label>
@@ -3465,7 +3476,9 @@ html[data-perf="low"] .dock{transition:none}
           </div>
           <div class="cfg-row__ctrl">
             <div class="cfg-num-wrap">
-              <input type="number" min="1" v-model.number="airdropForm.maxFileSizeMb" aria-label="隔空投送单文件上限">
+              <input type="number" min="1" v-model.number="airdropForm.maxFileSizeMb"
+                     @input="scheduleAutoSave('airdrop')" @change="flushAutoSave('airdrop')"
+                     aria-label="隔空投送单文件上限">
               <span class="cfg-num-unit">MB</span>
             </div>
           </div>
@@ -3478,7 +3491,9 @@ html[data-perf="low"] .dock{transition:none}
           </div>
           <div class="cfg-row__ctrl">
             <div class="cfg-num-wrap">
-              <input type="number" min="1" v-model.number="airdropForm.dailyLimit" aria-label="隔空投送每 IP 每日次数">
+              <input type="number" min="1" v-model.number="airdropForm.dailyLimit"
+                     @input="scheduleAutoSave('airdrop')" @change="flushAutoSave('airdrop')"
+                     aria-label="隔空投送每 IP 每日次数">
               <span class="cfg-num-unit">次/天</span>
             </div>
           </div>
@@ -3491,7 +3506,9 @@ html[data-perf="low"] .dock{transition:none}
           </div>
           <div class="cfg-row__ctrl">
             <div class="cfg-num-wrap">
-              <input type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes" aria-label="隔空投送房间有效期">
+              <input type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes"
+                     @input="scheduleAutoSave('airdrop')" @change="flushAutoSave('airdrop')"
+                     aria-label="隔空投送房间有效期">
               <span class="cfg-num-unit">分钟</span>
             </div>
           </div>
@@ -3504,7 +3521,9 @@ html[data-perf="low"] .dock{transition:none}
           </div>
           <div class="cfg-row__ctrl">
             <div class="cfg-num-wrap">
-              <input type="number" min="0" max="100000" v-model.number="airdropForm.statsRetention" aria-label="使用记录保留条数">
+              <input type="number" min="0" max="100000" v-model.number="airdropForm.statsRetention"
+                     @input="scheduleAutoSave('airdrop')" @change="flushAutoSave('airdrop')"
+                     aria-label="使用记录保留条数">
               <span class="cfg-num-unit">条</span>
             </div>
           </div>
@@ -3514,21 +3533,6 @@ html[data-perf="low"] .dock{transition:none}
       <div class="cfg-alert" v-if="!airdropLoading && airdropBackendLoaded && !airdropBackendName">
         <i class="fas fa-triangle-exclamation"></i>
         <span>未检测到 R2_BUCKET 绑定或 Telegram 环境变量，隔空投送缺少中转节点。</span>
-      </div>
-
-      <div class="cfg-actions-wrap" :class="{ 'is-open': airdropDirty }" :aria-hidden="String(!airdropDirty)">
-        <div class="cfg-actions-wrap__inner">
-          <div class="cfg-actions">
-            <button type="button" class="btn" :disabled="airdropSaving" @click="resetAirdropSettings">
-              <i class="fas fa-rotate-left"></i>
-              <span>恢复默认</span>
-            </button>
-            <button type="button" class="btn btn--primary" :disabled="airdropSaving" @click="saveAirdropSettings">
-              <i class="fas" :class="airdropSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-              <span>{{ airdropSaving ? '保存中…' : '保存设置' }}</span>
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- 使用情况 -->
@@ -4006,12 +4010,20 @@ html[data-perf="low"] .dock{transition:none}
           <i class="fas fa-signature"></i>
           <span>网站信息</span>
         </h2>
-        <p class="cfg-head__sub">自定义全站显示名称与浏览器标签标题，保存后立即生效，留空恢复默认。</p>
+        <p class="cfg-head__sub">自定义全站显示名称与浏览器标签标题，修改后自动生效。</p>
       </div>
       <div class="cfg-head__right">
-        <span class="cfg-pill" :class="{ 'cfg-pill--custom': brandingSource === 'kv' }">
-          {{ brandingSource === 'kv' ? '已自定义' : '环境变量默认' }}
+        <span v-if="brandingSaving" class="cfg-pill cfg-pill--custom">
+          <i class="fas fa-circle-notch fa-spin"></i> 保存中…
         </span>
+        <template v-else>
+          <button v-if="brandingSource === 'kv'" type="button" class="cfg-reset-link" @click="resetBrandingSettings">
+            <i class="fas fa-rotate-left"></i> 恢复默认
+          </button>
+          <span class="cfg-pill" :class="{ 'cfg-pill--custom': brandingSource === 'kv' }">
+            {{ brandingSource === 'kv' ? '已自定义' : '环境变量默认' }}
+          </span>
+        </template>
       </div>
     </div>
 
@@ -4023,6 +4035,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
         <div class="cfg-row__ctrl">
           <input class="cfg-input" type="text" maxlength="120" v-model="brandingForm.siteName"
+                 @input="scheduleAutoSave('branding')" @change="flushAutoSave('branding')"
                  placeholder="如：K-Vault-Next" aria-label="站点名称" />
         </div>
       </div>
@@ -4034,22 +4047,8 @@ html[data-perf="low"] .dock{transition:none}
         </div>
         <div class="cfg-row__ctrl">
           <input class="cfg-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
+                 @input="scheduleAutoSave('branding')" @change="flushAutoSave('branding')"
                  placeholder="如：K-Vault-Next" aria-label="浏览器标题" />
-        </div>
-      </div>
-    </div>
-
-    <div class="cfg-actions-wrap" :class="{ 'is-open': brandingDirty }" :aria-hidden="String(!brandingDirty)">
-      <div class="cfg-actions-wrap__inner">
-        <div class="cfg-actions">
-          <button type="button" class="btn" :disabled="brandingSaving" @click="resetBrandingSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <button type="button" class="btn btn--primary" :disabled="brandingSaving" @click="saveBrandingSettings">
-            <i class="fas" :class="brandingSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>{{ brandingSaving ? '保存中…' : '保存设置' }}</span>
-          </button>
         </div>
       </div>
     </div>
@@ -4063,12 +4062,20 @@ html[data-perf="low"] .dock{transition:none}
           <i class="fas fa-images"></i>
           <span>Show 展示设置</span>
         </h2>
-        <p class="cfg-head__sub">控制公开影像展 /show 的视觉样式、交互开关与封面文案。</p>
+        <p class="cfg-head__sub">控制公开影像展 /show 的视觉样式、交互开关与封面文案，修改后自动生效。</p>
       </div>
       <div class="cfg-head__right">
-        <span class="cfg-pill" :class="{ 'cfg-pill--custom': showConfigSource === 'kv' }">
-          {{ showConfigSource === 'kv' ? '已自定义' : '默认配置' }}
+        <span v-if="showConfigSaving" class="cfg-pill cfg-pill--custom">
+          <i class="fas fa-circle-notch fa-spin"></i> 保存中…
         </span>
+        <template v-else>
+          <button v-if="showConfigSource === 'kv'" type="button" class="cfg-reset-link" @click="resetShowSettings">
+            <i class="fas fa-rotate-left"></i> 恢复默认
+          </button>
+          <span class="cfg-pill" :class="{ 'cfg-pill--custom': showConfigSource === 'kv' }">
+            {{ showConfigSource === 'kv' ? '已自定义' : '默认配置' }}
+          </span>
+        </template>
       </div>
     </div>
 
@@ -4081,7 +4088,7 @@ html[data-perf="low"] .dock{transition:none}
               :class="{ 'is-selected': showForm.style === opt.value }"
               role="radio"
               :aria-checked="String(showForm.style === opt.value)"
-              @click="showForm.style = opt.value">
+              @click="selectShowStyle(opt.value)">
         <div class="show-style-thumb" :class="{ 'show-style-thumb--journal': opt.value === 'journal', 'show-style-thumb--gallery': opt.value === 'gallery', 'show-style-thumb--filmstrip': opt.value === 'filmstrip' }" aria-hidden="true">
           <template v-if="opt.value === 'gallery'"><span></span><span></span><span></span></template>
           <template v-else-if="opt.value === 'filmstrip'"><span></span><span></span><span></span></template>
@@ -4107,7 +4114,8 @@ html[data-perf="low"] .dock{transition:none}
         <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.enabled" role="switch"
-                   :aria-checked="String(showForm.enabled)" />
+                   :aria-checked="String(showForm.enabled)"
+                   @change="flushAutoSave('show')" />
             <span class="switch__track"></span>
             <span class="switch__thumb"></span>
           </label>
@@ -4122,7 +4130,8 @@ html[data-perf="low"] .dock{transition:none}
         <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.showShareButton" role="switch"
-                   :aria-checked="String(showForm.showShareButton)" />
+                   :aria-checked="String(showForm.showShareButton)"
+                   @change="flushAutoSave('show')" />
             <span class="switch__track"></span>
             <span class="switch__thumb"></span>
           </label>
@@ -4137,7 +4146,8 @@ html[data-perf="low"] .dock{transition:none}
         <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.showTagFilter" role="switch"
-                   :aria-checked="String(showForm.showTagFilter)" />
+                   :aria-checked="String(showForm.showTagFilter)"
+                   @change="flushAutoSave('show')" />
             <span class="switch__track"></span>
             <span class="switch__thumb"></span>
           </label>
@@ -4152,7 +4162,8 @@ html[data-perf="low"] .dock{transition:none}
         <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.showCaptions" role="switch"
-                   :aria-checked="String(showForm.showCaptions)" />
+                   :aria-checked="String(showForm.showCaptions)"
+                   @change="flushAutoSave('show')" />
             <span class="switch__track"></span>
             <span class="switch__thumb"></span>
           </label>
@@ -4167,7 +4178,8 @@ html[data-perf="low"] .dock{transition:none}
         <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.allowDownload" role="switch"
-                   :aria-checked="String(showForm.allowDownload)" />
+                   :aria-checked="String(showForm.allowDownload)"
+                   @change="flushAutoSave('show')" />
             <span class="switch__track"></span>
             <span class="switch__thumb"></span>
           </label>
@@ -4184,6 +4196,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
         <div class="cfg-row__ctrl">
           <input class="cfg-input" type="text" maxlength="40" v-model="showForm.title"
+                 @input="scheduleAutoSave('show')" @change="flushAutoSave('show')"
                  :placeholder="showConfigEnvBaseline.title || 'Show'" aria-label="Show 主标题" />
         </div>
       </div>
@@ -4195,6 +4208,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
         <div class="cfg-row__ctrl">
           <input class="cfg-input" type="text" maxlength="40" v-model="showForm.eyebrow"
+                 @input="scheduleAutoSave('show')" @change="flushAutoSave('show')"
                  :placeholder="showConfigEnvBaseline.eyebrow || '影像手记'" aria-label="Show 眉标" />
         </div>
       </div>
@@ -4206,6 +4220,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
         <div class="cfg-row__ctrl">
           <input class="cfg-input" type="text" maxlength="160" v-model="showForm.intro"
+                 @input="scheduleAutoSave('show')" @change="flushAutoSave('show')"
                  :placeholder="showConfigEnvBaseline.intro || '用照片和视频记录值得分享的片刻。'" aria-label="Show 封面简介" />
         </div>
       </div>
@@ -4217,7 +4232,9 @@ html[data-perf="low"] .dock{transition:none}
         </div>
         <div class="cfg-row__ctrl">
           <div class="cfg-num-wrap">
-            <input type="number" min="6" max="36" step="1" v-model.number="showForm.pageSize" aria-label="每页加载数量" />
+            <input type="number" min="6" max="36" step="1" v-model.number="showForm.pageSize"
+                   @input="scheduleAutoSave('show')" @change="flushAutoSave('show')"
+                   aria-label="每页加载数量" />
             <span class="cfg-num-unit">条/页</span>
           </div>
         </div>
@@ -4234,18 +4251,6 @@ html[data-perf="low"] .dock{transition:none}
           <i class="fas fa-layer-group"></i>
           <span>管理作品</span>
         </button>
-      </div>
-      <div class="cfg-actions__dirty" :class="{ 'is-open': showDirty }" :aria-hidden="String(!showDirty)">
-        <div class="cfg-actions__dirty-inner">
-          <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
-            <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>{{ showConfigSaving ? '保存中…' : '保存设置' }}</span>
-          </button>
-        </div>
       </div>
     </div>
   </section>
@@ -7854,6 +7859,44 @@ const __kvApp = Vue.createApp({
       this.cfgSnapshots.show = JSON.stringify(this.showForm);
     },
 
+    /* ================= 设置项即点即生效（自动保存） ================= */
+    scheduleAutoSave(key) {
+      if (!this._cfgSaveTimers) this._cfgSaveTimers = {};
+      clearTimeout(this._cfgSaveTimers[key]);
+      this._cfgSaveTimers[key] = setTimeout(() => {
+        this.flushAutoSave(key);
+      }, 650);
+    },
+
+    async flushAutoSave(key) {
+      if (this._cfgSaveTimers && this._cfgSaveTimers[key]) {
+        clearTimeout(this._cfgSaveTimers[key]);
+        delete this._cfgSaveTimers[key];
+      }
+      const dirtyMap = {
+        guest: this.guestDirty,
+        thumb: this.thumbDirty,
+        airdrop: this.airdropDirty,
+        branding: this.brandingDirty,
+        show: this.showDirty
+      };
+      if (!dirtyMap[key]) return;
+      const fnMap = {
+        guest: () => this.saveGuestSettings(),
+        thumb: () => this.saveThumbSettings(),
+        airdrop: () => this.saveAirdropSettings(),
+        branding: () => this.saveBrandingSettings(),
+        show: () => this.saveShowSettings()
+      };
+      if (fnMap[key]) await fnMap[key]();
+    },
+
+    selectShowStyle(style) {
+      if (this.showForm.style === style) return;
+      this.showForm.style = style;
+      this.flushAutoSave('show');
+    },
+
     async saveGuestSettings() {
       const mb = Number(this.guestForm.maxFileSizeMb);
       const limit = Number(this.guestForm.dailyLimit);
@@ -7866,7 +7909,10 @@ const __kvApp = Vue.createApp({
           '关闭后文件元数据将只写入 D1，KV 不再保留副本。请确认 D1 已正常工作 —— 若 D1 出问题，KV 里的旧记录不足以恢复新上传的文件。确定关闭吗？',
           '关闭 KV 双写'
         );
-        if (!ok) return;
+        if (!ok) {
+          this.storageForm.writeKvLegacy = true;
+          return;
+        }
       }
 
       this.settingsSaving = true;
