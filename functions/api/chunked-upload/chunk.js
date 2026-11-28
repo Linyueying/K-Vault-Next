@@ -60,6 +60,11 @@
  *   或随上传任务到期。
  * ================================================================
  */
+import {
+  beginTelegramUploadPart,
+  confirmTelegramUploadPart,
+  discardUnconfirmedTelegramPart,
+} from '../../utils/telegram-upload-state.js';
 import { checkAuthentication } from '../../utils/auth.js';
 import { envValue } from '../../utils/env-config.js';
 import {
@@ -248,6 +253,7 @@ export function computeExpectedChunkSize(taskData, chunkIndex, totalChunks, decl
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+  let releaseTelegramPart;
 
   try {
     // ============================================
@@ -406,6 +412,15 @@ export async function onRequestPost(context) {
     const isTelegramChunked =
       taskData.storageMode === 'telegram' &&
       taskData.chunkBackend === 'telegram';
+    if (isTelegramChunked) {
+      if (taskData.remoteSourceId) {
+        return jsonResponse({ error: '该任务需要从原 URL 获取分片', code: 'URL_CHUNK_REQUIRED' }, 409);
+      }
+      const start = await beginTelegramUploadPart(env, uploadId, chunkIndex, taskData);
+      if (!start.release) return jsonResponse(start.body, start.status);
+      releaseTelegramPart = start.release;
+    }
+
     const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
 
     if (useRawBody && !contentType.includes('multipart/form-data')) {
@@ -468,7 +483,7 @@ export async function onRequestPost(context) {
             413
           );
         }
-        const existingPart = await getUploadedPart(env, uploadId, chunkIndex);
+        const existingPart = await getUploadedPart(env, uploadId, chunkIndex, { strict: true });
         if (
           existingPart &&
           existingPart.partNumber === chunkIndex + 1 &&
@@ -725,7 +740,7 @@ export async function onRequestPost(context) {
       const partNumber = chunkIndex + 1;
       // 兼容旧 multipart 路径的幂等复用与全局 429 冷却兜底（raw body 快路径已在读 body 前短路）
       if (!useRawBody || contentType.includes('multipart/form-data')) {
-        const existingPart = await getUploadedPart(env, uploadId, chunkIndex);
+        const existingPart = await getUploadedPart(env, uploadId, chunkIndex, { strict: true });
         if (
           existingPart &&
           existingPart.partNumber === partNumber &&
@@ -877,6 +892,7 @@ export async function onRequestPost(context) {
       const fileId = pickTelegramFileId(tgData);
       const messageId = tgData?.result?.message_id ?? null;
       if (!fileId) {
+        await discardUnconfirmedTelegramPart(env, uploadId, chunkIndex, taskData, tgChatId, messageId, { knownUntracked: true });
         return new Response(
           JSON.stringify({
             error: 'Telegram sendDocument 未返回有效的 file_id',
@@ -894,18 +910,20 @@ export async function onRequestPost(context) {
       }
 
       const partRef = encodeTelegramPartRef(fileId, messageId);
-      await recordUploadedPart(
-        env,
-        uploadId,
-        chunkIndex,
-        {
-          partNumber,
-          etag: partRef,
-          size: chunkSize,
-          uploadedAt: Date.now(),
-        },
-        taskData
-      );
+      const confirmation = await confirmTelegramUploadPart(env, uploadId, chunkIndex, {
+        partNumber, etag: partRef, size: chunkSize, uploadedAt: Date.now(),
+      }, taskData, tgChatId);
+      if (confirmation !== 'saved') {
+        await discardUnconfirmedTelegramPart(env, uploadId, chunkIndex, taskData, tgChatId, messageId, {
+          knownUntracked: confirmation === 'closed',
+        });
+        if (confirmation === 'closed') {
+          return jsonResponse({ error: '上传任务已结束', code: 'UPLOAD_EXPIRED' }, 404);
+        }
+        return jsonResponse({
+          error: '分片状态暂时无法保存，请重试', code: 'TG_PART_STATE_RETRY', retryable: true,
+        }, 503);
+      }
 
       return jsonResponse({
         success: true,
@@ -986,6 +1004,8 @@ export async function onRequestPost(context) {
   } catch (error) {
     console.error('Chunk upload error:', error);
     return jsonResponse({ error: error.message || 'Unknown error' }, 500);
+  } finally {
+    if (releaseTelegramPart) await releaseTelegramPart();
   }
 }
 

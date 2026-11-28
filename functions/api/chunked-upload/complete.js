@@ -81,6 +81,15 @@
  * ================================================================
  * 新任务由 R2 默认的 multipart 清理或 KV TTL 兜底。
  */
+import {
+  acquireTelegramUploadGuard,
+  findCommittedTelegramUpload,
+  forgetTelegramUploadParts,
+  isTelegramUpload,
+  readTelegramUploadOutcome,
+  telegramUploadFileKey,
+  writeTelegramUploadOutcome,
+} from '../../utils/telegram-upload-state.js';
 import { envValue } from '../../utils/env-config.js';
 import { checkAuthentication } from '../../utils/auth.js';
 import { createS3Client } from '../../utils/s3client.js';
@@ -186,6 +195,7 @@ export async function onRequestPost(context) {
   let fileExtension = '';
   let nonR2ChunkBackend = null;
   let nonR2CleanupNeeded = false;
+  let releaseTelegramTask;
   let storedMetadata = null;        // 落库后的元数据，用于构造分享摘要
 
   try {
@@ -245,6 +255,10 @@ export async function onRequestPost(context) {
           return jsonResponse({ error: '无权操作该上传任务' }, 403);
         }
         return jsonResponse(doneSnapshot.body || { error: '完成快照损坏' });
+      }
+      const outcome = await readTelegramUploadOutcome(env, uploadId);
+      if (outcome?.phase === 'done' && outcome.ownerId === ownerId) {
+        return jsonResponse(outcome.body);
       }
       return jsonResponse({ error: '上传任务不存在或已过期' }, 404);
     }
@@ -572,6 +586,26 @@ export async function onRequestPost(context) {
     //     把各片 (fileId, msgId, size) 写入 Manifest 元数据。
     // ============================================
     else if (storageType === 'telegram' && taskData.chunkBackend === 'telegram') {
+      releaseTelegramTask = await acquireTelegramUploadGuard(env, uploadId);
+      if (!releaseTelegramTask) {
+        return jsonResponse({ error: '任务正在处理，请重试', code: 'TG_TASK_BUSY', retryable: true }, 503);
+      }
+      const outcome = await readTelegramUploadOutcome(env, uploadId);
+      if (outcome?.phase === 'done') return jsonResponse(outcome.body);
+      if (outcome?.phase === 'canceled') {
+        return jsonResponse({ error: '上传任务已取消', code: 'UPLOAD_CANCELED' }, 409);
+      }
+
+      responseFileKey = await telegramUploadFileKey(uploadId, taskData.fileName);
+      metadataKey = responseFileKey;
+      const committed = await findCommittedTelegramUpload(env, uploadId, taskData.fileName);
+      if (committed) {
+        const result = buildCompletionResponse(taskData, responseFileKey, committed);
+        await writeTelegramUploadOutcome(env, uploadId, telegramDoneOutcome(taskData, result));
+        await cleanupCommittedTelegramTask(context, uploadId, taskData);
+        return jsonResponse(result);
+      }
+
       if (!shouldWriteTelegramMetadata(env)) {
         return jsonResponse(
           {
@@ -582,21 +616,19 @@ export async function onRequestPost(context) {
         );
       }
 
-      const serverParts = await listUploadedParts(env, uploadId);
-      const clientParts = Array.isArray(body?.parts) ? body.parts : [];
-      const mergedParts = mergeParts(serverParts, clientParts);
-
-      const uniquePartNumbers = new Set(mergedParts.map((p) => p.partNumber));
-      if (mergedParts.length !== totalChunks || uniquePartNumbers.size !== totalChunks) {
-        return jsonResponse(
-          {
-            error:
-              `Telegram 分片信息不完整或重复：预期 ${totalChunks} 个，` +
-              `实际有效 ${mergedParts.length} 个`,
-            code: 'CHUNKS_INCOMPLETE',
-          },
-          400
-        );
+      const parts = await listUploadedParts(env, uploadId, { mergeKv: true, strict: true });
+      const byNumber = new Map(parts.map((part) => [part.partNumber, part]));
+      const missingChunks = [];
+      for (let i = 1; i <= totalChunks; i++) {
+        if (!byNumber.has(i)) missingChunks.push(i - 1);
+      }
+      if (missingChunks.length) {
+        return jsonResponse({
+          error: `Telegram 缺少 ${missingChunks.length} 个已确认的分片`,
+          code: 'CHUNKS_INCOMPLETE',
+          missingChunks,
+          retryable: true,
+        }, 409);
       }
 
       const nominalChunkSize = Number(taskData.chunkSize) || CHUNK_SIZE_TELEGRAM;
@@ -604,14 +636,7 @@ export async function onRequestPost(context) {
       let totalSum = 0;
 
       for (let i = 1; i <= totalChunks; i += 1) {
-        const part = mergedParts[i - 1];
-        if (!part || part.partNumber !== i) {
-          return jsonResponse(
-            { error: `缺少 Telegram 分片 partNumber ${i}`, code: 'CHUNKS_INCOMPLETE' },
-            400
-          );
-        }
-
+        const part = byNumber.get(i);
         const ref = decodeTelegramPartRef(part.etag);
         if (!ref || !ref.fileId) {
           return jsonResponse(
@@ -662,10 +687,6 @@ export async function onRequestPost(context) {
         );
       }
 
-      const tgId = `tg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-      responseFileKey = `telegram:${tgId}.${fileExtension}`;
-      metadataKey = responseFileKey;
-
       const firstChunk = telegramChunks[0];
       taskData.telegramMessageId = firstChunk.msgId || taskData.telegramMessageId;
 
@@ -689,11 +710,6 @@ export async function onRequestPost(context) {
         messageId: firstChunk.msgId || undefined,
         fileName: taskData.fileName,
         fileSize: taskData.fileSize,
-      };
-
-      uploadedFileInfo = {
-        type: 'telegram-chunked',
-        messageIds: telegramChunks.map((c) => c.msgId).filter(Boolean),
       };
     }
     // ============================================
@@ -1025,6 +1041,12 @@ export async function onRequestPost(context) {
       }
     }
 
+    const finalResponse = buildCompletionResponse(taskData, responseFileKey, storedMetadata);
+    const isTelegramChunked = isTelegramUpload(taskData);
+    if (isTelegramChunked) {
+      await writeTelegramUploadOutcome(env, uploadId, telegramDoneOutcome(taskData, finalResponse));
+    }
+
     // ============================================
     // 8. Telegram 上传通知（有 waitUntil 时放后台，避免刚传完大文件立刻 sendMessage 阻塞响应）
     // ============================================
@@ -1054,13 +1076,10 @@ export async function onRequestPost(context) {
     // 9. 组装最终响应并持久化 10 分钟幂等快照
     //    先落快照再删主任务键，保证网络抖动重发 complete 时可重放同一结果。
     // ============================================
-    const finalResponse = {
-      success: true,
-      src: `/file/${responseFileKey}`,
-      fileName: taskData.fileName,
-      fileSize: taskData.fileSize,
-      ...(buildShareSummary(storedMetadata, metadataKey) || {}),
-    };
+    if (isTelegramChunked) {
+      await cleanupCommittedTelegramTask(context, uploadId, taskData);
+      return jsonResponse(finalResponse);
+    }
 
     await env.img_url
       .put(
@@ -1161,8 +1180,47 @@ export async function onRequestPost(context) {
     }
 
     console.error('Complete upload error:', error);
+    if (isTelegramUpload(taskData)) {
+      return jsonResponse({
+        error: 'Telegram 上传状态暂时无法保存，请重试完成', code: 'TG_TASK_RETRY', retryable: true,
+      }, 503);
+    }
     return jsonResponse({ error: error.message || 'Unknown error' }, 500);
+  } finally {
+    if (releaseTelegramTask) await releaseTelegramTask();
   }
+}
+
+function telegramDoneOutcome(task, body) {
+  return {
+    phase: 'done',
+    ownerId: task.ownerId,
+    fileId: task.fileId,
+    folderPath: task.folderPath || '',
+    storageMode: 'telegram',
+    body,
+  };
+}
+
+function buildCompletionResponse(task, fileKey, metadata) {
+  return {
+    success: true,
+    src: `/file/${fileKey}`,
+    fileName: task.fileName,
+    fileSize: task.fileSize,
+    ...(buildShareSummary(metadata, fileKey) || {}),
+  };
+}
+
+async function cleanupCommittedTelegramTask(context, uploadId, task) {
+  const { env } = context;
+  const cleanup = Promise.allSettled([
+    env.img_url.delete(`upload:${uploadId}`),
+    deleteResumeMap(env, task.ownerId, task.fileId, uploadId),
+    forgetTelegramUploadParts(env, uploadId, task.totalChunks),
+  ]);
+  if (typeof context.waitUntil === 'function') context.waitUntil(cleanup);
+  else await cleanup;
 }
 
 // ============================================
@@ -1553,31 +1611,6 @@ async function rollbackUploadedFile(uploadedFileInfo, env) {
           );
         }
         break;
-
-      case 'telegram-chunked': {
-        const msgIds = Array.isArray(uploadedFileInfo.messageIds)
-          ? uploadedFileInfo.messageIds.filter(Boolean)
-          : [];
-        const chatId = envValue(env, 'TG_CHAT_ID');
-        if (msgIds.length > 0 && chatId && envValue(env, 'TG_BOT_TOKEN')) {
-          const url = buildTelegramBotApiUrl(env, 'deleteMessage');
-          const BATCH_SIZE = 4;
-          for (let i = 0; i < msgIds.length; i += BATCH_SIZE) {
-            const batch = msgIds.slice(i, i + BATCH_SIZE);
-            await Promise.allSettled(
-              batch.map((messageId) =>
-                fetch(url, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
-                })
-              )
-            );
-          }
-          console.log(`Rolled back ${msgIds.length} Telegram chunk message(s)`);
-        }
-        break;
-      }
 
       case 'huggingface': {
         if (!uploadedFileInfo.path) {

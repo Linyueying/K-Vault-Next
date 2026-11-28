@@ -533,6 +533,7 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
   const fileSize = 5 * MB;
   const chunkSize = 2 * MB; // 2MB + 2MB + 1MB = 3 chunks
   const totalChunks = 3;
+  const source = { url: 'https://origin.example/archive.tar', validator: '"v-tar"' };
 
   const postJson = (path, payload) => new Request(`https://example.test/api/chunked-upload/${path}`, {
     method: 'POST',
@@ -550,6 +551,7 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
       chunkSize,
       storageMode: 'telegram',
       fileId: '11223344556677889900aabbccddeeff',
+      rangeSource: source,
     }),
     env,
   });
@@ -561,6 +563,7 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
   let remoteFetchCount = 0;
   let tgSendCount = 0;
   let failNextTgWith429 = false;
+  let originValidator = source.validator;
   const seenRanges = [];
 
   t.mock.method(globalThis, 'fetch', async (url, init) => {
@@ -580,6 +583,7 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
         headers: {
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Content-Length': String(len),
+          ETag: originValidator,
         },
       });
     }
@@ -635,6 +639,25 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
   assert.equal(remoteFetchCount, 1);
   assert.equal(tgSendCount, 1);
 
+  // A changed request binding cannot reuse an existing part.
+  const rebound = await urlChunk({
+    request: postJson('url-chunk', { uploadId, chunkIndex: 0, ...source, validator: '"different"' }),
+    env,
+  });
+  assert.equal((await rebound.json()).code, 'SOURCE_CHANGED');
+  assert.equal(remoteFetchCount, 1);
+
+  // Even an origin returning 206 is rejected if its validator has changed.
+  originValidator = '"different"';
+  const changed = await urlChunk({
+    request: postJson('url-chunk', { uploadId, chunkIndex: 1, ...source }),
+    env,
+  });
+  assert.equal(changed.status, 409);
+  assert.equal((await changed.json()).code, 'SOURCE_CHANGED');
+  assert.equal(tgSendCount, 1);
+  originValidator = source.validator;
+
   // 4. Chunk 1 hits Telegram 429 -> records shared cooldown -> Chunk 2 short-circuits BEFORE fetching origin!
   failNextTgWith429 = true;
   const c1RateLimited = await urlChunk({
@@ -647,7 +670,7 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
     env,
   });
   assert.equal(c1RateLimited.status, 429);
-  assert.equal(remoteFetchCount, 2);
+  assert.equal(remoteFetchCount, 3);
 
   const c2ShortCircuit = await urlChunk({
     request: postJson('url-chunk', {
@@ -661,7 +684,7 @@ test('Telegram Range-chunked multi-request URL transfer E2E: init -> url-chunk -
   assert.equal(c2ShortCircuit.status, 429);
   const c2Body = await c2ShortCircuit.json();
   assert.equal(c2Body.cooldownSource, 'shared');
-  assert.equal(remoteFetchCount, 2, 'shared 429 cooldown must short-circuit BEFORE remote origin fetch');
+  assert.equal(remoteFetchCount, 3, 'shared 429 cooldown must short-circuit BEFORE remote origin fetch');
 
   // 5. Clear cooldown and finish chunks 1 & 2, then complete zero-copy manifest
   await clearTelegramCooldown(env);

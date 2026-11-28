@@ -559,6 +559,18 @@ const M0021_VAULT_RECORDS = [
 )`,
 ];
 
+const M0022_TELEGRAM_UPLOAD_GUARDS = [
+  `CREATE TABLE IF NOT EXISTS telegram_upload_guards (
+  guard_key TEXT PRIMARY KEY,
+  lease_token TEXT,
+  lease_until INTEGER NOT NULL DEFAULT 0,
+  outcome TEXT,
+  retain_until INTEGER NOT NULL
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_telegram_upload_guards_retention
+  ON telegram_upload_guards(retain_until)`,
+];
+
 export const MIGRATIONS = [
   { id: '0001_files', statements: M0001_FILES },
   {
@@ -624,6 +636,7 @@ export const MIGRATIONS = [
   },
   { id: '0020_trash_indexes', statements: M0020_TRASH_INDEXES },
   { id: '0021_vault_records', statements: M0021_VAULT_RECORDS },
+  { id: '0022_telegram_upload_guards', statements: M0022_TELEGRAM_UPLOAD_GUARDS },
 ];
 
 // ============================================================================

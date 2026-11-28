@@ -9,6 +9,12 @@
  * 每片严格执行 SSRF 重定向校验、HTTP 206 + Content-Range 精确偏移校验及字节长度校验，
  * 避免源站忽略 Range 或中途文件变更导致数据错位。
  */
+import { normalizeRangeValidator, rangeUploadSourceId } from '../../utils/range-upload-source.js';
+import {
+  beginTelegramUploadPart,
+  confirmTelegramUploadPart,
+  discardUnconfirmedTelegramPart,
+} from '../../utils/telegram-upload-state.js';
 import { checkAuthentication } from '../../utils/auth.js';
 import { envValue } from '../../utils/env-config.js';
 import { buildTelegramBotApiUrl, pickTelegramFileId } from '../../utils/telegram.js';
@@ -206,6 +212,15 @@ async function fetchRemoteRange(initialUrl, { start, end, totalSize, referer, va
       continue;
     }
 
+    if (validator && (response.status === 200 || response.status === 206)) {
+      const header = validator.startsWith('"') ? 'ETag' : 'Last-Modified';
+      const returned = normalizeRangeValidator(response.headers.get(header));
+      if (returned && returned !== validator) {
+        void response.body?.cancel().catch(() => {});
+        throw new RangeFetchError(409, '远程源文件版本已变更，请重试转存', 'SOURCE_CHANGED', false);
+      }
+    }
+
     if (response.status === 200) {
       void response.body?.cancel().catch(() => {});
       throw new RangeFetchError(
@@ -366,6 +381,7 @@ async function readExactChunkBytes(body, expectedSize, signal) {
 
 export async function onRequestPost(context) {
   const { request, env } = context;
+  let releaseTelegramPart;
 
   try {
     const auth = await checkAuthentication(context);
@@ -395,7 +411,7 @@ export async function onRequestPost(context) {
     const uploadId = String(body?.uploadId || '').trim();
     const chunkIndex = Number(body?.chunkIndex);
     const rawUrl = String(body?.url || '').trim();
-    const validator = String(body?.validator || '').trim().slice(0, 512);
+    const validator = normalizeRangeValidator(body?.validator);
 
     if (!/^[a-f0-9]{16,64}$/i.test(uploadId)) {
       return jsonResponse({ error: 'uploadId 格式错误' }, 400);
@@ -469,7 +485,16 @@ export async function onRequestPost(context) {
     const partNumber = chunkIndex + 1;
 
     // 1) 幂等复用：已落库的分片直接返回，零源站流量、零重复上传
-    const existingPart = await getUploadedPart(env, uploadId, chunkIndex);
+    if (isTelegramChunked) {
+      if (taskData.remoteSourceId && await rangeUploadSourceId(remoteUrl.href, validator) !== taskData.remoteSourceId) {
+        return jsonResponse({ error: '远程源文件版本已变更，请重试转存', code: 'SOURCE_CHANGED' }, 409);
+      }
+      const start = await beginTelegramUploadPart(env, uploadId, chunkIndex, taskData);
+      if (!start.release) return jsonResponse(start.body, start.status);
+      releaseTelegramPart = start.release;
+    }
+
+    const existingPart = await getUploadedPart(env, uploadId, chunkIndex, { strict: isTelegramChunked });
     if (
       existingPart &&
       existingPart.partNumber === partNumber &&
@@ -712,6 +737,7 @@ export async function onRequestPost(context) {
     const fileId = pickTelegramFileId(tgData);
     const messageId = tgData?.result?.message_id ?? null;
     if (!fileId) {
+      await discardUnconfirmedTelegramPart(env, uploadId, chunkIndex, taskData, tgChatId, messageId, { knownUntracked: true });
       return jsonResponse(
         { error: 'Telegram sendDocument 未返回有效的 file_id', code: 'TG_PART_RETRY', retryable: true },
         503,
@@ -720,18 +746,20 @@ export async function onRequestPost(context) {
     }
 
     const partRef = encodeTelegramPartRef(fileId, messageId);
-    await recordUploadedPart(
-      env,
-      uploadId,
-      chunkIndex,
-      {
-        partNumber,
-        etag: partRef,
-        size: expectedSize,
-        uploadedAt: Date.now(),
-      },
-      taskData
-    );
+    const confirmation = await confirmTelegramUploadPart(env, uploadId, chunkIndex, {
+      partNumber, etag: partRef, size: expectedSize, uploadedAt: Date.now(),
+    }, taskData, tgChatId);
+    if (confirmation !== 'saved') {
+      await discardUnconfirmedTelegramPart(env, uploadId, chunkIndex, taskData, tgChatId, messageId, {
+        knownUntracked: confirmation === 'closed',
+      });
+      if (confirmation === 'closed') {
+        return jsonResponse({ error: '上传任务已结束', code: 'UPLOAD_EXPIRED' }, 404);
+      }
+      return jsonResponse({
+        error: '分片状态暂时无法保存，请重试', code: 'TG_PART_STATE_RETRY', retryable: true,
+      }, 503);
+    }
 
     return jsonResponse({
       success: true,
@@ -751,5 +779,7 @@ export async function onRequestPost(context) {
     }
     console.error('URL range chunk transfer error:', error);
     return jsonResponse({ error: error?.message || '分片转存失败', retryable: true }, 500);
+  } finally {
+    if (releaseTelegramPart) await releaseTelegramPart();
   }
 }

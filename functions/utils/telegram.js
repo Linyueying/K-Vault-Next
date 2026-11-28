@@ -594,13 +594,20 @@ export async function deleteTelegramMessagesBatch(env, rawMessageIds, options = 
     return { deleted: 0, total: ids.length, method: "none", truncated: false };
   }
 
+  const pending = new Set(ids);
+  const pendingResult = () => options.includePending ? { pendingMessageIds: [...pending] } : {};
+  const deletedOrMissing = (res) => res.ok || (
+    options.missingIsSuccess && res.status === 400 &&
+    /message to delete not found/i.test(res.data?.description || '')
+  );
   const singleUrl = buildTelegramBotApiUrl(env, "deleteMessage");
   if (ids.length === 1) {
     const res = await postTelegramDelete(singleUrl, {
       chat_id: chatId,
       message_id: ids[0],
     });
-    return { deleted: res.ok ? 1 : 0, total: 1, method: "single", truncated: false };
+    if (deletedOrMissing(res)) pending.delete(ids[0]);
+    return { deleted: 1 - pending.size, total: 1, method: "single", truncated: false, ...pendingResult() };
   }
 
   const batchUrl = buildTelegramBotApiUrl(env, "deleteMessages");
@@ -623,6 +630,7 @@ export async function deleteTelegramMessagesBatch(env, rawMessageIds, options = 
     if (res.ok) {
       usedBatch = true;
       deleted += chunk.length;
+      for (const id of chunk) pending.delete(id);
       continue;
     }
     // 404 / 方法不支持 / 未知异常：本批与后续批次统一回落单条 deleteMessage
@@ -654,8 +662,11 @@ export async function deleteTelegramMessagesBatch(env, rawMessageIds, options = 
           })
         )
       );
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value?.ok) deleted += 1;
+      for (const [index, result] of results.entries()) {
+        if (result.status === "fulfilled" && deletedOrMissing(result.value)) {
+          pending.delete(group[index]);
+          deleted += 1;
+        }
       }
     }
   }
@@ -665,6 +676,7 @@ export async function deleteTelegramMessagesBatch(env, rawMessageIds, options = 
     total: ids.length,
     method: usedBatch && fallbackIds.length === 0 ? "batch" : "fallback",
     truncated,
+    ...pendingResult(),
   };
 }
 

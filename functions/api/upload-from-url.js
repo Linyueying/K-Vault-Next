@@ -1,3 +1,4 @@
+import { normalizeRangeValidator } from '../utils/range-upload-source.js';
 import { envValue } from '../utils/env-config.js';
 import { createS3Client } from "../utils/s3client.js";
 import { uploadToDiscord } from "../utils/discord.js";
@@ -397,7 +398,8 @@ async function probeRemoteUrl(context, body, { signal, guestLimit, isAuthenticat
 
     const acceptRanges =
       remote.status === 206 || /\bbytes\b/i.test(remote.headers.get("Accept-Ranges") || "");
-    const validator = remote.headers.get("ETag") || remote.headers.get("Last-Modified") || "";
+    const validator = normalizeRangeValidator(remote.headers.get("ETag")) ||
+      normalizeRangeValidator(remote.headers.get("Last-Modified"));
     const contentType = (remote.headers.get("Content-Type") || "application/octet-stream").split(";")[0].trim();
     const fileName = resolveFileName(
       finalUrl,

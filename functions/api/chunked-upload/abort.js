@@ -22,14 +22,22 @@
  */
 
 import { checkAuthentication } from '../../utils/auth.js';
-import { envValue } from '../../utils/env-config.js';
-import { deleteTelegramMessagesBatch } from '../../utils/telegram.js';
 import {
-  decodeTelegramPartRef,
   deletePartStates,
-  listUploadedParts,
+  deleteResumeMap,
   resumeMapKey,
 } from '../../utils/chunk-state.js';
+
+import {
+  acquireTelegramUploadGuard,
+  cleanCanceledTelegramUpload,
+  findCommittedTelegramUpload,
+  isTelegramUpload,
+  readTelegramUploadJournal,
+  readTelegramUploadOutcome,
+  trackTelegramUpload,
+  writeTelegramUploadOutcome,
+} from '../../utils/telegram-upload-state.js';
 
 // 与 init.js 保持一致（私有辅助函数，未导出，这里自包含复制）
 function jsonResponse(body, status = 200) {
@@ -107,6 +115,32 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: '无权操作该上传任务' }, 403);
   }
 
+  if (!taskData || isTelegramUpload(taskData)) {
+    try {
+      const journal = await readTelegramUploadJournal(env, uploadId);
+      if (journal && journal.ownerId !== ownerId) {
+        return jsonResponse({ error: '无权操作该上传任务' }, 403);
+      }
+      if (journal || isTelegramUpload(taskData)) {
+        return await abortTelegramTask(env, uploadId, ownerId, taskData, journal);
+      }
+      const outcome = await readTelegramUploadOutcome(env, uploadId);
+      if (outcome && outcome.ownerId !== ownerId) {
+        return jsonResponse({ error: '无权操作该上传任务' }, 403);
+      }
+      if (outcome) {
+        return jsonResponse({
+          ok: true,
+          alreadyCompleted: outcome.phase === 'done',
+          cleanupPending: false,
+        });
+      }
+    } catch (err) {
+      console.warn('Telegram upload cancellation could not be recorded:', err?.message || err);
+      return jsonResponse({ error: '暂时无法取消上传，请重试', retryable: true }, 503);
+    }
+  }
+
   // ============================================
   // 4. abort R2 multipart —— 按 key+r2UploadId 去重，避免重复调用
   // ============================================
@@ -157,37 +191,11 @@ export async function onRequestPost(context) {
   }
 
   // ============================================
-  // 4.5 清理 Telegram 虚拟分片已上传的频道消息（best-effort）
-  // ============================================
-  let deletedTelegramChunks = 0;
-  if (
-    taskData?.chunkBackend === 'telegram' &&
-    envValue(env, 'TG_BOT_TOKEN') &&
-    envValue(env, 'TG_CHAT_ID')
-  ) {
-    try {
-      const uploadedParts = await listUploadedParts(env, uploadId);
-      const msgIds = [];
-      const seenMsgIds = new Set();
-      for (const part of uploadedParts) {
-        const ref = decodeTelegramPartRef(part?.etag);
-        if (ref?.msgId && !seenMsgIds.has(String(ref.msgId))) {
-          seenMsgIds.add(String(ref.msgId));
-          msgIds.push(ref.msgId);
-        }
-      }
-      if (msgIds.length > 0) {
-        const batchRes = await deleteTelegramMessagesBatch(env, msgIds);
-        deletedTelegramChunks = batchRes.deleted;
-      }
-    } catch (err) {
-      console.warn('abort Telegram chunk messages failed (best-effort):', err?.message || err);
-    }
-  }
-
-  // ============================================
   // 5. 并行清理 KV / D1 痕迹（含 upload_parts / part-state，防止孤儿状态泄漏）
   // ============================================
+  if (!taskData && !r2Candidates.length) {
+    return jsonResponse({ ok: true, abortedR2: false, deletedTelegramChunks: 0, message: '任务已结束或不存在' });
+  }
   const totalChunks = Number(taskData?.totalChunks || matchedPendingTotalChunks || 0);
   const cleanupJobs = [
     env.img_url.delete(`upload:${uploadId}`).catch(() => {}),
@@ -216,11 +224,51 @@ export async function onRequestPost(context) {
   return jsonResponse({
     ok: true,
     abortedR2,
-    deletedTelegramChunks,
+    deletedTelegramChunks: 0,
     message: abortedR2
       ? '已取消上传并释放 R2 空间'
-      : deletedTelegramChunks > 0
-        ? `已取消上传并清理 ${deletedTelegramChunks} 个 Telegram 分片消息`
-        : '任务已清理（R2 分片可能已不存在或已过期）',
+      : '任务已清理（R2 分片可能已不存在或已过期）',
   });
+}
+
+
+async function abortTelegramTask(env, uploadId, ownerId, task, journal) {
+  const release = await acquireTelegramUploadGuard(env, uploadId);
+  if (!release) {
+    return jsonResponse({ error: '任务正在处理，请重试取消', code: 'TG_TASK_BUSY', retryable: true }, 503);
+  }
+  try {
+    const outcome = await readTelegramUploadOutcome(env, uploadId);
+    if (outcome?.phase === 'done' || await findCommittedTelegramUpload(env, uploadId, (journal || task).fileName)) {
+      return jsonResponse({
+        ok: true, alreadyCompleted: true, cleanupPending: false, deletedTelegramChunks: 0,
+        message: '上传已经完成',
+      });
+    }
+
+    const cleanupJournal = journal || await trackTelegramUpload(env, uploadId, task);
+    if (!outcome) {
+      await writeTelegramUploadOutcome(env, uploadId, { phase: 'canceled', ownerId });
+    }
+    await Promise.allSettled([
+      env.img_url.delete(`upload:${uploadId}`),
+      deleteResumeMap(env, ownerId, cleanupJournal.fileId, uploadId),
+    ]);
+
+    let cleanup = { cleanupPending: true, deletedTelegramChunks: 0 };
+    try {
+      cleanup = await cleanCanceledTelegramUpload(env, uploadId, cleanupJournal, {
+        // Give cancellation and any earlier commit time to become visible across KV locations.
+        deferInitialDeletion: !env.DB?.prepare,
+      });
+    } catch (err) {
+      console.warn('Telegram fragment cleanup pending:', err?.message || err);
+    }
+    return jsonResponse({
+      ok: true, abortedR2: false, ...cleanup,
+      message: cleanup.cleanupPending ? '已取消上传，Telegram 分片等待清理' : '已取消上传并清理 Telegram 分片',
+    });
+  } finally {
+    await release();
+  }
 }

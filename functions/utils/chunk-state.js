@@ -140,8 +140,9 @@ export async function cleanupExpiredUploadParts(env) {
   try {
     const nowSec = Math.floor(Date.now() / 1000);
     const res = await env.DB.prepare(
-      'DELETE FROM upload_parts WHERE expires_at IS NOT NULL AND expires_at < ?'
-    ).bind(nowSec).run();
+      `DELETE FROM upload_parts WHERE expires_at < ?
+       AND (substr(etag, 1, 3) <> 'tg:' OR expires_at < ?)`
+    ).bind(nowSec, nowSec - 2 * 24 * 60 * 60).run();
     return Number(res?.meta?.changes || 0);
   } catch (err) {
     console.warn('cleanupExpiredUploadParts failed:', err?.message || err);
@@ -216,11 +217,12 @@ export async function recordUploadedPart(env, uploadId, chunkIndex, partInfo, ta
 
   if (await ensurePartsTable(env)) {
     try {
-      await env.DB.prepare(
+      const result = await env.DB.prepare(
         `INSERT OR REPLACE INTO upload_parts
          (upload_id, chunk_index, part_number, etag, size, uploaded_at, expires_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).bind(uploadId, chunkIndex, partNumber, etag, size, uploadedAt, expiresAt).run();
+      if (result?.success === false) throw new Error('D1 part write failed');
       return { ok: true, store: 'd1' };
     } catch (err) {
       console.warn(`D1 recordUploadedPart failed (uploadId=${uploadId}, part=${partNumber}), falling back to KV:`, err?.message || err);
@@ -232,7 +234,9 @@ export async function recordUploadedPart(env, uploadId, chunkIndex, partInfo, ta
       await env.img_url.put(
         partStateKey(uploadId, chunkIndex),
         JSON.stringify({ partNumber, etag, size, uploadedAt }),
-        chunkTaskExpiration(taskData)
+        etag.startsWith('tg:')
+          ? { expiration: expiresAt + 2 * 24 * 60 * 60 }
+          : chunkTaskExpiration(taskData)
       );
       return { ok: true, store: 'kv' };
     } catch (err) {
@@ -249,10 +253,12 @@ export async function recordUploadedPart(env, uploadId, chunkIndex, partInfo, ta
  * 用于 Telegram 虚拟分片服务端幂等复用：若客户端因响应丢失/超时重发同一分片，
  * 命中后直接返回已有 etag，避免重复消耗 18MB 内存与 Telegram 频道发信配额。
  */
-export async function getUploadedPart(env, uploadId, chunkIndex) {
+export async function getUploadedPart(env, uploadId, chunkIndex, { strict = false } = {}) {
   if (!uploadId || !Number.isInteger(chunkIndex) || chunkIndex < 0) return null;
 
-  if (await ensurePartsTable(env)) {
+  const hasD1 = await ensurePartsTable(env);
+  if (strict && isD1Available(env) && !hasD1) throw new Error('Upload part database unavailable');
+  if (hasD1) {
     try {
       const bound = env.DB.prepare(
         `SELECT part_number, etag, size, uploaded_at
@@ -276,6 +282,7 @@ export async function getUploadedPart(env, uploadId, chunkIndex) {
         };
       }
     } catch (err) {
+      if (strict) throw err;
       console.warn(`D1 getUploadedPart failed (uploadId=${uploadId}, idx=${chunkIndex}), falling back to KV:`, err?.message || err);
     }
   }
@@ -296,6 +303,7 @@ export async function getUploadedPart(env, uploadId, chunkIndex) {
         };
       }
     } catch (err) {
+      if (strict) throw err;
       console.warn(`KV getUploadedPart failed (uploadId=${uploadId}, idx=${chunkIndex}):`, err?.message || err);
     }
   }
@@ -335,10 +343,22 @@ function parseChunkIndex(key) {
  * D1 未绑定或未命中（兼容升级前仍在进行的 KV 任务）时回落 KV 并采用
  * 16 路并发批量读取，彻底消除旧版 N 次串行 KV get 延迟。
  */
-export async function listUploadedParts(env, uploadId) {
+export async function listUploadedParts(env, uploadId, { mergeKv = false, includeDuplicates = false, strict = false } = {}) {
   if (!uploadId) return [];
 
-  if (await ensurePartsTable(env)) {
+  const parts = [];
+  const seen = new Set();
+  const add = (partNumber, etag, size) => {
+    if (!Number.isInteger(partNumber) || partNumber <= 0 || !etag) return;
+    const key = includeDuplicates ? etag : partNumber;
+    if (seen.has(key)) return;
+    seen.add(key);
+    parts.push({ partNumber, etag, ...(size > 0 ? { size } : {}) });
+  };
+
+  const hasD1 = await ensurePartsTable(env);
+  if (strict && isD1Available(env) && !hasD1) throw new Error('Upload part database unavailable');
+  if (hasD1) {
     try {
       const res = await env.DB.prepare(
         `SELECT part_number, etag, size
@@ -346,51 +366,34 @@ export async function listUploadedParts(env, uploadId) {
          WHERE upload_id = ?
          ORDER BY part_number ASC`
       ).bind(uploadId).all();
-      const rows = res?.results || [];
-      if (rows.length > 0) {
-        const parts = [];
-        const seen = new Set();
-        for (const row of rows) {
-          const partNumber = Number(row?.part_number);
-          const etag = typeof row?.etag === 'string' ? row.etag : '';
-          const size = Number(row?.size || 0);
-          if (!Number.isInteger(partNumber) || partNumber <= 0 || !etag) continue;
-          if (seen.has(partNumber)) continue;
-          seen.add(partNumber);
-          parts.push({ partNumber, etag, ...(size > 0 ? { size } : {}) });
-        }
-        return parts;
+      for (const row of res?.results || []) {
+        add(Number(row.part_number), row.etag, Number(row.size));
       }
+      if (parts.length && !mergeKv) return parts;
     } catch (err) {
+      if (strict) throw err;
       console.warn('listUploadedParts (D1) failed, falling back to KV:', err?.message || err);
     }
   }
 
-  // KV 回落路径：16 路并发批量读取
-  if (!env?.img_url) return [];
-  try {
-    const keys = await listAllKeys(env.img_url, `part-state:${uploadId}:`);
-    if (!keys.length) return [];
-
-    const loaded = await mapBatched(keys, KV_BATCH_CONCURRENCY, (key) =>
-      env.img_url.get(key, { type: "json" })
-    );
-
-    const parts = [];
-    const seen = new Set();
-    for (const raw of loaded) {
-      if (!raw || !Number.isInteger(raw?.partNumber) || !raw?.etag) continue;
-      if (seen.has(raw.partNumber)) continue;
-      seen.add(raw.partNumber);
-      const size = Number(raw?.size || 0);
-      parts.push({ partNumber: raw.partNumber, etag: raw.etag, ...(size > 0 ? { size } : {}) });
+  if (env?.img_url) {
+    try {
+      const keys = await listAllKeys(env.img_url, `part-state:${uploadId}:`);
+      for (let start = 0; start < keys.length; start += 100) {
+        const batch = keys.slice(start, start + 100);
+        const values = await env.img_url.get(batch, { type: 'json' });
+        // Older local bindings and test doubles may only implement single-key reads.
+        const loaded = values instanceof Map
+          ? values.values()
+          : await Promise.all(batch.map((key) => env.img_url.get(key, { type: 'json' })));
+        for (const raw of loaded) add(raw?.partNumber, raw?.etag, Number(raw?.size));
+      }
+    } catch (err) {
+      if (strict) throw err;
+      console.error('listUploadedParts (KV) error:', err);
     }
-
-    return parts.sort((a, b) => a.partNumber - b.partNumber);
-  } catch (err) {
-    console.error("listUploadedParts (KV) error:", err);
-    return [];
   }
+  return parts.sort((a, b) => a.partNumber - b.partNumber);
 }
 
 /**
@@ -519,7 +522,7 @@ export async function cleanupTaskState(env, uploadId, totalChunks, taskData) {
 /**
  * 删除任务的 part 状态（D1 单条 SQL 优先；无 D1 时按索引分批并发删除 KV）。
  */
-export async function deletePartStates(env, uploadId, totalChunks = 0) {
+export async function deletePartStates(env, uploadId, totalChunks = 0, { mergeKv = false } = {}) {
   if (!uploadId) return;
 
   let deletedFromD1 = 0;
@@ -539,10 +542,10 @@ export async function deletePartStates(env, uploadId, totalChunks = 0) {
   // 若 D1 已接管并命中删除（或 totalChunks <= 0），不再消耗 KV 写额度；
   // 若 D1 未绑定（纯 KV 部署），或 D1 中 0 行（兼容升级前遗留的 KV 任务），才清理 KV 键。
   if (!env?.img_url) return;
-  if (d1Handled && deletedFromD1 > 0) return;
+  if (!mergeKv && d1Handled && deletedFromD1 > 0) return;
 
   try {
-    if (d1Handled && deletedFromD1 === 0) {
+    if (mergeKv || (d1Handled && deletedFromD1 === 0)) {
       // 仅检查是否真有旧 KV 键存在（1 次 list，0 次多余 delete），避免白烧 KV 写额度
       const legacyKeys = await listAllKeys(env.img_url, `part-state:${uploadId}:`);
       if (!legacyKeys.length) return;
@@ -569,10 +572,12 @@ export async function deletePartStates(env, uploadId, totalChunks = 0) {
 /**
  * 清理文件指纹映射。fileId 为空时静默跳过（老客户端不传 fileId）。
  */
-export async function deleteResumeMap(env, ownerId, fileId) {
+export async function deleteResumeMap(env, ownerId, fileId, expectedUploadId) {
   if (!env?.img_url || !ownerId || !fileId) return;
   try {
-    await env.img_url.delete(resumeMapKey(ownerId, fileId));
+    const key = resumeMapKey(ownerId, fileId);
+    if (expectedUploadId && await env.img_url.get(key) !== expectedUploadId) return;
+    await env.img_url.delete(key);
   } catch (error) {
     console.error("deleteResumeMap error:", error);
   }

@@ -271,9 +271,10 @@ export async function putFileRecord(env, id, kvKey, metadata) {
  * @param {string} id
  * @returns {Promise<{record: {metadata: object}, kvKey: string}|null>}
  */
-export async function getFileRecord(env, id) {
-  await ensureSchema(env);
+export async function getFileRecord(env, id, { strict = false } = {}) {
+  const schema = await ensureSchema(env);
   if (!isD1Enabled(env) || !id) return null;
+  if (strict && !schema?.ok) throw new Error('File metadata database unavailable');
 
   try {
     const row = await env.DB.prepare(
@@ -287,6 +288,7 @@ export async function getFileRecord(env, id) {
       ...(row.trashed_at ? { trashedAt: Number(row.trashed_at) } : {}),
     };
   } catch (error) {
+    if (strict) throw error;
     console.warn('D1 getFileRecord failed:', error?.message || error);
     return null;
   }

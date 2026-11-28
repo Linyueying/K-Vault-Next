@@ -31,6 +31,11 @@ npx wrangler pages dev ./ \
 - 本地 `wrangler pages dev` 会读取 `.env` / `.dev.vars`；线上 Cloudflare Pages **不会**读取仓库内的 `.env`，仅认控制台环境变量与绑定。
 - 不传 `BASIC_USER` / `BASIC_PASS` 时，管理接口默认 Fail-Closed 返回 `503`（生产环境必须配置）。
 
+Telegram 虚拟分片只有在保存分片凭据后才确认成功。绑定 D1 时通过自动迁移的
+`telegram_upload_guards` 表协调分片、完成和取消；仅用 KV 时，完成链接仍固定，
+但跨节点状态传播依赖 KV 最终一致性，取消后延迟清理。过期与待重试的消息清理
+由后续分片初始化请求触发，空闲的 Pages 实例不会按时自行执行。
+
 ---
 
 ## 2. 工程硬约束

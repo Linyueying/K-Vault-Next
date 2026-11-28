@@ -1860,3 +1860,215 @@ test('chunked Telegram download handles last-1% resume without upstream Range, p
 
 
 
+
+async function lifecycleRequest(env, path, handler, body) {
+  const context = makeContext(authedRequest(`https://vault.test/api/chunked-upload/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }), env);
+  const response = await handler(context);
+  await context.flush();
+  return { status: response.status, body: await response.json() };
+}
+
+async function startLifecycleUpload(env, totalChunks = 2) {
+  const result = await lifecycleRequest(env, 'init', initPost, {
+    fileName: 'lifecycle.bin',
+    fileSize: totalChunks * MB,
+    chunkSize: MB,
+    totalChunks,
+    storageMode: 'telegram',
+    fileId: '0123456789abcdef0123456789abcdef',
+  });
+  assert.equal(result.status, 200);
+  return result.body.uploadId;
+}
+
+async function uploadLifecyclePart(env, uploadId, chunkIndex) {
+  const context = makeContext(authedRequest(
+    `https://vault.test/api/chunked-upload/chunk?uploadId=${uploadId}&chunkIndex=${chunkIndex}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': String(MB) },
+      body: new Uint8Array(MB),
+    },
+  ), env);
+  const response = await chunkPost(context);
+  await context.flush();
+  return { status: response.status, body: await response.json() };
+}
+
+test('Telegram requires a stored receipt before confirming a part and completes mixed D1/KV receipts', async (t) => {
+  const { env, kv } = makeEnv();
+  const telegram = createMockTelegramServer();
+  t.mock.method(globalThis, 'fetch', telegram.mockFetch);
+  const uploadId = await startLifecycleUpload(env);
+
+  assert.equal((await uploadLifecyclePart(env, uploadId, 0)).status, 200);
+  const prepare = env.DB.prepare;
+  const put = kv.put;
+  t.mock.method(env.DB, 'prepare', (sql) => {
+    if (sql.includes('INSERT OR REPLACE INTO upload_parts')) throw new Error('D1 receipt write unavailable');
+    return prepare(sql);
+  });
+  const kvWrite = t.mock.method(kv, 'put', (key, ...args) => {
+    if (key.startsWith('part-state:')) throw new Error('KV receipt write unavailable');
+    return put(key, ...args);
+  });
+
+  const failed = await uploadLifecyclePart(env, uploadId, 1);
+  assert.equal(failed.status, 503);
+  assert.equal(failed.body.code, 'TG_PART_STATE_RETRY');
+  assert.ok(kv.putKeys.some((key) => key.startsWith(`tg-upload-cleanup:message:${uploadId}:`)));
+
+  const incomplete = await lifecycleRequest(env, 'complete', completePost, { uploadId });
+  assert.equal(incomplete.status, 409);
+  assert.deepEqual(incomplete.body.missingChunks, [1]);
+
+  kvWrite.mock.restore();
+  assert.equal((await uploadLifecyclePart(env, uploadId, 1)).status, 200);
+  const status = await lifecycleRequest(env, 'init', initPost, {
+    uploadId, fileName: 'lifecycle.bin', fileSize: 2 * MB, chunkSize: MB, totalChunks: 2, storageMode: 'telegram',
+  });
+  assert.deepEqual(status.body.uploadedChunks, [0, 1]);
+  assert.equal((await lifecycleRequest(env, 'complete', completePost, { uploadId })).status, 200);
+  assert.equal(await kv.get(`part-state:${uploadId}:1`), null);
+});
+
+test('Telegram completion is single-writer and restores the same result after a lost outcome write', async (t) => {
+  const { env, kv } = makeEnv({ d1: false });
+  const telegram = createMockTelegramServer();
+  t.mock.method(globalThis, 'fetch', telegram.mockFetch);
+  const uploadId = await startLifecycleUpload(env);
+  for (const index of [0, 1]) {
+    assert.equal((await uploadLifecyclePart(env, uploadId, index)).status, 200);
+  }
+
+  const put = kv.put;
+  let entered;
+  let unblock;
+  const enteredCommit = new Promise((resolve) => { entered = resolve; });
+  const blocked = new Promise((resolve) => { unblock = resolve; });
+  let failOutcome = true;
+  t.mock.method(kv, 'put', async (key, ...args) => {
+    if (key.startsWith('telegram:tg_')) {
+      entered();
+      await blocked;
+    }
+    if (key === `tg-upload-outcome:${uploadId}` && failOutcome) {
+      failOutcome = false;
+      throw new Error('Completion outcome write unavailable');
+    }
+    return put(key, ...args);
+  });
+
+  const first = lifecycleRequest(env, 'complete', completePost, { uploadId });
+  await enteredCommit;
+  try {
+    const concurrent = await lifecycleRequest(env, 'complete', completePost, { uploadId });
+    assert.equal(concurrent.body.code, 'TG_TASK_BUSY');
+    const abort = await lifecycleRequest(env, 'abort', abortPost, { uploadId });
+    assert.equal(abort.body.code, 'TG_TASK_BUSY');
+  } finally {
+    unblock();
+  }
+
+  assert.equal((await first).status, 503);
+  const second = await lifecycleRequest(env, 'complete', completePost, { uploadId });
+  assert.equal(second.status, 200);
+  const replay = await lifecycleRequest(env, 'complete', completePost, { uploadId });
+  assert.deepEqual(replay.body, second.body);
+  assert.equal(kv.putKeys.filter((key) => key.startsWith('telegram:tg_')).length, 1);
+  const recovery = await lifecycleRequest(env, 'init', initPost, {
+    uploadId, fileName: 'lifecycle.bin', fileSize: 2 * MB, chunkSize: MB, totalChunks: 2,
+    storageMode: 'telegram', fileId: '0123456789abcdef0123456789abcdef', recoverCompleted: true,
+  });
+  assert.deepEqual(recovery.body.result, second.body);
+  assert.equal((await lifecycleRequest(env, 'abort', abortPost, { uploadId })).body.alreadyCompleted, true);
+  assert.equal(telegram.deletedMsgIds.length, 0);
+});
+
+test('Telegram cancellation keeps failed deletions recoverable and removes a late part', async (t) => {
+  const { env, kv } = makeEnv();
+  const telegram = createMockTelegramServer();
+  let entered;
+  let unblock;
+  const sending = new Promise((resolve) => { entered = resolve; });
+  const blocked = new Promise((resolve) => { unblock = resolve; });
+  let delaySend = false;
+  let rejectDeletion = true;
+  t.mock.method(globalThis, 'fetch', async (input, options) => {
+    const url = String(input);
+    if (url.includes('/sendDocument') && delaySend) {
+      entered();
+      await blocked;
+    }
+    if (url.includes('/deleteMessage') && rejectDeletion) {
+      return Response.json({ ok: false, description: 'mock permission denied' }, { status: 403 });
+    }
+    return telegram.mockFetch(input, options);
+  });
+  const uploadId = await startLifecycleUpload(env);
+  assert.equal((await uploadLifecyclePart(env, uploadId, 0)).status, 200);
+
+  delaySend = true;
+  const late = uploadLifecyclePart(env, uploadId, 1);
+  await sending;
+  try {
+    const canceled = await lifecycleRequest(env, 'abort', abortPost, { uploadId });
+    assert.equal(canceled.status, 200);
+    assert.equal(canceled.body.cleanupPending, true);
+    assert.equal(await kv.get(`upload:${uploadId}`), null);
+    assert.ok(await kv.get(`tg-upload-cleanup:task:${uploadId}`));
+    rejectDeletion = false;
+  } finally {
+    unblock();
+  }
+
+  assert.equal((await late).status, 404);
+  const retry = await lifecycleRequest(env, 'abort', abortPost, { uploadId });
+  assert.equal(retry.body.cleanupPending, false);
+  assert.equal(telegram.deletedMsgIds.length, 2);
+});
+
+test('Telegram expiration sweeps fragments after the main KV task has expired', async (t) => {
+  const { env, kv } = makeEnv({ d1: false });
+  const telegram = createMockTelegramServer();
+  t.mock.method(globalThis, 'fetch', telegram.mockFetch);
+  const uploadId = await startLifecycleUpload(env);
+  const task = await kv.get(`upload:${uploadId}`, { type: 'json' });
+  const put = kv.put;
+  let receiptExpiration;
+  t.mock.method(kv, 'put', (key, value, options) => {
+    if (key.startsWith('part-state:')) receiptExpiration = options?.expiration;
+    return put(key, value, options);
+  });
+  assert.equal((await uploadLifecyclePart(env, uploadId, 0)).status, 200);
+  assert.ok(receiptExpiration > task.expiresAt);
+  await kv.delete(`upload:${uploadId}`);
+
+  t.mock.method(Date, 'now', () => (task.expiresAt + 60) * 1000);
+  const { sweepTelegramUploads } = await import('../functions/utils/telegram-upload-state.js');
+  await sweepTelegramUploads(env);
+  assert.equal(telegram.deletedMsgIds.length, 1);
+  assert.equal(await kv.get(`part-state:${uploadId}:0`), null);
+});
+
+test('KV-only Telegram cancellation waits for cross-location visibility before deleting fragments', async (t) => {
+  const { env, kv } = makeEnv({ d1: false });
+  const telegram = createMockTelegramServer();
+  t.mock.method(globalThis, 'fetch', telegram.mockFetch);
+  const uploadId = await startLifecycleUpload(env);
+  assert.equal((await uploadLifecyclePart(env, uploadId, 0)).status, 200);
+
+  const canceled = await lifecycleRequest(env, 'abort', abortPost, { uploadId });
+  assert.equal(canceled.body.cleanupPending, true);
+  assert.equal(telegram.deletedMsgIds.length, 0);
+  const journal = await kv.get(`tg-upload-cleanup:task:${uploadId}`, { type: 'json' });
+  t.mock.method(Date, 'now', () => (journal.cleanupDueAt + 1) * 1000);
+  const { sweepTelegramUploads } = await import('../functions/utils/telegram-upload-state.js');
+  await sweepTelegramUploads(env);
+  assert.equal(telegram.deletedMsgIds.length, 1);
+  assert.equal(await kv.get(`tg-upload-cleanup:task:${uploadId}`), null);
+});

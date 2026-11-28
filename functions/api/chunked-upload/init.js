@@ -53,6 +53,13 @@
  *   this.r2Available ? CHUNK_SIZE_R2 : CHUNK_SIZE_KV
  * ================================================================
  */
+import { rangeUploadSourceId } from '../../utils/range-upload-source.js';
+import {
+  isTelegramUpload,
+  readTelegramUploadOutcome,
+  sweepTelegramUploads,
+  trackTelegramUpload,
+} from '../../utils/telegram-upload-state.js';
 import { checkAuthentication } from '../../utils/auth.js';
 import { envValue } from '../../utils/env-config.js';
 import { shouldWriteTelegramMetadata } from '../../utils/telegram.js';
@@ -325,6 +332,13 @@ export async function onRequestPost(context) {
       : isTelegramChunked
         ? 'telegram'
         : 'kv';
+    let remoteSourceId = null;
+    if (isTelegramChunked && body?.rangeSource !== undefined) {
+      remoteSourceId = await rangeUploadSourceId(body.rangeSource?.url, body.rangeSource?.validator);
+      if (!remoteSourceId) {
+        return jsonResponse({ error: 'URL 转存来源无效', code: 'INVALID_RANGE_SOURCE' }, 400);
+      }
+    }
     const backendChunkCap = isTelegramChunked
       ? CHUNK_SIZE_TELEGRAM
       : resolveChunkSizeForBackend(chunkBackend === 'r2');
@@ -339,6 +353,9 @@ export async function onRequestPost(context) {
           console.warn('Legacy R2 chunk cleanup failed:', err);
         }));
       }
+      context.waitUntil(sweepTelegramUploads(env).catch((err) => {
+        console.warn('Telegram upload cleanup failed:', err);
+      }));
       context.waitUntil(cleanupExpiredUploadParts(env).catch((err) => {
         console.warn('Expired upload_parts cleanup failed:', err);
       }));
@@ -347,6 +364,7 @@ export async function onRequestPost(context) {
       fileId: normalizedFileId,
       uploadId: normalizedResumeId,
       recoverCompleted: body?.recoverCompleted === true,
+      remoteSourceId,
       fileName,
       fileSize: normalizedFileSize,
       totalChunks: normalizedTotalChunks,
@@ -513,7 +531,8 @@ export async function onRequestPost(context) {
       uploadedChunks: [],
       chunkSizes: {},
       r2Multipart,
-      ...(isTelegramChunked ? { telegramChunked: true } : {}),
+      ...(remoteSourceId ? { remoteSourceId } : {}),
+      ...(isTelegramChunked ? { telegramChunked: true, telegramChatId: envValue(env, 'TG_CHAT_ID') } : {}),
       shareOptions: hasShareOptions(parsedShareOptions)
         ? parsedShareOptions
         : null,
@@ -525,6 +544,7 @@ export async function onRequestPost(context) {
     };
 
     try {
+      if (isTelegramChunked) await trackTelegramUpload(env, uploadId, uploadTask);
       await env.img_url.put(`upload:${uploadId}`, JSON.stringify(uploadTask), chunkTaskExpiration(uploadTask));
     } catch (err) {
       if (mp) {
@@ -641,11 +661,15 @@ export async function onRequestGet(context) {
       return jsonResponse({ error: '无权访问该上传任务' }, 403);
     }
 
+    if (isTelegramUpload(taskData) && await readTelegramUploadOutcome(env, uploadId)) {
+      return jsonResponse({ error: '上传任务已结束', code: 'UPLOAD_EXPIRED' }, 404);
+    }
+
     const isPartTracked =
       (taskData.storageMode === 'r2' && Boolean(taskData.r2Multipart?.uploadId)) ||
       (taskData.storageMode === 'telegram' && taskData.chunkBackend === 'telegram');
     const parts = isPartTracked
-      ? (await listUploadedParts(env, uploadId)).map(({ partNumber, etag }) => ({ partNumber, etag }))
+      ? (await listUploadedParts(env, uploadId, { mergeKv: isTelegramUpload(taskData), strict: isTelegramUpload(taskData) })).map(({ partNumber, etag }) => ({ partNumber, etag }))
       : [];
     const uploadedChunks = isPartTracked
       ? parts.map((p) => p.partNumber - 1)
@@ -749,11 +773,15 @@ async function tryResumeTask(env, ownerId, req) {
   if (!candidateId) return null;
 
   if (req.recoverCompleted && req.uploadId && req.fileId) {
-    const completed = await env.img_url.get(`upload-done:${candidateId}`, { type: 'json' });
+    const snapshot = await env.img_url.get(`upload-done:${candidateId}`, { type: 'json' });
+    const telegramOutcome = req.storageMode === 'telegram'
+      ? await readTelegramUploadOutcome(env, candidateId)
+      : null;
+    const completed = snapshot || (telegramOutcome?.phase === 'done' ? telegramOutcome : null);
     if (completed?.ownerId === ownerId && completed.fileId === req.fileId &&
         completed.storageMode === req.storageMode && completed.folderPath === (req.folderPath || '') &&
         completed.body?.fileName === req.fileName && Number(completed.body.fileSize) === req.fileSize &&
-        completed.body.src && Date.now() < Number(completed.expiresAt)) {
+        completed.body.src && (completed.phase === 'done' || Date.now() < Number(completed.expiresAt))) {
       return jsonResponse({ success: true, completed: true, result: completed.body });
     }
   }
@@ -781,6 +809,11 @@ async function tryResumeTask(env, ownerId, req) {
   }
 
   // ---- 参数一致性校验 ----
+  if (isTelegramUpload(taskData)) {
+    if ((taskData.remoteSourceId || null) !== req.remoteSourceId) return null;
+    if (taskData.fileId && req.fileId && taskData.fileId !== req.fileId) return null;
+    if (await readTelegramUploadOutcome(env, candidateId)) return null;
+  }
   if (req.recoverCompleted && taskData.fileId && taskData.fileId !== req.fileId) return null;
   if (Number(taskData.fileSize) !== req.fileSize) return null;
   if (taskData.fileName !== req.fileName) return null;
@@ -813,7 +846,7 @@ async function tryResumeTask(env, ownerId, req) {
     (taskData.storageMode === 'r2' && Boolean(taskData.r2Multipart?.uploadId)) ||
     (taskData.storageMode === 'telegram' && taskData.chunkBackend === 'telegram');
   const parts = isPartTracked
-    ? (await listUploadedParts(env, candidateId)).map(({ partNumber, etag }) => ({ partNumber, etag }))
+    ? (await listUploadedParts(env, candidateId, { mergeKv: isTelegramUpload(taskData), strict: isTelegramUpload(taskData) })).map(({ partNumber, etag }) => ({ partNumber, etag }))
     : [];
   const uploadedChunks = isPartTracked
     ? parts.map((p) => p.partNumber - 1)

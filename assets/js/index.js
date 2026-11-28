@@ -2722,12 +2722,16 @@
       },
       async abortUrlChunkSession(uploadId) {
         if (!uploadId) return;
-        await fetch(`${this.baseURL}/api/chunked-upload/abort`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ uploadId }),
-        }).catch(() => {});
+        for (const wait of [0, 400, 1000]) {
+          if (wait) await this.sleepUrlWait(wait);
+          const response = await fetch(`${this.baseURL}/api/chunked-upload/abort`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ uploadId }),
+          }).catch(() => null);
+          if (response && response.status < 500) return;
+        }
       },
       applyUrlTaskSuccess(task, item, targetStorage) {
         const srcName = item.src.split("/").pop().split("?")[0];
@@ -2762,7 +2766,7 @@
           this.showToast(`已完成转存：${name}`, "success");
         }
       },
-      async runRangeChunkedUrlTask(task, probe, controller) {
+      async runRangeChunkedUrlTask(task, probe, controller, allowRepair = true) {
         const signal = controller.signal;
         task.rangeChunked = true;
         task.acceptRanges = true;
@@ -2793,9 +2797,17 @@
             shareOptions: task.shareOptions,
             fileId,
             uploadId: task.uploadId || undefined,
+            ...(probe.storage === "telegram" ? {
+              rangeSource: { url: probe.finalUrl || task.url, validator: probe.validator || "" },
+              recoverCompleted: Boolean(task.uploadId),
+            } : {}),
           }),
         });
         const initData = await initRes.json().catch(() => null);
+        if (initRes.ok && initData?.completed && initData.result?.src) {
+          this.applyUrlTaskSuccess(task, initData.result, probe.storage);
+          return { done: true };
+        }
         if (!initRes.ok || !initData?.uploadId) {
           throw this.uploadResponseError(initRes.status, initData, "初始化分片转存任务失败");
         }
@@ -2922,6 +2934,15 @@
                   continue;
                 }
 
+                if (task.storage === "telegram" && data?.code === "SOURCE_CHANGED") {
+                  task.uploadId = "";
+                  task.probeMeta = null;
+                  void this.abortUrlChunkSession(uploadId);
+                  throw this.uploadResponseError(res.status, {
+                    ...data, retryable: true,
+                  }, "源文件已更新，点击重试以重新探测");
+                }
+
                 if (res.status === 422 && data?.code === "RANGE_NOT_SUPPORTED" && partsMap.size === 0) {
                   fallbackSingle = true;
                   await this.abortUrlChunkSession(uploadId);
@@ -2945,7 +2966,7 @@
                 throw this.uploadResponseError(res.status, data, `分片 ${chunkIndex + 1}/${totalChunks} 转存失败`);
               } catch (err) {
                 if (err?.name === "AbortError" || signal.aborted) break;
-                const isNet = !err?.status || [408, 500, 502, 503, 504].includes(err?.status) || err?.retryable;
+                const isNet = err?.code !== "SOURCE_CHANGED" && (!err?.status || [408, 500, 502, 503, 504].includes(err?.status) || err?.retryable);
                 if (isNet && attempt < 5) {
                   await this.sleepUrlWait(Math.min(5000, 800 * Math.pow(2, attempt - 1)), signal);
                   continue;
@@ -2967,10 +2988,10 @@
 
         if (fallbackSingle) return { fallbackSingle: true };
         if (pausedByCooldown || task.phase === "paused") return { paused: true };
+        if (fatalError) throw fatalError;
         if (signal.aborted || task.phase === "canceled") {
           throw new DOMException("Aborted", "AbortError");
         }
-        if (fatalError) throw fatalError;
 
         // 合并分片（Telegram 零拷贝写清单 / R2 multipart complete）
         task.phase = "finalizing";
@@ -2979,26 +3000,33 @@
         const sortedParts = Array.from(partsMap.values()).sort((a, b) => a.partNumber - b.partNumber);
 
         let completeData = null;
-        let completeRes = null;
-        for (let attempt = 1; attempt <= 2; attempt += 1) {
-          completeRes = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            signal,
-            body: JSON.stringify({
-              uploadId,
-              parts: sortedParts,
-              shareOptions: task.shareOptions,
-            }),
-          });
-          completeData = await completeRes.json().catch(() => null);
-          if (completeRes.ok) break;
-          if ([503, 504].includes(completeRes.status) && attempt === 1 && !signal.aborted) {
-            await this.sleepUrlWait(1000, signal);
-            continue;
+        const maxCompleteAttempts = task.storage === "telegram" ? 3 : 2;
+        for (let attempt = 1; attempt <= maxCompleteAttempts; attempt += 1) {
+          try {
+            const response = await fetch(`${this.baseURL}/api/chunked-upload/complete`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              signal,
+              body: JSON.stringify({
+                uploadId,
+                parts: sortedParts,
+                shareOptions: task.shareOptions,
+              }),
+            });
+            completeData = await response.json().catch(() => null);
+            if (response.ok && completeData) break;
+            if (task.storage === "telegram" && allowRepair && completeData?.code === "CHUNKS_INCOMPLETE") {
+              return this.runRangeChunkedUrlTask(task, probe, controller, false);
+            }
+            throw this.uploadResponseError(response.status, completeData, "合并分片失败");
+          } catch (error) {
+            const transient = task.storage === "telegram"
+              ? (!error.status || error.status >= 500)
+              : [503, 504].includes(error.status);
+            if (signal.aborted || !transient || attempt >= maxCompleteAttempts) throw error;
+            await this.sleepUrlWait(1000 * attempt, signal);
           }
-          throw this.uploadResponseError(completeRes.status, completeData, "合并分片失败");
         }
 
         const item = Array.isArray(completeData) ? completeData[0] : (completeData?.file || completeData);
@@ -4380,7 +4408,7 @@
                   folderPath: item.folderPath ?? this.folderPath,
                   shareOptions: this.buildShareOptions(),
                   fileId: item.fileId, resume: sessionAttempt === 1, uploadId: item.uploadId || undefined,
-                  recoverCompleted: Boolean(this.transferRetryId && item.uploadId),
+                  recoverCompleted: Boolean(item.uploadId && (mode === "telegram" || this.transferRetryId)),
                 }),
               });
               initData = await initRes.json().catch(() => null);
@@ -4416,9 +4444,12 @@
           const serverResumed = initData && initData.resumed === true;
           const isFreshTask = !item.uploadId || uploadId !== item.uploadId;
           if (isFreshTask && (item.chunkDone?.length || item.parts?.length)) this.clearResumeState(item.fileId);
+          const effectiveMode = initData.storageMode || mode;
+          const isR2Streaming = effectiveMode === "r2";
+          const isTelegramChunked = effectiveMode === "telegram" || initData.telegramChunked === true;
           const serverDone = this.extractDoneChunks(initData);
           const doneSet = new Set();
-          if (isFreshTask) serverDone.forEach((idx) => doneSet.add(idx));
+          if (isFreshTask || isTelegramChunked) serverDone.forEach((idx) => doneSet.add(idx));
           else {
             (Array.isArray(item.chunkDone) ? item.chunkDone : []).forEach((idx) => doneSet.add(idx));
             serverDone.forEach((idx) => doneSet.add(idx));
@@ -4426,7 +4457,7 @@
           let uploadedBase = 0;
           for (const idx of doneSet) { const s = idx * chunkSize; uploadedBase += Math.min(chunkSize, file.size - s); }
           const collectedParts = [];
-          if (!isFreshTask && Array.isArray(item.parts)) collectedParts.push(...item.parts);
+          if (!isFreshTask && !isTelegramChunked && Array.isArray(item.parts)) collectedParts.push(...item.parts);
           this.mergePartsInto(collectedParts, this.extractDoneParts(initData));
           item.uploadId = uploadId;
           item.chunkSize = chunkSize;
@@ -4441,9 +4472,6 @@
           const pending = [];
           for (let i = 0; i < totalChunks; i++) if (!doneSet.has(i)) pending.push(i);
 
-          const effectiveMode = initData.storageMode || mode;
-          const isR2Streaming = effectiveMode === "r2";
-          const isTelegramChunked = effectiveMode === "telegram" || initData.telegramChunked === true;
           if (isTelegramChunked) {
             this.showTgChunkedBanner({
               fileName: file.name,
@@ -4826,6 +4854,7 @@
              R2_COMPLETE_RETRY 及 object_ready 下的可重试 METADATA_WRITE_FAILED） */
           let completeData = null;
           let sessionExpiredAtComplete = false;
+          let missingTelegramChunks = false;
           const maxCompleteAttempts = 5;
           for (let attempt = 1; attempt <= maxCompleteAttempts; attempt++) {
             this.assertTaskRunning(item, token);
@@ -4836,6 +4865,11 @@
                 body: JSON.stringify({ uploadId, parts: collectedParts }),
               });
               completeData = await completeRes.json().catch(() => null);
+              if (isTelegramChunked && completeData?.code === "CHUNKS_INCOMPLETE" &&
+                  sessionAttempt < MAX_SESSION_ATTEMPTS) {
+                missingTelegramChunks = true;
+                break;
+              }
               if (completeRes.ok && completeData) break;
               const retryAfterMs = this.parseRetryAfterMs(completeRes.headers.get("Retry-After"));
               throw this.uploadResponseError(completeRes.status, completeData, "合并分片失败", retryAfterMs);
@@ -4860,6 +4894,8 @@
               });
             }
           }
+
+          if (missingTelegramChunks) continue;
 
           if (sessionExpiredAtComplete) {
             item.uploadId = null;
@@ -4998,13 +5034,7 @@
         } finally { endBatch(); }
       },
       abortServerUpload(uploadId) {
-        if (!uploadId) return;
-        fetch(`${this.baseURL}/api/chunked-upload/abort`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ uploadId }),
-          credentials: "include",
-        }).catch(() => {});
+        void this.abortUrlChunkSession(uploadId);
       },
       async clearUploadQueue() {
         const all = this.uploadingFiles.slice();
