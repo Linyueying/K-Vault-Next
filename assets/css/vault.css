@@ -230,8 +230,8 @@ h1, h2, p { margin: 0; }
 .si-count { margin-left: auto; font-variant-numeric: tabular-nums; }
 .folder-row, .si-act { display: flex; align-items: center; }
 .folder-row .side-item > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vault-list { display: flex; flex-direction: column; max-height: max(555px, calc(100dvh - 190px)); padding: 21px 15px 13px; }
-.list-toolbar { display: grid; gap: 15px; margin-bottom: 10px; padding: 0 4px 15px; border-bottom: 1px solid var(--vault-line); }
+.vault-list { display: flex; flex-direction: column; min-height: 0; max-height: max(555px, calc(100dvh - 190px)); overflow: hidden; padding: 21px 15px 13px; }
+.list-toolbar { flex: none; display: grid; gap: 15px; margin-bottom: 10px; padding: 0 4px 15px; border-bottom: 1px solid var(--vault-line); }
 .list-heading, .list-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .list-heading h2 { overflow-wrap: anywhere; font-size: 1.21rem; letter-spacing: -.025em; }
 .list-heading .sec { flex: none; }
@@ -246,8 +246,8 @@ h1, h2, p { margin: 0; }
 .menu-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px; border: 0; border-radius: 8px; background: transparent; color: var(--vault-ink); text-align: left; cursor: pointer; font-size: .84rem; }
 .menu-item:hover, .menu-item:focus-visible { background: var(--vault-soft); }
 .menu-item i, .editor-type-pill i { color: var(--vault-accent); }
-.vault-items { overflow: auto; display: grid; gap: 3px; padding: 4px; overscroll-behavior: contain; }
-.vault-item, .totp-card { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px; border: 1px solid transparent; border-radius: 13px; background: transparent; text-align: left; color: var(--vault-ink); }
+.vault-items { flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 3px; padding: 4px; overscroll-behavior: auto; }
+.vault-item, .totp-card { position: relative; flex: none; display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px; border: 1px solid transparent; border-radius: 13px; background: transparent; text-align: left; color: var(--vault-ink); }
 button.vault-item { cursor: pointer; }
 button.vault-item:hover, .vault-item.active { background: var(--vault-soft); border-color: var(--vault-line); }
 .vault-item.active { box-shadow: inset 2px 0 var(--vault-accent), inset 0 1px 0 var(--vault-rim); }
@@ -424,7 +424,8 @@ html[data-theme="dark"] [data-kind="note"] { --record-ink: #f6cb78; }
   .side-sec + .side-sec { padding: 2px; }
   .side-sec > * { flex: none; }
   .side-item { min-height: 34px; white-space: nowrap; }
-  .vault-list { min-height: 235px; max-height: none; border: 0; border-radius: 0 0 18px 18px; }
+  .vault-list { min-height: 235px; max-height: none; overflow: visible; border: 0; border-radius: 0 0 18px 18px; }
+  .vault-items { flex: none; overflow: visible; }
   .vault-pane { min-height: 350px; border-radius: 18px; }
   .vault-shell[data-view="list"] .vault-pane,
   .vault-shell:not([data-view="list"]) :is(.vault-sidebar, .vault-list) { display: none; }
@@ -560,7 +561,7 @@ html[data-theme="dark"] .pane-art {
   .vault-shell { animation-delay: 46ms; }
   .gateway-copy, .lock-wrap { animation: vault-arrive 480ms var(--vault-settle) 45ms both; }
   .pane-arrival { animation: vault-pane-enter 370ms var(--vault-settle) both; }
-  .list-arrival, .history-block[open] .history-row { animation: vault-arrive 260ms var(--vault-settle) both; }
+  .list-arrival, .history-block[open] .history-row { animation: vault-arrive 260ms var(--vault-settle) backwards; }
   .totp-code { animation: vault-arrive 270ms var(--vault-settle) both; }
   .totp-ring .fg { transition: stroke-dashoffset 550ms ease-out; }
   .menu-pop { transform-origin: top right; animation: vault-modal-enter 265ms var(--vault-settle) both; }

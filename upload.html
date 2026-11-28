@@ -33,28 +33,38 @@
 
     <div id="app" v-cloak>
       <!-- 顶栏 -->
-      <header class="topbar" v-if="!transferRetryId">
-        <a class="brand" href="./" title="返回首页">
-          <span class="brand__logo">
-            <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';">
-          </span>
-          <span class="brand__text">
-            <h1 class="brand__title" data-brand-name>K-Vault-NEXT</h1>
-            <span class="brand__sub">上传台 · {{ versionLabel }}</span>
-          </span>
-        </a>
-        <div class="top-actions">
-          <a class="btn btn--ghost btn--icon top-home" href="./" title="返回首页" aria-label="返回首页">
-            <i class="fas fa-house"></i>
+      <div class="kv-header-wrap" v-if="!transferRetryId">
+        <header class="kv-header" data-kv-header>
+          <a class="kv-brand" href="/">
+            <span class="kv-brand__mark"><img src="/assets/img/logo-64.png" alt="K-Vault-Next" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" /></span>
+            <span class="kv-brand__name" data-brand-name>K-Vault-Next</span>
+            <span class="kv-brand__tag">上传台 · {{ versionLabel }}</span>
           </a>
-          <a class="btn btn--ghost btn--icon top-access" href="./webdav.html" title="WebDAV / MCP 接入" aria-label="接入">
-            <i class="fas fa-plug"></i>
-          </a>
-          <button class="btn btn--ghost btn--icon" @click="toggleLiquidTheme" :title="currentTheme === 'dark' ? '浅色模式' : '深色模式'">
-            <i :class="currentTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon'"></i>
-          </button>
-        </div>
-      </header>
+          <nav class="kv-nav" aria-label="主导航">
+            <span class="kv-nav__pill" aria-hidden="true"></span>
+            <a href="/">首页</a>
+            <a href="/upload.html" aria-current="page">上传</a>
+            <a href="/show">Show</a>
+            <a href="/vault.html">密码库</a>
+            <a href="/webdav.html">接入</a>
+            <a href="/admin/files">后台</a>
+          </nav>
+          <div class="kv-actions">
+            <button class="kv-theme" type="button" @click="toggleLiquidTheme" :title="currentTheme === 'dark' ? '浅色模式' : '深色模式'" aria-label="切换主题">
+              <svg class="kv-theme__ico kv-theme__ico--moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+              <svg class="kv-theme__ico kv-theme__ico--sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              </svg>
+            </button>
+            <button class="kv-nav-toggle" type="button" data-kv-nav-toggle aria-label="展开导航菜单" aria-expanded="false">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            </button>
+          </div>
+        </header>
+      </div>
 
       <transition name="drop">
         <div class="guest-banner" v-if="!transferRetryId && !authChecking && guestUploadConfig && !guestBlocked">
@@ -500,7 +510,29 @@
         </template>
       </main>
 
-      <!-- 底部 Dock：iOS 27 式高透液态玻璃 + 滑动指示器 + 跟手拖拽 -->
+      <footer class="kv-footer kv-footer--dock" v-if="!transferRetryId">
+        <div class="kv-footer__meta">
+          <span class="kv-footer__brand">
+            <img src="/assets/img/logo-64.png" alt="K-Vault-Next" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';" />
+            <span data-brand-name>K-Vault-Next</span>
+          </span>
+          <span class="kv-footer__dot" aria-hidden="true">·</span>
+          <a class="kv-footer__license" href="https://github.com/Linyueying/K-Vault-Next/blob/HEAD/LICENSE" target="_blank" rel="noopener noreferrer">© 2026 Linyueying · AGPL-3.0 开源协议</a>
+        </div>
+        <nav class="kv-footer__links" aria-label="页脚导航">
+          <a href="https://github.com/Linyueying/K-Vault-Next" target="_blank" rel="noopener noreferrer">
+            <svg class="kv-footer__gh-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg>
+            <span>GitHub</span>
+          </a>
+          <a href="/promo.html">宣传页</a>
+          <a href="/show">Show</a>
+          <a href="/vault.html">密码库</a>
+          <a href="/webdav.html">WebDAV / MCP</a>
+          <a href="/admin/files">管理后台</a>
+        </nav>
+      </footer>
+
+\1：iOS 27 式高透液态玻璃 + 滑动指示器 + 跟手拖拽 -->
       <nav v-if="!transferRetryId" class="dock glass glass-refract"
            ref="dockEl"
            :class="{ 'is-dragging': dockDragActive }"
