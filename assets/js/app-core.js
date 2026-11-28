@@ -1752,16 +1752,20 @@
     if (!headerEl || headerEl.dataset.kvNavBound === "1") return;
     headerEl.dataset.kvNavBound = "1";
 
-    var lastScrolled = false;
-    function syncHeaderGlass() {
-      var y = window.scrollY || window.pageYOffset || 0;
-      var scrolled = lastScrolled ? y > 8 : y > 18;
-      if (scrolled === lastScrolled) return;
-      lastScrolled = scrolled;
-      headerEl.classList.toggle("is-scrolled", scrolled);
+    var wrapEl = headerEl.closest(".kv-header-wrap");
+    var isStatic = !!(wrapEl && wrapEl.classList.contains("kv-header-wrap--static"));
+    if (!isStatic) {
+      var lastScrolled = false;
+      function syncHeaderGlass() {
+        var y = window.scrollY || window.pageYOffset || 0;
+        var scrolled = lastScrolled ? y > 8 : y > 18;
+        if (scrolled === lastScrolled) return;
+        lastScrolled = scrolled;
+        headerEl.classList.toggle("is-scrolled", scrolled);
+      }
+      window.addEventListener("scroll", syncHeaderGlass, { passive: true });
+      syncHeaderGlass();
     }
-    window.addEventListener("scroll", syncHeaderGlass, { passive: true });
-    syncHeaderGlass();
 
     var nav = headerEl.querySelector(".kv-nav");
     if (nav) {
@@ -1891,6 +1895,14 @@
       try { installDownloadGuard(); } catch (e) { /* noop */ }
       try { initNavbar(document); } catch (e) { /* noop */ }
       setTimeout(function () { try { initNavbar(document); } catch (e) { /* noop */ } }, 250);
+      if (typeof MutationObserver !== "undefined" && document.body) {
+        var navObs = new MutationObserver(function () {
+          if (document.querySelector("[data-kv-header]:not([data-kv-nav-bound='1'])")) {
+            try { initNavbar(document); } catch (e) { /* noop */ }
+          }
+        });
+        navObs.observe(document.body, { childList: true, subtree: true });
+      }
     };
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", bootGlass, { once: true });

@@ -2258,6 +2258,10 @@ html.ui-sheet-open body { overflow: hidden; }
 .kv-header-wrap--flush {
   width: 100%;
 }
+.kv-header-wrap--static {
+  position: relative;
+  top: auto;
+}
 html[data-theme="dark"] .kv-header-wrap,
 html[data-show-style="gallery"] .kv-header-wrap {
   --kv-nav-ink: #F2F7FC;
