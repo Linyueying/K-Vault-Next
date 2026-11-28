@@ -50,7 +50,7 @@ CSS_FULL = CSS_MIN + ".full"          # 原始完整版（首次运行时备份�
 WEBFONTS = os.path.join(ASSETS_VENDOR, "webfonts")
 
 # 需要扫描的页面（新增页面时补到这里）
-PAGE_GLOBS = ["*.html", "demo/*.html"]
+PAGE_GLOBS = ["*.html"]
 
 # 族前缀 -> 字体文件
 FAMILY_FONTS = {

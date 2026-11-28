@@ -147,6 +147,7 @@ node scripts/kvault-upload.mjs upload ./demo.png --folder blog
 - [`docs/reference/agent-integration.md`](docs/reference/agent-integration.md) — API v1, MCP, and CLI integration guide
 - [`docs/reference/openapi.yaml`](docs/reference/openapi.yaml) — OpenAPI specification
 - [`docs/reference/architecture.md`](docs/reference/architecture.md) — System architecture & repository layout
+- [`docs/development.md`](docs/development.md) — Local development, verification checks & contributing guide
 
 ---
 

@@ -257,7 +257,7 @@ D1 与 KV/R2 不同，**它需要 CLI 建库**，但绑定仍可在后台完成�
 4. 重新部署（Production）
 
 > 如果项目已在用 `wrangler.jsonc` 作为绑定的事实来源（见
-> [cloudflare-pages-r2.md](./cloudflare-pages-r2.md)），则 D1 也要写进该文件，
+> [storage-backends.md#r2-绑定排障](./storage-backends.md#r2-绑定排障)），则 D1 也要写进该文件，
 > 否则后台的绑定会被 wrangler 配置覆盖。
 
 ---

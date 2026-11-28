@@ -3,13 +3,8 @@
 Telegram / R2 / S3 / Discord / HuggingFace / WebDAV / GitHub 七种后端逐一怎么配。
 
 > [!NOTE]
-> 本篇内容源自上游 `katelya77/K-Vault` 的 README（见
-> [`../archive/upstream-k-vault-reference.md`](../archive/upstream-k-vault-reference.md)），
-> 是目前全仓库**唯一**保留这些逐步配置步骤的地方，故单独拆出。
->
-> 但它描述的部分能力与 K-Vault-Next 的当前行为可能有出入 —— 环境变量的
-> **准确清单请以 [`README.md`](../../README.md) 与 [`.env.example`](../../.env.example) 为准**，
-> 本篇只用来查「某个后端具体怎么一步步配起来」。
+> 本篇提供 7 种存储后端的逐步配置操作与常见问题排查。
+> 环境变量的**最新完整清单请以 [`README.md`](../../README.md) 与 [`.env.example`](../../.env.example) 为准**。
 
 ---
 
@@ -103,21 +98,40 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 
 ### R2 存储（大文件支持，可选）
 
-配置 R2 可支持最大 100MB 文件上传：
+配置 R2 后可借助原生 Multipart 分片支持最高 **10GB** 单文件上传与零出站费直连：
 
 1. **创建存储桶**
    - Cloudflare Dashboard → `R2 对象存储` → `创建存储桶`
-   - 命名为 `k-vault-files`
+   - 命名为 `k-vault-files`（普通存储桶保持自动位置即可，无需选择数据驻留 Jurisdiction）
 
 2. **绑定到项目**
-   - Pages 项目 → `设置` → `函数` → `R2 存储桶绑定`
-   - 变量名 `R2_BUCKET`，选择存储桶
+   - Pages 项目 → `设置` → `函数` → `R2 存储桶绑定`（`Production` 与 `Preview` 建议均配置）
+   - 变量名填 **`R2_BUCKET`**，选择对应存储桶
 
 3. **启用 R2**
-   - `设置` → `环境变量` → 添加 `USE_R2` = `true`
+   - `设置` → `环境变量` → 添加 `USE_R2` = `true`（或在后台「系统设置」在线启用）
    - 重新部署
 
-> 如果重新部署时报 `binding R2_BUCKET of type r2_bucket contains an invalid jurisdiction`，说明 Cloudflare Pages 在校验 R2 绑定元数据时失败，不是上传代码报错。普通 R2 桶不要设置 `jurisdiction`；只有带数据驻留限制的桶才使用 `eu` 或 `fedramp`。按 [Cloudflare Pages R2 绑定排查](./cloudflare-pages-r2.md) 删除并重建 Production/Preview 绑定，或运行 `npm run pages:r2:doctor -- --check` 校验 `wrangler.jsonc`。
+#### R2 绑定排障
+
+若重新部署时在资源上传完成后报错：
+
+```text
+Error: Failed to publish your Function. Got error: binding R2_BUCKET of type r2_bucket contains an invalid jurisdiction
+```
+
+这是 Cloudflare Pages 校验 `R2_BUCKET` 绑定元数据失败导致的（普通 R2 桶不应填写 `jurisdiction`；只有受数据驻留约束的桶才支持 `eu` 或 `fedramp`，切勿填写 `auto` / `default` / `wnam` / `apac`）：
+
+1. **控制台重建绑定**：进入 `Workers & Pages` → 项目 → `Settings` → `Bindings`，同时检查 `Production` 与 `Preview`，删除现有 `R2_BUCKET` 绑定后重新添加并重新部署。
+2. **用 `wrangler.jsonc` 校验与生成**（控制台反复异常时）：
+   ```bash
+   KV_NAMESPACE_ID=<你的_img_url_命名空间_ID> R2_BUCKET_NAME=k-vault-files \
+     npm run pages:r2:doctor -- --write
+   # 校验现有配置：
+   npm run pages:r2:doctor -- --check
+   ```
+   > 仓库中存在 `wrangler.jsonc` 后，Cloudflare Pages 会以该文件作为绑定真源，请一并保留 `img_url`、R2 与 D1 绑定。
+3. **S3 兼容兜底方案**：若仍无法修复原生绑定，可移除 `R2_BUCKET` 绑定，直接通过下文 S3 兼容配置填写 R2 的 Endpoint（`https://<account_id>.r2.cloudflarestorage.com`、`S3_REGION=auto`）及 R2 API Token。
 
 ### S3 兼容存储（可选）
 

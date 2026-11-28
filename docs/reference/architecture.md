@@ -22,9 +22,9 @@ K-Vault-Next 是一个跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图
 | 部署形态 | Cloudflare Pages + Docker 单镜像 | **仅 Cloudflare Pages** |
 | 运行时依赖 | Sentry 等 | **零运行时依赖** |
 | 遥测 | 内置 Sentry，`disable_telemetry` 关闭 | **无任何遥测代码** |
-| 页面数量 | 6 | **8**（新增 `/paste.html`、`/share.html`） |
+| 页面数量 | 6 | **11**（新增独立宣传首页 `/`、`/upload.html`、`/show.html`、`/vault.html`、`/paste.html`、`/share.html`） |
 | 前端样式 | 各页面各写一份 | **`design-system.css` 单一事实来源** |
-| 配置生效 | 改环境变量 → 重新部署 | 三组高频配置**后台可改，即时生效** |
+| 配置生效 | 改环境变量 → 重新部署 | 高频配置**后台可改，即时生效** |
 | 环境变量写法 | 大小写两套名字，需「两个都写上」 | **统一读取层，任意写法都识别** |
 
 ### 移除的部分
@@ -39,31 +39,31 @@ K-Vault-Next 是一个跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图
 
 | 方向 | 变化 |
 | :--- | :--- |
-| 前端统一 | `design-system.css`：令牌、组件、37 个关键帧、Vue 过渡族全站唯一来源 |
+| 前端统一 | `design-system.css`：令牌、组件、动效关键帧、Vue 过渡族全站唯一来源 |
 | 动效与无障碍 | Apple HIG 缓动/时长令牌、首屏错峰入场；`prefers-reduced-motion` / `prefers-reduced-transparency` / `html[data-perf="low"]` 分级降级 |
 | 环境变量 | `functions/utils/env-config.js` 统一读取层，大小写与历史别名自动兼容 |
-| 运行时配置 | `config:guest` / `config:cors` / `config:upload` 存 KV，后台改即时生效 |
-| 分片上传 | R2 原生 multipart，单文件上限 100MB → **10GB** |
-| 路由 | `functions/file/[[path]].js` 支持任意层级路径 |
-| 分享体系 | `/s/:slug` → `/share.html` 落地页；有效期 / 密码 / 次数 / 自定义 slug；后台分享管理面板 |
-| 文本粘贴 | 新增 `/paste.html` 与 `paste` scope |
-| 管理后台 | 目录树、收藏、重命名、批量移动、KV/R2 用量监控、Token 策略 |
-| 上传调度 | 智能节点选择 + 可开关的并行上传（Telegram 池与分片池分离） |
+| 运行时配置 | `config:guest` / `config:cors` / `config:upload` / `config:mcp` / `config:thumb` 等存 KV，后台改即时生效 |
+| 分片上传与转存 | R2 原生 multipart 最高 **10GB**；Telegram 虚拟分片流式聚合最高 **2GB**；支持 Range 多请求 URL 断点转存 |
+| 路由 | `functions/file/[[path]].js` 支持任意层级路径与按需流式聚合 |
+| 分享与展廊 | `/s/:slug` → `/share.html` 落地页（单文件 / 合集 / 隔空投送）；新增公开精选画廊 `/show.html` |
+| 零知识密码库 | 新增端到端加密密码库 `/vault.html`（AES-256-GCM / TOTP / 生成器）与文本粘贴 `/paste.html` |
+| 管理后台 | 目录树、文件回收站（软删除与恢复）、收藏、重命名、批量移动、KV/R2 用量监控、Token 策略 |
+| 上传调度 | 智能节点选择 + 并行上传双池调度 + 传输断点恢复 |
 | 安全 | 管理面 fail-closed、统一限流、登录暴力破解防护、堆栈脱敏、URL 导入 SSRF 防护、依赖本地化 |
-| 文档 | `docs/openapi.yaml`、`docs/agent-integration.md` |
+| 开放生态 | 原生无状态 MCP 端点 `/mcp`、REST API v1（见 [`openapi.yaml`](./openapi.yaml) 与 [`agent-integration.md`](./agent-integration.md)） |
 
 ### 上传限制对比
 
 | 后端 | 上游 | 本项目 | 说明 |
 | :--- | :--- | :--- | :--- |
-| Telegram（Pages） | 20MB | 20MB | 一致 |
-| Cloudflare R2 | 100MB | **10GB** | 改用 R2 原生 multipart |
-| S3 兼容 | 100MB | 40MB | 未实现分片，Worker 内存拼装 |
-| WebDAV / GitHub | 未标注 | 40MB | Worker 内存拼装 |
+| Telegram（Pages） | 20MB | **2GB** | 单片直传 20MB，大文件自动走虚拟分片流式聚合 |
+| Cloudflare R2 | 100MB | **10GB** | R2 原生 multipart 分片上传 |
+| S3 兼容 | 100MB | 40MB | Worker 内存拼装安全上限 |
+| WebDAV / GitHub | 未标注 | 40MB | Worker 内存拼装安全上限 |
 | HuggingFace | 35MB / 50GB（LFS） | 35MB | 未接入 LFS 路径 |
 | Discord | 25MB / 50–100MB（L2+） | 25MB | 取保守值 |
 
-> 本项目并非全面更强：R2 大幅提升，S3 / WebDAV / GitHub 因为没有分片路径反而低于上游标注值。
+> 大文件请优先选择 **Cloudflare R2（10GB）** 或 **Telegram 虚拟分片（2GB）**；其余后端受 Cloudflare Workers 128MB 内存限制，统一收口在 40MB 安全上限内（详见 [`upload-download-optimization.md`](./upload-download-optimization.md)）。
 
 ---
 
@@ -71,12 +71,12 @@ K-Vault-Next 是一个跑在 **Cloudflare Pages** 上的 Serverless 云盘 / 图
 
 ### 1. 前端
 
-- **形态**：8 个页面入口（根目录 HTML）+ `assets/` 共享层，**无构建步骤**。页面的 CSS / JS 已外置到 `assets/css/` 与 `assets/js/`，页面本身只保留「本页增量」——少量内联 `<style>` 与本页脚本
-- **设计系统**：`design-system.css` 是全站唯一的事实来源——设计令牌、通用组件（`.card` / `.btn` / `.input` / `.switch` / `.spinner` / `.toast` / `.empty-state` …）、37 个动效关键帧、Vue 过渡族
-- **共享 JS**：`app-core.js`（挂在 `window.KVault`）—— `formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` 各只有这一份实现
-- **页面级样式只允许写本页增量**，不允许重复定义共享实现
-- **守卫脚本**：`scripts/check_style.py`（括号平衡 / 禁止页面内定义 `@keyframes` / 必须引入设计系统）、`scripts/check_tokens.py`（`var(--x)` 与 animation 名可解析，含外置 CSS 与 JS 动态注入的变量）、`scripts/check_styles.py`（从模板反查样式）、`scripts/check_shared.py`（跨页共享层一致性，防「一次改动只生效一页」）。四道守卫 + 模板编译已串进 `npm run check`
-- **页面**：`/`、`/admin.html`（分区路径 `/admin/files|shares|storage|system`）、`/share.html`、`/paste.html`、`/gallery.html`、`/preview.html`、`/webdav.html`、`/login.html`
+- **形态**：11 个页面入口（根目录 HTML）+ `assets/` 共享层，**无构建步骤**。公共 CSS / JS 外置到 `assets/css/` 与 `assets/js/`，页面本身只保留本页增量样式与脚本
+- **设计系统**：`assets/css/design-system.css` 是全站唯一的设计令牌、通用组件与 `@keyframes` 事实来源
+- **共享 JS**：`assets/js/app-core.js`（挂载在 `window.KVault`）—— `formatBytes` / `toast` / `copy` / `fetchJSON` / `formatTime` 等全局唯一实现
+- **页面级样式只允许写本页增量**，禁止在页面内联 `<style>` 定义 `@keyframes` 或覆盖共享实现
+- **守卫脚本**：`npm run check` 一键串联 `check_style.py`、`check_tokens.py`、`check_styles.py`、`check_shared.py`、`check_functions.py` 与 `verify-templates.mjs`
+- **页面清单**：`/`（产品首页）、`/upload.html`（上传工作台）、`/admin.html`（管理后台，分区 `/admin/files|shares|storage|system`）、`/gallery.html`（图库）、`/show.html`（公开精选画廊）、`/vault.html`（零知识密码库）、`/paste.html`（文本粘贴）、`/share.html`（分享落地页）、`/preview.html`（预览页）、`/webdav.html`（WebDAV 指南）、`/login.html`（登录页）
 
 ### 2. 后端
 
@@ -85,12 +85,23 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 | 路径 | 职责 |
 | :--- | :--- |
 | `functions/api/auth/` | 登录 / 会话 / 登出 |
-| `functions/api/manage/` | 文件与目录管理、分享管理、运行时配置 |
+| `functions/api/manage/` | 文件与目录管理、回收站（`trash.js`）、Show 管理、分享管理、运行时配置 |
 | `functions/api/admin/` | API Token 管理、用量监控 |
 | `functions/api/v1/` | 对外 API v1（Token 鉴权、scope、策略） |
 | `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，零 SDK 依赖） |
+| `functions/api/chunked-upload/` | 分片上传（`init` / `chunk` / `complete`）与 Range URL 转存（`url-chunk`） |
+| `functions/api/share-info.js` | 分享页只读信息（公开） |
+| `functions/api/show.js` | 公开精选画廊列表接口 |
+| `functions/api/status.js` | 后端连通性与配置状态 |
+| `functions/api/upload-from-url.js` | URL 转存（带 SSRF 防护） |
+| `functions/api/telegram/webhook.js` | Telegram Webhook 回链 |
+| `functions/file/[[path]].js` | 文件直链（多层路径、密码校验、虚拟分片流式拼装） |
+| `functions/thumb/[[path]].js` | 图片缩略图（独立于文件直链；命中返回 webp，否则 302 回退原图） |
+| `functions/file-info/[[path]].js` | 文件元信息 |
+| `functions/s/[slug].js` | 短分享链 → 302 到 `/share.html` |
+| `functions/utils/` | 存储适配器、D1/KV 双路径读写、回收站与公共工具 |
 
-### 2.1 MCP 端点：传输与鉴权分层
+#### 2.1 MCP 端点：传输与鉴权分层
 
 `functions/mcp/` 原生实现了 MCP，**不引入任何运行时依赖**——`protocol.js` 手写 JSON-RPC 2.0 信封，`tools.js` 声明工具，`handlers.js` 把工具调用翻译成对 `api/v1` handler 的内部调用（合成 Request + 透传 context），因此策略、幂等、去重、审计全部继承，不存在第二份业务实现。
 
@@ -103,24 +114,7 @@ Cloudflare Pages Functions（`functions/`），无 Node 服务器、无 Docker�
 
 端点默认关闭（后台 `mcp` 配置组，回退环境变量 `MCP_ENABLED`），未开启时返回 404 —— 与「管理面 fail-closed」同一思路：新增网络面不因「部署时忘了配」而自动敞开。
 
-开关与工具级清单存在 `config:mcp` 这个运行时配置组里（与 `webdav` / `airdrop` 等同构：KV 覆盖环境变量）。
-
-**开关判定必须回源 KV，不能读进程内镜像。** 中间件在**鉴权之前**判断开关（否则未开启时会先回 401，反而确认了端点存在），因此 `isMcpEnabled()` 是 `async` 的，内部 `await getMcpConfig(env)` 每次回源（带 30 秒 isolate 缓存）。路由层随后复用 `context.data.mcpConfig`，同一请求不二次回源 —— 总 KV 读次数不增反减（原先路由层本就要读一次拿工具禁用清单）。
-
-> **一次已废弃的尝试（值得记录）**：早期为追求「零 KV 往返」，改读模块级内存镜像并返回**三态**（`true`/`false`/命中与否）。它解决了一个真实问题——把「没命中」与「明确关闭」折叠成同一个 `false` 会导致「后台关了 MCP，`/mcp` 仍 200」——但引入了更严重的缺陷：镜像**只在保存过配置的那个 isolate 内**有效，且仅 30 秒 TTL；过期或落到别的 isolate 就返回 `null`，回退到环境变量 `MCP_ENABLED`（生产通常未配）→ 恒为 `false`。现象是「后台明明开着 MCP，过一会儿 `/mcp` 就一直 404 了」。等价的同步方案对跨 isolate 的配置天然不可靠，故整体删除，回归回源读取。回归用例见 `scripts/test-mcp.mjs` 的 `[20]`（模拟清空缓存后开关仍稳定生效）。
-
-工具级清单存**禁用**名单而非启用名单，这样将来新增工具在存量部署上默认可用，不会因不在旧白名单里被静默关闭。
-| `functions/mcp/` | MCP 端点（JSON-RPC 2.0 / Streamable HTTP，零 SDK 依赖） |
-| `functions/api/chunked-upload/` | 分片上传 init / chunk / complete |
-| `functions/api/share-info.js` | 分享页只读信息（公开） |
-| `functions/api/status.js` | 后端连通性与配置状态 |
-| `functions/api/upload-from-url.js` | URL 转存（带 SSRF 防护） |
-| `functions/api/telegram/webhook.js` | Telegram Webhook 回链 |
-| `functions/file/[[path]].js` | 文件直链（多层路径、密码） |
-| `functions/thumb/[[path]].js` | 图片缩略图（独立于文件直链；命中返回 webp，否则 302 回退原图） |
-| `functions/file-info/[[path]].js` | 文件元信息 |
-| `functions/s/[slug].js` | 短分享链 → 302 到 `/share.html` |
-| `functions/utils/` | 存储适配器与公共工具 |
+开关与工具级清单存在 `config:mcp` 这个运行时配置组里（与 `webdav` / `airdrop` 等同构：KV 覆盖环境变量）。开关判定统一通过 `isMcpEnabled()` 回源 KV（带 30 秒 isolate 缓存），路由层复用 `context.data.mcpConfig`，避免跨 isolate 内存镜像漂移。工具级清单存**禁用**名单而非启用名单，这样将来新增工具在存量部署上默认可用。
 
 两个关键工具模块：
 
