@@ -1,0 +1,50 @@
+name: Import ZIP source updates
+on:
+  push:
+    branches:
+      - automation/import-zip-20261128
+    paths:
+      - .github/workflows/import-zip.yml
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Fetch and verify the exact user-uploaded ZIP from its existing commit
+        run: |
+          curl -fL --retry 3 --output /tmp/kvnext-updates.zip https://raw.githubusercontent.com/Linyueying/K-Vault-Next/6dc1f72774176744646a99575a47a3d55692ca6d/K-Vault-Next-updates.zip
+          echo '6d6709687833a566d4ad28fc33a87b2c2efb39217453612b9a60c5633fc21429  /tmp/kvnext-updates.zip' | sha256sum --check
+      - name: Extract only the expected source files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          allowed = {
+              'assets/css/design-system.css', 'assets/css/vault.css', 'assets/js/app-core.js',
+              'promo.html', 'index.html', 'upload.html', 'admin.html', 'show.html',
+              'vault.html', 'webdav.html', 'share.html', 'preview.html', 'login.html'
+          }
+          with ZipFile('/tmp/kvnext-updates.zip') as z:
+              assert set(z.namelist()) == allowed, "ZIP file set changed"
+              for name in sorted(allowed):
+                  info=z.getinfo(name)
+                  assert not ((info.external_attr >> 16) & 0o170000) == 0o120000, "Symlink blocked"
+                  path=Path(name)
+                  assert not path.is_absolute() and '..' not in path.parts
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(z.read(name))
+                  print('Updated',name)
+          PY
+      - name: Validate JavaScript syntax
+        run: node --check assets/js/app-core.js
+      - name: Commit source updates on staging branch
+        run: |
+          git add -- assets/css/design-system.css assets/css/vault.css assets/js/app-core.js promo.html index.html upload.html admin.html show.html vault.html webdav.html share.html preview.html login.html
+          git diff --cached --check
+          git -c user.name=yueying -c user.email=169914865+Linyueying@users.noreply.github.com commit -m 'feat(frontend): import updated source package'
+          git push origin HEAD:automation/import-zip-20261128
