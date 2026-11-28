@@ -40,6 +40,17 @@ jobs:
                   path.write_bytes(z.read(name))
                   print('Updated',name)
           PY
+      - name: Remove the reported trailing whitespace
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('promo.html')
+          lines = p.read_bytes().splitlines(keepends=True)
+          line = lines[289]
+          body = line.rstrip(b'\r\n')
+          lines[289] = body.rstrip(b' \t') + line[len(body):]
+          p.write_bytes(b''.join(lines))
+          PY
       - name: Validate JavaScript syntax
         run: node --check assets/js/app-core.js
       - name: Commit source updates on staging branch
