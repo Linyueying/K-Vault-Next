@@ -64,14 +64,16 @@
 
   <template v-else>
 
-    <div v-if="phase==='setup' || phase==='locked'" class="vault-gateway">
+    <div v-if="phase==='setup' || phase==='locked'" class="vault-gateway" :data-busy="busy">
       <section class="gateway-intro" aria-labelledby="vault-title">
-        <div class="vault-emblem" aria-hidden="true"><i aria-hidden="true" class="fas fa-shield-halved"></i></div>
-        <h1 id="vault-title">密码库</h1>
-        <p>集中保管登录信息、银行卡、身份资料和安全笔记。密码库在此设备解密，云端同步仅传输密文。</p>
-        <div class="gateway-features">
-          <span><i aria-hidden="true" class="fas fa-lock"></i> AES-GCM 加密</span>
-          <span><i aria-hidden="true" class="fas fa-clock-rotate-left"></i> 两步验证码</span>
+        <vault-seal class="gateway-art"></vault-seal>
+        <div class="gateway-copy">
+          <h1 id="vault-title">密码库</h1>
+          <p>在此设备解锁你的登录信息与私密记录。云端同步仅传输密文。</p>
+          <div class="gateway-features">
+            <span><i aria-hidden="true" class="fas fa-lock"></i> AES-GCM 加密</span>
+            <span><i aria-hidden="true" class="fas fa-clock-rotate-left"></i> 两步验证码</span>
+          </div>
         </div>
       </section>
       <form v-if="phase==='setup'" class="vault-surface lock-wrap" @submit.prevent="setupVault">
@@ -118,17 +120,20 @@
 
     <template v-else>
       <section class="workspace-head" aria-labelledby="workspace-title">
-        <div>
-          <h1 id="workspace-title">密码库</h1>
-          <p class="workspace-status">
-            <span><i aria-hidden="true" class="fas fa-shield-halved"></i> 已解锁</span>
-            <button type="button" class="sync-trigger" :disabled="syncState==='syncing'"
-                    @click="syncNow({ manual: true })" title="立即同步" :aria-description="lastSyncedAt ? '上次同步 ' + formatTime(lastSyncedAt) : undefined">
-              <span :class="syncDotClass" aria-hidden="true"></span>
-              <span role="status">{{ syncText }}</span>
-              <i aria-hidden="true" class="fas fa-rotate" :class="{'fa-spin': syncState==='syncing'}"></i>
-            </button>
-          </p>
+        <div class="workspace-identity">
+          <span class="workspace-mark" aria-hidden="true"><i class="fas fa-shield-halved"></i></span>
+          <div>
+            <h1 id="workspace-title">密码库</h1>
+            <p class="workspace-status">
+              <span><i aria-hidden="true" class="fas fa-shield-halved"></i> 已解锁</span>
+              <button type="button" class="sync-trigger" :disabled="syncState==='syncing'"
+                      @click="syncNow({ manual: true })" title="立即同步" :aria-description="lastSyncedAt ? '上次同步 ' + formatTime(lastSyncedAt) : undefined">
+                <span :class="syncDotClass" aria-hidden="true"></span>
+                <span role="status">{{ syncText }}</span>
+                <i aria-hidden="true" class="fas fa-rotate" :class="{'fa-spin': syncState==='syncing'}"></i>
+              </button>
+            </p>
+          </div>
         </div>
         <div class="workspace-tools" aria-label="密码库工具">
           <button class="btn btn--sm" @click="openGenerator()"><i aria-hidden="true" class="fas fa-wand-magic-sparkles"></i>生成器</button>
@@ -141,26 +146,26 @@
     <div class="vault-shell" :data-view="uiView">
 
       <!-- 侧栏 -->
-      <aside class="vault-surface vault-sidebar" aria-label="记录分类">
-        <div class="side-sec">
+      <aside class="vault-sidebar" aria-label="记录分类">
+        <div class="side-sec" role="group" aria-label="视图">
           <div class="side-label">视图</div>
-          <button class="side-item" :class="{active:filterType==='all' && !filterFolder}" @click="setFilter('all')">
+          <button class="side-item" :class="{active:filterType==='all' && !filterFolder}" :aria-pressed="filterType==='all' && !filterFolder" @click="setFilter('all')">
             <i aria-hidden="true" class="fas fa-inbox si"></i>全部项目<span class="si-count">{{ liveCount('all') }}</span>
           </button>
-          <button class="side-item" :class="{active:filterType==='favorites'}" @click="setFilter('favorites')">
+          <button class="side-item" :class="{active:filterType==='favorites'}" :aria-pressed="filterType==='favorites'" @click="setFilter('favorites')">
             <i aria-hidden="true" class="fas fa-star si"></i>收藏<span class="si-count">{{ liveCount('favorites') }}</span>
           </button>
-          <button class="side-item" :class="{active:filterType==='totp'}" @click="setFilter('totp')">
+          <button class="side-item" :class="{active:filterType==='totp'}" :aria-pressed="filterType==='totp'" @click="setFilter('totp')">
             <i aria-hidden="true" class="fas fa-clock-rotate-left si"></i>验证码<span class="si-count">{{ totpItems.length }}</span>
           </button>
-          <button class="side-item" :class="{active:filterType==='trash'}" @click="setFilter('trash')">
+          <button class="side-item" :class="{active:filterType==='trash'}" :aria-pressed="filterType==='trash'" @click="setFilter('trash')">
             <i aria-hidden="true" class="fas fa-trash-can si"></i>回收站<span class="si-count">{{ doc.deleted.length }}</span>
           </button>
         </div>
-        <div class="side-sec">
+        <div class="side-sec" role="group" aria-label="类型">
           <div class="side-label">类型</div>
           <button class="side-item" v-for="t in typeList" :key="t.key"
-                  :class="{active:filterType===t.key}" @click="setFilter(t.key)">
+                  :class="{active:filterType===t.key}" :aria-pressed="filterType===t.key" @click="setFilter(t.key)">
             <i aria-hidden="true" class="fas si" :class="t.icon"></i>{{ t.label }}<span class="si-count">{{ liveCount(t.key) }}</span>
           </button>
         </div>
@@ -182,7 +187,7 @@
       </aside>
 
       <!-- 列表 -->
-      <section class="vault-surface vault-list" aria-labelledby="list-title">
+      <section class="vault-list" aria-labelledby="list-title">
         <div class="list-toolbar">
           <div class="list-heading">
             <div>
@@ -215,7 +220,7 @@
         </div>
 
         <!-- 验证码视图 -->
-        <div v-if="filterType==='totp'" class="vault-items">
+        <div v-if="filterType==='totp'" class="vault-items list-arrival">
           <div v-if="!visibleTotpItems.length" class="empty-state empty-state--sm"><i aria-hidden="true" class="fas fa-clock-rotate-left"></i><div>{{ search ? '没有匹配的验证码' : '没有绑定 TOTP 的登录项' }}</div></div>
           <div v-for="it in visibleTotpItems" :key="'t'+it.id" class="totp-card">
             <div class="vi-icon">
@@ -226,7 +231,7 @@
             </div>
             <div class="vi-main">
               <div class="vi-title">{{ it.name }}</div>
-              <div class="totp-code">{{ formatTotp(totpMap[it.id] && totpMap[it.id].code) }}</div>
+              <div class="totp-code" :key="totpMap[it.id]?.code">{{ formatTotp(totpMap[it.id] && totpMap[it.id].code) }}</div>
             </div>
             <div class="sec">
               <svg aria-hidden="true" class="totp-ring" width="34" height="34" viewBox="0 0 34 34">
@@ -239,8 +244,8 @@
         </div>
 
         <!-- 常规列表 -->
-        <div v-else-if="visibleItems.length" class="vault-items">
-          <button class="vault-item" v-for="it in visibleItems" :key="it.id"
+        <div v-else-if="visibleItems.length" :key="filterFolder || filterType" class="vault-items list-arrival">
+          <button class="vault-item" v-for="it in visibleItems" :key="it.id" :data-kind="it.type"
                   :class="{active:selectedId===it.id}" :aria-pressed="selectedId===it.id" @click="openItem(it, $event)">
             <div class="vi-icon">
               <i aria-hidden="true" class="fas" :class="typeIcon(it.type)"></i>
@@ -264,13 +269,13 @@
       </section>
 
       <!-- 详情 / 编辑器 -->
-      <section class="vault-surface vault-pane" aria-label="记录详情">
+      <section class="vault-pane" aria-label="记录详情">
         <button v-if="uiView!=='list'" class="btn btn--sm pane-back" @click="backToList">
           <i aria-hidden="true" class="fas fa-chevron-left"></i>返回列表
         </button>
         <!-- 编辑器 -->
-        <div v-if="editor">
-          <div class="editor-head">
+        <div v-if="editor" :key="'editor:' + editor.id" class="pane-arrival">
+          <div class="editor-head" :data-kind="editor.type">
             <h2 class="editor-type-pill"><i aria-hidden="true" class="fas" :class="typeIcon(editor.type)"></i>{{ editor._isNew ? '新建' : '编辑' }}{{ typeLabel(editor.type) }}</h2>
             <div style="margin-left:auto;display:flex;gap:8px">
               <button class="icon-btn" @click="draft.favorite=!draft.favorite" :title="draft.favorite?'取消收藏':'收藏'">
@@ -401,8 +406,8 @@
         </div>
 
         <!-- 详情 -->
-        <div v-else-if="selected">
-          <div class="detail-head">
+        <div v-else-if="selected" :key="selected.id" class="pane-arrival">
+          <div class="detail-head" :data-kind="selected.type">
             <div class="detail-icon">
               <i aria-hidden="true" class="fas" :class="typeIcon(selected.type)"></i>
               <img v-if="itemIcon(selected)" class="detail-fav" :class="{loaded: isIconLoaded(itemHost(selected))}"
@@ -538,8 +543,8 @@
           </details>
         </div>
 
-        <div v-else class="empty-state pane-empty">
-          <div class="vault-emblem" aria-hidden="true"><i aria-hidden="true" class="fas fa-shield-halved"></i></div>
+        <div v-else class="pane-empty pane-arrival">
+          <vault-seal class="pane-art" compact></vault-seal>
           <h2>查看记录</h2>
           <p>从列表选择一条记录，或使用「新建」添加记录。</p>
         </div>
@@ -2103,6 +2108,50 @@ setTimeout(function () {
     document.body.appendChild(a); a.click();
     setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
   }
+
+  vaultApp.component("vault-seal", {
+    props: { compact: Boolean },
+    template: `<div class="vault-seal" :class="{ 'seal-compact': compact }" v-seal-motion aria-hidden="true">
+      <div class="seal-dial">
+        <span class="seal-orbit"></span>
+        <span class="seal-orbit"></span>
+        <span class="seal-core"><i class="fas fa-lock"></i></span>
+      </div>
+    </div>`
+  });
+
+  vaultApp.directive("seal-motion", {
+    mounted: function (element) {
+      var preference = window.matchMedia("(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)");
+      var frame = 0;
+      var latest;
+      var controller = new AbortController();
+      var options = { passive: true, signal: controller.signal };
+      function reset() {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        element.style.removeProperty("--seal-tilt-x");
+        element.style.removeProperty("--seal-tilt-y");
+      }
+      element.addEventListener("pointermove", function (event) {
+        if (!preference.matches || event.pointerType === "touch") return;
+        latest = event;
+        if (frame) return;
+        frame = requestAnimationFrame(function () {
+          frame = 0;
+          var rect = element.getBoundingClientRect();
+          var x = (latest.clientX - rect.left) / rect.width - .5;
+          var y = (latest.clientY - rect.top) / rect.height - .5;
+          element.style.setProperty("--seal-tilt-x", (-y * 16) + "deg");
+          element.style.setProperty("--seal-tilt-y", (x * 20) + "deg");
+        });
+      }, options);
+      element.addEventListener("pointerleave", reset, options);
+      preference.addEventListener("change", reset, { signal: controller.signal });
+      element.vaultSealCleanup = function () { reset(); controller.abort(); };
+    },
+    beforeUnmount: function (element) { element.vaultSealCleanup(); }
+  });
 
   vaultApp.directive("vault-dialog", {
     mounted: function (dialog) { dialog.showModal(); },
