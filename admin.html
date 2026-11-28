@@ -3053,16 +3053,18 @@ html[data-perf="low"] .dock{transition:none}
           <span>未检测到 D1（DB）绑定，当前仍以 KV 为唯一元数据存储，关闭双写不会生效。</span>
         </div>
 
-        <div class="cfg-actions">
-          <button type="button" class="btn" :disabled="settingsSaving" @click="resetGuestSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <button type="button" class="btn btn--primary" :disabled="settingsSaving" @click="saveGuestSettings">
-            <i class="fas" :class="settingsSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>{{ settingsSaving ? '保存中…' : '保存设置' }}</span>
-          </button>
-        </div>
+        <transition name="fade">
+          <div class="cfg-actions" v-if="guestDirty">
+            <button type="button" class="btn" :disabled="settingsSaving" @click="resetGuestSettings">
+              <i class="fas fa-rotate-left"></i>
+              <span>恢复默认</span>
+            </button>
+            <button type="button" class="btn btn--primary" :disabled="settingsSaving" @click="saveGuestSettings">
+              <i class="fas" :class="settingsSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+              <span>{{ settingsSaving ? '保存中…' : '保存设置' }}</span>
+            </button>
+          </div>
+        </transition>
       </template>
     </section>
 
@@ -3143,16 +3145,18 @@ html[data-perf="low"] .dock{transition:none}
           </div>
         </div>
 
-        <div class="cfg-actions">
-          <button type="button" class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <button type="button" class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
-            <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>{{ thumbSaving ? '保存中…' : '保存设置' }}</span>
-          </button>
-        </div>
+        <transition name="fade">
+          <div class="cfg-actions" v-if="thumbDirty">
+            <button type="button" class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
+              <i class="fas fa-rotate-left"></i>
+              <span>恢复默认</span>
+            </button>
+            <button type="button" class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
+              <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+              <span>{{ thumbSaving ? '保存中…' : '保存设置' }}</span>
+            </button>
+          </div>
+        </transition>
       </template>
     </section>
 
@@ -3496,16 +3500,18 @@ html[data-perf="low"] .dock{transition:none}
         <span>未检测到 R2_BUCKET 绑定或 Telegram 环境变量，隔空投送缺少中转节点。</span>
       </div>
 
-      <div class="cfg-actions">
-        <button type="button" class="btn" :disabled="airdropSaving" @click="resetAirdropSettings">
-          <i class="fas fa-rotate-left"></i>
-          <span>恢复默认</span>
-        </button>
-        <button type="button" class="btn btn--primary" :disabled="airdropSaving" @click="saveAirdropSettings">
-          <i class="fas" :class="airdropSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-          <span>{{ airdropSaving ? '保存中…' : '保存设置' }}</span>
-        </button>
-      </div>
+      <transition name="fade">
+        <div class="cfg-actions" v-if="airdropDirty">
+          <button type="button" class="btn" :disabled="airdropSaving" @click="resetAirdropSettings">
+            <i class="fas fa-rotate-left"></i>
+            <span>恢复默认</span>
+          </button>
+          <button type="button" class="btn btn--primary" :disabled="airdropSaving" @click="saveAirdropSettings">
+            <i class="fas" :class="airdropSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+            <span>{{ airdropSaving ? '保存中…' : '保存设置' }}</span>
+          </button>
+        </div>
+      </transition>
 
       <!-- 使用情况 -->
       <div class="token-section" style="margin-top:18px;margin-bottom:0">
@@ -4015,16 +4021,18 @@ html[data-perf="low"] .dock{transition:none}
       </div>
     </div>
 
-    <div class="cfg-actions">
-      <button type="button" class="btn" :disabled="brandingSaving" @click="resetBrandingSettings">
-        <i class="fas fa-rotate-left"></i>
-        <span>恢复默认</span>
-      </button>
-      <button type="button" class="btn btn--primary" :disabled="brandingSaving" @click="saveBrandingSettings">
-        <i class="fas" :class="brandingSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-        <span>{{ brandingSaving ? '保存中…' : '保存设置' }}</span>
-      </button>
-    </div>
+    <transition name="fade">
+      <div class="cfg-actions" v-if="brandingDirty">
+        <button type="button" class="btn" :disabled="brandingSaving" @click="resetBrandingSettings">
+          <i class="fas fa-rotate-left"></i>
+          <span>恢复默认</span>
+        </button>
+        <button type="button" class="btn btn--primary" :disabled="brandingSaving" @click="saveBrandingSettings">
+          <i class="fas" :class="brandingSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+          <span>{{ brandingSaving ? '保存中…' : '保存设置' }}</span>
+        </button>
+      </div>
+    </transition>
   </section>
 
   <!-- ===== 系统设置：Show 公开影像展 ===== -->
@@ -4207,14 +4215,16 @@ html[data-perf="low"] .dock{transition:none}
           <span>管理作品</span>
         </button>
       </div>
-      <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
-        <i class="fas fa-rotate-left"></i>
-        <span>恢复默认</span>
-      </button>
-      <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
-        <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-        <span>{{ showConfigSaving ? '保存中…' : '保存设置' }}</span>
-      </button>
+      <template v-if="showDirty">
+        <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
+          <i class="fas fa-rotate-left"></i>
+          <span>恢复默认</span>
+        </button>
+        <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
+          <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+          <span>{{ showConfigSaving ? '保存中…' : '保存设置' }}</span>
+        </button>
+      </template>
     </div>
   </section>
 
@@ -5276,10 +5286,34 @@ const __kvApp = Vue.createApp({
     shareBundles: [],
     shareBundlesLoading: false,
     shareBundleRevokingSlug: '',
-    shareBundleSearch: ''
+    shareBundleSearch: '',
+
+    /* ---------- 设置卡片修改快照（仅改动后显示保存/恢复默认） ---------- */
+    cfgSnapshots: {
+      guest: '',
+      thumb: '',
+      airdrop: '',
+      branding: '',
+      show: ''
+    }
   } },
 
   computed: {
+    guestDirty() {
+      return Boolean(this.cfgSnapshots.guest) && JSON.stringify({ g: this.guestForm, s: this.storageForm }) !== this.cfgSnapshots.guest;
+    },
+    thumbDirty() {
+      return Boolean(this.cfgSnapshots.thumb) && JSON.stringify(this.thumbForm) !== this.cfgSnapshots.thumb;
+    },
+    airdropDirty() {
+      return Boolean(this.cfgSnapshots.airdrop) && JSON.stringify(this.airdropForm) !== this.cfgSnapshots.airdrop;
+    },
+    brandingDirty() {
+      return Boolean(this.cfgSnapshots.branding) && JSON.stringify(this.brandingForm) !== this.cfgSnapshots.branding;
+    },
+    showDirty() {
+      return Boolean(this.cfgSnapshots.show) && JSON.stringify(this.showForm) !== this.cfgSnapshots.show;
+    },
     /* ---------- 板块分页 / Dock ---------- */
     transferFilters() {
       const failures = this.transferRecords.filter(record => record.status === 'failed').length;
@@ -7528,6 +7562,7 @@ const __kvApp = Vue.createApp({
         statsRetention: Number.isFinite(Number(a.statsRetention)) ? Number(a.statsRetention) : 500
       };
       if (data && data.airdropEnvBaseline) this.airdropEnvBaseline = data.airdropEnvBaseline;
+      this.cfgSnapshots.airdrop = JSON.stringify(this.airdropForm);
     },
 
     async saveAirdropSettings() {
@@ -7792,6 +7827,9 @@ const __kvApp = Vue.createApp({
         showCaptions: show.showCaptions !== false,
         allowDownload: show.allowDownload === true
       };
+      this.cfgSnapshots.guest = JSON.stringify({ g: this.guestForm, s: this.storageForm });
+      this.cfgSnapshots.branding = JSON.stringify(this.brandingForm);
+      this.cfgSnapshots.show = JSON.stringify(this.showForm);
     },
 
     async saveGuestSettings() {
@@ -8089,6 +8127,7 @@ const __kvApp = Vue.createApp({
       this.thumbBackends = options;
 
       if (data && data.thumbEnvBaseline) this.thumbEnvBaseline = data.thumbEnvBaseline;
+      this.cfgSnapshots.thumb = JSON.stringify(this.thumbForm);
     },
 
     async saveThumbSettings() {
@@ -9071,6 +9110,13 @@ const __kvApp = Vue.createApp({
   async mounted() {
     /* Toast 序号，保证 transition key 唯一 */
     this._toastSeq = 0;
+    this.cfgSnapshots = {
+      guest: JSON.stringify({ g: this.guestForm, s: this.storageForm }),
+      thumb: JSON.stringify(this.thumbForm),
+      airdrop: JSON.stringify(this.airdropForm),
+      branding: JSON.stringify(this.brandingForm),
+      show: JSON.stringify(this.showForm)
+    };
 
     /* ==== dock 首屏防下沉 v2（状态机 + 显示后自愈）====
        手机浏览器首帧常以「全屏视口」布局（底部工具栏悬浮在内容上），
