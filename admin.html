@@ -1970,8 +1970,14 @@ html[data-perf="low"] .dock{transition:none}
 .cfg-num-unit{color:var(--text-muted);font-size:.74rem;font-weight:600;white-space:nowrap}
 .cfg-alert{display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding:10px 13px;border-radius:12px;border:1px solid rgba(245,158,11,.34);background:rgba(245,158,11,.1);color:var(--text-main);font-size:.78rem;line-height:1.5}
 .cfg-alert i{color:var(--c-warn);margin-top:2px;flex:none}
-.cfg-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--hairline)}
+.cfg-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:16px;padding:14px 0 2px;border-top:1px solid var(--hairline)}
 .cfg-actions__spacer{margin-right:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cfg-actions-wrap{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,0,0);transition:grid-template-rows .26s var(--ease-apple),opacity .2s var(--ease-apple),visibility 0s linear .26s}
+.cfg-actions-wrap.is-open{grid-template-rows:1fr;opacity:1;visibility:visible;pointer-events:auto;transition:grid-template-rows .26s var(--ease-apple),opacity .22s var(--ease-apple),visibility 0s}
+.cfg-actions-wrap__inner{overflow:hidden;min-height:0}
+.cfg-actions__dirty{display:inline-flex;opacity:0;visibility:hidden;pointer-events:none;transform:translate3d(0,0,0);transition:opacity .2s var(--ease-apple),visibility 0s linear .2s}
+.cfg-actions__dirty.is-open{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .22s var(--ease-apple),visibility 0s}
+.cfg-actions__dirty-inner{display:inline-flex;align-items:center;gap:10px;overflow:hidden;min-height:0}
 .cfg-usage-idle{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px;border-radius:var(--group-radius);background:var(--group-bg);border:1px solid var(--hairline)}
 .cfg-usage-idle__text{display:flex;align-items:center;gap:11px;min-width:0;flex:1}
 .cfg-usage-idle__text i{color:var(--primary);font-size:1.05rem;flex:none}
@@ -2016,6 +2022,9 @@ html[data-perf="low"] .dock{transition:none}
   .cfg-actions{justify-content:stretch}
   .cfg-actions .btn{flex:1 1 auto;justify-content:center}
   .cfg-actions__spacer{width:100%;margin-right:0}
+  .cfg-actions__dirty{display:grid;grid-template-rows:0fr;width:100%;margin-top:-10px;transition:grid-template-rows .26s var(--ease-apple),margin-top .26s var(--ease-apple),opacity .2s var(--ease-apple),visibility 0s linear .26s}
+  .cfg-actions__dirty.is-open{grid-template-rows:1fr;margin-top:0;transition:grid-template-rows .26s var(--ease-apple),margin-top .26s var(--ease-apple),opacity .22s var(--ease-apple),visibility 0s}
+  .cfg-actions__dirty-inner{display:flex;width:100%;gap:10px}
   .share-metrics{grid-template-columns:repeat(2,1fr)}
   .share-metrics .share-metric:nth-child(2n){border-right:0}
   .share-metrics .share-metric:nth-child(n+3){border-top:1px solid var(--hairline)}
@@ -2026,6 +2035,9 @@ html[data-perf="low"] .dock{transition:none}
   .share-metrics--6 .share-metric:nth-child(n+4){border-top:1px solid var(--hairline)}
   .share-toolbar{flex-direction:column;align-items:stretch;gap:8px}
   .share-search-box{flex:none;width:100%;min-width:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .cfg-actions-wrap,.cfg-actions__dirty{transition:none}
 }
 </style>
 </head>
@@ -3053,18 +3065,20 @@ html[data-perf="low"] .dock{transition:none}
           <span>未检测到 D1（DB）绑定，当前仍以 KV 为唯一元数据存储，关闭双写不会生效。</span>
         </div>
 
-        <transition name="fade">
-          <div class="cfg-actions" v-if="guestDirty">
-            <button type="button" class="btn" :disabled="settingsSaving" @click="resetGuestSettings">
-              <i class="fas fa-rotate-left"></i>
-              <span>恢复默认</span>
-            </button>
-            <button type="button" class="btn btn--primary" :disabled="settingsSaving" @click="saveGuestSettings">
-              <i class="fas" :class="settingsSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-              <span>{{ settingsSaving ? '保存中…' : '保存设置' }}</span>
-            </button>
+        <div class="cfg-actions-wrap" :class="{ 'is-open': guestDirty }" :aria-hidden="String(!guestDirty)">
+          <div class="cfg-actions-wrap__inner">
+            <div class="cfg-actions">
+              <button type="button" class="btn" :disabled="settingsSaving" @click="resetGuestSettings">
+                <i class="fas fa-rotate-left"></i>
+                <span>恢复默认</span>
+              </button>
+              <button type="button" class="btn btn--primary" :disabled="settingsSaving" @click="saveGuestSettings">
+                <i class="fas" :class="settingsSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+                <span>{{ settingsSaving ? '保存中…' : '保存设置' }}</span>
+              </button>
+            </div>
           </div>
-        </transition>
+        </div>
       </template>
     </section>
 
@@ -3145,18 +3159,20 @@ html[data-perf="low"] .dock{transition:none}
           </div>
         </div>
 
-        <transition name="fade">
-          <div class="cfg-actions" v-if="thumbDirty">
-            <button type="button" class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
-              <i class="fas fa-rotate-left"></i>
-              <span>恢复默认</span>
-            </button>
-            <button type="button" class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
-              <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-              <span>{{ thumbSaving ? '保存中…' : '保存设置' }}</span>
-            </button>
+        <div class="cfg-actions-wrap" :class="{ 'is-open': thumbDirty }" :aria-hidden="String(!thumbDirty)">
+          <div class="cfg-actions-wrap__inner">
+            <div class="cfg-actions">
+              <button type="button" class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
+                <i class="fas fa-rotate-left"></i>
+                <span>恢复默认</span>
+              </button>
+              <button type="button" class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
+                <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+                <span>{{ thumbSaving ? '保存中…' : '保存设置' }}</span>
+              </button>
+            </div>
           </div>
-        </transition>
+        </div>
       </template>
     </section>
 
@@ -3500,18 +3516,20 @@ html[data-perf="low"] .dock{transition:none}
         <span>未检测到 R2_BUCKET 绑定或 Telegram 环境变量，隔空投送缺少中转节点。</span>
       </div>
 
-      <transition name="fade">
-        <div class="cfg-actions" v-if="airdropDirty">
-          <button type="button" class="btn" :disabled="airdropSaving" @click="resetAirdropSettings">
-            <i class="fas fa-rotate-left"></i>
-            <span>恢复默认</span>
-          </button>
-          <button type="button" class="btn btn--primary" :disabled="airdropSaving" @click="saveAirdropSettings">
-            <i class="fas" :class="airdropSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-            <span>{{ airdropSaving ? '保存中…' : '保存设置' }}</span>
-          </button>
+      <div class="cfg-actions-wrap" :class="{ 'is-open': airdropDirty }" :aria-hidden="String(!airdropDirty)">
+        <div class="cfg-actions-wrap__inner">
+          <div class="cfg-actions">
+            <button type="button" class="btn" :disabled="airdropSaving" @click="resetAirdropSettings">
+              <i class="fas fa-rotate-left"></i>
+              <span>恢复默认</span>
+            </button>
+            <button type="button" class="btn btn--primary" :disabled="airdropSaving" @click="saveAirdropSettings">
+              <i class="fas" :class="airdropSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+              <span>{{ airdropSaving ? '保存中…' : '保存设置' }}</span>
+            </button>
+          </div>
         </div>
-      </transition>
+      </div>
 
       <!-- 使用情况 -->
       <div class="token-section" style="margin-top:18px;margin-bottom:0">
@@ -4021,18 +4039,20 @@ html[data-perf="low"] .dock{transition:none}
       </div>
     </div>
 
-    <transition name="fade">
-      <div class="cfg-actions" v-if="brandingDirty">
-        <button type="button" class="btn" :disabled="brandingSaving" @click="resetBrandingSettings">
-          <i class="fas fa-rotate-left"></i>
-          <span>恢复默认</span>
-        </button>
-        <button type="button" class="btn btn--primary" :disabled="brandingSaving" @click="saveBrandingSettings">
-          <i class="fas" :class="brandingSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-          <span>{{ brandingSaving ? '保存中…' : '保存设置' }}</span>
-        </button>
+    <div class="cfg-actions-wrap" :class="{ 'is-open': brandingDirty }" :aria-hidden="String(!brandingDirty)">
+      <div class="cfg-actions-wrap__inner">
+        <div class="cfg-actions">
+          <button type="button" class="btn" :disabled="brandingSaving" @click="resetBrandingSettings">
+            <i class="fas fa-rotate-left"></i>
+            <span>恢复默认</span>
+          </button>
+          <button type="button" class="btn btn--primary" :disabled="brandingSaving" @click="saveBrandingSettings">
+            <i class="fas" :class="brandingSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+            <span>{{ brandingSaving ? '保存中…' : '保存设置' }}</span>
+          </button>
+        </div>
       </div>
-    </transition>
+    </div>
   </section>
 
   <!-- ===== 系统设置：Show 公开影像展 ===== -->
@@ -4215,16 +4235,18 @@ html[data-perf="low"] .dock{transition:none}
           <span>管理作品</span>
         </button>
       </div>
-      <template v-if="showDirty">
-        <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
-          <i class="fas fa-rotate-left"></i>
-          <span>恢复默认</span>
-        </button>
-        <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
-          <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-          <span>{{ showConfigSaving ? '保存中…' : '保存设置' }}</span>
-        </button>
-      </template>
+      <div class="cfg-actions__dirty" :class="{ 'is-open': showDirty }" :aria-hidden="String(!showDirty)">
+        <div class="cfg-actions__dirty-inner">
+          <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
+            <i class="fas fa-rotate-left"></i>
+            <span>恢复默认</span>
+          </button>
+          <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
+            <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+            <span>{{ showConfigSaving ? '保存中…' : '保存设置' }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 
