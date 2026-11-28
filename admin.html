@@ -1962,6 +1962,7 @@ html[data-perf="low"] .dock{transition:none}
 .cfg-input,.cfg-select{height:36px;padding:0 11px;border-radius:10px;border:1px solid var(--hairline);background:var(--group-bg-elevated);color:var(--text-main);font-size:.84rem;outline:none;transition:border-color .18s ease,box-shadow .18s ease}
 .cfg-input{width:240px;max-width:100%}
 .cfg-select{min-width:160px;cursor:pointer}
+.cfg-select--sm{height:32px;min-width:112px;width:auto;padding:0 10px;font-size:.78rem}
 .cfg-input:focus,.cfg-select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.14)}
 .cfg-num-wrap{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 2px;border-radius:10px;border:1px solid var(--hairline);background:var(--group-bg-elevated);transition:border-color .18s ease,box-shadow .18s ease}
 .cfg-num-wrap:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.14)}
@@ -1976,16 +1977,55 @@ html[data-perf="low"] .dock{transition:none}
 .cfg-usage-idle__text i{color:var(--primary);font-size:1.05rem;flex:none}
 .cfg-usage-idle__text strong{display:block;font-size:.85rem;font-weight:680;color:var(--text-main)}
 .cfg-usage-idle__text span{display:block;margin-top:2px;font-size:.75rem;color:var(--text-muted)}
+.cfg-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;padding:26px 18px;border-radius:var(--group-radius);background:var(--group-bg);border:1px dashed var(--hairline);color:var(--text-muted);font-size:.78rem;line-height:1.5}
+.cfg-empty i{font-size:1.15rem;color:var(--text-muted);opacity:.55;margin-bottom:2px}
+.cfg-empty strong{font-size:.85rem;font-weight:680;color:var(--text-main)}
+.share-tabs{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:3px;border-radius:11px;background:var(--fill-secondary);border:1px solid var(--hairline);margin-bottom:14px}
+.share-tabs__btn{height:34px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--text-muted);font-family:inherit;font-size:.81rem;font-weight:650;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;transition:background .18s ease,color .18s ease,box-shadow .18s ease}
+.share-tabs__btn:hover{color:var(--text-main)}
+.share-tabs__btn.is-on{background:var(--group-bg-elevated);color:var(--text-main);font-weight:750;box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 .5px var(--hairline)}
+.share-tabs__cnt{font-size:.69rem;font-weight:700;padding:1px 6px;border-radius:var(--r-pill);background:var(--fill-secondary);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.share-tabs__btn.is-on .share-tabs__cnt{background:rgba(var(--primary-rgb),.12);color:var(--primary-text)}
+.share-metrics{display:grid;grid-template-columns:repeat(4,1fr);border-radius:var(--group-radius);background:var(--group-bg);border:1px solid var(--hairline);overflow:hidden;margin-bottom:14px}
+.share-metrics--6{grid-template-columns:repeat(6,1fr)}
+.share-metric{padding:11px 8px;text-align:center;border-right:1px solid var(--hairline)}
+.share-metric:last-child{border-right:0}
+.share-metric__val{font-size:1.22rem;font-weight:760;line-height:1.2;color:var(--text-main);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.share-metric__val.is-ok{color:var(--c-success-text)}
+.share-metric__val.is-warn{color:var(--c-warn)}
+.share-metric__label{margin-top:3px;font-size:.71rem;font-weight:600;color:var(--text-muted)}
+.share-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.share-chips{display:flex;align-items:center;gap:6px;overflow-x:auto;max-width:100%;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.share-chips::-webkit-scrollbar{display:none}
+.share-chip{flex:none;height:30px;padding:0 11px;border-radius:var(--r-pill);border:1px solid var(--hairline);background:var(--group-bg);color:var(--text-sub);font-family:inherit;font-size:.74rem;font-weight:650;display:inline-flex;align-items:center;gap:5px;cursor:pointer;transition:background .16s ease,border-color .16s ease,color .16s ease}
+.share-chip:hover{border-color:var(--primary-light);color:var(--primary)}
+.share-chip.is-on{background:var(--primary);border-color:var(--primary);color:#fff}
+.share-chip__cnt{font-size:.68rem;opacity:.82;font-variant-numeric:tabular-nums}
+.share-search-box{display:flex;align-items:center;gap:8px;height:34px;padding:0 11px;border-radius:10px;border:1px solid var(--hairline);background:var(--group-bg);flex:0 1 240px;min-width:180px;transition:border-color .18s ease,box-shadow .18s ease}
+.share-search-box--full{flex:1 1 100%;max-width:100%}
+.share-search-box:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.14)}
+.share-search-box i{color:var(--text-muted);font-size:.76rem;flex:none}
+.share-search-box input{border:0;background:transparent;outline:none;font-family:inherit;font-size:.8rem;color:var(--text-main);width:100%;min-width:0}
 @media (max-width:640px){
   .cfg-row{flex-direction:column;align-items:stretch;gap:10px;padding:12px 13px}
   .cfg-row--switch{flex-direction:row;align-items:center}
   .cfg-row__ctrl{justify-content:flex-end}
-  .cfg-input,.cfg-select,.cfg-num-wrap{width:100%}
+  .cfg-input,.cfg-select:not(.cfg-select--sm),.cfg-num-wrap{width:100%}
   .cfg-num-wrap{justify-content:space-between}
   .cfg-num-wrap input{flex:1;width:auto;text-align:left}
   .cfg-actions{justify-content:stretch}
   .cfg-actions .btn{flex:1 1 auto;justify-content:center}
   .cfg-actions__spacer{width:100%;margin-right:0}
+  .share-metrics{grid-template-columns:repeat(2,1fr)}
+  .share-metrics .share-metric:nth-child(2n){border-right:0}
+  .share-metrics .share-metric:nth-child(n+3){border-top:1px solid var(--hairline)}
+  .share-metrics--6{grid-template-columns:repeat(3,1fr)}
+  .share-metrics--6 .share-metric:nth-child(2n){border-right:1px solid var(--hairline)}
+  .share-metrics--6 .share-metric:nth-child(3n){border-right:0}
+  .share-metrics--6 .share-metric:nth-child(3){border-top:0}
+  .share-metrics--6 .share-metric:nth-child(n+4){border-top:1px solid var(--hairline)}
+  .share-toolbar{flex-direction:column;align-items:stretch;gap:8px}
+  .share-search-box{flex:none;width:100%;min-width:0}
 }
 </style>
 </head>
@@ -3128,94 +3168,89 @@ html[data-perf="low"] .dock{transition:none}
             <i class="fas fa-share-nodes"></i>
             <span>分享管理</span>
           </h2>
-          <p class="cfg-head__sub">管理已开启的外链有效期、提取密码与下载配额（仅真实下载计次，预览不扣配额）。</p>
+          <p class="cfg-head__sub">管理外链有效期、提取密码与下载配额（仅真实下载计次，预览不扣配额）。</p>
+        </div>
+        <div class="cfg-head__right">
+          <button type="button" class="btn btn--sm"
+                  :disabled="shareTab === 'files' ? sharesLoading : shareBundlesLoading"
+                  @click="shareTab === 'files' ? loadShares() : loadShareBundles()">
+            <i class="fas" :class="(shareTab === 'files' ? sharesLoading : shareBundlesLoading) ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i>
+            <span>刷新</span>
+          </button>
         </div>
       </div>
 
-      <!-- 形态 tab：此前整个外观写在 :style 三元表达式里（两个分支各 12 条声明，
-           只有 3 条不同）。改走 .seg--bar，选中态交给 .is-on。 -->
-      <div class="seg seg--bar seg--inline share-tab-switch">
-        <button type="button" class="seg__opt" :class="{'is-on': shareTab==='files'}"
+      <div class="share-tabs" role="tablist" aria-label="分享类型">
+        <button type="button" class="share-tabs__btn" :class="{'is-on': shareTab==='files'}"
+                role="tab" :aria-selected="String(shareTab==='files')"
                 @click="switchShareTab('files')">
-          文件分享
+          <span>文件分享</span>
+          <span class="share-tabs__cnt">{{ shares.length }}</span>
         </button>
-        <button type="button" class="seg__opt" :class="{'is-on': shareTab==='bundles'}"
+        <button type="button" class="share-tabs__btn" :class="{'is-on': shareTab==='bundles'}"
+                role="tab" :aria-selected="String(shareTab==='bundles')"
                 @click="switchShareTab('bundles')">
-          合集 / 目录分享
+          <span>合集 / 目录</span>
+          <span class="share-tabs__cnt">{{ shareBundles.length }}</span>
         </button>
       </div>
 
       <template v-if="shareTab === 'files'">
-      <div class="share-stats" v-if="shareStats">
-        <div class="share-stat">
-          <div class="share-stat-value">{{ shareStats.total }}</div>
-          <div class="share-stat-label">分享总数</div>
-        </div>
-        <div class="share-stat">
-          <div class="share-stat-value ok">{{ shareStats.active }}</div>
-          <div class="share-stat-label">生效中</div>
-        </div>
-        <div class="share-stat">
-          <div class="share-stat-value" :class="{warn: shareStats.expired > 0}">{{ shareStats.expired }}</div>
-          <div class="share-stat-label">已过期</div>
-        </div>
-        <div class="share-stat">
-          <div class="share-stat-value" :class="{warn: shareStats.exhausted > 0}">{{ shareStats.exhausted }}</div>
-          <div class="share-stat-label">次数用尽</div>
-        </div>
-        <div class="share-stat">
-          <div class="share-stat-value">{{ shareStats.passwordProtected }}</div>
-          <div class="share-stat-label">密码保护</div>
-        </div>
-        <div class="share-stat">
-          <div class="share-stat-value">{{ shareStats.totalDownloads }}</div>
-          <div class="share-stat-label">累计下载</div>
-        </div>
-      </div>
-
-      <div class="token-section no-margin">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas fa-list"></i>
-            <span>分享列表（{{ filteredShares.length }} / {{ shares.length }}）</span>
-          </h3>
-          <button class="btn" :disabled="sharesLoading" @click="loadShares">
-            <i class="fas" :class="sharesLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
-          </button>
+        <div class="share-metrics" v-if="shareStats">
+          <div class="share-metric">
+            <div class="share-metric__val">{{ shareStats.total ?? 0 }}</div>
+            <div class="share-metric__label">分享总数</div>
+          </div>
+          <div class="share-metric">
+            <div class="share-metric__val is-ok">{{ shareStats.active ?? 0 }}</div>
+            <div class="share-metric__label">生效中</div>
+          </div>
+          <div class="share-metric">
+            <div class="share-metric__val">{{ shareStats.passwordProtected ?? 0 }}</div>
+            <div class="share-metric__label">密码保护</div>
+          </div>
+          <div class="share-metric">
+            <div class="share-metric__val">{{ shareStats.totalDownloads ?? 0 }}</div>
+            <div class="share-metric__label">累计下载</div>
+          </div>
         </div>
 
-        <!-- .seg 与 .share-filters 并存：后者承载 margin-left:auto 的搜索框，
-             前者提供多选容器的选中态作用域（.seg>.seg__opt.is-on）。 -->
-        <div class="share-filters seg">
-          <button v-for="f in shareFilters" :key="f.value"
-                  class="seg__opt"
-                  :class="{'is-on': shareFilter === f.value}"
-                  @click="shareFilter = f.value">
-            {{ f.label }}<span class="seg__count" v-if="shareFilterCounts[f.value]" :key="shareFilterCounts[f.value]">{{ shareFilterCounts[f.value] }}</span>
-          </button>
-          <div class="share-search">
+        <div class="share-toolbar">
+          <div class="share-chips">
+            <button type="button" v-for="f in shareFilters" :key="f.value"
+                    class="share-chip"
+                    :class="{'is-on': shareFilter === f.value}"
+                    @click="shareFilter = f.value">
+              <span>{{ f.label }}</span>
+              <span class="share-chip__cnt" v-if="shareFilterCounts[f.value]">{{ shareFilterCounts[f.value] }}</span>
+            </button>
+          </div>
+          <div class="share-search-box">
             <i class="fas fa-magnifying-glass"></i>
             <input type="text" v-model="shareSearch" placeholder="搜索文件名或短链…">
           </div>
         </div>
 
         <transition name="fade" mode="out-in">
-          <div v-if="sharesLoading && !shares.length" class="token-empty" key="loading">
-            <i class="fas fa-circle-notch fa-spin"></i> 加载中…
+          <div v-if="sharesLoading && !shares.length" class="cfg-empty" key="loading">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <span>正在加载分享列表…</span>
           </div>
-          <div v-else-if="!shares.length" class="token-empty" key="empty">
-            还没有任何分享。在文件列表中点击「分享」按钮即可创建。
+          <div v-else-if="!shares.length" class="cfg-empty" key="empty">
+            <i class="fas fa-share-nodes"></i>
+            <strong>还没有任何文件分享</strong>
+            <span>在「文件」标签页点击任意文件的分享按钮即可创建外链。</span>
           </div>
-          <div v-else-if="!filteredShares.length" class="token-empty" key="nofilter">
-            当前筛选条件下没有匹配的分享。
+          <div v-else-if="!filteredShares.length" class="cfg-empty" key="nofilter">
+            <i class="fas fa-magnifying-glass"></i>
+            <strong>没有匹配的分享</strong>
+            <span>尝试切换筛选状态或清空搜索关键词。</span>
           </div>
           <component :is="shareListWrap" v-else class="token-list share-list" key="list" :name="shareListLean ? undefined : 'list'" :tag="shareListLean ? undefined : 'div'">
             <div class="token-row" v-for="s in filteredShares" :key="s.kvKey"
                  :class="{disabled: !s.active}">
               <div class="token-row-top">
                 <span class="token-name" :title="s.fileName">{{ s.fileName }}</span>
-                <!-- 自定义标题：分享页顶部显示的就是它。没有则是系统名，
-                     这里就不必再占一行徽章位置。 -->
                 <span class="token-badge title" v-if="s.shareTitle" :title="s.shareTitle">
                   <i class="fas fa-hashtag"></i> {{ s.shareTitle }}
                 </span>
@@ -3257,83 +3292,75 @@ html[data-perf="low"] .dock{transition:none}
             </div>
           </component>
         </transition>
-      </div>
       </template>
 
       <template v-else>
-        <div class="token-section no-margin">
-          <div class="token-section-head">
-            <h3 class="token-section-title">
-              <i class="fas fa-folder-tree"></i>
-              <span>合集 / 目录分享（{{ filteredShareBundles.length }} / {{ shareBundles.length }}）</span>
-            </h3>
-            <button class="btn" :disabled="shareBundlesLoading" @click="loadShareBundles">
-              <i class="fas" :class="shareBundlesLoading ? 'fa-circle-notch fa-spin' : 'fa-rotate'"></i> 刷新
-            </button>
-          </div>
-
-          <div class="share-search" style="margin-bottom:10px;">
+        <div class="share-toolbar">
+          <div class="share-search-box share-search-box--full">
             <i class="fas fa-magnifying-glass"></i>
-            <input type="text" v-model="shareBundleSearch" placeholder="搜索目录路径或短链…">
+            <input type="text" v-model="shareBundleSearch" placeholder="搜索目录路径、标题或短链…">
           </div>
+        </div>
 
-          <transition name="fade" mode="out-in">
-            <div v-if="shareBundlesLoading && !shareBundles.length" class="token-empty" key="bloading">
-              <i class="fas fa-circle-notch fa-spin"></i> 加载中…
-            </div>
-            <div v-else-if="!shareBundles.length" class="token-empty" key="bempty">
-              还没有任何合集 / 目录分享。在文件列表选中多个文件后点「合集分享」，或分享某个目录即可创建。
-            </div>
-            <div v-else-if="!filteredShareBundles.length" class="token-empty" key="bnofilter">
-              当前筛选条件下没有匹配的分享。
-            </div>
-            <component :is="bundleListWrap" v-else class="token-list share-list" key="blist" :name="bundleListLean ? undefined : 'list'" :tag="bundleListLean ? undefined : 'div'">
-              <div class="token-row" v-for="b in filteredShareBundles" :key="b.slug"
-                   :class="{disabled: !b.active}">
-                <div class="token-row-top">
-                  <span class="token-name" :title="b.folderShare ? b.folderPath : (b.files[0] && b.files[0].fileName)">
-                    <i class="fas" :class="b.folderShare ? 'fa-folder' : 'fa-layer-group'"></i>
-                    {{ b.folderShare ? (b.folderPath || '根目录') : ((b.files[0] && b.files[0].fileName) || ('合集 ' + b.slug)) }}
-                  </span>
-                  <span class="token-preview">{{ b.fileCount }} 个文件</span>
-                  <!-- 自定义标题：合集/目录分享的第一眼标识。
-                       没有标题时退化为路径或首文件名，这里就不重复占位。 -->
-                  <span class="token-badge title" v-if="b.title" :title="b.title">
-                    <i class="fas fa-hashtag"></i> {{ b.title }}
-                  </span>
-                  <span class="token-badge" v-if="b.folderShare"><i class="fas fa-arrows-rotate"></i> 实时</span>
-                  <span class="token-badge" v-if="b.folderShare && b.includeSubfolders">含子目录</span>
-                  <span class="token-badge" v-if="b.passwordProtected"><i class="fas fa-lock"></i> 密码</span>
-                  <span class="token-badge warn" v-if="b.expired">已过期</span>
-                  <span class="token-badge warn" v-else-if="b.exhausted">次数用尽</span>
-                  <div class="token-row-actions">
-                    <button class="mini-icon-btn" @click="editBundleFromPanel(b)" title="修改分享（标题 / 短链 / 有效期…）">
-                      <i class="fas fa-pen"></i>
-                    </button>
-                    <button class="mini-icon-btn" @click="copyBundleLink(b)" title="复制分享链接">
-                      <i class="fas fa-link"></i>
-                    </button>
-                    <button class="mini-icon-btn" @click="showShareQr(bundleFullUrl(b), b.title || (b.folderShare ? b.folderPath : b.slug))" title="二维码">
-                      <i class="fas fa-hashtag"></i>
-                    </button>
-                    <button class="mini-icon-btn" @click="openBundlePage(b)" title="打开分享页">
-                      <i class="fas fa-arrow-up-right-from-square"></i>
-                    </button>
-                    <button class="mini-icon-btn danger" @click="revokeShareBundle(b)" title="取消分享">
-                      <i class="fas fa-ban"></i>
-                    </button>
-                  </div>
-                </div>
-                <div class="token-row-meta">
-                  <span><i class="fas fa-hourglass-half"></i> {{ bundleExpiryText(b) }}</span>
-                  <span><i class="fas fa-download"></i> {{ bundleQuotaText(b) }}</span>
-                  <span v-if="b.folderShare"><i class="fas fa-folder-tree"></i> {{ b.folderPath || '根目录' }}</span>
-                  <span v-if="b.createdAt"><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(b.createdAt) }}</span>
+        <transition name="fade" mode="out-in">
+          <div v-if="shareBundlesLoading && !shareBundles.length" class="cfg-empty" key="bloading">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <span>正在加载合集与目录分享…</span>
+          </div>
+          <div v-else-if="!shareBundles.length" class="cfg-empty" key="bempty">
+            <i class="fas fa-folder-tree"></i>
+            <strong>还没有合集或目录分享</strong>
+            <span>在「文件」标签页多选文件点「合集分享」，或直接分享目录即可创建。</span>
+          </div>
+          <div v-else-if="!filteredShareBundles.length" class="cfg-empty" key="bnofilter">
+            <i class="fas fa-magnifying-glass"></i>
+            <strong>没有匹配的分享</strong>
+            <span>尝试清空搜索关键词查看全部合集与目录分享。</span>
+          </div>
+          <component :is="bundleListWrap" v-else class="token-list share-list" key="blist" :name="bundleListLean ? undefined : 'list'" :tag="bundleListLean ? undefined : 'div'">
+            <div class="token-row" v-for="b in filteredShareBundles" :key="b.slug"
+                 :class="{disabled: !b.active}">
+              <div class="token-row-top">
+                <span class="token-name" :title="b.folderShare ? b.folderPath : (b.files[0] && b.files[0].fileName)">
+                  <i class="fas" :class="b.folderShare ? 'fa-folder' : 'fa-layer-group'"></i>
+                  {{ b.folderShare ? (b.folderPath || '根目录') : ((b.files[0] && b.files[0].fileName) || ('合集 ' + b.slug)) }}
+                </span>
+                <span class="token-preview">{{ b.fileCount }} 个文件</span>
+                <span class="token-badge title" v-if="b.title" :title="b.title">
+                  <i class="fas fa-hashtag"></i> {{ b.title }}
+                </span>
+                <span class="token-badge" v-if="b.folderShare"><i class="fas fa-arrows-rotate"></i> 实时</span>
+                <span class="token-badge" v-if="b.folderShare && b.includeSubfolders">含子目录</span>
+                <span class="token-badge" v-if="b.passwordProtected"><i class="fas fa-lock"></i> 密码</span>
+                <span class="token-badge warn" v-if="b.expired">已过期</span>
+                <span class="token-badge warn" v-else-if="b.exhausted">次数用尽</span>
+                <div class="token-row-actions">
+                  <button class="mini-icon-btn" @click="editBundleFromPanel(b)" title="修改分享（标题 / 短链 / 有效期…）">
+                    <i class="fas fa-pen"></i>
+                  </button>
+                  <button class="mini-icon-btn" @click="copyBundleLink(b)" title="复制分享链接">
+                    <i class="fas fa-link"></i>
+                  </button>
+                  <button class="mini-icon-btn" @click="showShareQr(bundleFullUrl(b), b.title || (b.folderShare ? b.folderPath : b.slug))" title="二维码">
+                    <i class="fas fa-hashtag"></i>
+                  </button>
+                  <button class="mini-icon-btn" @click="openBundlePage(b)" title="打开分享页">
+                    <i class="fas fa-arrow-up-right-from-square"></i>
+                  </button>
+                  <button class="mini-icon-btn danger" @click="revokeShareBundle(b)" title="取消分享">
+                    <i class="fas fa-ban"></i>
+                  </button>
                 </div>
               </div>
-            </component>
-          </transition>
-        </div>
+              <div class="token-row-meta">
+                <span><i class="fas fa-hourglass-half"></i> {{ bundleExpiryText(b) }}</span>
+                <span><i class="fas fa-download"></i> {{ bundleQuotaText(b) }}</span>
+                <span v-if="b.folderShare"><i class="fas fa-folder-tree"></i> {{ b.folderPath || '根目录' }}</span>
+                <span v-if="b.createdAt"><i class="fas fa-clock"></i> 创建 {{ formatTokenTime(b.createdAt) }}</span>
+              </div>
+            </div>
+          </component>
+        </transition>
       </template>
 
     </section>
@@ -3489,8 +3516,7 @@ html[data-perf="low"] .dock{transition:none}
             <span class="cfg-pill" v-if="airdropStats">进行中 {{ airdropStats.activeSessions }} 房间</span>
           </h3>
           <div class="airdrop-section-actions">
-            <select class="token-select" v-model="airdropDays" @change="loadAirdropStats"
-                    style="width:auto;min-width:110px;height:30px">
+            <select class="cfg-select cfg-select--sm" v-model="airdropDays" @change="loadAirdropStats">
               <option :value="1">近 24 小时</option>
               <option :value="7">近 7 天</option>
               <option :value="30">近 30 天</option>
@@ -3508,30 +3534,30 @@ html[data-perf="low"] .dock{transition:none}
         </div>
 
         <template v-else-if="airdropStats">
-          <div class="share-stats">
-            <div class="share-stat">
-              <div class="share-stat-value">{{ airdropStats.total }}</div>
-              <div class="share-stat-label">投递次数</div>
+          <div class="share-metrics share-metrics--6">
+            <div class="share-metric">
+              <div class="share-metric__val">{{ airdropStats.total ?? 0 }}</div>
+              <div class="share-metric__label">投递次数</div>
             </div>
-            <div class="share-stat">
-              <div class="share-stat-value ok">{{ airdropStats.completed }}</div>
-              <div class="share-stat-label">成功送达</div>
+            <div class="share-metric">
+              <div class="share-metric__val is-ok">{{ airdropStats.completed ?? 0 }}</div>
+              <div class="share-metric__label">成功送达</div>
             </div>
-            <div class="share-stat">
-              <div class="share-stat-value warn">{{ airdropStats.failed }}</div>
-              <div class="share-stat-label">未完成</div>
+            <div class="share-metric">
+              <div class="share-metric__val is-warn">{{ airdropStats.failed ?? 0 }}</div>
+              <div class="share-metric__label">未完成</div>
             </div>
-            <div class="share-stat">
-              <div class="share-stat-value">{{ airdropBytesLabel }}</div>
-              <div class="share-stat-label">传输流量</div>
+            <div class="share-metric">
+              <div class="share-metric__val">{{ airdropBytesLabel }}</div>
+              <div class="share-metric__label">传输流量</div>
             </div>
-            <div class="share-stat">
-              <div class="share-stat-value">{{ airdropStats.guestCount }}</div>
-              <div class="share-stat-label">访客发起</div>
+            <div class="share-metric">
+              <div class="share-metric__val">{{ airdropStats.guestCount ?? 0 }}</div>
+              <div class="share-metric__label">访客发起</div>
             </div>
-            <div class="share-stat">
-              <div class="share-stat-value">{{ airdropStats.successRate }}%</div>
-              <div class="share-stat-label">成功率</div>
+            <div class="share-metric">
+              <div class="share-metric__val">{{ airdropStats.successRate ?? 0 }}%</div>
+              <div class="share-metric__label">成功率</div>
             </div>
           </div>
 
@@ -3555,7 +3581,10 @@ html[data-perf="low"] .dock{transition:none}
               <span>{{ formatDuration(r.completedAt ? (r.completedAt - r.createdAt) : null) }}</span>
             </div>
           </div>
-          <div class="kv-usage-empty" v-else>该时间段内没有使用记录</div>
+          <div class="cfg-empty" v-else>
+            <i class="fas fa-paper-plane"></i>
+            <span>该时间段内暂无投送记录</span>
+          </div>
         </template>
 
         <div class="cfg-alert" v-else-if="airdropStatsError">
