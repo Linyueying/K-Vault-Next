@@ -2041,10 +2041,9 @@
             safeFetchJson("/api/manage/shares"),
             safeFetchJson("/api/manage/trash?offset=0"),
             safeFetchJson("/api/manage/settings"),
-            safeFetchJson("/api/manage/usage"),
           ]);
 
-          const [brandingRes, versionRes, statusRes, listRes, sharesRes, trashRes, settingsRes, usageRes] = tasks;
+          const [brandingRes, versionRes, statusRes, listRes, sharesRes, trashRes, settingsRes] = tasks;
 
           if (brandingRes.status === "fulfilled" && brandingRes.value && brandingRes.value.siteName) {
             setBrandName(brandingRes.value.siteName);
@@ -2135,28 +2134,9 @@
             applySettingsView(settingsRes.value);
           }
 
-          if (usageRes.status === "fulfilled" && usageRes.value) {
-            const u = usageRes.value;
-            const infraR2 = document.getElementById("infraR2");
-            const infraD1 = document.getElementById("infraD1");
-            const infraKv = document.getElementById("infraKv");
-            if (infraD1 && u.d1 && u.d1.bound) {
-              infraD1.textContent = u.d1.storageBytes != null ? fmtBytes(u.d1.storageBytes) : "已绑定";
-            }
-            if (infraR2) {
-              const r2List = Array.isArray(u.r2) ? u.r2 : [];
-              const r2Bytes = r2List.reduce((acc, item) => acc + Number(item && item.storageBytes ? item.storageBytes : 0), 0);
-              infraR2.textContent = r2Bytes > 0 ? fmtBytes(r2Bytes) : statusData && statusData.r2 && statusData.r2.configured ? "已绑定" : "未绑定";
-            }
-            if (infraKv && Array.isArray(u.kv) && u.kv.length) {
-              const kvReads = u.kv.reduce((acc, item) => acc + Number(item && item.reads ? item.reads : 0), 0);
-              if (kvReads > 0) infraKv.textContent = kvReads + " 读";
-            }
-          } else {
-            const infraR2 = document.getElementById("infraR2");
-            if (infraR2) {
-              infraR2.textContent = statusData && statusData.r2 && statusData.r2.configured ? "已绑定" : "未绑定";
-            }
+          const infraR2 = document.getElementById("infraR2");
+          if (infraR2) {
+            infraR2.textContent = statusData && statusData.r2 && statusData.r2.configured ? "已绑定" : "未绑定";
           }
 
           if (refreshBtn) refreshBtn.classList.remove("is-spinning");

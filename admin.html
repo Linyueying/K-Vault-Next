@@ -1938,6 +1938,55 @@ html[data-perf="low"] .dock{transition:none}
 .trash-row { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); border-top:1px solid var(--glass-border); padding:var(--sp-3) 0; }
 .trash-row__detail { min-width:0; overflow-wrap:anywhere; }
 .trash-row .btn { flex:none; }
+/* =========================================================
+   统一设置面板样式（存储 / 分享 / 设置共用，Apple HIG 分组列表）
+   ========================================================= */
+.cfg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.cfg-head--compact{align-items:center;margin-bottom:0}
+.cfg-head__text{min-width:0;flex:1}
+.cfg-head__title{margin:0;display:flex;align-items:center;gap:8px;font-size:1.02rem;font-weight:780;letter-spacing:-.02em;color:var(--text-main)}
+.cfg-head__title i{color:var(--primary);font-size:.94rem}
+.cfg-head__sub{margin:4px 0 0;color:var(--text-muted);font-size:.78rem;line-height:1.45}
+.cfg-head__right{display:flex;align-items:center;gap:8px;flex:none}
+.cfg-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:var(--r-pill);background:var(--fill-secondary);color:var(--text-muted);font-size:.7rem;font-weight:660;white-space:nowrap}
+.cfg-pill--custom{background:rgba(var(--primary-rgb),.12);color:var(--primary-text)}
+.cfg-group-label{margin:16px 0 7px 4px;color:var(--text-muted);font-size:.73rem;font-weight:720;letter-spacing:.01em}
+.cfg-group-label--first{margin-top:2px}
+.cfg-group{border-radius:var(--group-radius);background:var(--group-bg);border:1px solid var(--hairline);overflow:hidden}
+.cfg-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 15px;min-height:52px}
+.cfg-row + .cfg-row{border-top:1px solid var(--hairline)}
+.cfg-row__meta{min-width:0;flex:1}
+.cfg-row__meta strong{display:block;font-size:.86rem;font-weight:680;color:var(--text-main);line-height:1.35}
+.cfg-row__meta span{display:block;margin-top:2px;font-size:.75rem;color:var(--text-muted);line-height:1.4}
+.cfg-row__ctrl{display:flex;align-items:center;gap:8px;flex:none}
+.cfg-input,.cfg-select{height:36px;padding:0 11px;border-radius:10px;border:1px solid var(--hairline);background:var(--group-bg-elevated);color:var(--text-main);font-size:.84rem;outline:none;transition:border-color .18s ease,box-shadow .18s ease}
+.cfg-input{width:240px;max-width:100%}
+.cfg-select{min-width:160px;cursor:pointer}
+.cfg-input:focus,.cfg-select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.14)}
+.cfg-num-wrap{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 10px 0 2px;border-radius:10px;border:1px solid var(--hairline);background:var(--group-bg-elevated);transition:border-color .18s ease,box-shadow .18s ease}
+.cfg-num-wrap:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px rgba(var(--primary-rgb),.14)}
+.cfg-num-wrap input{width:76px;height:100%;padding:0 6px 0 10px;border:0;background:transparent;color:var(--text-main);font-size:.86rem;font-weight:650;text-align:right;outline:none;font-variant-numeric:tabular-nums}
+.cfg-num-unit{color:var(--text-muted);font-size:.74rem;font-weight:600;white-space:nowrap}
+.cfg-alert{display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding:10px 13px;border-radius:12px;border:1px solid rgba(245,158,11,.34);background:rgba(245,158,11,.1);color:var(--text-main);font-size:.78rem;line-height:1.5}
+.cfg-alert i{color:var(--c-warn);margin-top:2px;flex:none}
+.cfg-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--hairline)}
+.cfg-actions__spacer{margin-right:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cfg-usage-idle{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px;border-radius:var(--group-radius);background:var(--group-bg);border:1px solid var(--hairline)}
+.cfg-usage-idle__text{display:flex;align-items:center;gap:11px;min-width:0;flex:1}
+.cfg-usage-idle__text i{color:var(--primary);font-size:1.05rem;flex:none}
+.cfg-usage-idle__text strong{display:block;font-size:.85rem;font-weight:680;color:var(--text-main)}
+.cfg-usage-idle__text span{display:block;margin-top:2px;font-size:.75rem;color:var(--text-muted)}
+@media (max-width:640px){
+  .cfg-row{flex-direction:column;align-items:stretch;gap:10px;padding:12px 13px}
+  .cfg-row--switch{flex-direction:row;align-items:center}
+  .cfg-row__ctrl{justify-content:flex-end}
+  .cfg-input,.cfg-select,.cfg-num-wrap{width:100%}
+  .cfg-num-wrap{justify-content:space-between}
+  .cfg-num-wrap input{flex:1;width:auto;text-align:left}
+  .cfg-actions{justify-content:stretch}
+  .cfg-actions .btn{flex:1 1 auto;justify-content:center}
+  .cfg-actions__spacer{width:100%;margin-right:0}
+}
 </style>
 </head>
 <body>
@@ -2598,45 +2647,60 @@ html[data-perf="low"] .dock{transition:none}
   <!-- ③ 存储与上传：用量监控 / 上传设置 -->
   <section class="section" data-section="storage" v-show="activeSection==='storage'">
 
-    <!-- ===== KV / R2 / D1 用量监控（进场走 panelIn，内部错峰） =====
-         原为可折叠面板，现改为常驻卡片：数据由 onSectionEnter('storage') 加载。 -->
+    <!-- ===== KV / R2 / D1 用量监控（按需手动触发） ===== -->
     <section class="liquid-card card-panel">
     <div class="kv-usage-panel">
-      <div class="kv-usage-head">
-        <span class="kv-usage-title">
-          <i class="fas fa-chart-pie" :class="{'is-settling': kvUsage.loading}"></i>
-          <!-- 「用量监控」包一层 span：裸文本在 flex 里是匿名项，会被徽章/日期
-               挤到断词；包成显式元素 + white-space:nowrap 后成为刚性项，
-               换行改由 .kv-usage-title 的 flex-wrap 承担。 -->
-          <span class="kv-usage-title__label">用量监控</span>
-          <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.planType" :key="kvUsage.planType">
-            {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
-          </span>
-          <span class="kv-usage-date" v-if="kvUsage.date">{{ kvUsage.date }}</span>
-        </span>
-        <div class="kv-usage-actions">
-          <button class="mini-icon-btn" @click="loadKvUsage" :disabled="kvUsage.loading" title="刷新">
-            <i class="fas fa-rotate" :class="{'fa-spin':kvUsage.loading}"></i>
+      <div class="cfg-head">
+        <div class="cfg-head__text">
+          <h2 class="cfg-head__title">
+            <i class="fas fa-chart-pie" :class="{'is-settling': kvUsage.loading}"></i>
+            <span>用量监控</span>
+            <span class="kv-plan-badge" :class="kvUsage.planType || 'free'" v-if="kvUsage.loaded && kvUsage.planType" :key="kvUsage.planType">
+              {{ kvUsage.planType === 'paid' ? '付费计划' : '免费计划' }}
+            </span>
+            <span class="kv-usage-date" v-if="kvUsage.loaded && kvUsage.date">{{ kvUsage.date }}</span>
+          </h2>
+          <p class="cfg-head__sub">按需手动查询 KV / R2 / D1 实时存储与配额，避免无谓消耗 Cloudflare 接口额度。</p>
+        </div>
+        <div class="cfg-head__right">
+          <span v-if="!kvUsage.loaded && !kvUsage.loading" class="cfg-pill">手动触发</span>
+          <button v-else type="button" class="btn btn--sm" @click="loadKvUsage" :disabled="kvUsage.loading">
+            <i class="fas fa-rotate" :class="{'fa-spin': kvUsage.loading}"></i>
+            <span>{{ kvUsage.loading ? '查询中…' : '刷新用量' }}</span>
           </button>
         </div>
       </div>
 
       <transition name="pop">
-      <div class="kv-usage-warn" v-if="kvUsage.detectionError">
+      <div class="kv-usage-warn" v-if="kvUsage.loaded && kvUsage.detectionError">
         <i class="fas fa-triangle-exclamation"></i>
-        <span>计划检测失败（已回退到免费计划）：{{ kvUsage.detectionError }}。如需准确显示，请为 API Token 添加 <b>Account Settings:Read</b> 权限。</span>
+        <span>计划检测失败（已回退免费计划）：{{ kvUsage.detectionError }}。如需准确显示，请为 API Token 添加 <b>Account Settings:Read</b> 权限。</span>
       </div>
       </transition>
 
       <transition name="fade" mode="out-in">
-      <div v-if="!kvUsage.configured && !kvUsage.loading" class="kv-usage-empty" key="no-cfg">
-        <i class="fas fa-plug-circle-xmark"></i>
-        <span>{{ kvUsage.error || '未检测到 KV 或 R2 绑定，请检查 Pages 项目设置' }}</span>
+      <div v-if="!kvUsage.loaded && !kvUsage.loading" class="cfg-usage-idle" key="idle">
+        <div class="cfg-usage-idle__text">
+          <i class="fas fa-chart-pie" aria-hidden="true"></i>
+          <div>
+            <strong>用量监控未加载</strong>
+            <span>已改为手动触发模式，点击按钮即时获取 KV / R2 / D1 实时用量。</span>
+          </div>
+        </div>
+        <button type="button" class="btn btn--sm btn--primary" @click="loadKvUsage">
+          <i class="fas fa-bolt" aria-hidden="true"></i>
+          <span>立即查询</span>
+        </button>
       </div>
 
       <div v-else-if="kvUsage.loading" class="kv-usage-empty" key="loading">
         <div class="spinner-ring" style="width:22px;height:22px;border-width:2px"></div>
         <span>正在查询用量...</span>
+      </div>
+
+      <div v-else-if="!kvUsage.configured" class="kv-usage-empty" key="no-cfg">
+        <i class="fas fa-plug-circle-xmark"></i>
+        <span>{{ kvUsage.error || '未检测到 KV 或 R2 绑定，请检查 Pages 项目设置' }}</span>
       </div>
 
       <div v-else class="kv-usage-body" key="body">
@@ -2856,41 +2920,36 @@ html[data-perf="low"] .dock{transition:none}
     </section>
 
 
-    <!-- ===== 上传设置（原模态，已内联为板块内容） ===== -->
+    <!-- ===== 上传与存储策略 ===== -->
     <section class="liquid-card panel-inline">
-      <h2 class="dialog-title">
-        <i class="fas fa-user-lock"></i>
-        <span>上传设置</span>
-        <q-tip>
-          这里的改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
-          未在此保存过时，以下取值来自 Cloudflare Pages 的环境变量。
-        </q-tip>
-      </h2>
+      <div class="cfg-head">
+        <div class="cfg-head__text">
+          <h2 class="cfg-head__title">
+            <i class="fas fa-user-lock"></i>
+            <span>上传与存储策略</span>
+          </h2>
+          <p class="cfg-head__sub">控制访客上传权限与 D1/KV 元数据写入方式，保存后立即生效。</p>
+        </div>
+        <div class="cfg-head__right">
+          <span class="cfg-pill" :class="{ 'cfg-pill--custom': settingsSource === 'kv' || storageSource === 'kv' }">
+            {{ (settingsSource === 'kv' || storageSource === 'kv') ? '已自定义' : '环境变量默认' }}
+          </span>
+        </div>
+      </div>
 
-      <div class="token-section" v-if="settingsLoading">
-        <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取设置...</div>
+      <div class="settings-loading" v-if="settingsLoading">
+        <i class="fas fa-spinner fa-spin"></i> 正在读取设置…
       </div>
 
       <template v-else>
-        <!-- 访客上传 -->
-        <div class="token-section">
-          <div class="token-section-head">
-            <h3 class="token-section-title">
-              <i class="fas fa-user-group"></i>
-              <span>访客上传</span>
-            </h3>
-            <span class="badge-env" v-if="settingsSource === 'kv'">KV 覆盖中</span>
-            <span class="badge-env" v-else>来自环境变量</span>
-          </div>
-
-          <div class="set-group">
-            <div class="settings-switch-row">
-              <div class="settings-switch-text">
-                <strong>允许未登录访客上传
-                  <q-tip>关闭后，访客的任何上传入口都会被直接拒绝，并引导其登录；同时不再发生上传重试。</q-tip>
-                </strong>
-              </div>
-              <!-- 统一用 index 的 .switch 结构（label + 隐藏 input + track + thumb） -->
+        <div class="cfg-group-label cfg-group-label--first">访客上传</div>
+        <div class="cfg-group">
+          <div class="cfg-row cfg-row--switch">
+            <div class="cfg-row__meta">
+              <strong>允许访客上传</strong>
+              <span>关闭后未登录访客无法上传，将自动引导登录</span>
+            </div>
+            <div class="cfg-row__ctrl">
               <label class="switch">
                 <input type="checkbox" v-model="guestForm.enabled" role="switch"
                        :aria-checked="String(guestForm.enabled)" />
@@ -2900,55 +2959,41 @@ html[data-perf="low"] .dock{transition:none}
             </div>
           </div>
 
-          <div class="token-grid" v-if="guestForm.enabled">
-            <div class="token-field">
-              <label>单文件上限
-                <q-tip>访客可上传的单文件最大体积。环境变量基线：{{ formatSize(settingsEnvBaseline.maxFileSize) }}</q-tip>
-              </label>
-              <div class="input-with-unit">
-                <input class="token-input" type="number" min="1" v-model.number="guestForm.maxFileSizeMb">
-                <span class="unit">MB</span>
-              </div>
+          <div class="cfg-row" v-if="guestForm.enabled">
+            <div class="cfg-row__meta">
+              <strong>单文件上限</strong>
+              <span>默认基线 {{ formatSize(settingsEnvBaseline.maxFileSize) }}</span>
             </div>
-            <div class="token-field">
-              <label>每日上传次数
-                <q-tip>按访客 IP + 日期统计，每日自动重置。环境变量基线：{{ settingsEnvBaseline.dailyLimit || '—' }}</q-tip>
-              </label>
-              <div class="input-with-unit">
-                <input class="token-input" type="number" min="1" step="1" v-model.number="guestForm.dailyLimit">
-                <span class="unit">次 / 天</span>
+            <div class="cfg-row__ctrl">
+              <div class="cfg-num-wrap">
+                <input type="number" min="1" v-model.number="guestForm.maxFileSizeMb" aria-label="访客单文件上限">
+                <span class="cfg-num-unit">MB</span>
               </div>
             </div>
           </div>
 
-          <div class="settings-note" v-else>
-            <i class="fas fa-circle-info"></i>
-            <span>访客上传已关闭：首页的上传区、拖拽、粘贴与文件夹入口都会被拦下，并提示登录。</span>
+          <div class="cfg-row" v-if="guestForm.enabled">
+            <div class="cfg-row__meta">
+              <strong>每日上传次数</strong>
+              <span>按访客 IP 每日自动重置（默认 {{ settingsEnvBaseline.dailyLimit || '—' }}）</span>
+            </div>
+            <div class="cfg-row__ctrl">
+              <div class="cfg-num-wrap">
+                <input type="number" min="1" step="1" v-model.number="guestForm.dailyLimit" aria-label="访客每日上传次数">
+                <span class="cfg-num-unit">次/天</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 存储回滚模式 -->
-        <div class="token-section">
-          <div class="token-section-head">
-            <h3 class="token-section-title">
-              <i class="fas fa-clock-rotate-left"></i>
-              <span>存储回滚模式</span>
-            </h3>
-            <span class="badge-env" v-if="storageSource === 'kv'">KV 覆盖中</span>
-            <span class="badge-env" v-else>来自环境变量</span>
-          </div>
-
-          <div class="set-group">
-            <div class="settings-switch-row">
-              <div class="settings-switch-text">
-                <strong>同时把文件元数据写入 KV
-                  <q-tip>
-                    开启时每次上传 / 改名 / 移动都会在 <code class="kv-code">D1</code> 与 <code class="kv-code">KV</code>
-                    各写一份，互为备份；关闭后只写 D1，KV 不再接收文件记录。
-                    <strong>关闭前请确认 D1 工作正常</strong>，因为此时 D1 会成为唯一数据源。
-                  </q-tip>
-                </strong>
-              </div>
+        <div class="cfg-group-label">元数据写入策略</div>
+        <div class="cfg-group">
+          <div class="cfg-row cfg-row--switch">
+            <div class="cfg-row__meta">
+              <strong>KV + D1 双写备份</strong>
+              <span>开启时同时写入 KV 作为回滚副本；关闭后仅写 D1，节省 KV 写额度</span>
+            </div>
+            <div class="cfg-row__ctrl">
               <label class="switch">
                 <input type="checkbox" v-model="storageForm.writeKvLegacy" role="switch"
                        :aria-checked="String(storageForm.writeKvLegacy)" />
@@ -2957,58 +3002,59 @@ html[data-perf="low"] .dock{transition:none}
               </label>
             </div>
           </div>
+        </div>
 
-          <div class="settings-note" v-if="storageForm.writeKvLegacy">
-            <i class="fas fa-circle-info"></i>
-            <span>当前为<strong>回滚模式</strong>：KV 与 D1 双写。任何时候把本开关关掉即可让 D1 独占写入，无需重新部署；重新打开也会立即恢复双写。</span>
-          </div>
-          <div class="settings-note settings-note--warn" v-else-if="hasD1Binding">
-            <i class="fas fa-triangle-exclamation"></i>
-            <span>已关闭双写：文件记录只存在于 D1。若 D1 不可用，将无法读取或恢复文件列表 —— 遇到异常请重新打开本开关。</span>
-          </div>
-          <div class="settings-note settings-note--warn" v-else>
-            <i class="fas fa-triangle-exclamation"></i>
-            <span>当前部署<strong>未绑定 D1</strong>（缺少 <code class="kv-code">DB</code> 绑定）。此时 KV 是唯一数据源，关闭本开关不会生效，文件记录仍会写入 KV。</span>
-          </div>
+        <div class="cfg-alert" v-if="!storageForm.writeKvLegacy && hasD1Binding">
+          <i class="fas fa-triangle-exclamation"></i>
+          <span>当前仅写入 D1：请确认 D1 运行正常，需要回滚备份时随时重新开启上方开关。</span>
+        </div>
+        <div class="cfg-alert" v-else-if="!storageForm.writeKvLegacy && !hasD1Binding">
+          <i class="fas fa-triangle-exclamation"></i>
+          <span>未检测到 D1（DB）绑定，当前仍以 KV 为唯一元数据存储，关闭双写不会生效。</span>
+        </div>
+
+        <div class="cfg-actions">
+          <button type="button" class="btn" :disabled="settingsSaving" @click="resetGuestSettings">
+            <i class="fas fa-rotate-left"></i>
+            <span>恢复默认</span>
+          </button>
+          <button type="button" class="btn btn--primary" :disabled="settingsSaving" @click="saveGuestSettings">
+            <i class="fas" :class="settingsSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+            <span>{{ settingsSaving ? '保存中…' : '保存设置' }}</span>
+          </button>
         </div>
       </template>
     </section>
 
     <!-- ===== 图片缩略图 ===== -->
     <section class="liquid-card panel-inline">
-      <h2 class="dialog-title">
-        <i class="fas fa-image"></i>
-        <span>图片缩略图</span>
-        <q-tip>
-          上传图片时由浏览器生成一张小图（canvas → webp）并单独存下，画廊 / 文件列表改用缩略图加载，
-          显著减少流量与首屏时间。<strong>纯增强</strong>：缩略图缺失或文件受分享保护时一律 302 回退原图，对存量文件零影响。
-          <br>
-          <span class="dialog-hint">改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。</span>
-        </q-tip>
-      </h2>
+      <div class="cfg-head">
+        <div class="cfg-head__text">
+          <h2 class="cfg-head__title">
+            <i class="fas fa-image"></i>
+            <span>图片缩略图</span>
+          </h2>
+          <p class="cfg-head__sub">上传时在浏览器生成 WebP 预览图，显著加快图库与列表加载，缺失时自动回退原图。</p>
+        </div>
+        <div class="cfg-head__right">
+          <span class="cfg-pill" :class="{ 'cfg-pill--custom': thumbSource === 'kv' }">
+            {{ thumbSource === 'kv' ? '已自定义' : '环境变量默认' }}
+          </span>
+        </div>
+      </div>
 
-      <div class="token-section" v-if="thumbLoading">
-        <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取缩略图设置...</div>
+      <div class="settings-loading" v-if="thumbLoading">
+        <i class="fas fa-spinner fa-spin"></i> 正在读取缩略图设置…
       </div>
 
       <template v-else>
-        <div class="token-section">
-          <div class="token-section-head">
-            <h3 class="token-section-title">
-              <i class="fas fa-sliders"></i>
-              <span>生成参数</span>
-            </h3>
-            <span class="badge-env" v-if="thumbSource === 'kv'">KV 覆盖中</span>
-            <span class="badge-env" v-else>来自环境变量</span>
-          </div>
-
-          <div class="set-group">
-            <div class="settings-switch-row">
-              <div class="settings-switch-text">
-                <strong>启用缩略图
-                  <q-tip>关闭后不再生成新的缩略图；已有缩略图仍会显示，列表不会因此回退原图。</q-tip>
-                </strong>
-              </div>
+        <div class="cfg-group">
+          <div class="cfg-row cfg-row--switch">
+            <div class="cfg-row__meta">
+              <strong>启用自动生成缩略图</strong>
+              <span>关闭后不再生成新缩略图，已有缩略图继续生效</span>
+            </div>
+            <div class="cfg-row__ctrl">
               <label class="switch">
                 <input type="checkbox" v-model="thumbForm.enabled" role="switch"
                        :aria-checked="String(thumbForm.enabled)" />
@@ -3016,51 +3062,56 @@ html[data-perf="low"] .dock{transition:none}
                 <span class="switch__thumb"></span>
               </label>
             </div>
+          </div>
 
-            <div class="token-field">
-              <label>最长边（像素）
-                <q-tip>缩略图的最大边长，范围 64 ~ 2048。列表卡片用 400 足够，成品通常小于 40KB。</q-tip>
-              </label>
-              <input class="token-input" type="number" min="64" max="2048" v-model.number="thumbForm.maxEdge">
+          <div class="cfg-row">
+            <div class="cfg-row__meta">
+              <strong>最长边尺寸</strong>
+              <span>范围 64 ~ 2048，默认基线 {{ thumbEnvBaseline.maxEdge }} px</span>
             </div>
-
-            <div class="token-field">
-              <label>质量
-                <q-tip>webp 编码质量，范围 0.1 ~ 1。0.72 是「肉眼无损、体积合适」的常用值。</q-tip>
-              </label>
-              <input class="token-input" type="number" min="0.1" max="1" step="0.01" v-model.number="thumbForm.quality">
+            <div class="cfg-row__ctrl">
+              <div class="cfg-num-wrap">
+                <input type="number" min="64" max="2048" v-model.number="thumbForm.maxEdge" aria-label="缩略图最长边">
+                <span class="cfg-num-unit">px</span>
+              </div>
             </div>
+          </div>
 
-            <div class="token-field">
-              <label>存储后端
-                <q-tip>
-                  缩略图存在哪里。<strong>KV</strong>（默认）所有部署都可用，但写额度最紧（免费 1k 写/天）；
-                  <strong>D1</strong> 写额度大 100 倍，代价是读走单 primary、延迟略高；
-                  <strong>R2</strong> 读写都在边缘、额度最大，图片量大时首选。
-                  未绑定的后端不会出现在这里。
-                </q-tip>
-              </label>
-              <select class="token-select" v-model="thumbForm.backend">
+          <div class="cfg-row">
+            <div class="cfg-row__meta">
+              <strong>WebP 压缩质量</strong>
+              <span>范围 0.1 ~ 1，推荐 0.72（默认 {{ thumbEnvBaseline.quality }}）</span>
+            </div>
+            <div class="cfg-row__ctrl">
+              <div class="cfg-num-wrap">
+                <input type="number" min="0.1" max="1" step="0.01" v-model.number="thumbForm.quality" aria-label="缩略图质量">
+                <span class="cfg-num-unit">Q</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cfg-row">
+            <div class="cfg-row__meta">
+              <strong>缩略图存储位置</strong>
+              <span>图片量大优先选 R2 或 D1，减少 KV 写入消耗</span>
+            </div>
+            <div class="cfg-row__ctrl">
+              <select class="cfg-select" v-model="thumbForm.backend" aria-label="缩略图存储位置">
                 <option v-for="b in thumbBackends" :key="b.value" :value="b.value">{{ b.label }}</option>
               </select>
             </div>
           </div>
+        </div>
 
-          <div class="settings-note">
-            <i class="fas fa-circle-info"></i>
-            <span>环境变量基线：最长边 {{ thumbEnvBaseline.maxEdge }} · 质量 {{ thumbEnvBaseline.quality }} · 后端 {{ thumbEnvBaseline.backend }}</span>
-          </div>
-
-          <div class="row" style="margin-top:12px">
-            <button class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
-              <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-save'"></i>
-              <span>保存缩略图设置</span>
-            </button>
-            <button class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
-              <i class="fas fa-rotate-left"></i>
-              <span>恢复默认</span>
-            </button>
-          </div>
+        <div class="cfg-actions">
+          <button type="button" class="btn" :disabled="thumbSaving" @click="resetThumbSettings">
+            <i class="fas fa-rotate-left"></i>
+            <span>恢复默认</span>
+          </button>
+          <button type="button" class="btn btn--primary" :disabled="thumbSaving" @click="saveThumbSettings">
+            <i class="fas" :class="thumbSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+            <span>{{ thumbSaving ? '保存中…' : '保存设置' }}</span>
+          </button>
         </div>
       </template>
     </section>
@@ -3069,17 +3120,17 @@ html[data-perf="low"] .dock{transition:none}
 
   <!-- ② 分享管理 -->
   <section class="section" data-section="shares" v-show="activeSection==='shares'">
-    <!-- ===== 分享管理（原模态，已内联为板块内容） ===== -->
+    <!-- ===== 分享管理 ===== -->
     <section class="liquid-card panel-inline">
-      <h2 class="dialog-title">
-        <i class="fas fa-share-nodes"></i>
-        <span>分享管理</span>
-        <q-tip>
-          所有已开启分享的文件。可在此查看<strong>有效期</strong>、<strong>下载次数</strong>与<strong>密码状态</strong>，或取消分享。
-          <br>
-          <span class="dialog-hint">下载次数仅在访问者点击「下载」时增长 —— 预览不计入。</span>
-        </q-tip>
-      </h2>
+      <div class="cfg-head">
+        <div class="cfg-head__text">
+          <h2 class="cfg-head__title">
+            <i class="fas fa-share-nodes"></i>
+            <span>分享管理</span>
+          </h2>
+          <p class="cfg-head__sub">管理已开启的外链有效期、提取密码与下载配额（仅真实下载计次，预览不扣配额）。</p>
+        </div>
+      </div>
 
       <!-- 形态 tab：此前整个外观写在 :style 三元表达式里（两个分支各 12 条声明，
            只有 3 条不同）。改走 .seg--bar，选中态交给 .is-on。 -->
@@ -3287,43 +3338,37 @@ html[data-perf="low"] .dock{transition:none}
 
     </section>
 
-  <!-- ===== 隔空投送（从「储存」迁入「分享」管理） ===== -->
+  <!-- ===== 隔空投送 ===== -->
   <section class="liquid-card panel-inline">
-    <h2 class="dialog-title">
-      <i class="fas fa-paper-plane"></i>
-      <span>隔空投送</span>
-      <span class="badge-beta">BETA</span>
-      <q-tip>
-        两端在首页打开隔空投送，一端发送、一端接收，文件经中转节点周转后自动送达。
-        改动保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效，无需重新部署</strong>。
-      </q-tip>
-    </h2>
+    <div class="cfg-head">
+      <div class="cfg-head__text">
+        <h2 class="cfg-head__title">
+          <i class="fas fa-paper-plane"></i>
+          <span>隔空投送</span>
+          <span class="badge-beta">BETA</span>
+        </h2>
+        <p class="cfg-head__sub">跨设备扫码或输入连接码瞬时传输文件，经中转节点送达后自动释放。</p>
+      </div>
+      <div class="cfg-head__right">
+        <span class="cfg-pill" :class="{ 'cfg-pill--custom': airdropSource === 'kv' }">
+          {{ airdropSource === 'kv' ? '已自定义' : '环境变量默认' }}
+        </span>
+      </div>
+    </div>
 
-    <div class="token-section" v-if="airdropLoading">
-      <div class="settings-loading"><i class="fas fa-spinner fa-spin"></i> 正在读取隔空投送设置...</div>
+    <div class="settings-loading" v-if="airdropLoading">
+      <i class="fas fa-spinner fa-spin"></i> 正在读取隔空投送设置…
     </div>
 
     <template v-else>
-      <!-- 权限 -->
-      <div class="token-section">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas fa-user-group"></i>
-            <span>访客使用权限</span>
-          </h3>
-          <span class="badge-env" v-if="airdropSource === 'kv'">KV 覆盖中</span>
-          <span class="badge-env" v-else>来自环境变量</span>
-        </div>
-
-        <!-- 三个开关同属「访客使用权限」，合成一个分组容器：
-             此前是三张各自独立的卡片，读不出它们管的是同一件事。 -->
-        <div class="set-group">
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>启用隔空投送
-                <q-tip>关闭后首页入口不再打开；已有房间会自然过期，不会被强制中断。</q-tip>
-              </strong>
-            </div>
+      <div class="cfg-group-label cfg-group-label--first">功能与访客权限</div>
+      <div class="cfg-group">
+        <div class="cfg-row cfg-row--switch">
+          <div class="cfg-row__meta">
+            <strong>启用隔空投送</strong>
+            <span>关闭后隐藏入口；进行中的房间不受中断并自然过期</span>
+          </div>
+          <div class="cfg-row__ctrl">
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.enabled" role="switch"
                      :aria-checked="String(airdropForm.enabled)" />
@@ -3331,13 +3376,14 @@ html[data-perf="low"] .dock{transition:none}
               <span class="switch__thumb"></span>
             </label>
           </div>
+        </div>
 
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>允许未登录访客发起投送
-                <q-tip>此开关只管<strong>发送端</strong>。隔空投送是匿名传输，开放给访客发起会持续消耗中转节点的存储与流量。默认关闭。</q-tip>
-              </strong>
-            </div>
+        <div class="cfg-row cfg-row--switch">
+          <div class="cfg-row__meta">
+            <strong>允许访客发起投送</strong>
+            <span>控制发送端；开放匿名发起会持续消耗中转存储与流量（默认关闭）</span>
+          </div>
+          <div class="cfg-row__ctrl">
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.guestAllowed" role="switch"
                      :aria-checked="String(airdropForm.guestAllowed)" />
@@ -3345,13 +3391,14 @@ html[data-perf="low"] .dock{transition:none}
               <span class="switch__thumb"></span>
             </label>
           </div>
+        </div>
 
-          <div class="settings-switch-row">
-            <div class="settings-switch-text">
-              <strong>允许未登录访客接收文件
-                <q-tip>此开关管<strong>接收端</strong>。授权用户开好房间后，访客凭连接码或扫码即可接收文件；接收不消耗每日次数。默认开启 —— 关闭后访客将无法接收任何投送。</q-tip>
-              </strong>
-            </div>
+        <div class="cfg-row cfg-row--switch">
+          <div class="cfg-row__meta">
+            <strong>允许访客接收文件</strong>
+            <span>凭连接码或扫码接收文件，不计入每日次数（默认开启）</span>
+          </div>
+          <div class="cfg-row__ctrl">
             <label class="switch">
               <input type="checkbox" v-model="airdropForm.guestReceiveAllowed" role="switch"
                      :aria-checked="String(airdropForm.guestReceiveAllowed)" />
@@ -3360,61 +3407,86 @@ html[data-perf="low"] .dock{transition:none}
             </label>
           </div>
         </div>
+      </div>
 
-        <div class="token-grid">
-          <div class="token-field">
-            <label>单文件上限
-              <q-tip>
-                实际生效值还会受中转节点能力约束：当前节点 {{ airdropBackendLabel }}，
-                上限 {{ airdropBackendMaxLabel }}。
-              </q-tip>
-            </label>
-            <div class="input-with-unit">
-              <input class="token-input" type="number" min="1" v-model.number="airdropForm.maxFileSizeMb">
-              <span class="unit">MB</span>
+      <div class="cfg-group-label">配额与房间生命周期</div>
+      <div class="cfg-group">
+        <div class="cfg-row">
+          <div class="cfg-row__meta">
+            <strong>单文件上限</strong>
+            <span>当前中转节点：{{ airdropBackendLabel }}（能力上限 {{ airdropBackendMaxLabel }}）</span>
+          </div>
+          <div class="cfg-row__ctrl">
+            <div class="cfg-num-wrap">
+              <input type="number" min="1" v-model.number="airdropForm.maxFileSizeMb" aria-label="隔空投送单文件上限">
+              <span class="cfg-num-unit">MB</span>
             </div>
-          </div>
-          <div class="token-field">
-            <label>每 IP 每日次数
-              <q-tip>环境变量基线：{{ airdropEnvBaseline.dailyLimit }}</q-tip>
-            </label>
-            <input class="token-input" type="number" min="1" v-model.number="airdropForm.dailyLimit">
-          </div>
-          <div class="token-field">
-            <label>房间有效期
-              <q-tip>从发端生成房间那刻起算。超时后房间失效、两端停止轮询（不再产生数据库读），中转节点上的临时文件一并释放。默认 5 分钟。</q-tip>
-            </label>
-            <div class="input-with-unit">
-              <input class="token-input" type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes">
-              <span class="unit">分钟</span>
-            </div>
-          </div>
-          <div class="token-field">
-            <label>使用记录保留条数
-              <q-tip>
-                超出后自动删除最旧的记录。<strong>0 表示不自动清理</strong>（记录会一直累积，
-                占用 D1 存储与免费额度，不建议）。默认 500。
-              </q-tip>
-            </label>
-            <input class="token-input" type="number" min="0" max="100000" v-model.number="airdropForm.statsRetention">
           </div>
         </div>
 
-        <!-- 只在「设置已加载完成」且确无节点时提示：
-             airdropLoading 期间 airdropBackendName 必然是空的，此时弹警告是误报。 -->
-        <div class="settings-note settings-note--warn"
-             v-if="!airdropLoading && airdropBackendLoaded && !airdropBackendName">
-          <i class="fas fa-triangle-exclamation"></i>
-          <span>当前未检测到 R2_BUCKET 绑定或 Telegram 环境变量（TG_BOT_TOKEN / TG_CHAT_ID），隔空投送缺少中转节点，启用后也无法使用。</span>
+        <div class="cfg-row">
+          <div class="cfg-row__meta">
+            <strong>每 IP 每日次数</strong>
+            <span>限制单 IP 每日发起投送次数（默认基线 {{ airdropEnvBaseline.dailyLimit }}）</span>
+          </div>
+          <div class="cfg-row__ctrl">
+            <div class="cfg-num-wrap">
+              <input type="number" min="1" v-model.number="airdropForm.dailyLimit" aria-label="隔空投送每 IP 每日次数">
+              <span class="cfg-num-unit">次/天</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="cfg-row">
+          <div class="cfg-row__meta">
+            <strong>房间有效期</strong>
+            <span>超时自动失效并清理临时文件（1 ~ 1440，默认 5 分钟）</span>
+          </div>
+          <div class="cfg-row__ctrl">
+            <div class="cfg-num-wrap">
+              <input type="number" min="1" max="1440" v-model.number="airdropForm.ttlMinutes" aria-label="隔空投送房间有效期">
+              <span class="cfg-num-unit">分钟</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="cfg-row">
+          <div class="cfg-row__meta">
+            <strong>使用记录保留条数</strong>
+            <span>超出自动清理最旧记录；0 为不自动清理（默认 500）</span>
+          </div>
+          <div class="cfg-row__ctrl">
+            <div class="cfg-num-wrap">
+              <input type="number" min="0" max="100000" v-model.number="airdropForm.statsRetention" aria-label="使用记录保留条数">
+              <span class="cfg-num-unit">条</span>
+            </div>
+          </div>
         </div>
       </div>
 
+      <div class="cfg-alert" v-if="!airdropLoading && airdropBackendLoaded && !airdropBackendName">
+        <i class="fas fa-triangle-exclamation"></i>
+        <span>未检测到 R2_BUCKET 绑定或 Telegram 环境变量，隔空投送缺少中转节点。</span>
+      </div>
+
+      <div class="cfg-actions">
+        <button type="button" class="btn" :disabled="airdropSaving" @click="resetAirdropSettings">
+          <i class="fas fa-rotate-left"></i>
+          <span>恢复默认</span>
+        </button>
+        <button type="button" class="btn btn--primary" :disabled="airdropSaving" @click="saveAirdropSettings">
+          <i class="fas" :class="airdropSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+          <span>{{ airdropSaving ? '保存中…' : '保存设置' }}</span>
+        </button>
+      </div>
+
       <!-- 使用情况 -->
-      <div class="token-section">
+      <div class="token-section" style="margin-top:18px;margin-bottom:0">
         <div class="token-section-head">
           <h3 class="token-section-title">
             <i class="fas fa-magnifying-glass-chart"></i>
             <span>使用情况</span>
+            <span class="cfg-pill" v-if="airdropStats">进行中 {{ airdropStats.activeSessions }} 房间</span>
           </h3>
           <div class="airdrop-section-actions">
             <select class="token-select" v-model="airdropDays" @change="loadAirdropStats"
@@ -3432,7 +3504,7 @@ html[data-perf="low"] .dock{transition:none}
         </div>
 
         <div class="settings-loading" v-if="airdropStatsLoading">
-          <i class="fas fa-spinner fa-spin"></i> 正在统计...
+          <i class="fas fa-spinner fa-spin"></i> 正在统计…
         </div>
 
         <template v-else-if="airdropStats">
@@ -3447,9 +3519,7 @@ html[data-perf="low"] .dock{transition:none}
             </div>
             <div class="share-stat">
               <div class="share-stat-value warn">{{ airdropStats.failed }}</div>
-              <div class="share-stat-label">未完成
-                <q-tip>指发端已上传但收端未取走、或中途取消的投递。</q-tip>
-              </div>
+              <div class="share-stat-label">未完成</div>
             </div>
             <div class="share-stat">
               <div class="share-stat-value">{{ airdropBytesLabel }}</div>
@@ -3463,13 +3533,6 @@ html[data-perf="low"] .dock{transition:none}
               <div class="share-stat-value">{{ airdropStats.successRate }}%</div>
               <div class="share-stat-label">成功率</div>
             </div>
-          </div>
-
-          <div class="settings-note" style="margin-top:var(--sp-3)">
-            <i class="fas fa-circle-info"></i>
-            <span>
-              当前有 <strong>{{ airdropStats.activeSessions }}</strong> 个房间正在进行中。
-            </span>
           </div>
 
           <div class="airdrop-recent" v-if="airdropStats.recent && airdropStats.recent.length">
@@ -3495,7 +3558,7 @@ html[data-perf="low"] .dock{transition:none}
           <div class="kv-usage-empty" v-else>该时间段内没有使用记录</div>
         </template>
 
-        <div class="settings-note settings-note--warn" v-else-if="airdropStatsError">
+        <div class="cfg-alert" v-else-if="airdropStatsError">
           <i class="fas fa-triangle-exclamation"></i><span>{{ airdropStatsError }}</span>
         </div>
       </div>
@@ -3507,34 +3570,36 @@ html[data-perf="low"] .dock{transition:none}
 
   <!-- ④ 系统设置 -->
   <section class="section" data-section="system" v-show="activeSection==='system'">
-  <!-- ===== 系统连接状态（原工具箱「连接状态」迁入） =====
-       工具箱已移除，这个只读诊断入口移到设置板块最上方：
-       它是「看一眼整体健康状况」的动作，放在可写配置（网站信息）之前
-       更符合从「体检」到「调参」的阅读顺序。
-       结果仍由 checkStatus() 走弹层展示，展示逻辑未改动，只换了入口位置。 -->
+  <!-- ===== 系统连接状态 ===== -->
   <section class="liquid-card card-panel">
-    <h2 class="dialog-title">
-      <i class="fas fa-heart-pulse"></i>
-      <span>系统连接状态</span>
-      <q-tip>
-        检查 <code class="kv-code">Telegram</code> / <code class="kv-code">KV</code> / <code class="kv-code">R2</code> / <code class="kv-code">S3</code> / <code class="kv-code">Discord</code> / <code class="kv-code">HuggingFace</code> / <code class="kv-code">GitHub</code> 各后端是否可用。检查结果以弹层展示，不占用本页布局。
-      </q-tip>
-    </h2>
-    <div class="token-section" style="margin-bottom:0">
-      <button class="btn" @click="checkStatus" :disabled="statusChecking">
-        <i class="fas" :class="statusChecking ? 'fa-circle-notch fa-spin' : 'fa-heart-pulse'"></i>
-        <span>{{ statusChecking ? '检查中…' : '立即检查' }}</span>
-      </button>
+    <div class="cfg-head cfg-head--compact">
+      <div class="cfg-head__text">
+        <h2 class="cfg-head__title">
+          <i class="fas fa-heart-pulse"></i>
+          <span>系统连接状态</span>
+        </h2>
+        <p class="cfg-head__sub">手动检测 7 大存储后端与 KV / R2 实时连通性。</p>
+      </div>
+      <div class="cfg-head__right">
+        <button type="button" class="btn btn--sm" @click="checkStatus" :disabled="statusChecking">
+          <i class="fas" :class="statusChecking ? 'fa-circle-notch fa-spin' : 'fa-heart-pulse'"></i>
+          <span>{{ statusChecking ? '检查中…' : '立即检查' }}</span>
+        </button>
+      </div>
     </div>
   </section>
 
-  <!-- ===== 接入与凭据（原独立「接入」板块整合进设置） ===== -->
+  <!-- ===== 接入与凭据 ===== -->
   <section class="liquid-card card-panel">
-    <h2 class="dialog-title">
-      <i class="fas fa-plug"></i>
-      <span>接入与凭据</span>
-      <q-tip>管理 WebDAV 服务端、MCP AI 端点与 API Token 凭据，点击条目展开详细配置。</q-tip>
-    </h2>
+    <div class="cfg-head">
+      <div class="cfg-head__text">
+        <h2 class="cfg-head__title">
+          <i class="fas fa-plug"></i>
+          <span>接入与凭据</span>
+        </h2>
+        <p class="cfg-head__sub">配置 WebDAV 挂载服务、MCP AI 端点与 API Token 密钥，点击条目展开详情。</p>
+      </div>
+    </div>
     <div class="access-overview">
       <div class="ui-group ui-group--icons">
         <button type="button" class="ui-row" @click="openAccessSheet('webdav')">
@@ -3880,116 +3945,109 @@ html[data-perf="low"] .dock{transition:none}
     </transition>
 
 
-  <!-- ===== 系统设置：网站信息（网站名称与标题） ===== -->
+  <!-- ===== 系统设置：网站信息 ===== -->
   <section class="liquid-card panel-inline">
-    <!-- branding -->
-      <h2 class="dialog-title">
-        <i class="fas fa-signature"></i>
-        <span>网站信息</span>
-        <q-tip>
-          自定义站点对外的<strong>显示名称</strong>与浏览器<strong>标签标题</strong>。保存在 <code class="kv-code">KV</code> 运行时配置，<strong>保存后立即对所有页面生效</strong>，无需重新部署。留空即恢复默认（{{ brandingEnvBaseline.siteName }}）。
-        </q-tip>
-      </h2>
+    <div class="cfg-head">
+      <div class="cfg-head__text">
+        <h2 class="cfg-head__title">
+          <i class="fas fa-signature"></i>
+          <span>网站信息</span>
+        </h2>
+        <p class="cfg-head__sub">自定义全站显示名称与浏览器标签标题，保存后立即生效，留空恢复默认。</p>
+      </div>
+      <div class="cfg-head__right">
+        <span class="cfg-pill" :class="{ 'cfg-pill--custom': brandingSource === 'kv' }">
+          {{ brandingSource === 'kv' ? '已自定义' : '环境变量默认' }}
+        </span>
+      </div>
+    </div>
 
-      <div class="token-section">
-        <div class="token-section-head">
-          <h3 class="token-section-title">
-            <i class="fas fa-tag"></i>
-            <span>网站名称与标题</span>
-          </h3>
-          <span class="badge-env" v-if="brandingSource === 'kv'">KV 覆盖中</span>
-          <span class="badge-env" v-else>来自环境变量</span>
+    <div class="cfg-group">
+      <div class="cfg-row">
+        <div class="cfg-row__meta">
+          <strong>站点名称</strong>
+          <span>显示在导航栏、页眉与分享页（默认 {{ brandingEnvBaseline.siteName }}）</span>
         </div>
-
-        <div class="token-field">
-          <label>网站名字（站点显示名）
-            <q-tip>显示在首页品牌区、分享页与各类页眉。环境变量基线：{{ brandingEnvBaseline.siteName }}</q-tip>
-          </label>
-          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteName"
-                 placeholder="如：一云 / My Drive" />
-        </div>
-
-        <div class="token-field">
-          <label>网站标题（浏览器标签）
-            <q-tip>显示在浏览器标签页与社交分享卡片标题。环境变量基线：{{ brandingEnvBaseline.siteTitle }}</q-tip>
-          </label>
-          <input class="token-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
-                 placeholder="如：K-Vault-NEXT" />
-        </div>
-
-        <div class="settings-note" v-if="brandingSource === 'kv'">
-          <i class="fas fa-circle-info"></i>
-          <span>当前为<strong>后台自定义值</strong>：所有页面会立即使用上方名称与标题。清空输入框并保存即可恢复默认。</span>
-        </div>
-        <div class="settings-note" v-else>
-          <i class="fas fa-circle-info"></i>
-          <span>当前取环境变量（或默认 {{ brandingEnvBaseline.siteName }}）。在此填写并保存将写入 <code class="kv-code">KV</code> 覆盖它。</span>
+        <div class="cfg-row__ctrl">
+          <input class="cfg-input" type="text" maxlength="120" v-model="brandingForm.siteName"
+                 placeholder="如：K-Vault-Next" aria-label="站点名称" />
         </div>
       </div>
 
+      <div class="cfg-row">
+        <div class="cfg-row__meta">
+          <strong>浏览器标题</strong>
+          <span>显示在标签页与分享卡片标题（默认 {{ brandingEnvBaseline.siteTitle }}）</span>
+        </div>
+        <div class="cfg-row__ctrl">
+          <input class="cfg-input" type="text" maxlength="120" v-model="brandingForm.siteTitle"
+                 placeholder="如：K-Vault-Next" aria-label="浏览器标题" />
+        </div>
+      </div>
+    </div>
+
+    <div class="cfg-actions">
+      <button type="button" class="btn" :disabled="brandingSaving" @click="resetBrandingSettings">
+        <i class="fas fa-rotate-left"></i>
+        <span>恢复默认</span>
+      </button>
+      <button type="button" class="btn btn--primary" :disabled="brandingSaving" @click="saveBrandingSettings">
+        <i class="fas" :class="brandingSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+        <span>{{ brandingSaving ? '保存中…' : '保存设置' }}</span>
+      </button>
+    </div>
   </section>
 
   <!-- ===== 系统设置：Show 公开影像展 ===== -->
   <section class="liquid-card panel-inline">
-    <!-- show settings -->
-    <h2 class="dialog-title">
-      <i class="fas fa-images"></i>
-      <span>Show 展示设置</span>
-      <q-tip>
-        控制公开影像展 <code class="kv-code">/show</code> 的展示样式、开放状态、文案与交互开关。保存在 <code class="kv-code">KV</code> 运行时配置中，<strong>保存后立即生效</strong>，无需重新部署。
-      </q-tip>
-    </h2>
-
-    <div class="token-section">
-      <div class="token-section-head">
-        <h3 class="token-section-title">
-          <i class="fas fa-wand-magic-sparkles"></i>
-          <span>展示样式</span>
-        </h3>
-        <span class="badge-env" v-if="showConfigSource === 'kv'">KV 覆盖中</span>
-        <span class="badge-env" v-else>默认 / 环境变量</span>
+    <div class="cfg-head">
+      <div class="cfg-head__text">
+        <h2 class="cfg-head__title">
+          <i class="fas fa-images"></i>
+          <span>Show 展示设置</span>
+        </h2>
+        <p class="cfg-head__sub">控制公开影像展 /show 的视觉样式、交互开关与封面文案。</p>
       </div>
-
-      <div class="show-style-grid" role="radiogroup" aria-label="Show 展示样式">
-        <button type="button"
-                v-for="opt in showStyleOptions"
-                :key="opt.value"
-                class="show-style-card"
-                :class="{ 'is-selected': showForm.style === opt.value }"
-                role="radio"
-                :aria-checked="String(showForm.style === opt.value)"
-                @click="showForm.style = opt.value">
-          <div class="show-style-thumb" :class="{ 'show-style-thumb--journal': opt.value === 'journal', 'show-style-thumb--gallery': opt.value === 'gallery', 'show-style-thumb--filmstrip': opt.value === 'filmstrip' }" aria-hidden="true">
-            <template v-if="opt.value === 'gallery'"><span></span><span></span><span></span></template>
-            <template v-else-if="opt.value === 'filmstrip'"><span></span><span></span><span></span></template>
-          </div>
-          <div class="show-style-meta">
-            <div class="show-style-name">
-              <span>{{ opt.label }}</span>
-              <span class="show-style-tag" v-if="showForm.style === opt.value">已选中</span>
-              <span class="show-style-tag" v-else-if="opt.badge">{{ opt.badge }}</span>
-            </div>
-            <span class="show-style-desc">{{ opt.desc }}</span>
-          </div>
-        </button>
+      <div class="cfg-head__right">
+        <span class="cfg-pill" :class="{ 'cfg-pill--custom': showConfigSource === 'kv' }">
+          {{ showConfigSource === 'kv' ? '已自定义' : '默认配置' }}
+        </span>
       </div>
     </div>
 
-    <div class="token-section">
-      <div class="token-section-head">
-        <h3 class="token-section-title">
-          <i class="fas fa-sliders"></i>
-          <span>功能开关</span>
-        </h3>
-      </div>
-
-      <div class="set-group">
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>启用公开 Show 页面
-              <q-tip>关闭后访客打开 /show 会看到「暂未对外开放」提示，已发布的作品记录不会丢失，随时可重新开启。</q-tip>
-            </strong>
+    <div class="cfg-group-label cfg-group-label--first">展示样式</div>
+    <div class="show-style-grid" role="radiogroup" aria-label="Show 展示样式">
+      <button type="button"
+              v-for="opt in showStyleOptions"
+              :key="opt.value"
+              class="show-style-card"
+              :class="{ 'is-selected': showForm.style === opt.value }"
+              role="radio"
+              :aria-checked="String(showForm.style === opt.value)"
+              @click="showForm.style = opt.value">
+        <div class="show-style-thumb" :class="{ 'show-style-thumb--journal': opt.value === 'journal', 'show-style-thumb--gallery': opt.value === 'gallery', 'show-style-thumb--filmstrip': opt.value === 'filmstrip' }" aria-hidden="true">
+          <template v-if="opt.value === 'gallery'"><span></span><span></span><span></span></template>
+          <template v-else-if="opt.value === 'filmstrip'"><span></span><span></span><span></span></template>
+        </div>
+        <div class="show-style-meta">
+          <div class="show-style-name">
+            <span>{{ opt.label }}</span>
+            <span class="show-style-tag" v-if="showForm.style === opt.value">已选中</span>
+            <span class="show-style-tag" v-else-if="opt.badge">{{ opt.badge }}</span>
           </div>
+          <span class="show-style-desc">{{ opt.desc }}</span>
+        </div>
+      </button>
+    </div>
+
+    <div class="cfg-group-label">功能开关</div>
+    <div class="cfg-group">
+      <div class="cfg-row cfg-row--switch">
+        <div class="cfg-row__meta">
+          <strong>开放公开 Show 页面</strong>
+          <span>关闭后 /show 显示暂未开放，已发布作品记录不会丢失</span>
+        </div>
+        <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.enabled" role="switch"
                    :aria-checked="String(showForm.enabled)" />
@@ -3997,13 +4055,14 @@ html[data-perf="low"] .dock{transition:none}
             <span class="switch__thumb"></span>
           </label>
         </div>
+      </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>显示「分享 Show」按钮
-              <q-tip>控制页眉右侧的分享与复制链接按钮是否展示。</q-tip>
-            </strong>
-          </div>
+      <div class="cfg-row cfg-row--switch">
+        <div class="cfg-row__meta">
+          <strong>显示分享按钮</strong>
+          <span>在 Show 页眉右侧提供分享与复制链接入口</span>
+        </div>
+        <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.showShareButton" role="switch"
                    :aria-checked="String(showForm.showShareButton)" />
@@ -4011,13 +4070,14 @@ html[data-perf="low"] .dock{transition:none}
             <span class="switch__thumb"></span>
           </label>
         </div>
+      </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>显示标签快速筛选栏
-              <q-tip>当发布的作品包含 2 个及以上标签分组时，在顶部显示标签筛选胶囊，方便访客按主题切换浏览。</q-tip>
-            </strong>
-          </div>
+      <div class="cfg-row cfg-row--switch">
+        <div class="cfg-row__meta">
+          <strong>显示标签筛选栏</strong>
+          <span>包含 2 个及以上标签分组时，在顶部展示快速筛选胶囊</span>
+        </div>
+        <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.showTagFilter" role="switch"
                    :aria-checked="String(showForm.showTagFilter)" />
@@ -4025,13 +4085,14 @@ html[data-perf="low"] .dock{transition:none}
             <span class="switch__thumb"></span>
           </label>
         </div>
+      </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>在列表卡片显示标题与说明
-              <q-tip>关闭后列表卡片仅保留纯净影像，点击放大进入灯箱后仍可查看完整标题与说明。</q-tip>
-            </strong>
-          </div>
+      <div class="cfg-row cfg-row--switch">
+        <div class="cfg-row__meta">
+          <strong>列表卡片显示标题与说明</strong>
+          <span>关闭后列表保持纯净影像，点开灯箱仍可查看说明</span>
+        </div>
+        <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.showCaptions" role="switch"
                    :aria-checked="String(showForm.showCaptions)" />
@@ -4039,13 +4100,14 @@ html[data-perf="low"] .dock{transition:none}
             <span class="switch__thumb"></span>
           </label>
         </div>
+      </div>
 
-        <div class="settings-switch-row">
-          <div class="settings-switch-text">
-            <strong>放大预览允许下载原文件
-              <q-tip>开启后，灯箱右上角会出现下载按钮，访客可直接下载原图或原视频。</q-tip>
-            </strong>
-          </div>
+      <div class="cfg-row cfg-row--switch">
+        <div class="cfg-row__meta">
+          <strong>允许灯箱下载原文件</strong>
+          <span>开启后访客可在放大预览中直接下载原图或原视频</span>
+        </div>
+        <div class="cfg-row__ctrl">
           <label class="switch">
             <input type="checkbox" v-model="showForm.allowDownload" role="switch"
                    :aria-checked="String(showForm.allowDownload)" />
@@ -4056,72 +4118,74 @@ html[data-perf="low"] .dock{transition:none}
       </div>
     </div>
 
-    <div class="token-section" style="margin-bottom:0">
-      <div class="token-section-head">
-        <h3 class="token-section-title">
-          <i class="fas fa-pen"></i>
-          <span>文案与分页</span>
-        </h3>
-      </div>
-
-      <div class="show-settings-grid">
-        <div class="token-field">
-          <label>页面主标题
-            <q-tip>显示在 Show 封面大字与浏览器标题。留空将使用默认（{{ showConfigEnvBaseline.title }}）。</q-tip>
-          </label>
-          <input class="token-input" type="text" maxlength="40" v-model="showForm.title"
-                 :placeholder="showConfigEnvBaseline.title || 'Show'" />
+    <div class="cfg-group-label">封面文案与分页</div>
+    <div class="cfg-group">
+      <div class="cfg-row">
+        <div class="cfg-row__meta">
+          <strong>页面主标题</strong>
+          <span>显示在封面主标题与浏览器标题（默认 {{ showConfigEnvBaseline.title }}）</span>
         </div>
-
-        <div class="token-field">
-          <label>封面眉标
-            <q-tip>显示在封面主标题上方的短标签。留空将使用默认（{{ showConfigEnvBaseline.eyebrow }}）。</q-tip>
-          </label>
-          <input class="token-input" type="text" maxlength="40" v-model="showForm.eyebrow"
-                 :placeholder="showConfigEnvBaseline.eyebrow || '影像手记'" />
+        <div class="cfg-row__ctrl">
+          <input class="cfg-input" type="text" maxlength="40" v-model="showForm.title"
+                 :placeholder="showConfigEnvBaseline.title || 'Show'" aria-label="Show 主标题" />
         </div>
       </div>
 
-      <div class="show-settings-grid">
-        <div class="token-field">
-          <label>封面简介
-            <q-tip>显示在封面标题下方的引导文案，最多 160 字。</q-tip>
-          </label>
-          <input class="token-input" type="text" maxlength="160" v-model="showForm.intro"
-                 :placeholder="showConfigEnvBaseline.intro || '用照片和视频记录值得分享的片刻。'" />
+      <div class="cfg-row">
+        <div class="cfg-row__meta">
+          <strong>封面眉标</strong>
+          <span>主标题上方的短标语（默认 {{ showConfigEnvBaseline.eyebrow }}）</span>
         </div>
-
-        <div class="token-field">
-          <label>每页加载作品数（6 ~ 36）
-            <q-tip>每次请求 /api/show 加载的条目数量，默认 12 条。</q-tip>
-          </label>
-          <input class="token-input" type="number" min="6" max="36" step="1" v-model.number="showForm.pageSize" />
+        <div class="cfg-row__ctrl">
+          <input class="cfg-input" type="text" maxlength="40" v-model="showForm.eyebrow"
+                 :placeholder="showConfigEnvBaseline.eyebrow || '影像手记'" aria-label="Show 眉标" />
         </div>
       </div>
 
-      <div class="settings-note">
-        <i class="fas fa-circle-info"></i>
-        <span>切换样式后可先点「预览所选样式」查看效果，确认满意后点击「保存 Show 设置」立即生效。</span>
+      <div class="cfg-row">
+        <div class="cfg-row__meta">
+          <strong>封面简介</strong>
+          <span>主标题下方的简介文案，最多 160 字</span>
+        </div>
+        <div class="cfg-row__ctrl">
+          <input class="cfg-input" type="text" maxlength="160" v-model="showForm.intro"
+                 :placeholder="showConfigEnvBaseline.intro || '用照片和视频记录值得分享的片刻。'" aria-label="Show 封面简介" />
+        </div>
       </div>
 
-      <div class="show-settings-actions">
-        <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
-          <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
-          <span>{{ showConfigSaving ? '保存中…' : '保存 Show 设置' }}</span>
-        </button>
-        <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
-          <i class="fas fa-rotate-left"></i>
-          <span>恢复默认</span>
-        </button>
+      <div class="cfg-row">
+        <div class="cfg-row__meta">
+          <strong>每页加载数量</strong>
+          <span>范围 6 ~ 36，默认每次加载 12 条作品</span>
+        </div>
+        <div class="cfg-row__ctrl">
+          <div class="cfg-num-wrap">
+            <input type="number" min="6" max="36" step="1" v-model.number="showForm.pageSize" aria-label="每页加载数量" />
+            <span class="cfg-num-unit">条/页</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cfg-actions">
+      <div class="cfg-actions__spacer">
         <a class="btn" :href="'/show?preview_style=' + showForm.style" target="_blank" rel="noopener">
           <i class="fas fa-up-right-from-square"></i>
-          <span>预览所选样式</span>
+          <span>预览样式</span>
         </a>
         <button type="button" class="btn" @click="openShowManager">
           <i class="fas fa-layer-group"></i>
           <span>管理作品</span>
         </button>
       </div>
+      <button type="button" class="btn" :disabled="showConfigSaving" @click="resetShowSettings">
+        <i class="fas fa-rotate-left"></i>
+        <span>恢复默认</span>
+      </button>
+      <button type="button" class="btn btn--primary" :disabled="showConfigSaving" @click="saveShowSettings">
+        <i class="fas" :class="showConfigSaving ? 'fa-circle-notch fa-spin' : 'fa-check'"></i>
+        <span>{{ showConfigSaving ? '保存中…' : '保存设置' }}</span>
+      </button>
     </div>
   </section>
 
@@ -4950,9 +5014,10 @@ const __kvApp = Vue.createApp({
       { value:'sizeDesc', label:'按大小倒序', icon:'fas fa-arrow-down-wide-short' }
     ],
 
-    /* ================= KV / R2 用量监控 ================= */
+    /* ================= KV / R2 用量监控（手动触发） ================= */
     kvUsage: {
       visible: false,
+      loaded: false,
       loading: false,
       configured: true,
       planType: '',
@@ -6636,6 +6701,7 @@ const __kvApp = Vue.createApp({
       } catch (e) {
         this.kvUsage.error = '网络异常，无法获取用量数据';
       } finally {
+        this.kvUsage.loaded = true;
         this.kvUsage.loading = false;
       }
     },
@@ -6693,7 +6759,6 @@ const __kvApp = Vue.createApp({
         this.loadAirdropSettings();
         this.loadAirdropStats();
       } else if (name === 'storage') {
-        this.loadKvUsage();
         this.loadSettings();
         this.loadThumbSettings();
       } else if (name === 'trash') {
