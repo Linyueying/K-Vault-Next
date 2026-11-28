@@ -6,8 +6,8 @@
     <title>K-Vault-Next · 总控台</title>
     <meta name="description" content="K-Vault-Next 私有云存储总控台：全局仪表盘、多后端存储监控、运行时服务开关与全站模块导航。" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#f4f8fd" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#070d19" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f2f7fd" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#060c18" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/x-icon" href="/assets/img/favicon.ico" />
     <link rel="apple-touch-icon" href="/assets/img/logo-180.png" />
 
@@ -21,52 +21,58 @@
 
     <style>
       :root {
-        --cc-bg: #F4F8FD;
-        --cc-surface: rgba(255, 255, 255, 0.78);
-        --cc-surface-strong: rgba(255, 255, 255, 0.92);
-        --cc-surface-hover: rgba(255, 255, 255, 0.96);
-        --cc-border: rgba(15, 23, 42, 0.08);
-        --cc-border-strong: rgba(2, 132, 199, 0.24);
-        --cc-ink: #0F172A;
-        --cc-sub: #475569;
+        --cc-bg: #F2F7FD;
+        --cc-surface: rgba(255, 255, 255, 0.74);
+        --cc-surface-strong: rgba(255, 255, 255, 0.9);
+        --cc-surface-hover: rgba(255, 255, 255, 0.97);
+        --cc-surface-tint: linear-gradient(155deg, rgba(255, 255, 255, 0.94) 0%, rgba(236, 247, 255, 0.78) 100%);
+        --cc-border: rgba(15, 23, 42, 0.075);
+        --cc-border-strong: rgba(2, 132, 199, 0.28);
+        --cc-ink: #0B1424;
+        --cc-sub: #415167;
         --cc-muted: #64748B;
         --cc-accent: #0284C7;
         --cc-accent-soft: rgba(2, 132, 199, 0.1);
         --cc-ok: #059669;
         --cc-ok-soft: rgba(16, 185, 129, 0.12);
         --cc-warn: #D97706;
-        --cc-warn-soft: rgba(245, 158, 11, 0.14);
+        --cc-warn-soft: rgba(245, 158, 11, 0.13);
         --cc-danger: #E11D48;
         --cc-danger-soft: rgba(225, 29, 72, 0.1);
-        --cc-track: rgba(15, 23, 42, 0.08);
-        --cc-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
-        --cc-shadow-hover: 0 18px 42px -12px rgba(2, 132, 199, 0.18), 0 4px 14px -4px rgba(15, 23, 42, 0.06);
-        --cc-inset: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+        --cc-track: rgba(15, 23, 42, 0.075);
+        --cc-sheen: rgba(56, 189, 248, 0.14);
+        --cc-shadow: 0 12px 32px -12px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.035);
+        --cc-shadow-hover: 0 20px 44px -14px rgba(2, 132, 199, 0.2), 0 4px 14px -4px rgba(15, 23, 42, 0.06);
+        --cc-inset: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(15, 23, 42, 0.03);
+        --cc-masthead-scrim: linear-gradient(125deg, rgba(255, 255, 255, 0.88) 0%, rgba(244, 250, 255, 0.78) 54%, rgba(226, 242, 255, 0.68) 100%);
         --cc-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
         --cc-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
       }
       html[data-theme="dark"] {
-        --cc-bg: #070D19;
-        --cc-surface: rgba(15, 25, 42, 0.72);
-        --cc-surface-strong: rgba(19, 32, 54, 0.88);
-        --cc-surface-hover: rgba(24, 40, 66, 0.94);
-        --cc-border: rgba(148, 184, 218, 0.14);
-        --cc-border-strong: rgba(56, 189, 248, 0.34);
-        --cc-ink: #F1F5F9;
-        --cc-sub: #CBD5E1;
-        --cc-muted: #94A3B8;
+        --cc-bg: #060C18;
+        --cc-surface: rgba(14, 24, 41, 0.68);
+        --cc-surface-strong: rgba(18, 31, 52, 0.86);
+        --cc-surface-hover: rgba(24, 41, 68, 0.94);
+        --cc-surface-tint: linear-gradient(155deg, rgba(22, 39, 66, 0.86) 0%, rgba(12, 24, 44, 0.78) 100%);
+        --cc-border: rgba(148, 188, 224, 0.13);
+        --cc-border-strong: rgba(56, 189, 248, 0.36);
+        --cc-ink: #F2F6FC;
+        --cc-sub: #C6D4E5;
+        --cc-muted: #8FA3BC;
         --cc-accent: #38BDF8;
-        --cc-accent-soft: rgba(56, 189, 248, 0.14);
+        --cc-accent-soft: rgba(56, 189, 248, 0.15);
         --cc-ok: #34D399;
         --cc-ok-soft: rgba(52, 211, 153, 0.16);
         --cc-warn: #FBBF24;
         --cc-warn-soft: rgba(251, 191, 36, 0.16);
         --cc-danger: #FB7185;
         --cc-danger-soft: rgba(251, 113, 133, 0.16);
-        --cc-track: rgba(148, 184, 218, 0.16);
-        --cc-shadow: 0 14px 36px -12px rgba(0, 0, 0, 0.48), 0 1px 2px rgba(0, 0, 0, 0.3);
-        --cc-shadow-hover: 0 22px 48px -12px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(56, 189, 248, 0.22);
-        --cc-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        --cc-track: rgba(148, 188, 224, 0.15);
+        --cc-sheen: rgba(56, 189, 248, 0.16);
+        --cc-shadow: 0 16px 40px -14px rgba(0, 0, 0, 0.52), 0 1px 2px rgba(0, 0, 0, 0.32);
+        --cc-shadow-hover: 0 24px 52px -12px rgba(0, 0, 0, 0.68), 0 0 0 1px rgba(56, 189, 248, 0.24);
+        --cc-inset: inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 -1px 0 rgba(0, 0, 0, 0.26);
+        --cc-masthead-scrim: linear-gradient(125deg, rgba(10, 20, 36, 0.88) 0%, rgba(12, 25, 44, 0.78) 54%, rgba(8, 28, 52, 0.72) 100%);
       }
 
       *, *::before, *::after { box-sizing: border-box; }
@@ -87,7 +93,7 @@
       a { color: inherit; text-decoration: none; }
       button, input { font: inherit; color: inherit; }
 
-      /* Subtle static ambient sky glow matching admin / upload */
+      /* Soft atmospheric sky glow */
       .cc-ambient {
         position: fixed;
         inset: 0;
@@ -98,28 +104,28 @@
       .cc-orb {
         position: absolute;
         border-radius: 50%;
-        filter: blur(84px);
-        opacity: 0.65;
+        filter: blur(92px);
+        opacity: 0.72;
       }
       .cc-orb--a {
-        top: -160px;
-        left: -100px;
-        width: 520px;
-        height: 520px;
-        background: radial-gradient(circle, rgba(56, 189, 248, 0.26) 0%, rgba(56, 189, 248, 0.06) 48%, transparent 72%);
+        top: -180px;
+        left: -120px;
+        width: 580px;
+        height: 580px;
+        background: radial-gradient(circle, rgba(56, 189, 248, 0.28) 0%, rgba(14, 165, 233, 0.07) 48%, transparent 72%);
       }
       .cc-orb--b {
-        right: -120px;
-        bottom: -140px;
-        width: 560px;
-        height: 560px;
-        background: radial-gradient(circle, rgba(14, 165, 233, 0.2) 0%, rgba(16, 185, 129, 0.05) 48%, transparent 72%);
+        right: -140px;
+        bottom: -160px;
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(circle, rgba(14, 165, 233, 0.2) 0%, rgba(16, 185, 129, 0.06) 48%, transparent 72%);
       }
       html[data-theme="dark"] .cc-orb--a {
-        background: radial-gradient(circle, rgba(14, 165, 233, 0.24) 0%, rgba(2, 132, 199, 0.05) 50%, transparent 72%);
+        background: radial-gradient(circle, rgba(14, 165, 233, 0.24) 0%, rgba(2, 132, 199, 0.06) 50%, transparent 72%);
       }
       html[data-theme="dark"] .cc-orb--b {
-        background: radial-gradient(circle, rgba(56, 189, 248, 0.16) 0%, rgba(16, 185, 129, 0.06) 50%, transparent 72%);
+        background: radial-gradient(circle, rgba(56, 189, 248, 0.16) 0%, rgba(16, 185, 129, 0.07) 50%, transparent 72%);
       }
 
       /* ===== Strict Anti-Flash Auth Gate ===== */
@@ -146,33 +152,33 @@
       }
       .cc-gate__card {
         width: min(100%, 400px);
-        padding: 28px 26px;
-        border-radius: 24px;
+        padding: 30px 26px;
+        border-radius: 26px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface-strong);
-        backdrop-filter: blur(22px) saturate(175%);
-        -webkit-backdrop-filter: blur(22px) saturate(175%);
+        backdrop-filter: blur(24px) saturate(180%);
+        -webkit-backdrop-filter: blur(24px) saturate(180%);
         box-shadow: var(--cc-shadow), var(--cc-inset);
         text-align: center;
       }
       .cc-gate__logo {
-        width: 54px;
-        height: 54px;
+        width: 56px;
+        height: 56px;
         margin: 0 auto 14px;
-        border-radius: 16px;
+        border-radius: 17px;
         display: grid;
         place-items: center;
         background: linear-gradient(135deg, #FFFFFF, #E0F2FE);
         border: 1px solid var(--cc-border-strong);
-        box-shadow: 0 10px 24px -8px rgba(2, 132, 199, 0.28);
+        box-shadow: 0 12px 26px -8px rgba(2, 132, 199, 0.3);
       }
       html[data-theme="dark"] .cc-gate__logo {
-        background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(15, 25, 42, 0.9));
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(15, 25, 42, 0.92));
       }
       .cc-gate__logo img { width: 32px; height: 32px; object-fit: contain; }
       .cc-gate__title {
         margin: 0;
-        font-size: 1.06rem;
+        font-size: 1.08rem;
         font-weight: 760;
         letter-spacing: -0.02em;
       }
@@ -182,9 +188,7 @@
         font-size: 0.84rem;
         line-height: 1.6;
       }
-      .cc-gate__spinner {
-        margin: 18px auto 4px;
-      }
+      .cc-gate__spinner { margin: 18px auto 4px; }
       .cc-gate__actions {
         display: none;
         flex-direction: column;
@@ -200,10 +204,10 @@
         z-index: 2;
         width: min(100% - 36px, 1320px);
         margin: 0 auto;
-        padding-bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
         opacity: 1;
         visibility: visible;
-        transition: opacity 320ms var(--ease-fluid);
+        transition: opacity 340ms var(--ease-fluid);
       }
 
       /* Sticky Liquid Glass Topbar */
@@ -223,8 +227,8 @@
         border-radius: 20px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface);
-        backdrop-filter: blur(22px) saturate(180%);
-        -webkit-backdrop-filter: blur(22px) saturate(180%);
+        backdrop-filter: blur(24px) saturate(185%);
+        -webkit-backdrop-filter: blur(24px) saturate(185%);
         box-shadow: var(--cc-shadow), var(--cc-inset);
       }
       .cc-brand {
@@ -242,30 +246,35 @@
         place-items: center;
         background: linear-gradient(135deg, #FFFFFF, #E0F2FE);
         border: 1px solid var(--cc-border-strong);
-        box-shadow: 0 6px 16px -6px rgba(2, 132, 199, 0.28);
+        box-shadow: 0 6px 16px -6px rgba(2, 132, 199, 0.3);
         flex: none;
+        transition: transform 320ms var(--ease-spring);
       }
+      .cc-brand:hover .cc-brand__mark { transform: scale(1.05) rotate(-4deg); }
       html[data-theme="dark"] .cc-brand__mark {
-        background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(2, 132, 199, 0.12));
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(2, 132, 199, 0.12));
       }
       .cc-brand__mark img { width: 24px; height: 24px; object-fit: contain; }
       .cc-brand__text { min-width: 0; }
       .cc-brand__name {
         display: block;
         font-size: 0.96rem;
-        font-weight: 780;
-        letter-spacing: -0.02em;
+        font-weight: 790;
+        letter-spacing: -0.025em;
         line-height: 1.2;
         white-space: nowrap;
       }
       .cc-brand__ver {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         margin-top: 2px;
         color: var(--cc-muted);
         font-family: var(--cc-mono);
         font-size: 0.68rem;
         line-height: 1;
       }
+      .cc-brand__sha { opacity: 0.78; }
 
       /* Command Search */
       .cc-search {
@@ -280,7 +289,7 @@
         top: 50%;
         transform: translateY(-50%);
         color: var(--cc-muted);
-        font-size: 0.82rem;
+        font-size: 0.8rem;
         pointer-events: none;
       }
       .cc-search__input {
@@ -291,13 +300,15 @@
         border: 1px solid var(--cc-border);
         background: var(--cc-surface-strong);
         color: var(--cc-ink);
-        font-size: 0.84rem;
+        font-size: 0.83rem;
         outline: none;
+        box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
         transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
       }
       .cc-search__input::placeholder { color: var(--cc-muted); }
       .cc-search__input:focus {
         border-color: var(--cc-accent);
+        background: var(--cc-surface-hover);
         box-shadow: 0 0 0 3px var(--cc-accent-soft);
       }
       .cc-search__kbd {
@@ -311,7 +322,7 @@
         background: var(--cc-bg);
         color: var(--cc-muted);
         font-family: var(--cc-mono);
-        font-size: 0.68rem;
+        font-size: 0.67rem;
         pointer-events: none;
       }
 
@@ -329,15 +340,16 @@
         gap: 7px;
         height: 36px;
         min-width: 36px;
-        padding: 0 10px;
+        padding: 0 11px;
         border-radius: 11px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface-strong);
         color: var(--cc-sub);
         font-size: 0.8rem;
-        font-weight: 620;
+        font-weight: 630;
         cursor: pointer;
         white-space: nowrap;
+        box-shadow: var(--cc-inset);
         transition: color 180ms ease, border-color 180ms ease, background-color 180ms ease, transform 180ms var(--ease-fluid);
       }
       .cc-ico-btn:hover {
@@ -348,7 +360,7 @@
       }
       .cc-ico-btn--danger:hover {
         color: var(--cc-danger);
-        border-color: rgba(225, 29, 72, 0.3);
+        border-color: rgba(225, 29, 72, 0.32);
         background: var(--cc-danger-soft);
       }
       .cc-ico-btn.is-spinning i {
@@ -358,7 +370,7 @@
       html[data-theme="dark"] .cc-theme-moon { display: none; }
       html[data-theme="dark"] .cc-theme-sun { display: inline-block; }
 
-      /* Inline Notice Banner (e.g. 503 Fail-Closed warning) */
+      /* Inline Notice Banner */
       .cc-banner {
         display: none;
         align-items: center;
@@ -376,24 +388,56 @@
       .cc-banner__text { display: flex; align-items: center; gap: 10px; min-width: 0; }
       .cc-banner__text i { color: var(--cc-warn); flex: none; }
 
-      /* Hero Command Header Strip */
-      .cc-intro {
+      /* ===== Atmospheric Liquid Glass Masthead ===== */
+      .cc-masthead {
+        position: relative;
+        overflow: hidden;
+        margin-top: 14px;
+        padding: 24px 26px 22px;
+        border-radius: 26px;
+        border: 1px solid var(--cc-border);
+        background: var(--cc-surface);
+        box-shadow: var(--cc-shadow), var(--cc-inset);
+      }
+      .cc-masthead__bg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center 42%;
+        opacity: 0.26;
+        transform: scale(1.04);
+        filter: saturate(1.12);
+        pointer-events: none;
+      }
+      html[data-theme="dark"] .cc-masthead__bg { opacity: 0.32; }
+      .cc-masthead__scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--cc-masthead-scrim);
+        backdrop-filter: blur(18px) saturate(165%);
+        -webkit-backdrop-filter: blur(18px) saturate(165%);
+        pointer-events: none;
+      }
+      .cc-masthead__inner {
+        position: relative;
+        z-index: 2;
         display: flex;
         align-items: flex-end;
         justify-content: space-between;
         flex-wrap: wrap;
-        gap: 16px;
-        margin-top: 18px;
+        gap: 18px 24px;
       }
-      .cc-intro__left { min-width: 0; }
-      .cc-intro__eyebrow {
+      .cc-masthead__left { min-width: 0; flex: 1 1 360px; }
+      .cc-masthead__meta {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        color: var(--cc-muted);
+        flex-wrap: wrap;
+        gap: 8px 10px;
+        color: var(--cc-sub);
         font-size: 0.76rem;
-        font-weight: 650;
-        letter-spacing: 0.02em;
+        font-weight: 660;
       }
       .cc-status-dot {
         width: 8px;
@@ -401,20 +445,32 @@
         border-radius: 50%;
         background: var(--cc-ok);
         box-shadow: 0 0 0 4px var(--cc-ok-soft);
+        flex: none;
       }
-      .cc-intro h1 {
-        margin: 6px 0 0;
-        font-size: clamp(1.45rem, 2.6vw, 1.95rem);
-        font-weight: 800;
-        letter-spacing: -0.035em;
-        line-height: 1.2;
+      .cc-clock {
+        padding: 2px 8px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--cc-border);
+        background: var(--cc-surface-strong);
+        color: var(--cc-muted);
+        font-family: var(--cc-mono);
+        font-size: 0.7rem;
+        font-variant-numeric: tabular-nums;
       }
-      .cc-intro__sub {
-        margin: 6px 0 0;
+      .cc-masthead h1 {
+        margin: 10px 0 0;
+        font-size: clamp(1.48rem, 2.6vw, 2.02rem);
+        font-weight: 820;
+        letter-spacing: -0.04em;
+        line-height: 1.16;
+      }
+      .cc-masthead__sub {
+        margin: 7px 0 0;
         color: var(--cc-sub);
         font-size: 0.86rem;
+        line-height: 1.5;
       }
-      .cc-intro__actions {
+      .cc-masthead__actions {
         display: flex;
         align-items: center;
         flex-wrap: wrap;
@@ -426,58 +482,78 @@
         justify-content: center;
         gap: 8px;
         height: 40px;
-        padding: 0 16px;
-        border-radius: 12px;
+        padding: 0 17px;
+        border-radius: 13px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface-strong);
         color: var(--cc-ink);
         font-size: 0.84rem;
         font-weight: 680;
         cursor: pointer;
-        box-shadow: var(--cc-shadow);
+        box-shadow: var(--cc-shadow), var(--cc-inset);
         transition: transform 200ms var(--ease-fluid), box-shadow 200ms ease, border-color 200ms ease, background-color 200ms ease;
       }
       .cc-cta:hover {
         transform: translateY(-1px);
         border-color: var(--cc-border-strong);
-        box-shadow: var(--cc-shadow-hover);
+        background: var(--cc-surface-hover);
+        box-shadow: var(--cc-shadow-hover), var(--cc-inset);
       }
       .cc-cta--primary {
-        border-color: transparent;
-        background: linear-gradient(135deg, #0284C7, #0EA5E9);
+        border-color: rgba(255, 255, 255, 0.25);
+        background: linear-gradient(135deg, #0284C7 0%, #0EA5E9 100%);
         color: #FFFFFF;
-        box-shadow: 0 10px 24px -8px rgba(2, 132, 199, 0.55);
+        box-shadow: 0 12px 26px -8px rgba(2, 132, 199, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.34);
       }
       .cc-cta--primary:hover {
-        border-color: transparent;
-        box-shadow: 0 14px 30px -8px rgba(2, 132, 199, 0.68);
+        border-color: rgba(255, 255, 255, 0.36);
+        background: linear-gradient(135deg, #0369A1 0%, #0284C7 100%);
+        box-shadow: 0 16px 32px -8px rgba(2, 132, 199, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.4);
       }
 
-      /* ===== KPI Summary Row ===== */
+      /* Optical Cursor Sheen Utility (desktop hover only) */
+      .cc-glass-tile {
+        position: relative;
+        overflow: hidden;
+      }
+      .cc-glass-tile::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 0%), var(--cc-sheen), transparent 70%);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 260ms ease;
+      }
+      @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+        .cc-glass-tile:hover::before { opacity: 1; }
+      }
+
+      /* ===== KPI Precision Instruments Row ===== */
       .cc-kpis {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 14px;
-        margin-top: 20px;
+        margin-top: 16px;
       }
       .cc-kpi {
-        position: relative;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
         gap: 10px;
-        padding: 18px 20px;
-        border-radius: 20px;
+        padding: 18px 20px 16px;
+        border-radius: 22px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface);
-        backdrop-filter: blur(18px) saturate(165%);
-        -webkit-backdrop-filter: blur(18px) saturate(165%);
+        backdrop-filter: blur(20px) saturate(175%);
+        -webkit-backdrop-filter: blur(20px) saturate(175%);
         box-shadow: var(--cc-shadow), var(--cc-inset);
-        transition: transform 220ms var(--ease-fluid), border-color 220ms ease, box-shadow 220ms ease;
+        transition: transform 240ms var(--ease-fluid), border-color 240ms ease, box-shadow 240ms ease, background-color 240ms ease;
       }
       .cc-kpi:hover {
         transform: translateY(-2px);
         border-color: var(--cc-border-strong);
+        background: var(--cc-surface-hover);
         box-shadow: var(--cc-shadow-hover), var(--cc-inset);
       }
       .cc-kpi__head {
@@ -490,24 +566,27 @@
         color: var(--cc-muted);
         font-size: 0.78rem;
         font-weight: 660;
+        letter-spacing: -0.01em;
       }
       .cc-kpi__ico {
-        width: 32px;
-        height: 32px;
-        border-radius: 10px;
+        width: 34px;
+        height: 34px;
+        border-radius: 11px;
         display: grid;
         place-items: center;
         background: var(--cc-accent-soft);
         color: var(--cc-accent);
-        font-size: 0.85rem;
+        font-size: 0.86rem;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
       }
+      html[data-theme="dark"] .cc-kpi__ico { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1); }
       .cc-kpi__ico--ok { background: var(--cc-ok-soft); color: var(--cc-ok); }
       .cc-kpi__ico--warn { background: var(--cc-warn-soft); color: var(--cc-warn); }
       .cc-kpi__val {
-        font-size: 1.78rem;
-        font-weight: 800;
-        letter-spacing: -0.03em;
-        line-height: 1.1;
+        font-size: 1.88rem;
+        font-weight: 820;
+        letter-spacing: -0.04em;
+        line-height: 1.05;
         font-variant-numeric: tabular-nums;
       }
       .cc-kpi__meta {
@@ -518,16 +597,48 @@
         color: var(--cc-muted);
         font-size: 0.74rem;
       }
+      /* Precision Micro-Gauges inside KPI cards */
+      .cc-seg-bar {
+        display: flex;
+        gap: 3px;
+        height: 4px;
+        width: 100%;
+        border-radius: var(--r-pill);
+        overflow: hidden;
+        background: var(--cc-track);
+      }
+      .cc-seg-bar__seg {
+        height: 100%;
+        border-radius: var(--r-pill);
+        transition: width 420ms var(--ease-fluid);
+      }
+      .cc-seg-bar__seg--img { background: #0EA5E9; }
+      .cc-seg-bar__seg--vid { background: #10B981; }
+      .cc-seg-bar__seg--doc { background: #F59E0B; }
+      .cc-dot-matrix {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 4px;
+        height: 4px;
+      }
+      .cc-dot-matrix__cell {
+        border-radius: var(--r-pill);
+        background: var(--cc-track);
+        transition: background-color 280ms ease;
+      }
+      .cc-dot-matrix__cell.is-on { background: var(--cc-ok); }
+      .cc-dot-matrix__cell.is-cfg { background: var(--cc-accent); }
+
       .cc-tag {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        padding: 2px 8px;
+        padding: 2px 9px;
         border-radius: var(--r-pill);
         background: var(--cc-accent-soft);
         color: var(--cc-accent);
         font-family: var(--cc-mono);
-        font-size: 0.68rem;
+        font-size: 0.67rem;
         font-weight: 700;
         white-space: nowrap;
       }
@@ -535,25 +646,26 @@
       .cc-tag--muted { background: var(--cc-track); color: var(--cc-muted); }
       .cc-tag--warn { background: var(--cc-warn-soft); color: var(--cc-warn); }
 
-      /* ===== Section Heading ===== */
+      /* ===== Section Heading & Category Filter Capsules ===== */
       .cc-section { margin-top: 26px; }
       .cc-section__head {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        margin-bottom: 13px;
       }
       .cc-section__title {
         margin: 0;
         font-size: 0.94rem;
-        font-weight: 760;
-        letter-spacing: -0.015em;
+        font-weight: 780;
+        letter-spacing: -0.02em;
         display: inline-flex;
         align-items: center;
         gap: 8px;
       }
-      .cc-section__title i { color: var(--cc-accent); font-size: 0.86rem; }
+      .cc-section__title i { color: var(--cc-accent); font-size: 0.85rem; }
       .cc-section__link {
         color: var(--cc-accent);
         font-size: 0.78rem;
@@ -563,6 +675,41 @@
         gap: 5px;
       }
       .cc-section__link:hover { text-decoration: underline; }
+
+      .cc-cat-bar {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px;
+        border-radius: var(--r-pill);
+        border: 1px solid var(--cc-border);
+        background: var(--cc-surface);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .cc-cat-bar::-webkit-scrollbar { display: none; }
+      .cc-cat-btn {
+        height: 28px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: var(--r-pill);
+        background: transparent;
+        color: var(--cc-muted);
+        font-size: 0.74rem;
+        font-weight: 660;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+      }
+      .cc-cat-btn:hover { color: var(--cc-ink); }
+      .cc-cat-btn.is-active {
+        background: var(--cc-surface-strong);
+        color: var(--cc-ink);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08), var(--cc-inset);
+      }
 
       /* ===== Navigation Hub Matrix ===== */
       .cc-nav-grid {
@@ -574,19 +721,23 @@
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        gap: 12px;
-        min-height: 112px;
-        padding: 15px 16px;
-        border-radius: 18px;
+        gap: 14px;
+        min-height: 118px;
+        padding: 16px 17px;
+        border-radius: 20px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface);
-        backdrop-filter: blur(16px) saturate(160%);
-        -webkit-backdrop-filter: blur(16px) saturate(160%);
+        backdrop-filter: blur(18px) saturate(165%);
+        -webkit-backdrop-filter: blur(18px) saturate(165%);
         box-shadow: var(--cc-shadow), var(--cc-inset);
-        transition: transform 220ms var(--ease-fluid), border-color 220ms ease, background-color 220ms ease, box-shadow 220ms ease;
+        transition: transform 240ms var(--ease-fluid), border-color 240ms ease, background-color 240ms ease, box-shadow 240ms ease;
+      }
+      .cc-nav-card--featured {
+        background: var(--cc-surface-tint);
+        border-color: var(--cc-border-strong);
       }
       .cc-nav-card:hover {
-        transform: translateY(-2px);
+        transform: translateY(-3px);
         border-color: var(--cc-border-strong);
         background: var(--cc-surface-hover);
         box-shadow: var(--cc-shadow-hover), var(--cc-inset);
@@ -599,28 +750,50 @@
         gap: 8px;
       }
       .cc-nav-card__ico {
-        width: 34px;
-        height: 34px;
-        border-radius: 11px;
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
         display: grid;
         place-items: center;
         background: var(--cc-accent-soft);
         color: var(--cc-accent);
-        font-size: 0.88rem;
+        font-size: 0.9rem;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+        transition: transform 240ms var(--ease-spring);
       }
+      html[data-theme="dark"] .cc-nav-card__ico { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1); }
+      .cc-nav-card:hover .cc-nav-card__ico { transform: scale(1.06); }
       .cc-nav-card__ico--ok { background: var(--cc-ok-soft); color: var(--cc-ok); }
       .cc-nav-card__ico--warn { background: var(--cc-warn-soft); color: var(--cc-warn); }
+      .cc-nav-card__title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
       .cc-nav-card__body h3 {
         margin: 0;
-        font-size: 0.88rem;
-        font-weight: 740;
-        letter-spacing: -0.015em;
+        font-size: 0.89rem;
+        font-weight: 760;
+        letter-spacing: -0.02em;
+      }
+      .cc-nav-card__arrow {
+        color: var(--cc-muted);
+        font-size: 0.72rem;
+        opacity: 0;
+        transform: translate(-4px, 2px);
+        transition: opacity 200ms ease, transform 240ms var(--ease-fluid), color 200ms ease;
+      }
+      .cc-nav-card:hover .cc-nav-card__arrow {
+        opacity: 1;
+        color: var(--cc-accent);
+        transform: translate(0, 0);
       }
       .cc-nav-card__body p {
-        margin: 4px 0 0;
+        margin: 5px 0 0;
         color: var(--cc-muted);
         font-size: 0.74rem;
-        line-height: 1.45;
+        line-height: 1.48;
       }
 
       /* ===== 2-Column Live Workspace ===== */
@@ -638,12 +811,12 @@
         min-width: 0;
       }
       .cc-panel {
-        padding: 18px 20px;
-        border-radius: 22px;
+        padding: 20px 22px;
+        border-radius: 24px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface);
-        backdrop-filter: blur(18px) saturate(165%);
-        -webkit-backdrop-filter: blur(18px) saturate(165%);
+        backdrop-filter: blur(20px) saturate(170%);
+        -webkit-backdrop-filter: blur(20px) saturate(170%);
         box-shadow: var(--cc-shadow), var(--cc-inset);
         min-width: 0;
       }
@@ -657,23 +830,26 @@
       .cc-file {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 13px;
         padding: 10px 12px;
-        border-radius: 14px;
-        border: 1px solid transparent;
+        border-radius: 15px;
+        border: 1px solid var(--cc-border);
         background: var(--cc-surface-strong);
-        transition: border-color 180ms ease, background-color 180ms ease, transform 180ms var(--ease-fluid);
+        box-shadow: var(--cc-inset);
+        transition: border-color 180ms ease, background-color 180ms ease, transform 200ms var(--ease-fluid), box-shadow 200ms ease;
         min-width: 0;
       }
       .cc-file:hover {
         border-color: var(--cc-border-strong);
         background: var(--cc-surface-hover);
+        transform: translateX(2px);
+        box-shadow: 0 8px 20px -10px rgba(2, 132, 199, 0.22), var(--cc-inset);
       }
       .cc-file.is-hidden { display: none; }
       .cc-file__thumb {
-        width: 44px;
-        height: 44px;
-        border-radius: 11px;
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
         overflow: hidden;
         flex: none;
         display: grid;
@@ -692,8 +868,9 @@
       .cc-file__info { min-width: 0; flex: 1; }
       .cc-file__name {
         display: block;
-        font-size: 0.84rem;
-        font-weight: 680;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -703,9 +880,10 @@
         align-items: center;
         flex-wrap: wrap;
         gap: 6px 10px;
-        margin-top: 3px;
+        margin-top: 4px;
         color: var(--cc-muted);
         font-size: 0.72rem;
+        font-variant-numeric: tabular-nums;
       }
       .cc-file__actions {
         display: flex;
@@ -714,9 +892,9 @@
         flex: none;
       }
       .cc-mini-btn {
-        width: 32px;
-        height: 32px;
-        border-radius: 9px;
+        width: 33px;
+        height: 33px;
+        border-radius: 10px;
         border: 1px solid var(--cc-border);
         background: var(--cc-bg);
         color: var(--cc-sub);
@@ -724,15 +902,21 @@
         place-items: center;
         font-size: 0.78rem;
         cursor: pointer;
-        transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease;
+        transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease, transform 160ms var(--ease-fluid);
       }
       .cc-mini-btn:hover {
         color: var(--cc-accent);
         border-color: var(--cc-border-strong);
         background: var(--cc-accent-soft);
+        transform: scale(1.05);
+      }
+      .cc-mini-btn.is-copied {
+        color: var(--cc-ok);
+        border-color: rgba(16, 185, 129, 0.35);
+        background: var(--cc-ok-soft);
       }
       .cc-empty {
-        padding: 34px 16px;
+        padding: 36px 16px;
         text-align: center;
         color: var(--cc-muted);
         font-size: 0.84rem;
@@ -744,20 +928,21 @@
         opacity: 0.55;
       }
 
-      /* Storage Backends List */
+      /* Storage Backends List with Brand Icons */
       .cc-backends {
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 9px;
       }
       .cc-backend {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 7px;
         padding: 10px 12px;
-        border-radius: 13px;
+        border-radius: 14px;
         background: var(--cc-surface-strong);
         border: 1px solid var(--cc-border);
+        box-shadow: var(--cc-inset);
       }
       .cc-backend__row {
         display: flex;
@@ -768,16 +953,40 @@
       .cc-backend__name {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 9px;
         font-size: 0.82rem;
-        font-weight: 700;
+        font-weight: 720;
+        min-width: 0;
+      }
+      .cc-backend__ico {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: var(--cc-track);
+        color: var(--cc-muted);
+        font-size: 0.78rem;
+        flex: none;
+      }
+      .cc-backend__ico.is-on { background: var(--cc-ok-soft); color: var(--cc-ok); }
+      .cc-backend__ico.is-cfg { background: var(--cc-accent-soft); color: var(--cc-accent); }
+      .cc-backend__stat {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--cc-muted);
+        font-family: var(--cc-mono);
+        font-size: 0.71rem;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
       }
       .cc-led {
-        width: 8px;
-        height: 8px;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
         background: var(--cc-muted);
-        opacity: 0.45;
+        opacity: 0.4;
         flex: none;
       }
       .cc-led--on {
@@ -789,12 +998,6 @@
         background: var(--cc-accent);
         opacity: 1;
         box-shadow: 0 0 0 3px var(--cc-accent-soft);
-      }
-      .cc-backend__stat {
-        color: var(--cc-muted);
-        font-family: var(--cc-mono);
-        font-size: 0.72rem;
-        white-space: nowrap;
       }
       .cc-bar {
         width: 100%;
@@ -808,7 +1011,7 @@
         width: 0;
         border-radius: var(--r-pill);
         background: linear-gradient(90deg, #0284C7, #38BDF8);
-        transition: width 420ms var(--ease-fluid);
+        transition: width 460ms var(--ease-fluid);
       }
       .cc-bar__fill--ok { background: linear-gradient(90deg, #059669, #34D399); }
 
@@ -823,16 +1026,17 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 10px 12px;
-        border-radius: 13px;
+        padding: 11px 13px;
+        border-radius: 14px;
         background: var(--cc-surface-strong);
         border: 1px solid var(--cc-border);
+        box-shadow: var(--cc-inset);
       }
       .cc-toggle-row__info { min-width: 0; }
       .cc-toggle-row__info strong {
         display: block;
-        font-size: 0.82rem;
-        font-weight: 700;
+        font-size: 0.83rem;
+        font-weight: 720;
       }
       .cc-toggle-row__info span {
         display: block;
@@ -842,51 +1046,56 @@
       }
       .cc-sw {
         position: relative;
-        width: 44px;
-        height: 26px;
+        width: 46px;
+        height: 27px;
         border-radius: var(--r-pill);
-        border: 0;
+        border: 1px solid rgba(15, 23, 42, 0.08);
         background: var(--cc-track);
         cursor: pointer;
         flex: none;
         padding: 0;
-        transition: background-color 220ms var(--ease-fluid);
+        transition: background-color 220ms var(--ease-fluid), box-shadow 220ms ease, border-color 220ms ease;
       }
       .cc-sw::after {
         content: "";
         position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 20px;
-        height: 20px;
+        top: 2px;
+        left: 2px;
+        width: 21px;
+        height: 21px;
         border-radius: 50%;
         background: #FFFFFF;
-        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.22);
-        transition: transform 240ms var(--ease-spring);
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        transition: transform 260ms var(--ease-spring);
       }
-      .cc-sw.is-on { background: var(--cc-ok); }
-      .cc-sw.is-on::after { transform: translateX(18px); }
-      .cc-sw:disabled { opacity: 0.45; cursor: not-allowed; }
+      .cc-sw.is-on {
+        background: var(--cc-ok);
+        border-color: rgba(16, 185, 129, 0.45);
+        box-shadow: 0 0 14px -3px rgba(16, 185, 129, 0.55);
+      }
+      .cc-sw.is-on::after { transform: translateX(19px); }
+      .cc-sw:disabled { opacity: 0.42; cursor: not-allowed; }
 
       /* Cloud Infrastructure Usage Strip */
       .cc-infra {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 10px;
-        margin-top: 12px;
-        padding-top: 12px;
+        margin-top: 14px;
+        padding-top: 14px;
         border-top: 1px solid var(--cc-border);
       }
       .cc-infra__cell {
-        padding: 10px 11px;
-        border-radius: 12px;
+        padding: 10px 12px;
+        border-radius: 13px;
         background: var(--cc-surface-strong);
         border: 1px solid var(--cc-border);
+        box-shadow: var(--cc-inset);
       }
       .cc-infra__cell span {
         display: block;
         color: var(--cc-muted);
-        font-size: 0.7rem;
+        font-size: 0.69rem;
         font-weight: 660;
       }
       .cc-infra__cell strong {
@@ -898,12 +1107,13 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        font-variant-numeric: tabular-nums;
       }
 
       /* Footer */
       .cc-footer {
-        margin-top: 30px;
-        padding-top: 16px;
+        margin-top: 32px;
+        padding-top: 18px;
         border-top: 1px solid var(--cc-border);
         display: flex;
         align-items: center;
@@ -917,7 +1127,7 @@
         display: flex;
         align-items: center;
         flex-wrap: wrap;
-        gap: 14px;
+        gap: 16px;
       }
       .cc-footer__links a:hover { color: var(--cc-accent); }
 
@@ -937,16 +1147,16 @@
         align-items: center;
         gap: 9px;
         max-width: min(360px, calc(100vw - 36px));
-        padding: 11px 15px;
+        padding: 11px 16px;
         border-radius: 14px;
         border: 1px solid var(--cc-border);
         background: var(--cc-surface-strong);
-        backdrop-filter: blur(18px) saturate(170%);
-        -webkit-backdrop-filter: blur(18px) saturate(170%);
-        box-shadow: var(--cc-shadow-hover);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        box-shadow: var(--cc-shadow-hover), var(--cc-inset);
         color: var(--cc-ink);
         font-size: 0.82rem;
-        font-weight: 620;
+        font-weight: 630;
         pointer-events: auto;
       }
       .cc-toast-item--ok i { color: var(--cc-ok); }
@@ -970,18 +1180,20 @@
         .cc-brand__mark { width: 34px; height: 34px; border-radius: 10px; }
         .cc-brand__mark img { width: 20px; height: 20px; }
         .cc-brand__name { font-size: 0.88rem; }
-        .cc-brand__ver { display: block; max-width: 138px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cc-brand__sha { display: none; }
         .cc-top-actions { gap: 6px; }
         .cc-ico-btn { width: 32px; height: 32px; min-width: 32px; padding: 0; border-radius: 9px; }
+        .cc-masthead { padding: 18px 18px 16px; border-radius: 22px; }
+        .cc-masthead__actions { width: 100%; }
+        .cc-cta { flex: 1 1 auto; height: 38px; padding: 0 12px; font-size: 0.82rem; }
         .cc-nav-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-        .cc-nav-card { min-height: 102px; padding: 13px; border-radius: 16px; }
-        .cc-kpi { padding: 14px 15px; border-radius: 16px; }
-        .cc-kpi__val { font-size: 1.48rem; }
+        .cc-nav-card { min-height: 106px; padding: 14px; border-radius: 17px; }
+        .cc-nav-card__arrow { display: none; }
+        .cc-kpi { padding: 14px 15px; border-radius: 18px; }
+        .cc-kpi__val { font-size: 1.54rem; }
         .cc-kpi__meta { flex-direction: column; align-items: flex-start; gap: 6px; }
-        .cc-panel { padding: 15px; border-radius: 18px; }
+        .cc-panel { padding: 16px; border-radius: 20px; }
         .cc-infra { grid-template-columns: minmax(0, 1fr); }
-        .cc-intro__actions { width: 100%; }
-        .cc-cta { flex: 1 1 auto; }
       }
     </style>
   </head>
@@ -1023,7 +1235,10 @@
             </span>
             <span class="cc-brand__text">
               <span class="cc-brand__name" data-brand-name>K-Vault-Next</span>
-              <span class="cc-brand__ver" id="ccVersion">总控台 · 加载中</span>
+              <span class="cc-brand__ver" id="ccVersion">
+                <span id="ccVerNum">总控台</span>
+                <span class="cc-brand__sha" id="ccVerSha"></span>
+              </span>
             </span>
           </a>
 
@@ -1070,76 +1285,101 @@
       </div>
 
       <main>
-        <!-- Greeting & Quick Actions -->
-        <section class="cc-intro" aria-labelledby="ccGreeting">
-          <div class="cc-intro__left">
-            <div class="cc-intro__eyebrow">
-              <span class="cc-status-dot" aria-hidden="true"></span>
-              <span id="ccAuthBadge">私有会话已认证 · Edge Unified Router</span>
+        <!-- Atmospheric Liquid Glass Hero Masthead -->
+        <section class="cc-masthead" aria-labelledby="ccGreeting">
+          <img class="cc-masthead__bg" src="/assets/img/home/mist.webp" alt="" aria-hidden="true" decoding="async" />
+          <div class="cc-masthead__scrim" aria-hidden="true"></div>
+          <div class="cc-masthead__inner">
+            <div class="cc-masthead__left">
+              <div class="cc-masthead__meta">
+                <span class="cc-status-dot" aria-hidden="true"></span>
+                <span id="ccAuthBadge">私有会话已认证 · Edge Unified Router</span>
+                <span class="cc-clock" id="ccClock">--:--</span>
+              </div>
+              <h1 id="ccGreeting">欢迎回到总控台</h1>
+              <p class="cc-masthead__sub" id="ccSubline">一屏掌握多后端存储态势、近期文件流与边缘运行时开关。</p>
             </div>
-            <h1 id="ccGreeting">欢迎回到总控台</h1>
-            <p class="cc-intro__sub" id="ccSubline">一屏掌握多后端存储状态、近期文件流与运行时服务开关。</p>
-          </div>
-          <div class="cc-intro__actions">
-            <a class="cc-cta cc-cta--primary" href="/upload.html">
-              <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
-              <span>上传文件</span>
-            </a>
-            <a class="cc-cta" href="/admin/files">
-              <i class="fas fa-folder-open" aria-hidden="true"></i>
-              <span>文件管理</span>
-            </a>
-            <a class="cc-cta" href="/vault.html">
-              <i class="fas fa-shield-halved" aria-hidden="true"></i>
-              <span>密码库</span>
-            </a>
+            <div class="cc-masthead__actions">
+              <a class="cc-cta cc-cta--primary" href="/upload.html">
+                <i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>
+                <span>上传文件</span>
+              </a>
+              <a class="cc-cta" href="/admin/files">
+                <i class="fas fa-folder-open" aria-hidden="true"></i>
+                <span>文件管理</span>
+              </a>
+              <a class="cc-cta" href="/vault.html">
+                <i class="fas fa-shield-halved" aria-hidden="true"></i>
+                <span>密码库</span>
+              </a>
+            </div>
           </div>
         </section>
 
-        <!-- 4 Core KPI Cards -->
+        <!-- 4 Core Precision KPI Instruments -->
         <section class="cc-kpis" aria-label="核心运行指标">
-          <a class="cc-kpi" href="/admin/files">
+          <a class="cc-kpi cc-glass-tile" href="/admin/files">
             <div class="cc-kpi__head">
               <span class="cc-kpi__label">云端文件总数</span>
               <span class="cc-kpi__ico"><i class="fas fa-layer-group" aria-hidden="true"></i></span>
             </div>
             <div class="cc-kpi__val" id="kpiTotalFiles">--</div>
+            <div class="cc-seg-bar" aria-hidden="true">
+              <span class="cc-seg-bar__seg cc-seg-bar__seg--img" id="segImg"></span>
+              <span class="cc-seg-bar__seg cc-seg-bar__seg--vid" id="segVid"></span>
+              <span class="cc-seg-bar__seg cc-seg-bar__seg--doc" id="segDoc"></span>
+            </div>
             <div class="cc-kpi__meta">
               <span id="kpiTypeMix">正在读取索引…</span>
               <span class="cc-tag" id="kpiDataSource">SYNC</span>
             </div>
           </a>
 
-          <a class="cc-kpi" href="/admin/storage">
+          <a class="cc-kpi cc-glass-tile" href="/admin/storage">
             <div class="cc-kpi__head">
               <span class="cc-kpi__label">存储后端就绪</span>
               <span class="cc-kpi__ico cc-kpi__ico--ok"><i class="fas fa-server" aria-hidden="true"></i></span>
             </div>
             <div class="cc-kpi__val" id="kpiBackends">--</div>
+            <div class="cc-dot-matrix" id="kpiBackendMatrix" aria-hidden="true">
+              <span class="cc-dot-matrix__cell"></span>
+              <span class="cc-dot-matrix__cell"></span>
+              <span class="cc-dot-matrix__cell"></span>
+              <span class="cc-dot-matrix__cell"></span>
+              <span class="cc-dot-matrix__cell"></span>
+              <span class="cc-dot-matrix__cell"></span>
+              <span class="cc-dot-matrix__cell"></span>
+            </div>
             <div class="cc-kpi__meta">
               <span id="kpiBackendHint">检测 7 大存储通道…</span>
               <span class="cc-tag cc-tag--ok" id="kpiMaxLimit">10GB</span>
             </div>
           </a>
 
-          <a class="cc-kpi" href="/admin/shares">
+          <a class="cc-kpi cc-glass-tile" href="/admin/shares">
             <div class="cc-kpi__head">
               <span class="cc-kpi__label">活跃外链分享</span>
               <span class="cc-kpi__ico"><i class="fas fa-share-nodes" aria-hidden="true"></i></span>
             </div>
             <div class="cc-kpi__val" id="kpiShares">--</div>
+            <div class="cc-bar" aria-hidden="true">
+              <div class="cc-bar__fill" id="kpiShareBar"></div>
+            </div>
             <div class="cc-kpi__meta">
               <span id="kpiShareHint">含有效期 / 密码 / 限次控制</span>
               <span class="cc-tag cc-tag--muted" id="kpiShareProtected">受控</span>
             </div>
           </a>
 
-          <a class="cc-kpi" href="/admin/files">
+          <a class="cc-kpi cc-glass-tile" href="/admin/files">
             <div class="cc-kpi__head">
               <span class="cc-kpi__label">回收站与传输记录</span>
               <span class="cc-kpi__ico cc-kpi__ico--warn"><i class="fas fa-clock-rotate-left" aria-hidden="true"></i></span>
             </div>
             <div class="cc-kpi__val" id="kpiTrash">--</div>
+            <div class="cc-bar" aria-hidden="true">
+              <div class="cc-bar__fill cc-bar__fill--ok" id="kpiTransferBar"></div>
+            </div>
             <div class="cc-kpi__meta">
               <span id="kpiTransferHint">本地断点恢复记录读取中…</span>
               <span class="cc-tag cc-tag--warn" id="kpiTransferTag">0 条本地</span>
@@ -1153,117 +1393,153 @@
             <h2 class="cc-section__title" id="ccNavTitle">
               <i class="fas fa-grip" aria-hidden="true"></i>
               <span>全站模块导航</span>
+              <span class="cc-tag cc-tag--muted" id="ccNavCount">10</span>
             </h2>
-            <span class="cc-tag cc-tag--muted" id="ccNavCount">10 个工作区</span>
+            <div class="cc-cat-bar" id="ccCatBar" role="tablist" aria-label="按类别筛选模块">
+              <button type="button" class="cc-cat-btn is-active" data-cat="all" role="tab" aria-selected="true">全部</button>
+              <button type="button" class="cc-cat-btn" data-cat="media" role="tab" aria-selected="false">文件与媒体</button>
+              <button type="button" class="cc-cat-btn" data-cat="security" role="tab" aria-selected="false">安全与分享</button>
+              <button type="button" class="cc-cat-btn" data-cat="system" role="tab" aria-selected="false">系统与生态</button>
+            </div>
           </div>
 
           <div class="cc-nav-grid" id="ccNavGrid">
-            <a class="cc-nav-card" href="/upload.html" data-keywords="上传 upload 分片 r2 telegram url 转存 隔空投送 airdrop">
+            <a class="cc-nav-card cc-nav-card--featured cc-glass-tile" href="/upload.html" data-cat="media" data-keywords="上传 upload 分片 r2 telegram url 转存 隔空投送 airdrop">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-cloud-arrow-up" aria-hidden="true"></i></span>
                 <span class="cc-tag">核心入口</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>上传工作台</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>上传工作台</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>拖拽直传、2GB TG 分片、10GB R2 分片与 URL 断点转存</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/admin/files" data-keywords="文件 管理 后台 admin 目录 文件夹 回收站 trash">
+            <a class="cc-nav-card cc-nav-card--featured cc-glass-tile" href="/admin/files" data-cat="media" data-keywords="文件 管理 后台 admin 目录 文件夹 回收站 trash">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-folder-tree" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted" id="navFoldersTag">目录</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>文件与目录管理</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>文件与目录管理</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>目录树浏览、搜索、批量移动、重命名与回收站恢复</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/gallery.html" data-keywords="图库 gallery 瀑布流 图片 媒体 直链">
+            <a class="cc-nav-card cc-glass-tile" href="/gallery.html" data-cat="media" data-keywords="图库 gallery 瀑布流 图片 媒体 直链">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-images" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted" id="navGalleryTag">媒体</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>图库瀑布流</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>图库瀑布流</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>快速浏览已上传图片与媒体资产，一键复制直链</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/show.html" data-keywords="展廊 show 摄影 精选 公开 画廊">
+            <a class="cc-nav-card cc-glass-tile" href="/show.html" data-cat="media" data-keywords="展廊 show 摄影 精选 公开 画廊">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico cc-nav-card__ico--ok"><i class="fas fa-star" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--ok" id="navShowTag">Show</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>精选展廊 Show</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>精选展廊 Show</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>沉浸式公开摄影画廊与标签筛选视图</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/admin/shares" data-keywords="分享 share 短链 密码 隔空投送 airdrop 合集">
+            <a class="cc-nav-card cc-glass-tile" href="/admin/shares" data-cat="security" data-keywords="分享 share 短链 密码 隔空投送 airdrop 合集">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-paper-plane" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted" id="navSharesTag">受控</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>分享与隔空投送</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>分享与隔空投送</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>管理短链配额、提取密码、合集分享与 Airdrop 统计</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/vault.html" data-keywords="密码库 vault 加密 totp 2fa 保险箱 零知识">
+            <a class="cc-nav-card cc-glass-tile" href="/vault.html" data-cat="security" data-keywords="密码库 vault 加密 totp 2fa 保险箱 零知识">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico cc-nav-card__ico--ok"><i class="fas fa-shield-halved" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--ok">AES-256</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>零知识密码库</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>零知识密码库</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>本地端到端加密凭证保险箱、TOTP 令牌与密码生成器</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/paste.html" data-keywords="粘贴 paste 文本 代码 剪贴板 临时分享">
+            <a class="cc-nav-card cc-glass-tile" href="/paste.html" data-cat="security" data-keywords="粘贴 paste 文本 代码 剪贴板 临时分享">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-file-lines" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted">速记</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>文本粘贴板</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>文本粘贴板</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>创建轻量代码片段与纯文本分享链接</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/webdav.html" data-keywords="webdav 挂载 dav 网盘 finder 资源管理器">
+            <a class="cc-nav-card cc-glass-tile" href="/webdav.html" data-cat="system" data-keywords="webdav 挂载 dav 网盘 finder 资源管理器">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-hard-drive" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted" id="navWebdavTag">/dav</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>WebDAV 挂载</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>WebDAV 挂载</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>查看 /dav 服务端状态与多端系统挂载配置指引</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/admin/system" data-keywords="系统 设置 settings mcp token api 存储 storage 配置">
+            <a class="cc-nav-card cc-glass-tile" href="/admin/system" data-cat="system" data-keywords="系统 设置 settings mcp token api 存储 storage 配置">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico cc-nav-card__ico--warn"><i class="fas fa-gear" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted" id="navMcpTag">MCP / API</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>系统与接入设置</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>系统与接入设置</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>API Token、MCP 工具权限、存储用量与站点品牌配置</p>
               </div>
             </a>
 
-            <a class="cc-nav-card" href="/promo.html" data-keywords="宣传页 promo 首页 介绍 展示 landing">
+            <a class="cc-nav-card cc-glass-tile" href="/promo.html" data-cat="system" data-keywords="宣传页 promo 首页 介绍 展示 landing">
               <div class="cc-nav-card__top">
                 <span class="cc-nav-card__ico"><i class="fas fa-house" aria-hidden="true"></i></span>
                 <span class="cc-tag cc-tag--muted">公开页</span>
               </div>
               <div class="cc-nav-card__body">
-                <h3>产品宣传页</h3>
+                <div class="cc-nav-card__title-row">
+                  <h3>产品宣传页</h3>
+                  <i class="fas fa-arrow-up-right-from-square cc-nav-card__arrow" aria-hidden="true"></i>
+                </div>
                 <p>查看面向外部访客的 K-Vault-Next 介绍与拓扑展示</p>
               </div>
             </a>
@@ -1420,16 +1696,17 @@
         const toastHost = document.getElementById("ccToastHost");
 
         let currentSettings = null;
+        let activeCat = "all";
         let isRefreshing = false;
 
         const BACKENDS = [
-          { key: "telegram", label: "Telegram", limit: "2GB 分片" },
-          { key: "r2", label: "Cloudflare R2", limit: "10GB 分片" },
-          { key: "s3", label: "S3 兼容", limit: "40MB" },
-          { key: "github", label: "GitHub", limit: "40MB" },
-          { key: "huggingface", label: "HuggingFace", limit: "35MB" },
-          { key: "discord", label: "Discord", limit: "25MB" },
-          { key: "webdav", label: "WebDAV 客户端", limit: "40MB" },
+          { key: "telegram", label: "Telegram", limit: "2GB 分片", icon: "fab fa-telegram" },
+          { key: "r2", label: "Cloudflare R2", limit: "10GB 分片", icon: "fas fa-cloud" },
+          { key: "s3", label: "S3 兼容", limit: "40MB", icon: "fas fa-database" },
+          { key: "github", label: "GitHub", limit: "40MB", icon: "fab fa-github" },
+          { key: "huggingface", label: "HuggingFace", limit: "35MB", icon: "fas fa-robot" },
+          { key: "discord", label: "Discord", limit: "25MB", icon: "fab fa-discord" },
+          { key: "webdav", label: "WebDAV 客户端", limit: "40MB", icon: "fas fa-hard-drive" },
         ];
 
         function showToast(text, type) {
@@ -1460,11 +1737,15 @@
           if (bannerEl) bannerEl.classList.remove("is-visible");
         }
 
-        function updateGreeting() {
-          const h = new Date().getHours();
+        function updateClockAndGreeting() {
+          const now = new Date();
+          const h = now.getHours();
+          const m = String(now.getMinutes()).padStart(2, "0");
           const prefix = h < 6 ? "夜深了" : h < 12 ? "早安" : h < 18 ? "午安" : "晚上好";
-          const el = document.getElementById("ccGreeting");
-          if (el) el.textContent = prefix + "，欢迎回到总控台";
+          const g = document.getElementById("ccGreeting");
+          const c = document.getElementById("ccClock");
+          if (g) g.textContent = prefix + "，欢迎回到总控台";
+          if (c) c.textContent = String(h).padStart(2, "0") + ":" + m;
         }
 
         function setBrandName(name) {
@@ -1494,9 +1775,7 @@
                 return data;
               });
           return fetcher.catch((err) => {
-            if (err && err.status === 401) {
-              redirectToLogin();
-            }
+            if (err && err.status === 401) redirectToLogin();
             throw err;
           });
         }
@@ -1535,6 +1814,7 @@
               const fileSize = Number(meta.fileSize || 0);
               const ts = meta.TimeStamp || 0;
               const storage = meta.storageType || "telegram";
+              const folder = meta.folderPath ? String(meta.folderPath) : "";
               const rawUrl = "/file/" + encodeURI(key);
               const absUrl = window.location.origin + rawUrl;
               const previewUrl = "/preview.html?src=" + encodeURIComponent(rawUrl) + "&name=" + encodeURIComponent(fileName);
@@ -1546,12 +1826,13 @@
               }
 
               return (
-                '<div class="cc-file" data-file-search="' + esc((fileName + " " + storage + " " + (meta.folderPath || "")).toLowerCase()) + '">' +
+                '<div class="cc-file" data-file-search="' + esc((fileName + " " + storage + " " + folder).toLowerCase()) + '">' +
                 '<div class="cc-file__thumb">' + thumbHtml + "</div>" +
                 '<div class="cc-file__info">' +
                 '<span class="cc-file__name" title="' + esc(fileName) + '">' + esc(fileName) + "</span>" +
                 '<div class="cc-file__meta">' +
                 '<span class="cc-tag cc-tag--muted">' + esc(storageLabel(storage)) + "</span>" +
+                (folder ? "<span>/" + esc(folder) + "</span>" : "") +
                 "<span>" + esc(fmtBytes(fileSize)) + "</span>" +
                 (ts ? "<span>" + esc(fmtTime(ts)) + "</span>" : "") +
                 "</div>" +
@@ -1570,18 +1851,29 @@
               const url = btn.getAttribute("data-copy-url");
               const ok = K.copy ? await K.copy(url) : false;
               showToast(ok ? "已复制文件直链" : "复制失败，请手动复制", ok ? "success" : "error");
+              if (ok) {
+                const icon = btn.querySelector("i");
+                btn.classList.add("is-copied");
+                if (icon) icon.className = "fas fa-check";
+                setTimeout(() => {
+                  btn.classList.remove("is-copied");
+                  if (icon) icon.className = "fas fa-link";
+                }, 1400);
+              }
             });
           });
-          applySearchFilter();
+          applyFilters();
         }
 
         function renderBackends(statusData, byStorage, totalFiles) {
           const host = document.getElementById("ccBackendsList");
+          const matrix = document.getElementById("kpiBackendMatrix");
           if (!host) return;
           let readyCount = 0;
           const total = Math.max(1, Number(totalFiles || 0));
+          const matrixCells = matrix ? Array.from(matrix.children) : [];
 
-          host.innerHTML = BACKENDS.map((b) => {
+          host.innerHTML = BACKENDS.map((b, idx) => {
             const st = statusData && statusData[b.key] ? statusData[b.key] : {};
             const connected = Boolean(st.connected);
             const configured = Boolean(st.configured || st.enabled);
@@ -1589,13 +1881,24 @@
             const count = Number((byStorage && byStorage[b.key]) || 0);
             const pct = totalFiles > 0 ? Math.max(count > 0 ? 4 : 0, Math.round((count / total) * 100)) : 0;
             const ledCls = connected ? "cc-led cc-led--on" : configured ? "cc-led cc-led--cfg" : "cc-led";
+            const icoState = connected ? " is-on" : configured ? " is-cfg" : "";
             const stateText = connected ? "在线" : configured ? "已配置" : "未配置";
+
+            if (matrixCells[idx]) {
+              matrixCells[idx].className = "cc-dot-matrix__cell" + (connected ? " is-on" : configured ? " is-cfg" : "");
+            }
 
             return (
               '<div class="cc-backend">' +
               '<div class="cc-backend__row">' +
-              '<span class="cc-backend__name"><span class="' + ledCls + '" aria-hidden="true"></span>' + esc(b.label) + "</span>" +
-              '<span class="cc-backend__stat">' + esc(stateText) + " · " + count + " 文件 · " + esc(b.limit) + "</span>" +
+              '<span class="cc-backend__name">' +
+              '<span class="cc-backend__ico' + icoState + '"><i class="' + b.icon + '" aria-hidden="true"></i></span>' +
+              esc(b.label) +
+              "</span>" +
+              '<span class="cc-backend__stat">' +
+              '<span class="' + ledCls + '" aria-hidden="true"></span>' +
+              esc(stateText) + " · " + count + " · " + esc(b.limit) +
+              "</span>" +
               "</div>" +
               '<div class="cc-bar"><div class="cc-bar__fill' + (connected ? " cc-bar__fill--ok" : "") + '" style="width:' + pct + '%"></div></div>' +
               "</div>"
@@ -1706,8 +2009,10 @@
         function loadLocalTransfers() {
           const list = window.KVaultTransferRecords ? window.KVaultTransferRecords.list() : [];
           const failed = list.filter((r) => r.status === "failed").length;
+          const okCount = list.length - failed;
           const tag = document.getElementById("kpiTransferTag");
           const hint = document.getElementById("kpiTransferHint");
+          const bar = document.getElementById("kpiTransferBar");
           if (tag) tag.textContent = list.length + " 条本地记录";
           if (hint) {
             hint.textContent = failed > 0
@@ -1715,6 +2020,9 @@
               : list.length > 0
                 ? "近期传输全部完成"
                 : "暂无待恢复传输记录";
+          }
+          if (bar) {
+            bar.style.width = list.length > 0 ? Math.round((okCount / list.length) * 100) + "%" : "100%";
           }
         }
 
@@ -1743,9 +2051,11 @@
           }
           if (versionRes.status === "fulfilled" && versionRes.value) {
             const v = versionRes.value.version || "v1.0.0";
-            const c = versionRes.value.commit ? " · " + versionRes.value.commit : "";
-            const verEl = document.getElementById("ccVersion");
-            if (verEl) verEl.textContent = "总控台 · " + v + c;
+            const c = versionRes.value.commit ? "· " + versionRes.value.commit : "";
+            const verNum = document.getElementById("ccVerNum");
+            const verSha = document.getElementById("ccVerSha");
+            if (verNum) verNum.textContent = "总控台 · " + v;
+            if (verSha) verSha.textContent = c;
           }
 
           let stats = null;
@@ -1768,6 +2078,15 @@
             if (kpiSrc) kpiSrc.textContent = String(d.source || "KV").toUpperCase();
             if (navFolders) navFolders.textContent = folderCount + " 目录";
             if (navGallery) navGallery.textContent = (byType.image || 0) + " 图片";
+
+            const denom = Math.max(1, total);
+            const segImg = document.getElementById("segImg");
+            const segVid = document.getElementById("segVid");
+            const segDoc = document.getElementById("segDoc");
+            if (segImg) segImg.style.width = Math.round(((byType.image || 0) / denom) * 100) + "%";
+            if (segVid) segVid.style.width = Math.round((((byType.video || 0) + (byType.audio || 0)) / denom) * 100) + "%";
+            if (segDoc) segDoc.style.width = Math.round(((byType.document || 0) / denom) * 100) + "%";
+
             renderRecentFiles(d.keys || []);
           } else {
             const err = listRes.reason;
@@ -1784,16 +2103,18 @@
             const s = sharesRes.value;
             const count = Number(s.count != null ? s.count : Array.isArray(s.shares) ? s.shares.length : 0);
             const st = s.stats || {};
+            const activeCount = st.active != null ? st.active : count;
             const kpiShares = document.getElementById("kpiShares");
             const kpiShareHint = document.getElementById("kpiShareHint");
             const kpiShareProt = document.getElementById("kpiShareProtected");
+            const kpiShareBar = document.getElementById("kpiShareBar");
             const navShares = document.getElementById("navSharesTag");
             if (kpiShares) kpiShares.textContent = String(count);
             if (kpiShareHint) {
-              kpiShareHint.textContent =
-                "密码保护 " + (st.passwordProtected || 0) + " · 限次 " + (st.downloadLimited || 0);
+              kpiShareHint.textContent = "密码保护 " + (st.passwordProtected || 0) + " · 限次 " + (st.downloadLimited || 0);
             }
-            if (kpiShareProt) kpiShareProt.textContent = (st.active != null ? st.active : count) + " 生效";
+            if (kpiShareProt) kpiShareProt.textContent = activeCount + " 生效";
+            if (kpiShareBar) kpiShareBar.style.width = count > 0 ? Math.round((activeCount / count) * 100) + "%" : "0%";
             if (navShares) navShares.textContent = count + " 活跃";
           } else {
             const kpiShares = document.getElementById("kpiShares");
@@ -1842,21 +2163,35 @@
           isRefreshing = false;
         }
 
-        function applySearchFilter() {
+        function applyFilters() {
           const q = String(searchInput ? searchInput.value : "").trim().toLowerCase();
           let visibleNav = 0;
           document.querySelectorAll("#ccNavGrid .cc-nav-card").forEach((card) => {
+            const cat = card.getAttribute("data-cat") || "all";
+            const catMatch = activeCat === "all" || cat === activeCat;
             const text = (card.textContent + " " + (card.getAttribute("data-keywords") || "")).toLowerCase();
-            const match = !q || text.includes(q);
-            card.classList.toggle("is-hidden", !match);
-            if (match) visibleNav += 1;
+            const qMatch = !q || text.includes(q);
+            const show = catMatch && qMatch;
+            card.classList.toggle("is-hidden", !show);
+            if (show) visibleNav += 1;
           });
           const countEl = document.getElementById("ccNavCount");
-          if (countEl) countEl.textContent = visibleNav + " 个工作区";
+          if (countEl) countEl.textContent = String(visibleNav);
 
           document.querySelectorAll("#ccRecentFiles .cc-file").forEach((row) => {
             const hay = row.getAttribute("data-file-search") || "";
             row.classList.toggle("is-hidden", Boolean(q) && !hay.includes(q));
+          });
+        }
+
+        function bindPointerSheen() {
+          if (!window.matchMedia("(hover: hover)").matches || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+          document.querySelectorAll(".cc-glass-tile").forEach((tile) => {
+            tile.addEventListener("pointermove", (e) => {
+              const rect = tile.getBoundingClientRect();
+              tile.style.setProperty("--mx", Math.round(e.clientX - rect.left) + "px");
+              tile.style.setProperty("--my", Math.round(e.clientY - rect.top) + "px");
+            }, { passive: true });
           });
         }
 
@@ -1880,8 +2215,19 @@
           document.querySelectorAll("[data-setting-group]").forEach((btn) => {
             btn.addEventListener("click", () => handleToggle(btn));
           });
+          document.querySelectorAll("#ccCatBar .cc-cat-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              activeCat = btn.getAttribute("data-cat") || "all";
+              document.querySelectorAll("#ccCatBar .cc-cat-btn").forEach((b) => {
+                const on = b === btn;
+                b.classList.toggle("is-active", on);
+                b.setAttribute("aria-selected", String(on));
+              });
+              applyFilters();
+            });
+          });
           if (searchInput) {
-            searchInput.addEventListener("input", applySearchFilter);
+            searchInput.addEventListener("input", applyFilters);
             searchInput.addEventListener("keydown", (e) => {
               if (e.key === "Enter" && searchInput.value.trim()) {
                 window.location.href = "/admin/files?q=" + encodeURIComponent(searchInput.value.trim());
@@ -1897,10 +2243,12 @@
               if (searchInput) searchInput.focus();
             }
           });
+          bindPointerSheen();
         }
 
         async function bootstrap() {
-          updateGreeting();
+          updateClockAndGreeting();
+          setInterval(updateClockAndGreeting, 30000);
           bindEvents();
 
           try {
