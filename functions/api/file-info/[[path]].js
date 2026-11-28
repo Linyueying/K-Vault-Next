@@ -114,7 +114,7 @@ export async function onRequest(context) {
       ? (await checkAuthentication(context)).authenticated
       : false;
 
-    const { record, kvKey: foundKey } = await findRecordWithKey(env, fileId);
+    const { record, kvKey: foundKey } = await findRecordWithKey(env, fileId, { fresh: true });
 
     if (!record || !record.metadata) {
       // 刻意**不回显**调用方传进来的 fileId / fileName：

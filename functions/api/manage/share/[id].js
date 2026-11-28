@@ -95,7 +95,7 @@ export async function onRequest(context) {
 
   try {
     // ---------- 1. 定位文件 ----------
-    const { record, kvKey } = await getRecordWithKey(env, fileId);
+    const { record, kvKey } = await getRecordWithKey(env, fileId, { fresh: true });
     if (!record?.metadata) {
       return jsonResponse({ success: false, error: `File not found: ${fileId}` }, 404);
     }

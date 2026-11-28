@@ -76,7 +76,7 @@ export function shouldIncludeKey(key) {
   if (isFolderMarker(key)) return false;
 
   const metadata = key.metadata || {};
-  return Boolean(metadata.fileName) && metadata.TimeStamp !== undefined && metadata.TimeStamp !== null;
+  return !metadata.trashedAt && Boolean(metadata.fileName) && metadata.TimeStamp !== undefined && metadata.TimeStamp !== null;
 }
 
 /**
@@ -115,6 +115,10 @@ export function normalizeKey(key) {
 // 且列表并非强一致场景，2 秒窗口的轻微陈旧在文件库场景可接受。
 const LIST_CACHE_TTL_MS = 2000;
 const listCache = new Map(); // prefix -> { ts, keys }
+
+export function invalidateFileList() {
+  listCache.clear();
+}
 
 export async function listAllKeys(env, prefix = '') {
   const cacheKey = prefix || '';

@@ -10,7 +10,7 @@ function decodeFileId(raw) {
 
 // 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
 function getRecordWithKey(env, fileId) {
-  return findRecordWithKey(env, fileId);
+  return findRecordWithKey(env, fileId, { fresh: true });
 }
 
 function jsonResponse(body, status = 200) {

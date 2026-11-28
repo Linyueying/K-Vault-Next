@@ -84,9 +84,12 @@ export async function findDuplicate(env, sha, options = {}) {
     if (!raw || typeof raw !== 'object') return null;
     const kvKey = String(raw.publicId || raw.directId || '');
     if (!kvKey) return null;
+    const located = typeof env.img_url.getWithMetadata === 'function'
+      ? await getRecordWithKey(env, kvKey, { fresh: true })
+      : null;
+    if (located?.trashedAt) return null;
     if (folderPath !== undefined) {
-      const located = await getRecordWithKey(env, kvKey, { forceAll: true });
-      const metadata = located.record?.metadata;
+      const metadata = located?.record?.metadata;
       if (!metadata || located.kvKey !== kvKey || normalizeFolderPath(metadata.folderPath) !== folderPath) {
         return null;
       }

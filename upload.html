@@ -33,7 +33,7 @@
 
     <div id="app" v-cloak>
       <!-- 顶栏 -->
-      <header class="topbar">
+      <header class="topbar" v-if="!transferRetryId">
         <a class="brand" href="./" title="返回首页">
           <span class="brand__logo">
             <img src="/assets/img/logo-64.png" alt="Logo" onerror="this.onerror=null;this.src='/assets/img/favicon.ico';">
@@ -57,7 +57,7 @@
       </header>
 
       <transition name="drop">
-        <div class="guest-banner" v-if="!authChecking && guestUploadConfig && !guestBlocked">
+        <div class="guest-banner" v-if="!transferRetryId && !authChecking && guestUploadConfig && !guestBlocked">
           <span><i class="fas fa-circle-info" aria-hidden="true"></i>
             访客上传每日最多 {{ guestUploadConfig.maxDailyUploads }} 次
           </span>
@@ -82,7 +82,37 @@
         </div>
       </transition>
 
-      <main>
+      <main :class="{ 'transfer-retry': transferRetryId }">
+        <template v-if="transferRetryId">
+          <section class="card panel" aria-labelledby="transfer-retry-title">
+            <div class="panel__head">
+              <h1 class="panel__title" id="transfer-retry-title">重试传输</h1>
+              <a class="btn btn--sm" href="/admin/transfers">返回传输记录</a>
+            </div>
+            <p v-if="authChecking" role="status">正在检查上传权限…</p>
+            <p v-else-if="!transferRecordsAllowed" role="status">
+              {{ uploadAccessMessage || '需要登录后台账户。' }}
+              <a v-if="authRequired" :href="loginUrl">登录</a>
+            </p>
+            <p v-else-if="!transferRetryRecord" role="status">此浏览器找不到这条传输记录。</p>
+            <template v-else>
+              <p class="transfer-retry__name">{{ transferRetryRecord.name }}</p>
+              <p>{{ formatSize(transferRetryRecord.size) }} · {{ storageLabel(transferRetryRecord.mode) }} · {{ transferRetryRecord.folderPath || '根目录' }}</p>
+              <p v-if="transferRetryRecord.status === 'success'" role="status">文件已上传成功。</p>
+              <template v-else-if="!uploadingFiles.length">
+                <p>请选择原文件。仍有效的分片会话会跳过已确认的分片。</p>
+                <button type="button" class="btn btn--primary" :disabled="transferRetryChecking || guestBlocked" @click="$refs.transferRetryInput.click()">
+                  {{ transferRetryChecking ? '正在校验文件…' : '选择原文件并重试' }}
+                </button>
+                <input type="file" hidden ref="transferRetryInput" @change="selectTransferRetryFile" />
+              </template>
+              <p v-if="transferRetryError" role="alert">{{ transferRetryError }}</p>
+            </template>
+          </section>
+          <upload-queue :files="uploadingFiles" :ui="queueUi" :actions="queueActions"
+            :expanded-names="expandedTaskNames" @toggle-name="toggleNameExpanded"></upload-queue>
+        </template>
+        <template v-else>
         <section class="card upload-zone"
           @click="!guestBlocked && triggerUpload()"
           @dragenter.prevent="onDragEnter" @dragover.prevent="onDragOver"
@@ -457,7 +487,7 @@
                 <button v-if="isAuthenticated" class="btn btn--sm" @click="shareSelected" :disabled="selectedCount === 0" title="把所选文件合成一个分享链接"><i class="fas fa-share-nodes"></i> 分享</button>
                 <button class="btn btn--sm" @click="copyBatchLinks" :disabled="selectedCount === 0" :title="`按「${currentFormatLabel}」格式复制所选文件的直链`"><i class="fas fa-copy"></i> 复制链接</button>
                 <button class="btn btn--sm" @click="moveSelectedToFolder" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '把所选文件移动到其它目录' : '需要登录后才能移动云端文件'"><i class="fas fa-folder-tree"></i> 移动到</button>
-                <button class="btn btn--sm btn--danger" @click="deleteSelected" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '从云端删除所选文件（不可恢复）' : '需要登录后才能删除云端文件'"><i class="fas fa-trash-can"></i> 删除</button>
+                <button class="btn btn--sm btn--danger" @click="deleteSelected" :disabled="selectedCount === 0 || !isAuthenticated || resultBatchBusy" :title="isAuthenticated ? '将所选文件移入回收站' : '需要登录后才能删除云端文件'"><i class="fas fa-trash-can"></i> 删除</button>
               </div>
             </div>
             </div>
@@ -467,10 +497,11 @@
         </div>
         </div>
         </transition>
+        </template>
       </main>
 
       <!-- 底部 Dock：iOS 27 式高透液态玻璃 + 滑动指示器 + 跟手拖拽 -->
-      <nav class="dock glass glass-refract"
+      <nav v-if="!transferRetryId" class="dock glass glass-refract"
            ref="dockEl"
            :class="{ 'is-dragging': dockDragActive }"
            :style="{ '--dock-pos': dockDragActive ? dockDrag.pos : dockIndicatorIndex }"
@@ -731,7 +762,7 @@
                 <button class="btn btn--sm" @click="copyHistorySelected" :title="`按「${currentFormatLabel}」格式复制所选文件的直链`"><i class="fas fa-copy"></i> 复制链接</button>
                 <button class="btn btn--sm" @click="addHistorySelectedToResults" title="把所选记录加回交付结果"><i class="fas fa-plus"></i> 加入结果</button>
                 <button class="btn btn--sm" @click="moveHistorySelectedToFolder" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '把所选文件移动到其它目录' : '需要登录后才能移动云端文件'"><i class="fas fa-folder-tree"></i> 移动到</button>
-                <button class="btn btn--sm btn--danger" @click="deleteHistorySelected" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '从云端删除所选文件（不可恢复）' : '需要登录后才能删除云端文件'"><i class="fas fa-trash"></i> 删除</button>
+                <button class="btn btn--sm btn--danger" @click="deleteHistorySelected" :disabled="!isAuthenticated || historyBatchBusy" :title="isAuthenticated ? '将所选文件移入回收站' : '需要登录后才能删除云端文件'"><i class="fas fa-trash"></i> 删除</button>
               </div>
             </div>
             </div>
@@ -1258,6 +1289,7 @@
     <!-- 隔空投送组件。必须在 index.js 之前加载：index.js 创建 app 时就要
          把它注册进 components，晚于它加载会拿到 undefined。 -->
     <script defer src="/assets/js/airdrop.js"></script>
+    <script defer src="/assets/js/transfer-records.js"></script>
     <script defer src="/assets/js/index.js"></script>
     <script defer src="/assets/js/branding.js?v=20260927"></script>
   </body>

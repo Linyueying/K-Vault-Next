@@ -242,7 +242,8 @@ export async function putFileRecord(env, id, kvKey, metadata) {
          share_max_downloads = excluded.share_max_downloads,
          share_title = excluded.share_title,
          share_description = excluded.share_description,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at
+       WHERE files.trashed_at IS NULL`
     ).bind(
       id, kvKey || null, c.is_folder, c.storage, c.storage_key, c.storage_extra, c.file_type,
       c.file_name, c.file_size, c.mime, c.folder_path, c.uploaded_at, c.content_sha,
@@ -280,7 +281,11 @@ export async function getFileRecord(env, id) {
     ).bind(String(id)).first();
 
     if (!row) return null;
-    return { record: rowToRecord(row), kvKey: row.kv_key || String(id) };
+    return {
+      record: rowToRecord(row),
+      kvKey: row.kv_key || String(id),
+      ...(row.trashed_at ? { trashedAt: Number(row.trashed_at) } : {}),
+    };
   } catch (error) {
     console.warn('D1 getFileRecord failed:', error?.message || error);
     return null;
@@ -316,7 +321,7 @@ export async function getFileRecordByShareSlug(env, slug) {
 
   try {
     const row = await env.DB.prepare(
-      'SELECT * FROM files WHERE share_slug = ? LIMIT 1'
+      'SELECT * FROM files WHERE share_slug = ? AND trashed_at IS NULL LIMIT 1'
     ).bind(String(slug)).first();
 
     if (!row) return null;
@@ -397,6 +402,7 @@ export async function tryConsumeDownload(env, id) {
           SET share_download_count = share_download_count + 1,
               updated_at = ?
         WHERE id = ?
+          AND trashed_at IS NULL
           AND (share_max_downloads = 0 OR share_download_count < share_max_downloads)`
     ).bind(now(), String(id)).run();
 
@@ -406,10 +412,11 @@ export async function tryConsumeDownload(env, id) {
     // 没改动：要么记录不存在，要么已超限。需要一次读来区分，
     // 但只在「没改动」这条冷路径上发生，热路径（正常下载）依然 1 次写。
     const row = await env.DB.prepare(
-      'SELECT share_max_downloads, share_download_count FROM files WHERE id = ? LIMIT 1'
+      'SELECT share_max_downloads, share_download_count, trashed_at FROM files WHERE id = ? LIMIT 1'
     ).bind(String(id)).first();
 
     if (!row) return { ok: false, notFound: true };
+    if (row.trashed_at) return { ok: false, limited: true };
     return {
       ok: false,
       limited: true,
@@ -476,7 +483,7 @@ export async function findByContentSha(env, sha, options = {}) {
 
   const ttlMs = Number(options.ttlSeconds) > 0 ? Number(options.ttlSeconds) * 1000 : 0;
   const params = [String(sha)];
-  let sql = 'SELECT * FROM files WHERE content_sha = ?';
+  let sql = 'SELECT * FROM files WHERE content_sha = ? AND trashed_at IS NULL';
   if (ttlMs > 0) {
     sql += ' AND uploaded_at > ?';
     params.push(Date.now() - ttlMs);
@@ -520,7 +527,7 @@ export async function listFileRecords(env, options = {}) {
   const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 200);
   const offset = Math.max(Number(options.offset) || 0, 0);
 
-  const where = [];
+  const where = ['trashed_at IS NULL'];
   const params = [];
   // 与 KV 路径的 matchStorage() 对齐：'kv' 与 'telegram' 同义，
   // 不归一化会导致 ?storage=kv 拿 'kv' 去比对 'telegram' 而永远查空。
@@ -596,6 +603,7 @@ export async function aggregateFileStats(env, options = {}) {
   const storage = normalizeStorageFilter(options.storage);
   const where = [
     'is_folder = 0',
+    'trashed_at IS NULL',
     "file_name IS NOT NULL AND file_name != ''",
   ];
   const params = [];
@@ -781,7 +789,7 @@ export async function updateFileMetadataFields(env, id, patch = {}) {
 
   try {
     const res = await env.DB.prepare(
-      `UPDATE files SET ${assignments.join(', ')} WHERE id = ?`
+      `UPDATE files SET ${assignments.join(', ')} WHERE id = ? AND trashed_at IS NULL`
     ).bind(...values).run();
     await forgetRecordCache(env, String(id)).catch(() => {});
     return { ok: true, updated: changedCount(res) };
@@ -866,6 +874,7 @@ export async function folderFileCounts(env, options = {}) {
   try {
     const where = [
       'is_folder = 0',
+      'trashed_at IS NULL',
       "folder_path IS NOT NULL AND folder_path != ''",
     ];
     const params = [];
@@ -996,6 +1005,7 @@ export async function moveFolderTree(env, sourcePath, targetPath) {
        SET folder_path = ? || substr(folder_path, ?),
            updated_at = ?
      WHERE is_folder = ?
+       AND trashed_at IS NULL
        AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`;
   const likePattern = escapeLike(sourcePath) + '/%';
   const ts = now();
@@ -1046,11 +1056,12 @@ export async function clearFolderPath(env, path, recursive = false) {
       ? await env.DB.prepare(
           `UPDATE files SET folder_path = NULL, updated_at = ?
             WHERE is_folder = 0
+              AND trashed_at IS NULL
               AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`
         ).bind(now(), path, escapeLike(path) + '/%').run()
       : await env.DB.prepare(
           `UPDATE files SET folder_path = NULL, updated_at = ?
-            WHERE is_folder = 0 AND folder_path = ?`
+            WHERE is_folder = 0 AND trashed_at IS NULL AND folder_path = ?`
         ).bind(now(), path).run();
     return changedCount(res);
   } catch (error) {

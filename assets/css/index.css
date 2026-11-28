@@ -2094,3 +2094,23 @@ html[data-theme="dark"] .task__node { color: #c4b5fd; background: rgba(139, 92, 
 @media (max-width: 640px) {
   .top-home, .top-access { display: none; }
 }
+
+.transfer-retry {
+  max-width: 720px;
+  margin: var(--sp-6) auto;
+}
+
+.transfer-retry .panel > p {
+  margin: var(--sp-2) 0;
+  color: var(--text-sub);
+  overflow-wrap: anywhere;
+}
+
+.transfer-retry .transfer-retry__name {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.transfer-retry [role="alert"] {
+  color: var(--c-danger);
+}

@@ -526,6 +526,16 @@ function hydrateKvRecord(record) {
   return record;
 }
 
+function trashLookup(hit, trashedAt, options) {
+  return { record: options.includeTrashed ? hit.record : null, kvKey: hit.kvKey, trashedAt };
+}
+
+export async function invalidateFileLookup(env, kvKey) {
+  const id = deriveIndexId(kvKey);
+  forgetNotFound(kvKey);
+  await forgetRecordCache(env, [kvKey, id]);
+}
+
 /**
  * 带 D1 优先的记录定位。
  *
@@ -540,6 +550,8 @@ function hydrateKvRecord(record) {
  *   prefixes?: string[],
  *   forceAll?: boolean,
  *   skipIndex?: boolean,   // 兼容旧参数；D1 模式下表示"跳过 D1 直查 KV"
+ *   fresh?: boolean,      // 跳过记录缓存和负缓存
+ *   includeTrashed?: boolean, // 回收站管理读取原记录
  *   onIndexHit?: (info: {indexed: boolean, kvKey: string}) => void
  *   background?: Array<Promise>  // 收集记录缓存的后台写入，由调用方 waitUntil
  * }} options
@@ -556,7 +568,7 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   //
   // TTL 刻意只有 15 秒：它是**优化**而非权威判定，窗口过长会让
   // 「刚上传完立刻访问」之类的边界出现假 404。
-  if (!options.forceAll && isNotFoundCached(value)) {
+  if (!options.forceAll && !options.fresh && !options.includeTrashed && isNotFoundCached(value)) {
     if (typeof options.onIndexHit === 'function') {
       options.onIndexHit({ indexed: false, kvKey: value });
     }
@@ -570,7 +582,7 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   // 注意：只有「无密码 / 无有效期 / 无配额」的记录会被缓存
   // （判定见 record-cache.js 的 isCacheableRecord），受保护文件的闸门
   // 永远走真实数据源，不存在陈旧读取绕过权限的可能。
-  if (!options.forceAll) {
+  if (!options.forceAll && !options.fresh && !options.includeTrashed) {
     const cached = await lookupRecordCache(env, value);
     if (cached?.record?.metadata) {
       if (typeof options.onIndexHit === 'function') {
@@ -585,7 +597,8 @@ export async function getRecordWithKey(env, fileId, options = {}) {
     const id = deriveIndexId(value, prefixes);
     const hit = await getFileRecord(env, id);
     if (hit) {
-      await writeRecordCache(env, value, hit, options.background);
+      if (hit.trashedAt) return trashLookup(hit, hit.trashedAt, options);
+      if (!options.fresh && !options.includeTrashed) await writeRecordCache(env, value, hit, options.background);
       if (typeof options.onIndexHit === 'function') {
         options.onIndexHit({ indexed: true, kvKey: hit.kvKey });
       }
@@ -604,7 +617,10 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   if (hasStoragePrefix(value, prefixes) && !options.forceAll) {
     const record = hydrateKvRecord(await env.img_url.getWithMetadata(value));
     if (record?.metadata) {
-      await writeRecordCache(env, value, { record, kvKey: value }, options.background);
+      if (record.metadata.trashedAt) {
+        return trashLookup({ record, kvKey: value }, record.metadata.trashedAt, options);
+      }
+      if (!options.fresh && !options.includeTrashed) await writeRecordCache(env, value, { record, kvKey: value }, options.background);
       return { record, kvKey: value };
     }
     return { record: null, kvKey: value };
@@ -624,12 +640,12 @@ export async function getRecordWithKey(env, fileId, options = {}) {
   if (hitIndex !== -1) {
     const key = candidateKeys[hitIndex];
     const hitRecord = hydrateKvRecord(probed[hitIndex]);
-    await writeRecordCache(
-      env,
-      value,
-      { record: hitRecord, kvKey: key },
-      options.background
-    );
+    if (hitRecord.metadata.trashedAt) {
+      return trashLookup({ record: hitRecord, kvKey: key }, hitRecord.metadata.trashedAt, options);
+    }
+    if (!options.fresh && !options.includeTrashed) {
+      await writeRecordCache(env, value, { record: hitRecord, kvKey: key }, options.background);
+    }
     if (typeof options.onIndexHit === 'function') {
       options.onIndexHit({ indexed: false, kvKey: key });
     }
@@ -853,7 +869,7 @@ export async function folderHasContent(env, path) {
 
     const files = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM files
-        WHERE is_folder = 0
+        WHERE is_folder = 0 AND trashed_at IS NULL
           AND (folder_path = ? OR folder_path LIKE ? ESCAPE '\\')`
     ).bind(path, likePattern).first();
 
@@ -900,7 +916,7 @@ export async function listSharedRecords(env) {
     //   有 slug，或 有密码，或 有过期时间，或 有限次 —— 四者任一即视为开启分享
     const rows = await env.DB.prepare(
       `SELECT * FROM files
-        WHERE is_folder = 0
+        WHERE is_folder = 0 AND trashed_at IS NULL
           AND file_name IS NOT NULL AND file_name != ''
           AND (
             share_slug IS NOT NULL
@@ -939,7 +955,7 @@ export async function listRecordsInFolder(env, folderPath, includeSubfolders = f
 
   const normalized = String(folderPath || '');
   let sql = `SELECT * FROM files
-              WHERE is_folder = 0
+              WHERE is_folder = 0 AND trashed_at IS NULL
                 AND file_name IS NOT NULL AND file_name != ''`;
   const params = [];
 

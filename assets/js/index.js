@@ -511,6 +511,10 @@
     `,
   };
 
+  const transfers = window.KVaultTransferRecords;
+  const retryParam = new URLSearchParams(window.location.search).get("retry");
+  const transferRetryId = transfers?.idPattern.test(retryParam || "") ? retryParam : "";
+
   const app = Vue.createApp({
     components: {
       "folder-node": folderNodeComponent,
@@ -583,6 +587,11 @@
         expandedTaskNames: {},
         uploadedFiles: [],
         uploadHistory: [],
+        transferRecordsAllowed: false,
+        transferRetryId,
+        transferRetryRecord: null,
+        transferRetryChecking: false,
+        transferRetryError: "",
         linkFormat: "url",
 
         /* 交付结果 */
@@ -3438,9 +3447,70 @@
         return `${min}m${String(rem).padStart(2, "0")}s`;
       },
 
+      recordTransfer(item, status, error = "") {
+        if (!item.transferId) return;
+        const record = {
+          id: item.transferId,
+          name: item.name,
+          size: item.size,
+          lastModified: item.file.lastModified,
+          mode: item.targetMode,
+          folderPath: item.folderPath,
+          status,
+          error: String(error).slice(0, 500),
+          updatedAt: Date.now(),
+          uploadId: status === "failed" ? item.uploadId : null,
+          chunkSize: status === "failed" ? item.chunkSize : null,
+          fileId: status === "failed" ? item.fileId : null,
+        };
+        const saved = transfers.save(record);
+        if (item.transferId === this.transferRetryId) {
+          this.transferRetryRecord = saved ? transfers.read(record.id) : record;
+        }
+      },
+      async selectTransferRetryFile(event) {
+        const file = event.target.files[0];
+        event.target.value = "";
+        if (!file || this.transferRetryChecking || this.uploadingFiles.length || !this.transferRecordsAllowed) return;
+        if (!this.guardUploadAllowed()) return;
+
+        const record = transfers.read(this.transferRetryId);
+        this.transferRetryRecord = record;
+        this.transferRetryError = "";
+        if (record?.status !== "failed") return;
+
+        this.transferRetryChecking = true;
+        try {
+          const fileId = record.fileId ? await this.computeFileId(file) : null;
+          if (file.name !== record.name || file.size !== record.size ||
+              file.lastModified !== record.lastModified || (record.fileId && fileId !== record.fileId)) {
+            this.transferRetryError = "文件与原记录不匹配，请重新选择。";
+            return;
+          }
+          const maxBytes = this.effectiveUploadLimit(record.mode);
+          if (maxBytes && file.size > maxBytes) {
+            this.transferRetryError = "文件大小超过原存储节点的当前上限。";
+            return;
+          }
+
+          const item = this.createUploadTask(file, record.mode);
+          Object.assign(item, {
+            transferId: record.id,
+            folderPath: record.folderPath,
+            fileId,
+            uploadId: record.uploadId,
+            chunkSize: record.chunkSize,
+          });
+          this.uploadingFiles.push(item);
+          this.requestUploadScheduling();
+        } finally {
+          this.transferRetryChecking = false;
+        }
+      },
+
       /* ===== 文件入队 ===== */
       async processFiles(files) {
-        if (!files || !files.length) return;
+        if (this.transferRetryId || !files || !files.length) return;
         /* 兜底门禁：任何调用方（拖拽 / 粘贴 / 文件夹 / 选择）都不得绕过。
            访客被禁时直接拦下，不入队、不调度、不发请求。 */
         if (!this.guardUploadAllowed()) return;
@@ -3672,6 +3742,9 @@
         const inlinePreview = canThumb && this.uploadingFiles.length < TASK_PREVIEW_BUDGET;
         return {
           uid: `u${Date.now().toString(36)}${(this.uploadTaskSeq = (this.uploadTaskSeq || 0) + 1).toString(36)}`,
+          transferId: this.transferRecordsAllowed && transfers
+            ? (globalThis.crypto?.randomUUID?.() || `tx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`)
+            : null,
           name: file.name, size: file.size, file: file, targetMode, folderPath: this.folderPath,
           status: "waiting", statusText: "等待中", statusTone: "", statusHint: "", speed: "", uploadedBytes: 0,
           preview: inlinePreview ? URL.createObjectURL(file) : null,
@@ -3794,16 +3867,39 @@
               item.runToken = (item.runToken || 0) + 1;
               const token = item.runToken;
               try {
-                item.status = "uploading";
-                item.statusText = "上传中";
-                item.statusTone = "";
-                item.statusHint = "";
-                item.error = null;
-                await this.uploadOne(item, token);
-                /* 关键：任务本身跑完了就必须结算，不能因为「别的任务被暂停」
-                   导致 epoch 过期而丢弃它的成功结果——否则该任务会永远卡在
-                   uploading。epoch 只用来决定「还要不要派发新任务」。 */
-                this.finishUploadTask(item);
+                const run = async (locked) => {
+                  this.assertTaskRunning(item, token);
+                  if (!locked) {
+                    const message = "另一个页面正在处理此文件，请稍后再试。";
+                    item.status = "error";
+                    item.statusText = message;
+                    item.error = message;
+                    item.autoRetryExhausted = true;
+                    return;
+                  }
+                  if (item.transferId && transfers.read(item.transferId)?.status === "success") {
+                    this.finishUploadTask(item);
+                    return;
+                  }
+                  item.status = "uploading";
+                  item.statusText = "上传中";
+                  item.statusTone = "";
+                  item.statusHint = "";
+                  item.error = null;
+                  try {
+                    await this.uploadOne(item, token);
+                    this.finishUploadTask(item);
+                    this.recordTransfer(item, "success");
+                  } catch (err) {
+                    this.handleUploadError(item, err, token);
+                    if (item.runToken === token && (item.status === "blocked" ||
+                        (item.status === "error" && item.autoRetryExhausted))) {
+                      this.recordTransfer(item, "failed", item.error);
+                    }
+                  }
+                };
+                if (item.transferId) await transfers.withLock(item.transferId, run);
+                else await run(true);
               } catch (err) {
                 this.handleUploadError(item, err, token);
               } finally {
@@ -3936,7 +4032,9 @@
         const mode = item.targetMode || this.storageMode;
         const limit = this.getUploadLimit(mode);
         const threshold = this.uploadConfig.smallFileThreshold || limit.directThreshold || 20 * 1024 * 1024;
-        if (item.file.size > threshold && limit.supportsChunkUpload) await this.chunkedUpload(item, token);
+        if (item.uploadId || (item.file.size > threshold && limit.supportsChunkUpload)) {
+          await this.chunkedUpload(item, token);
+        }
         else await this.directUpload(item, token);
       },
       async directUpload(item, token) {
@@ -3992,7 +4090,8 @@
         }
         if (item.runToken !== token) throw new Error("__ABORTED__");
         if (Array.isArray(data) && data[0]?.error) throw new Error(data[0]?.error || "上传未成功");
-        const src = data[0]?.src;
+        const src = data?.[0]?.src;
+        if (!src) throw new Error("上传未返回文件地址");
         const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${src}`, size: item.size, selected: false };
         this.applyShareResult(uploadedObj, data[0]);
         this.uploadedFiles.unshift(uploadedObj);
@@ -4231,7 +4330,7 @@
 
         /* 恢复本地持久化断点（刷新页面/重选同一文件时直接带回 uploadId / chunkSize / parts） */
         let savedChunkSize = 0;
-        if (!item.uploadId) {
+        if (!item.uploadId && !this.transferRetryId) {
           const saved = this.readResumeState(item.fileId);
           if (saved && saved.uploadId && saved.size === file.size && saved.mode === mode && saved.fileName === file.name) {
             item.uploadId = saved.uploadId;
@@ -4280,7 +4379,8 @@
                   totalChunks: plannedTotalChunks, chunkSize: plannedChunkSize, storageMode: mode,
                   folderPath: item.folderPath ?? this.folderPath,
                   shareOptions: this.buildShareOptions(),
-                  fileId: item.fileId, resume: true, uploadId: item.uploadId || undefined,
+                  fileId: item.fileId, resume: sessionAttempt === 1, uploadId: item.uploadId || undefined,
+                  recoverCompleted: Boolean(this.transferRetryId && item.uploadId),
                 }),
               });
               initData = await initRes.json().catch(() => null);
@@ -4302,6 +4402,10 @@
           }
           this.assertTaskRunning(item, token);
 
+          if (initData.completed === true) {
+            this.acceptChunkedUpload(item, initData.result, mode);
+            return;
+          }
           const uploadId = initData.uploadId || item.uploadId;
           const chunkSize = (Number.isInteger(initData.chunkSize) && initData.chunkSize >= MIN_CHUNK_SIZE)
             ? initData.chunkSize
@@ -4771,25 +4875,29 @@
           }
 
           this.assertTaskRunning(item, token);
-          this.clearResumeState(item.fileId);
-          item.uploadId = null;
-          item.chunkSize = 0;
-          item.chunkDone = [];
-          item.parts = null;
-          item.uploadedBytes = file.size;
-          const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${completeData.src}`, size: item.size, selected: false };
-          this.applyShareResult(uploadedObj, completeData);
-          this.uploadedFiles.unshift(uploadedObj);
-          this.addToHistory(uploadedObj, mode, item.folderPath);
-          this.submitThumbnail(item.file, completeData.src);
+          this.acceptChunkedUpload(item, completeData, mode);
           return;
         }
+      },
+      acceptChunkedUpload(item, result, mode) {
+        if (!result?.src) throw new Error("合并分片未返回文件地址");
+        this.clearResumeState(item.fileId);
+        item.uploadId = null;
+        item.chunkSize = 0;
+        item.chunkDone = [];
+        item.parts = null;
+        item.uploadedBytes = item.size;
+        const uploadedObj = { name: item.name, fileName: item.name, url: `${this.baseURL}${result.src}`, size: item.size, selected: false };
+        this.applyShareResult(uploadedObj, result);
+        this.uploadedFiles.unshift(uploadedObj);
+        this.addToHistory(uploadedObj, mode, item.folderPath);
+        this.submitThumbnail(item.file, result.src);
       },
       /* ===== 暂停 / 继续 / 重试（统一走意图 + 令牌 + 重调度） ===== */
       retryUpload(file, fromScratch = false) {
         if (!file || file.status === "blocked") return;
         if (!this.guardUploadAllowed()) return;
-        file.targetMode = this.resolveStorageForFile(file.size);
+        file.targetMode = file.targetMode || this.resolveStorageForFile(file.size);
         file.status = "waiting";
         file.statusText = fromScratch ? "重新上传" : "等待续传";
         file.statusTone = "";
@@ -5627,17 +5735,13 @@
         finally { this.historyBatchBusy = false; }
       },
 
-      /* 云端删除的确认与执行。确认收在这里而不是各调用方，是为了让
-         交付结果和历史记录两条入口的文案、按钮、风险提示完全一致。 */
       confirmDeleteFromCloud(count) {
         return this.confirmDanger(
-          `将从云端删除选中的 ${count} 个文件。\n\n删除后无法通过本站恢复。`,
+          `将选中的 ${count} 个文件移入回收站，可在管理后台恢复。`,
           {
-            title: "删除云端文件",
-            subtitle: "危险操作",
-            confirmText: `删除 ${count} 个`,
+            title: "移入回收站",
+            confirmText: `移入 ${count} 个文件`,
             cancelText: "取消",
-            note: "KV 记录与已生成的分享短链会一并清除",
           }
         );
       },
@@ -5651,26 +5755,21 @@
           const id = this.shareTargetIdOf(item);
           if (!id) { failed.push(this.getDisplayName(item)); continue; }
           try {
-            /* 与 admin / gallery 的调用方式保持一致：不带 method 走 GET，
-               delete 处理器是 onRequest（全方法），鉴权由 manage 中间件兜住。 */
-            const res = await fetch(`${this.baseURL}/api/manage/delete/${encodeURIComponent(id)}`, {
-              credentials: "include",
+            const data = await KVault.fetchJSON("/api/manage/trash", {
+              method: "POST",
+              body: { id, action: "trash" },
             });
-            const data = await res.json().catch(() => ({}));
-            /* 记录本来就没了（KV 已过期 / 别处已删）当作成功 —— 用户此刻
-               要的就是「这条从列表里消失」，没必要为不存在的记录报错。 */
-            const gone = res.status === 404 || res.status === 410 || /not found/i.test(String(data.error || ""));
-            if ((!res.ok && !gone) || (!gone && data.success === false)) { failed.push(this.getDisplayName(item)); continue; }
-            done += 1;
-            if (typeof onRemoved === "function") onRemoved(item);
+            if (!data?.success) throw new Error("无法移入回收站");
           } catch (e) {
-            failed.push(this.getDisplayName(item));
+            if (e.status !== 404) { failed.push(this.getDisplayName(item)); continue; }
           }
+          done += 1;
+          if (typeof onRemoved === "function") onRemoved(item);
         }
-        if (done) this.showToast(`已删除 ${done} 个文件`, "success");
+        if (done) this.showToast(`已处理 ${done} 个文件，可在后台回收站查看`, "success");
         if (failed.length) {
           const preview = failed.slice(0, 3).join("、");
-          this.showToast(`${failed.length} 个文件删除失败${preview ? `：${preview}${failed.length > 3 ? " 等" : ""}` : ""}`, "error");
+          this.showToast(`${failed.length} 个文件移入回收站失败${preview ? `：${preview}${failed.length > 3 ? " 等" : ""}` : ""}`, "error");
         }
         return done;
       },
@@ -6149,6 +6248,7 @@
       /* ===== Auth ===== */
       async checkAuth() {
         this.authChecking = true;
+        this.transferRecordsAllowed = false;
         try {
           const res = await fetch("/api/auth/check", { credentials: "include" });
           const data = await res.json();
@@ -6160,6 +6260,10 @@
             this.airdropCapabilityLoaded = true;
           }
           if (!res.ok) throw new Error("上传权限检查失败");
+          this.transferRecordsAllowed = data.authenticated === true && data.authRequired !== false;
+          if (this.transferRecordsAllowed && this.transferRetryId) {
+            this.transferRetryRecord = transfers.read(this.transferRetryId);
+          }
           this.authRequired = data.authRequired === true;
           this.isAuthenticated = Boolean(data.authenticated) && data.authRequired !== false;
           this.isGuest = !this.isAuthenticated;
@@ -6370,7 +6474,16 @@
       window.addEventListener("keydown", this._dlgKeyHandler, true);
       /* 页面隐藏 / 关闭时把防抖中的历史记录立刻落盘，
          否则「最后 800ms 内完成的上传」会从历史里凭空消失。 */
-      this._pageHideHandler = () => this.persistHistory({ immediate: true });
+      this._pageHideHandler = (event) => {
+        this.persistHistory({ immediate: true });
+        if (event.persisted) return;
+        for (const item of this.uploadingFiles) {
+          if (item.cancelRequested || item.want !== "run") continue;
+          if (["waiting", "uploading", "processing"].includes(item.status)) {
+            this.recordTransfer(item, "failed", "页面关闭前传输尚未完成。");
+          }
+        }
+      };
       window.addEventListener("pagehide", this._pageHideHandler);
       /* L7：窗口尺寸变化时让 dock 拖拽的几何缓存失效（正常拖拽中途不会 resize，
          这条只是兜底，防止极端时序下拿到过期槽位宽度） */

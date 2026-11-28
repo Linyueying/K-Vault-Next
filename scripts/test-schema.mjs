@@ -39,7 +39,7 @@ const ROOT = join(__dirname, '..');
  * 这里写成常量是为了让新增迁移时只改一处 —— 若直接散落字面量，
  * 每加一个迁移都要翻遍整个测试文件找硬编码的数字。
  */
-const FILE_COLUMN_COUNT = 26;
+const FILE_COLUMN_COUNT = 27;
 
 let pass = 0;
 let fail = 0;

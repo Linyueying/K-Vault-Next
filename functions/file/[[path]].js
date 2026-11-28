@@ -94,15 +94,8 @@ const MIME_TYPES = {
 export async function onRequest(context) {
   const startedAt = Date.now();
 
-  // ---- 字节缓存：命中就完全不必碰 D1 / KV / Telegram ----
-  // 这是「国内用户 + Telegram 后端」唯一能把 TTFB 从跨洋降到 PoP 本地的手段。
-  let response = await tryByteCacheMatch(context);
-  const fromByteCache = Boolean(response);
-  if (response) {
-    response = conditionalFromByteCache(context, response);
-  } else {
-    response = await handleRequest(context);
-  }
+  const response = await handleRequest(context);
+  const fromByteCache = context.__kvByteCache === 'HIT';
 
   /* HEAD 在进计次之前就脱掉 body：下游的 trackDownloadsIfNeeded 拿不到流，
      也就不会为一次「只问在不在」的探测去做流包装。 */
@@ -330,7 +323,7 @@ const inFlightByteCacheKeys = new Set();
 let inflightByteCacheBytes = 0;
 
 /**
- * 尝试从边缘缓存取字节。命中则后续完全不必碰任何后端。
+ * 文件状态与访问权限确认后，从边缘缓存读取字节，避免再次回源。
  *
  * 支持：
  *   - 完整 GET 命中（<5ms PoP 本地吐字节）
@@ -808,6 +801,7 @@ if (!fileId) {
     // 合集成员文件：受合集自身的密码与配额保护，公共缓存必须让路
     if (bundleAccess?.slug) context.__kvBundleAccess = true;
 
+    context.__kvByteCache = 'BYPASS';
     const signedTelegramMeta = await parseSignedTelegramFileId(fileId, env);
     if (signedTelegramMeta) {
       // 签名直链自带有效期，同样不进公共缓存
@@ -823,6 +817,7 @@ if (!fileId) {
       // getRecordWithKey 返回 { record, kvKey }，其中 record 才是
       // getWithMetadata 的 { value, metadata }。少一层 .record 会让
       // signedMetadata 恒为 null —— 分享闸门全部静默跳过。
+      if (signedRecord?.trashedAt) return errorResponse('File not found', 404);
       const signedMetadata = signedRecord?.record?.metadata || null;
 
       let signedShareAccess = null;
@@ -848,7 +843,7 @@ if (!fileId) {
     // 供外层判定「能否安全缓存」（见 markPublicCacheable）
     context.__kvFileMetadata = record?.metadata || null;
 
-    if (env.img_url && !record?.metadata) {
+    if (recordResult?.trashedAt || (env.img_url && !record?.metadata)) {
       return errorResponse('File not found', 404);
     }
 
@@ -857,6 +852,17 @@ if (!fileId) {
       shareAccess = await verifyShareAccess(context, record.metadata, kvKey);
       if (shareAccess?.response) {
         return shareAccess.response;
+      }
+    }
+
+    if (isImmutablePublic(record?.metadata) && !context.__kvBundleAccess) {
+      const cached = await tryByteCacheMatch(context);
+      if (cached) {
+        const response = conditionalFromByteCache(context, cached);
+        const headers = new Headers(response.headers);
+        headers.set('Cache-Control', 'no-cache, max-age=0');
+        headers.set('CDN-Cache-Control', 'no-store');
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
       }
     }
 
@@ -1000,7 +1006,7 @@ function headOnlyResponse(fileName, mimeType, contentLength) {
 async function getRecordWithKey(env, fileId, options = {}) {
   // 统一走 utils/file-record.js：带前缀 ID 行为不变，裸 ID 走索引加速；
   // 透传 options.background，确保 L2 记录缓存回填挂入 context.waitUntil 不被提前回收。
-  return findRecordWithKey(env, fileId, options);
+  return findRecordWithKey(env, fileId, { ...options, fresh: true });
 }
 
 function getSharePassword(request) {

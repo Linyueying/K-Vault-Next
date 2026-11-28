@@ -146,6 +146,8 @@ HEADER = """-- =================================================================
 """
 
 TITLES = {
+    "0019_file_trash": "文件回收站（files.trashed_at）",
+    "0020_trash_indexes": "回收站列表与在库文件去重索引",
     "0001_files": "K-Vault 文件元数据表（D1）",
     "0002_folder_markers": "文件夹标记纳入 files 表",
     "0003_share_bundles": "合集分享（bundle）纳入 D1",

@@ -367,7 +367,7 @@ export async function statDavPath(env, davPath) {
   if (!normalized) return { type: 'folder' };
 
   // 1) 先当文件查
-  const { record, kvKey } = await getRecordWithKey(env, normalized);
+  const { record, kvKey } = await getRecordWithKey(env, normalized, { fresh: true });
   if (record?.metadata) {
     return { type: 'file', record, kvKey };
   }
@@ -679,7 +679,7 @@ function idFromKvKey(kvKey) {
 /** 删除单个文件：元数据 + 后端对象。 */
 export async function davDeleteFileByPath(env, davPath) {
   const normalized = normalizeDavPath(davPath, '');
-  const { record, kvKey } = await getRecordWithKey(env, normalized);
+  const { record, kvKey } = await getRecordWithKey(env, normalized, { fresh: true });
   if (!record?.metadata) return false;
 
   await deleteFromBackend(kvKey, record.metadata, env);

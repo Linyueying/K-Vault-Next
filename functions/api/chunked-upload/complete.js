@@ -241,6 +241,9 @@ export async function onRequestPost(context) {
       });
       if (doneSnapshot && Number.isFinite(Number(doneSnapshot.expiresAt)) &&
           Date.now() < Number(doneSnapshot.expiresAt)) {
+        if (doneSnapshot.ownerId && doneSnapshot.ownerId !== ownerId) {
+          return jsonResponse({ error: '无权操作该上传任务' }, 403);
+        }
         return jsonResponse(doneSnapshot.body || { error: '完成快照损坏' });
       }
       return jsonResponse({ error: '上传任务不存在或已过期' }, 404);
@@ -1062,7 +1065,14 @@ export async function onRequestPost(context) {
     await env.img_url
       .put(
         `upload-done:${uploadId}`,
-        JSON.stringify({ body: finalResponse, expiresAt: Date.now() + DONE_SNAPSHOT_TTL_SECONDS * 1000 }),
+        JSON.stringify({
+          body: finalResponse,
+          ownerId,
+          fileId: taskData.fileId,
+          folderPath: taskData.folderPath || '',
+          storageMode: storageType,
+          expiresAt: Date.now() + DONE_SNAPSHOT_TTL_SECONDS * 1000,
+        }),
         { expirationTtl: DONE_SNAPSHOT_TTL_SECONDS }
       )
       .catch((e) => console.warn('write done snapshot failed:', e));

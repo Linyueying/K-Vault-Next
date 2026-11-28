@@ -492,7 +492,7 @@ export async function resolveBundleFileIds(env, fileIds) {
     const results = await Promise.all(
       batch.map(async (fileId) => {
         try {
-          const { record, kvKey } = await getRecordWithKey(env, fileId);
+          const { record, kvKey } = await getRecordWithKey(env, fileId, { fresh: true });
           if (!record?.metadata) return { fileId, ok: false };
           return { fileId, ok: true, kvKey, metadata: record.metadata };
         } catch (error) {

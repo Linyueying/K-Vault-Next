@@ -135,7 +135,7 @@ export async function onRequest(context) {
     }
 
     // ---------- 2. 定位记录 ----------
-    const { record, kvKey } = d1Hit || (await getRecordWithKey(env, fileId));
+    const { record, kvKey } = d1Hit || (await getRecordWithKey(env, fileId, { fresh: true }));
     if (!record?.metadata) {
       return jsonResponse({ error: 'SHARE_NOT_FOUND', message: '分享链接不存在。' }, 404);
     }
@@ -355,7 +355,7 @@ async function respondBundle(env, slug, url, request) {
     } else {
       for (const fileId of bundle.fileIds) {
         try {
-          const { record, kvKey } = await getRecordWithKey(env, fileId);
+          const { record, kvKey } = await getRecordWithKey(env, fileId, { fresh: true });
           if (!record?.metadata) continue;
           files.push({
             fileName: record.metadata.fileName || String(kvKey || fileId),

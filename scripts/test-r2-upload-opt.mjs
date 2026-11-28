@@ -322,6 +322,39 @@ test('D1 upload_parts end-to-end: 0 KV part-state writes, resume via D1, complet
 
   await wu.flush();
 
+  const retryAfterLostResponse = (overrides = {}, currentEnv = env) => initChunks({
+    request: new Request('https://example.test/api/chunked-upload/init', {
+      method: 'POST',
+      headers: { Authorization: 'Basic ' + btoa(`${currentEnv.BASIC_USER}:${currentEnv.BASIC_PASS}`) },
+      body: JSON.stringify({
+        fileName: 'video.mp4',
+        fileId: 'fp-video-1',
+        fileSize,
+        totalChunks,
+        chunkSize,
+        storageMode: 'r2',
+        uploadId,
+        recoverCompleted: true,
+        ...overrides,
+      }),
+    }),
+    env: currentEnv,
+    waitUntil: wu.waitUntil,
+  });
+
+  const recovered = await retryAfterLostResponse();
+  assert.deepEqual(await recovered.json(), { success: true, completed: true, result: completeData });
+  const differentOwner = await retryAfterLostResponse({}, { ...env, BASIC_USER: 'other' });
+  const otherResult = await differentOwner.json();
+  assert.equal(otherResult.completed, undefined);
+  assert.notEqual(otherResult.uploadId, uploadId);
+
+  const fresh = await retryAfterLostResponse({ resume: false });
+  const freshResult = await fresh.json();
+  assert.equal(freshResult.resumed, false);
+  assert.notEqual(freshResult.uploadId, uploadId);
+  assert.deepEqual(freshResult.uploadedChunks, []);
+
   // Verify D1 upload_parts cleaned up after complete
   const remainingRows = migrated._db
     .prepare('SELECT COUNT(*) as cnt FROM upload_parts WHERE upload_id = ?')

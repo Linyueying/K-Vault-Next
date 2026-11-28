@@ -66,7 +66,7 @@ function shouldIncludeFileRecord(key) {
   if (INVALID_PREFIXES.some((prefix) => key.name.startsWith(prefix))) return false;
   if (isFolderMarker(key)) return false;
   const metadata = key.metadata || {};
-  return Boolean(metadata.fileName) && metadata.TimeStamp !== undefined && metadata.TimeStamp !== null;
+  return !metadata.trashedAt && Boolean(metadata.fileName) && metadata.TimeStamp !== undefined && metadata.TimeStamp !== null;
 }
 
 function includeParentPaths(pathValue, set) {

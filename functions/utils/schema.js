@@ -532,6 +532,18 @@ const M0018_UPLOAD_PARTS = [
   ON upload_parts(expires_at)`,
 ];
 
+const M0019_FILE_TRASH = [
+  `ALTER TABLE files ADD COLUMN trashed_at INTEGER`,
+];
+
+const M0020_TRASH_INDEXES = [
+  `CREATE INDEX IF NOT EXISTS idx_files_trashed_at ON files(trashed_at DESC)
+    WHERE trashed_at IS NOT NULL`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_files_active_content_sha ON files(content_sha)
+    WHERE content_sha IS NOT NULL AND trashed_at IS NULL`,
+  `DROP INDEX IF EXISTS idx_files_content_sha`,
+];
+
 export const MIGRATIONS = [
   { id: '0001_files', statements: M0001_FILES },
   {
@@ -590,6 +602,12 @@ export const MIGRATIONS = [
     statements: M0017_SHOW_TAG,
   },
   { id: '0018_upload_parts', statements: M0018_UPLOAD_PARTS },
+  {
+    id: '0019_file_trash',
+    guard: { type: 'column', table: 'files', column: 'trashed_at' },
+    statements: M0019_FILE_TRASH,
+  },
+  { id: '0020_trash_indexes', statements: M0020_TRASH_INDEXES },
 ];
 
 // ============================================================================

@@ -61,14 +61,19 @@ async function handle(context, headOnly) {
 
   // 并行读取缩略图与文件元数据：由 2 次串行 RTT 压成 1 次并发往返，TTFB 减半。
   const background = [];
-  const [thumb, metadata] = await Promise.all([
+  const [thumb, lookup] = await Promise.all([
     getThumb(env, key),
     readMetadata(env, key, background),
   ]);
   if (background.length && typeof context.waitUntil === 'function') {
     context.waitUntil(Promise.allSettled(background));
   }
+  if (lookup?.trashedAt) {
+    if (thumb?.body?.cancel) thumb.body.cancel().catch(() => {});
+    return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+  }
   if (!thumb) return fallbackToFile(request, key);
+  const metadata = lookup?.record?.metadata;
 
   const guarded = isShareGuarded(metadata);
 
@@ -90,7 +95,7 @@ async function handle(context, headOnly) {
     headers304.set('X-Thumbnail', '1');
     headers304.set(
       'Cache-Control',
-      guarded ? 'private, no-store, max-age=0' : 'public, max-age=31536000, immutable'
+      guarded ? 'private, no-store, max-age=0' : 'public, no-cache, max-age=0'
     );
     if (guarded) headers304.set('CDN-Cache-Control', 'no-store');
     return new Response(null, { status: 304, headers: headers304 });
@@ -108,7 +113,7 @@ async function handle(context, headOnly) {
   // 否则边缘缓存会把管理员看到的那张小图喂给匿名访客。
   headers.set(
     'Cache-Control',
-    guarded ? 'private, no-store, max-age=0' : 'public, max-age=31536000, immutable'
+    guarded ? 'private, no-store, max-age=0' : 'public, no-cache, max-age=0'
   );
   if (guarded) headers.set('CDN-Cache-Control', 'no-store');
 
@@ -131,8 +136,7 @@ function buildThumbEtag(key, thumb, metadata) {
 /** 取文件元数据；失败不抛出（读不到就当"没有保护"，因为此时缩略图本身也在被否决的边缘） */
 async function readMetadata(env, key, background = null) {
   try {
-    const { record } = await getRecordWithKey(env, key, background ? { background } : {});
-    return record?.metadata || null;
+    return await getRecordWithKey(env, key, { background, fresh: true });
   } catch (error) {
     console.warn('thumb: read metadata failed:', error?.message || error);
     return null;

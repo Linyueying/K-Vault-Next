@@ -343,9 +343,10 @@ export async function onRequestPost(context) {
         console.warn('Expired upload_parts cleanup failed:', err);
       }));
     }
-    const resumedResponse = await tryResumeTask(env, ownerId, {
+    const resumedResponse = body?.resume === false ? null : await tryResumeTask(env, ownerId, {
       fileId: normalizedFileId,
       uploadId: normalizedResumeId,
+      recoverCompleted: body?.recoverCompleted === true,
       fileName,
       fileSize: normalizedFileSize,
       totalChunks: normalizedTotalChunks,
@@ -747,11 +748,22 @@ async function tryResumeTask(env, ownerId, req) {
 
   if (!candidateId) return null;
 
+  if (req.recoverCompleted && req.uploadId && req.fileId) {
+    const completed = await env.img_url.get(`upload-done:${candidateId}`, { type: 'json' });
+    if (completed?.ownerId === ownerId && completed.fileId === req.fileId &&
+        completed.storageMode === req.storageMode && completed.folderPath === (req.folderPath || '') &&
+        completed.body?.fileName === req.fileName && Number(completed.body.fileSize) === req.fileSize &&
+        completed.body.src && Date.now() < Number(completed.expiresAt)) {
+      return jsonResponse({ success: true, completed: true, result: completed.body });
+    }
+  }
+
   let taskData;
   try {
     taskData = await env.img_url.get(`upload:${candidateId}`, { type: 'json' });
   } catch (err) {
     console.error('read upload task for resume failed:', err);
+    if (req.recoverCompleted) throw err;
     return null;
   }
 
@@ -769,6 +781,7 @@ async function tryResumeTask(env, ownerId, req) {
   }
 
   // ---- 参数一致性校验 ----
+  if (req.recoverCompleted && taskData.fileId && taskData.fileId !== req.fileId) return null;
   if (Number(taskData.fileSize) !== req.fileSize) return null;
   if (taskData.fileName !== req.fileName) return null;
   if (taskData.storageMode !== req.storageMode) return null;

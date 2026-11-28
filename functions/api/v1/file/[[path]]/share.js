@@ -169,7 +169,7 @@ export async function onRequest(context) {
 
   // GET：只读查询，不改动任何数据。
   if (method === 'GET') {
-    const located = await getRecordWithKey(env, fileId);
+    const located = await getRecordWithKey(env, fileId, { fresh: true });
     if (!located?.record?.metadata) {
       return apiError('FILE_NOT_FOUND', `未找到文件：${fileId}`, 404);
     }
@@ -200,7 +200,7 @@ export async function onRequest(context) {
     return apiError('VALIDATION_ERROR', `未知的 action "${action}"，应为 create / update / revoke / get。`, 400);
   }
   if (action === 'get') {
-    const located = await getRecordWithKey(env, fileId);
+    const located = await getRecordWithKey(env, fileId, { fresh: true });
     if (!located?.record?.metadata) {
       return apiError('FILE_NOT_FOUND', `未找到文件：${fileId}`, 404);
     }
@@ -214,7 +214,7 @@ export async function onRequest(context) {
 
   try {
     // ---------- 1. 定位文件 ----------
-    const located = await getRecordWithKey(env, fileId);
+    const located = await getRecordWithKey(env, fileId, { fresh: true });
     if (!located?.record?.metadata) {
       return apiError('FILE_NOT_FOUND', `未找到文件：${fileId}`, 404);
     }

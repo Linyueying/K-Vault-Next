@@ -70,8 +70,8 @@ async function getRecordWithKey(env, fileId) {
   const normalizedId = normalizeFileIdentifier(fileId);
 
   // 先走公共的索引加速探测（裸 ID 命中索引时 2 次读直达）
-  const located = await findRecordWithKey(env, normalizedId);
-  if (located?.record?.metadata) {
+  const located = await findRecordWithKey(env, normalizedId, { fresh: true });
+  if (located?.trashedAt || located?.record?.metadata) {
     return located;
   }
 
@@ -85,7 +85,7 @@ async function getRecordWithKey(env, fileId) {
     for (const key of page.keys || []) {
       if (!key?.name || INVALID_PREFIXES.some((prefix) => key.name.startsWith(prefix))) continue;
       const metadata = key.metadata || {};
-      if (metadata.folderMarker === true) continue;
+      if (metadata.folderMarker === true || metadata.trashedAt) continue;
       if (String(metadata.fileName || '').trim() !== normalizedId) continue;
       matched = key;
       matchCount += 1;
@@ -98,7 +98,7 @@ async function getRecordWithKey(env, fileId) {
 
   if (matchCount === 1 && matched?.name) {
     const record = await env.img_url.getWithMetadata(matched.name);
-    if (record?.metadata) {
+    if (record?.metadata && !record.metadata.trashedAt) {
       // metadata 刚读出来就在手边，直接交给 D1，省掉登记时的二次回读
       await putRecordIndex(env, matched.name, { metadata: record.metadata });
       return { record, kvKey: matched.name };

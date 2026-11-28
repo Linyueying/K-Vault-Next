@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="/assets/css/theme.css">
 <script src="/assets/js/theme.js?v=20260305"></script>
 <script src="/assets/js/app-core.js"></script>
+<script src="/assets/js/transfer-records.js"></script>
 <style>
 /* =========================================================
    admin 局部令牌覆盖
@@ -1539,6 +1540,7 @@ Apple 风格动效 · 应用层（首屏错峰入场）
   /* 几何令牌：指示器位移公式依赖它们，改这里即可整体调间距 */
   --dock-pad:6px;
   --dock-gap:6px;
+  --dock-count:6;
   /* 指示器位置真源（单位：格，可为小数）：静态默认 0。
      点击 -> 整数落点；拖拽 -> 连续小数。 */
   --dock-pos:0;
@@ -1554,7 +1556,7 @@ Apple 风格动效 · 应用层（首屏错峰入场）
   box-shadow:0 16px 40px -10px rgba(2,132,199,.22),0 4px 14px -3px rgba(0,0,0,.08);
   z-index:100;
   display:grid;
-  grid-template-columns:repeat(5,1fr);
+  grid-template-columns:repeat(var(--dock-count),1fr);
   gap:var(--dock-gap);
   overflow:visible;
   touch-action:pan-y;
@@ -1623,7 +1625,7 @@ html[data-theme="dark"] .dock__btn.active{color:#f0f9ff;background:transparent;b
   left:var(--dock-pad);
   /* absolute 的 % 参照 padding box（含 dock padding），而按钮槽宽基于内容盒，
      故先减掉两侧 padding 还原内容盒宽，再 5 等分减 4 个 gap。 */
-  width:calc((100% - 2 * var(--dock-pad) - 4 * var(--dock-gap)) / 5);
+  width:calc((100% - 2 * var(--dock-pad) - (var(--dock-count) - 1) * var(--dock-gap)) / var(--dock-count));
   border-radius:var(--r-pill);
   z-index:0;
   pointer-events:none;
@@ -1917,6 +1919,25 @@ html[data-perf="low"] .dock{transition:none}
     .show-style-grid { grid-template-columns: minmax(0, 1fr); }
     .show-settings-grid { grid-template-columns: minmax(0, 1fr); }
   }
+.transfer-panel { display:grid; gap:var(--sp-3); }
+.transfer-panel h2 { margin:0; font-size:var(--fs-lg); }
+.transfer-filters { display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.transfer-list { margin:0; padding:0; list-style:none; }
+.transfer-row { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); padding:var(--sp-3) 0; border-top:1px solid var(--glass-border); }
+.transfer-row__details { min-width:0; overflow-wrap:anywhere; }
+.transfer-row__action { flex:none; white-space:nowrap; }
+.transfer-panel__hint, .transfer-row__meta { color:var(--text-sub); font-size:var(--fs-sm); }
+.transfer-panel__hint, .transfer-row__meta { margin:0; }
+.transfer-row__status--success { color:var(--c-success-text); }
+.transfer-row__status--failed, .transfer-error { color:var(--c-danger); }
+.trash-panel { display:grid; gap:var(--sp-3); }
+.trash-panel__head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--sp-2); }
+.trash-panel__head h2, .trash-panel p { margin:0; }
+.trash-panel__hint { color:var(--text-sub); font-size:var(--fs-sm); }
+.trash-list { list-style:none; padding:0; margin:0; }
+.trash-row { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); border-top:1px solid var(--glass-border); padding:var(--sp-3) 0; }
+.trash-row__detail { min-width:0; overflow-wrap:anywhere; }
+.trash-row .btn { flex:none; }
 </style>
 </head>
 <body>
@@ -2091,6 +2112,9 @@ html[data-perf="low"] .dock{transition:none}
              收成正圆（见样式区）。 -->
         <button class="tool-btn" @click="createFolder" title="在当前目录下新建文件夹" aria-label="新建文件夹">
           <i class="fas fa-folder-plus"></i>
+        </button>
+        <button class="tool-btn" type="button" @click="goSection('trash')" title="回收站" aria-label="回收站">
+          <i class="fas fa-trash" aria-hidden="true"></i>
         </button>
       </div>
 
@@ -2505,6 +2529,33 @@ html[data-perf="low"] .dock{transition:none}
   </section>
   <!-- /① 文件浏览（工具栏 + 工具箱 + 文件列表） -->
 
+  <section class="section" data-section="trash" v-show="activeSection==='trash'">
+    <section class="liquid-card card-panel trash-panel" aria-labelledby="trash-title">
+      <div class="trash-panel__head">
+        <h2 id="trash-title">回收站</h2>
+        <button type="button" class="btn btn--sm" @click="goSection('files')">返回文件</button>
+      </div>
+      <p class="trash-panel__hint">恢复文件会放回原目录，原分享链接按原有效期和权限恢复访问。</p>
+      <p v-if="trashError" role="alert">{{ trashError }}
+        <button type="button" class="btn btn--sm" :disabled="trashLoading" @click="loadTrash()">重试</button>
+      </p>
+      <p v-else-if="!trashItems.length" class="trash-panel__hint" role="status">{{ trashLoading ? '正在加载…' : '回收站是空的。' }}</p>
+      <ul v-if="trashItems.length" class="trash-list">
+        <li v-for="item in trashItems" :key="item.id" class="trash-row">
+          <div class="trash-row__detail">
+            <strong>{{ item.name }}</strong>
+            <p class="trash-panel__hint">{{ item.folderPath || '根目录' }} · {{ formatSize(item.size) }} · {{ item.storage }}</p>
+            <p class="trash-panel__hint">移入时间 {{ new Date(item.trashedAt).toLocaleString() }}</p>
+          </div>
+          <button type="button" class="btn btn--sm btn--primary" :disabled="trashBusy" @click="applyTrash('restore', [item])">恢复</button>
+        </li>
+      </ul>
+      <div v-if="trashNext !== null">
+        <button type="button" class="btn btn--sm" :disabled="trashLoading || trashBusy" @click="loadTrash(trashNext)">加载更多</button>
+      </div>
+    </section>
+  </section>
+
   <!-- ② 接入：首屏只留摘要，配置进二级 Sheet -->
   <section class="section" data-section="access" v-show="activeSection==='access'">
     <div class="access-page-head">
@@ -2854,6 +2905,39 @@ html[data-perf="low"] .dock{transition:none}
       </div>
     </section>
     </transition>
+  </section>
+
+  <section class="section" data-section="transfers" v-show="activeSection==='transfers'">
+    <section class="liquid-card card-panel transfer-panel" aria-labelledby="transfers-title">
+      <h2 id="transfers-title">传输记录</h2>
+      <p class="transfer-panel__hint">显示此浏览器最近 200 条上传结果。重试失败文件时需重新选择原文件。</p>
+      <div class="transfer-filters" role="group" aria-label="按传输状态筛选">
+        <button v-for="filter in transferFilters" :key="filter.value" type="button" class="btn btn--sm"
+                :class="{ 'btn--primary': transferFilter === filter.value }"
+                :aria-pressed="transferFilter === filter.value" @click="transferFilter = filter.value">
+          {{ filter.label }} {{ filter.count }}
+        </button>
+      </div>
+      <p v-if="transferRecordsError" class="transfer-error" role="alert">无法读取浏览器中的传输记录。</p>
+      <p v-else-if="!visibleTransferRecords.length" class="transfer-panel__hint" role="status">
+        {{ transferFilter === 'failed' ? '没有失败的传输。' : '没有符合条件的传输记录。' }}
+      </p>
+      <ul v-else class="transfer-list">
+        <li v-for="record in visibleTransferRecords" :key="record.id" class="transfer-row">
+          <div class="transfer-row__details">
+            <strong>{{ record.name }}</strong>
+            <p class="transfer-row__meta">
+              <span :class="record.status === 'success' ? 'transfer-row__status--success' : 'transfer-row__status--failed'">{{ record.status === 'success' ? '成功' : '失败' }}</span>
+              · {{ formatSize(record.size) }} · {{ String(record.mode || '未知节点').toUpperCase() }} · {{ record.folderPath || '根目录' }}
+              · {{ new Date(record.updatedAt).toLocaleString() }}
+            </p>
+            <p v-if="record.error" class="transfer-row__meta">{{ record.error }}</p>
+          </div>
+          <a v-if="record.status === 'failed'" class="btn btn--sm transfer-row__action"
+             :href="'/upload?retry=' + encodeURIComponent(record.id)">重试</a>
+        </li>
+      </ul>
+    </section>
   </section>
 
   <!-- ③ 存储与上传：用量监控 / 上传设置 -->
@@ -4060,7 +4144,7 @@ html[data-perf="low"] .dock{transition:none}
       <button class="dock-act" @click="openBundleShare()" title="生成分享链接（单个或多个文件均可）"><i class="fas fa-share-nodes"></i><span>分享</span></button>
       <button class="dock-act" @click="openMove()" title="把所选文件移动到其它目录"><i class="fas fa-folder-tree"></i><span>移动到</span></button>
       <button class="dock-act" @click="batchDownload" title="批量下载"><i class="fas fa-download"></i><span>下载</span></button>
-      <button class="dock-act danger" @click="batchDelete" title="批量删除"><i class="fas fa-trash"></i><span>删除</span></button>
+      <button class="dock-act danger" @click="batchDelete" title="批量移入回收站"><i class="fas fa-trash"></i><span>删除</span></button>
       <button class="dock-act" @click="clearSelection" title="取消选择"><i class="fas fa-xmark"></i><span>取消</span></button>
     </div>
   </div>
@@ -4413,8 +4497,7 @@ html[data-perf="low"] .dock{transition:none}
   </div>
   </transition>
 
-  <!-- ===== 底部 Dock：板块分页导航（复用 index 的高透液态玻璃 + 滑动指示器）
-       四格对应四个板块；可为小数，点击落整数格、拖拽连续跟手。 ===== -->
+  <!-- ===== 底部 Dock：板块分页导航 ===== -->
   <nav class="dock glass glass-refract"
        ref="dockEl"
        :class="{ 'is-dragging': dockDragActive }"
@@ -4425,7 +4508,7 @@ html[data-perf="low"] .dock{transition:none}
        @pointercancel="onDockPointerCancel">
     <span class="dock__indicator" aria-hidden="true"></span>
 
-    <button class="dock__btn" data-dock-slot="0" :class="{active: activeSection==='files'}"
+    <button class="dock__btn" data-dock-slot="0" :class="{active: activeSection==='files' || activeSection==='trash'}"
             @click="onDockClick(0, () => goSection('files'))">
       <i class="fas fa-folder-open"></i><span>文件</span>
     </button>
@@ -4446,6 +4529,10 @@ html[data-perf="low"] .dock{transition:none}
       <!-- fa-gear 不在 FontAwesome 子集内（见 scripts/subset-fontawesome.py
            的裁剪白名单），改用子集内已有的 fa-sliders。 -->
       <i class="fas fa-sliders"></i><span>设置</span>
+    </button>
+    <button class="dock__btn" data-dock-slot="5" :class="{active: activeSection==='transfers'}"
+            title="传输记录" aria-label="传输记录" @click="onDockClick(5, () => goSection('transfers'))">
+      <i class="fas fa-clock-rotate-left" aria-hidden="true"></i><span>传输</span>
     </button>
   </nav>
 
@@ -4586,12 +4673,9 @@ const folderNodeComponent = {
   `,
 };
 
-/* ===== 板块分页常量 =====
-   五个板块与 dock 五格一一对应。SECTION_ORDER 既是合法路径段的取值域，
-   也决定前后顺序（前进后退依赖它）；DOCK_SLOT_BY_SECTION 是
-   「板块 -> 指示器格位」的映射（恒为 0..4）。 */
-const SECTION_ORDER = ['files', 'shares', 'access', 'storage', 'system'];
-const DOCK_SLOT_BY_SECTION = { files: 0, shares: 1, access: 2, storage: 3, system: 4 };
+/* Dock 顺序同时用于后台路径和滑动指示器格位。 */
+const SECTION_ORDER = ['files', 'shares', 'access', 'storage', 'system', 'transfers'];
+const DOCK_SLOT_BY_SECTION = Object.fromEntries(SECTION_ORDER.map((section, index) => [section, index]));
 
 /* 长按判定阈值（毫秒）。450~500ms 是移动端长按的常见区间：
    短于 400ms 会与「点按」混淆，长于 600ms 用户会以为没反应。 */
@@ -4725,6 +4809,14 @@ const __kvApp = Vue.createApp({
        （见 goSection / mounted）。
        dockDrag 是滑动指示器的跟手拖拽状态，pos 以「格」为单位（可为小数）。 */
     activeSection: 'files',
+    trashItems: [],
+    trashNext: null,
+    trashLoading: false,
+    trashError: '',
+    trashBusy: false,
+    transferRecords: [],
+    transferRecordsError: false,
+    transferFilter: 'all',
     dockDrag: { active:false, lock:'', x0:0, y0:0, pos0:0, pos:0, from:-1, to:-1, moved:false, pointerId:-1, el:null },
 
     /* ===== 动效状态 ===== */
@@ -4898,7 +4990,7 @@ const __kvApp = Vue.createApp({
     kvOpDefs: [
       { key:'read',   label:'读取', icon:'fas fa-eye',   color:'#22c55e' },
       { key:'write',  label:'写入', icon:'fas fa-pen',   color:'#f59e0b' },
-      { key:'delete', label:'删除', icon:'fas fa-trash', color:'#ef4444' },
+      { key:'delete', label:'移入回收站', icon:'fas fa-trash', color:'#ef4444' },
       { key:'list',   label:'列表', icon:'fas fa-list',  color:'#8b5cf6' }
     ],
     r2OpDefs: [
@@ -5095,6 +5187,18 @@ const __kvApp = Vue.createApp({
 
   computed: {
     /* ---------- 板块分页 / Dock ---------- */
+    transferFilters() {
+      const failures = this.transferRecords.filter(record => record.status === 'failed').length;
+      return [
+        { value: 'all', label: '全部', count: this.transferRecords.length },
+        { value: 'failed', label: '失败', count: failures },
+        { value: 'success', label: '成功', count: this.transferRecords.length - failures },
+      ];
+    },
+    visibleTransferRecords() {
+      if (this.transferFilter === 'all') return this.transferRecords;
+      return this.transferRecords.filter(record => record.status === this.transferFilter);
+    },
     /* 面板可见性由板块派生：这些面板已内联为板块内容，
        「打开 X 面板」等价于「切到 X 所在板块」。
        好处：面板内部那些 `if (this.xxxPanelVisible)` 的刷新守卫语义自动正确。 */
@@ -5144,7 +5248,7 @@ const __kvApp = Vue.createApp({
     /* Dock 指示器落点（0-3）：拖拽中用手势的浮点 pos，否则按当前板块查表 */
     dockIndicatorIndex() {
       if (this.dockDrag.active && this.dockDrag.lock === 'x') return this.dockDrag.pos;
-      const slot = DOCK_SLOT_BY_SECTION[this.activeSection];
+      const slot = DOCK_SLOT_BY_SECTION[this.activeSection === 'trash' ? 'files' : this.activeSection];
       return typeof slot === 'number' ? slot : 0;
     },
     dockDragActive() { return this.dockDrag.active && this.dockDrag.lock === 'x'; },
@@ -5480,7 +5584,7 @@ const __kvApp = Vue.createApp({
   created() {
     /* 实例级（非响应式）状态 */
     this._toastSeq = 0;
-    this._pendingDeletes = [];
+    this._trashListSeq = 0;
 
     /* 同步状态点：状态机在共享层，这里只创建 + 订阅。
        失败重试 2 次由 track() 内部完成（退避 600ms / 1500ms），
@@ -6535,19 +6639,31 @@ const __kvApp = Vue.createApp({
       }
     },
 
+    loadTransferRecords(event) {
+      if (this.activeSection !== 'transfers') return;
+      const store = window.KVaultTransferRecords;
+      if (event?.type === 'storage' && event.key && !event.key.startsWith(store?.prefix || 'kvault:transfer:')) return;
+      try {
+        this.transferRecords = store.list();
+        this.transferRecordsError = false;
+      } catch (e) {
+        this.transferRecordsError = true;
+      }
+    },
+
     /* ================= 板块分页导航（dock） ================= */
     /* 从真实路径末段取板块名：/admin/storage → 'storage'。
        非 /admin/* 的路径（如直接开 /admin.html）与未知段一律回落 'files'，
        由 mounted 里的 replaceState 一次性规范化成 /admin/<section>。 */
     sectionFromPath() {
       const seg = String(location.pathname || '').split('/').filter(Boolean).pop() || '';
-      return SECTION_ORDER.indexOf(seg) > -1 ? seg : 'files';
+      return seg === 'trash' || SECTION_ORDER.includes(seg) ? seg : 'files';
     },
     /* 切板块唯一入口：改状态 + 写路径 + 触发进入钩子。
        同一板块重复点击直接返回，避免在浏览器历史里堆栈。
        用真实路径（非 hash）是为了去掉锚点滚动与历史污染带来的卡顿。 */
     goSection(name) {
-      if (SECTION_ORDER.indexOf(name) < 0) name = 'files';
+      if (name !== 'trash' && !SECTION_ORDER.includes(name)) name = 'files';
       if (this.activeSection === name) return;
       this.activeSection = name;
       try { history.pushState(null, '', '/admin/' + name); }
@@ -6582,6 +6698,10 @@ const __kvApp = Vue.createApp({
         this.loadKvUsage();
         this.loadSettings();
         this.loadThumbSettings();
+      } else if (name === 'trash') {
+        this.loadTrash();
+      } else if (name === 'transfers') {
+        this.loadTransferRecords();
       } else if (name === 'system') {
         this.loadSettings();
       }
@@ -7066,26 +7186,7 @@ const __kvApp = Vue.createApp({
       }
     },
 
-    /* ================= 删除（推迟落盘 + 撤销窗口） =================
-       没有 undelete 接口，所以「删了立刻调接口、再本地插回去」是在骗用户。
-       改为：先从列表移除给即时反馈，8 秒内可撤销；窗口结束才真正调接口。
-       期间若页面被关闭/隐藏，用 keepalive 请求立即落盘，避免删除丢失。
-       ============================================================ */
-    _restoreDeleted(entries) {
-      // 按原索引升序插回，尽量保持原有顺序
-      entries.slice().sort((a, b) => a.index - b.index).forEach(({ item, index }) => {
-        const arr = this.files.slice();
-        arr.splice(Math.max(0, Math.min(index, arr.length)), 0, item);
-        this.files = arr;
-      });
-      this.total += entries.length;
-      // 插回的条目播一个轻量恢复入场（撤销 / 服务端失败回滚共用此路径）
-      if (entries.length) this._markRestoring(entries.map(e => e.item.name));
-    },
-
-    /* ===== 删除 / 恢复的动画标记（驱动模板的 is-deleting / is-restoring 类） =====
-       标记定时自动清理，异常路径下不会残留；时长与 <style> 里对应
-       animation-duration 及 DELETE_ANIM_MS / RESTORE_ANIM_MS 常量保持一致。 */
+    /* ================= 回收站 ================= */
     _markDeleting(names) {
       this.deletingNames = this.deletingNames.concat(names);
       setTimeout(() => {
@@ -7099,115 +7200,78 @@ const __kvApp = Vue.createApp({
       }, RESTORE_ANIM_MS + 80);
     },
 
-    _flushPendingDeletes() {
-      if (!this._pendingDeletes.length) return;
-      const recs = this._pendingDeletes;
-      this._pendingDeletes = [];
-      recs.forEach(rec => {
-        clearTimeout(rec.timer);
-        try {
-          // keepalive 让请求在页面卸载过程中仍能发出
-          fetch('/api/manage/delete/' + encodeURIComponent(rec.name), {
-            credentials: 'include', keepalive: true
-          }).catch(() => {});
-        } catch (e) {}
-      });
+    async loadTrash(offset = 0) {
+      const seq = ++this._trashListSeq;
+      this.trashLoading = true;
+      this.trashError = '';
+      try {
+        const data = await KVault.fetchJSON('/api/manage/trash?offset=' + offset);
+        if (!data?.success) throw new Error('无法读取回收站。');
+        if (seq !== this._trashListSeq) return;
+        this.trashItems = offset ? this.trashItems.concat(data.entries) : data.entries;
+        this.trashNext = data.next;
+      } catch (e) {
+        if (seq === this._trashListSeq) this.trashError = e.message || '回收站加载失败。';
+      } finally {
+        if (seq === this._trashListSeq) this.trashLoading = false;
+      }
     },
 
-    async _commitDelete(rec) {
+    async applyTrash(action, items) {
+      if (!items.length || this.trashBusy) return;
+      this.trashBusy = true;
+      const restoring = action === 'restore';
+      const changed = [];
+      let firstError = '';
       try {
-        const r = await fetch('/api/manage/delete/' + encodeURIComponent(rec.name), { credentials: 'include' })
-          .then(r => r.json());
-        if (!r.success) throw new Error(KVault.errorMessage(r, '删除失败'));
-      } catch (e) {
-        // 服务端失败：回滚 UI，避免「看起来删了其实还在」
-        this._restoreDeleted([{ item: rec.item, index: rec.index }]);
-        this.showToast(e.message || '删除失败', 'error');
+        // 分组提交，控制批量操作的在飞请求数。
+        for (let i = 0; i < items.length; i += 6) {
+          await Promise.all(items.slice(i, i + 6).map(async item => {
+            try {
+              const data = await KVault.fetchJSON('/api/manage/trash', {
+                method: 'POST',
+                body: { action, id: item.id, trashedAt: item.trashedAt },
+              });
+              if (!data?.success) throw new Error('回收站操作失败。');
+              changed.push(restoring ? item : data.entry);
+            } catch (error) {
+              firstError ||= error.message || '回收站操作失败。';
+            }
+          }));
+        }
+        if (changed.length) {
+          if (!restoring) {
+            this._markDeleting(changed.map(item => item.id));
+            await new Promise(resolve => setTimeout(resolve, DELETE_ANIM_MS));
+          }
+          await Promise.all([this.loadList(), this.loadFolders({ fresh: 1 })]);
+          if (restoring) {
+            this._markRestoring(changed.map(item => item.id));
+            this.showToast(`已恢复 ${changed.length} 个文件`, 'success');
+          }
+        }
+        if (this.activeSection === 'trash') await this.loadTrash();
+        if (firstError) this.showToast(`${items.length - changed.length} 个文件操作失败：${firstError}`, 'error');
+      } finally {
+        this.trashBusy = false;
+      }
+      if (!restoring && changed.length) {
+        this.showUndoToast(`已将 ${changed.length} 个文件移入回收站`, () => this.applyTrash('restore', changed));
       }
     },
 
     deleteFile(item) {
-      const snapshot = item;
-      const idx = this.files.indexOf(item);
-      const name = snapshot.metadata.fileName || snapshot.name;
-
-      /* 撤销窗口先行（8 秒从点击即起算，落盘保障不受动画影响），
-         UI 上则等离场动画播完才从列表移除数据。 */
-      const rec = { name: snapshot.name, item: snapshot, index: idx, timer: null };
-      this._pendingDeletes.push(rec);
-
-      this.showUndoToast(`已删除「${name}」`, () => {
-        clearTimeout(rec.timer);
-        this._pendingDeletes = this._pendingDeletes.filter(r => r !== rec);
-        /* 撤销可能发生在离场动画中途：清掉离场标记，卡片原地播恢复入场 */
-        this.deletingNames = this.deletingNames.filter(n => n !== snapshot.name);
-        this._restoreDeleted([{ item: snapshot, index: idx }]);
-        this.showToast('已撤销删除', 'info');
-      });
-
-      rec.timer = setTimeout(() => {
-        this._pendingDeletes = this._pendingDeletes.filter(r => r !== rec);
-        this._commitDelete(rec);
-      }, UNDO_MS);
-
-      /* 离场动画：播完才真正从列表移除（期间已撤销则跳过 —— rec 已不在
-         撤销窗口里，卡片从未离开过列表，不能重复移除） */
-      this._markDeleting([snapshot.name]);
-      setTimeout(() => {
-        if (this._pendingDeletes.indexOf(rec) === -1) return;
-        this.files = this.files.filter(f => f.name !== snapshot.name);
-        this.total = Math.max(0, this.total - 1);
-      }, DELETE_ANIM_MS);
+      return this.applyTrash('trash', [{ id: item.name }]);
     },
 
     async batchDelete() {
-      if (!this.selectedFiles.length) return;
-      const list = this.selectedFiles.slice();
+      const items = this.selectedFiles.map(item => ({ id: item.name }));
+      if (!items.length || this.trashBusy) return;
       const ok = await this.askConfirm(
-        `确定删除选中的 <strong>${list.length}</strong> 个文件？<br>
-         <span style="color:var(--text-muted);font-size:.8rem">删除后 8 秒内仍可撤销。</span>`,
-        '批量删除', true
+        `将选中的 <strong>${items.length}</strong> 个文件移入回收站？<br>可在回收站恢复到原目录。`,
+        '批量移入回收站', true
       );
-      if (!ok) return;
-
-      const entries = list.map(item => ({ item, index: this.files.indexOf(item) }));
-      const names = new Set(list.map(f => f.name));
-      const nameList = list.map(f => f.name);
-
-      const rec = { names: list, entries, timer: null };
-      this._pendingDeletes.push({ name: null, timer: rec.timer, batch: rec });
-
-      this.showUndoToast(`已删除 ${list.length} 个文件`, () => {
-        clearTimeout(rec.timer);
-        this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
-        /* 撤销可能发生在离场动画中途：先清离场标记再插回 */
-        this.deletingNames = this.deletingNames.filter(n => nameList.indexOf(n) === -1);
-        this._restoreDeleted(entries);
-        this.showToast('已撤销删除', 'info');
-      });
-
-      /* 离场动画：播完才真正从列表移除（期间已撤销则跳过） */
-      this._markDeleting(nameList);
-      setTimeout(() => {
-        if (!this._pendingDeletes.some(r => r.batch === rec)) return;
-        this.files = this.files.filter(f => !names.has(f.name));
-        this.total = Math.max(0, this.total - list.length);
-      }, DELETE_ANIM_MS);
-
-      rec.timer = setTimeout(async () => {
-        this._pendingDeletes = this._pendingDeletes.filter(r => r.batch !== rec);
-        try {
-          const results = await Promise.all(list.map(f =>
-            fetch('/api/manage/delete/' + encodeURIComponent(f.name), { credentials: 'include' })
-              .then(r => r.json())
-          ));
-          const failed = results.filter(r => !r || !r.success).length;
-          if (failed) this.showToast(`${failed} 个文件删除失败`, 'error');
-        } catch (e) {
-          this._restoreDeleted(entries);
-          this.showToast('批量删除失败', 'error');
-        }
-      }, UNDO_MS);
+      if (ok) await this.applyTrash('trash', items);
     },
 
     async editName(item) {
@@ -8912,7 +8976,6 @@ const __kvApp = Vue.createApp({
   async mounted() {
     /* Toast 序号，保证 transition key 唯一 */
     this._toastSeq = 0;
-    this._pendingDeletes = this._pendingDeletes || [];
 
     /* ==== dock 首屏防下沉 v2（状态机 + 显示后自愈）====
        手机浏览器首帧常以「全屏视口」布局（底部工具栏悬浮在内容上），
@@ -9147,6 +9210,8 @@ const __kvApp = Vue.createApp({
        /admin/<section> 是「可刷新 / 可分享 / 可前进后退」的唯一入口。
        初始以路径为准；/admin（裸路径）与 /admin.html（旧入口）都会被
        replaceState 规范化到 /admin/<section>，且不留额外历史记录。 */
+    window.addEventListener('storage', this.loadTransferRecords);
+    window.addEventListener('pageshow', this.loadTransferRecords);
     this.activeSection = this.sectionFromPath();
     try { history.replaceState(null, '', '/admin/' + this.activeSection); } catch (e) { /* noop */ }
     this.onSectionEnter(this.activeSection);
@@ -9163,13 +9228,6 @@ const __kvApp = Vue.createApp({
       }
     };
     window.addEventListener('popstate', this._popHandler);
-
-    /* 离开页面时把「撤销窗口内未提交的删除」立即落盘，避免删除丢失 */
-    this._pageHideHandler = () => this._flushPendingDeletes();
-    window.addEventListener('pagehide', this._pageHideHandler);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') this._flushPendingDeletes();
-    });
 
     /* 登录校验 */
     try {
@@ -9209,8 +9267,9 @@ const __kvApp = Vue.createApp({
   beforeUnmount() {
     document.removeEventListener('click', this._closeMenusHandler);
     document.removeEventListener('keydown', this._escHandler);
-    window.removeEventListener('pagehide', this._pageHideHandler);
     window.removeEventListener('popstate', this._popHandler);
+    window.removeEventListener('storage', this.loadTransferRecords);
+    window.removeEventListener('pageshow', this.loadTransferRecords);
     /* dock 视口监测（含自愈保护期）若仍在跑，停掉并解除交互监听；
        lift 的永久视口监听也一并解除（正常流程早已自行 finish，此处兜底） */
     if (this._dockSettleTimer) {
@@ -9229,8 +9288,6 @@ const __kvApp = Vue.createApp({
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', this._schemeHandler);
       }
     } catch (e) {}
-    /* 卸载前把待删除项落盘 */
-    this._flushPendingDeletes();
     /* 解除同步状态订阅，避免组件销毁后回调仍改已卸载的响应式状态 */
     try { if (this._syncUnsub) this._syncUnsub(); } catch (e) {}
   },

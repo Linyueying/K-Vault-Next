@@ -19,7 +19,7 @@ import { purgeByteCache } from '../../../utils/byte-cache.js';
 
 // 记录定位统一走 utils/file-record.js（索引加速，行为与原有本地实现一致）
 function getRecordWithKey(env, fileId) {
-  return findRecordWithKey(env, fileId);
+  return findRecordWithKey(env, fileId, { fresh: true });
 }
 
 export async function onRequest(context) {

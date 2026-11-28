@@ -44,10 +44,10 @@ export async function showFiles(env, keys) {
   return new Map(await Promise.all(keys.map(async key => {
     const row = index.get(deriveIndexId(key));
     if (row) {
-      return [key, !row.is_folder && (row.kv_key || row.id) === key ? rowToRecord(row).metadata : null];
+      return [key, !row.is_folder && !row.trashed_at && (row.kv_key || row.id) === key ? rowToRecord(row).metadata : null];
     }
     const legacy = await env.img_url?.getWithMetadata(key);
-    return [key, legacy?.metadata || null];
+    return [key, legacy?.metadata?.trashedAt ? null : legacy?.metadata || null];
   })));
 }
 
